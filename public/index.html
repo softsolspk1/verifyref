@@ -1,308 +1,112 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SOFTSOLS VERIFYREF — Academic Bibliography & DOI Integrity Portal</title>
-  <meta name="description" content="Audit academic reference lists against CrossRef, the global DOI registry, and Retraction Watch. Detect invented AI citations, metadata discrepancies, and retracted research.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PJPS Reference Checker</title>
+  <meta name="description" content="Editor-only reference integrity tools for the Pakistan Journal of Pharmaceutical Sciences — by Softsols Pakistan.">
+  <link rel="stylesheet" href="/css/app.css">
 </head>
-<body class="theme-dark">
-  <!-- Global Top Bar -->
-  <header class="top-nav" id="top-nav">
-    <div class="container nav-wrap">
+<body>
+  <div class="landing">
+    <section class="landing-hero">
       <div class="brand">
-        <div class="brand-seal">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-          </svg>
-        </div>
-        <div class="brand-text">
-          <span class="brand-title">SOFTSOLS <span>VERIFYREF</span></span>
-          <span class="brand-subtitle">Editorial Integrity & Reference Verifier</span>
+        <div class="brand-mark">PJPS</div>
+        <div>
+          <div class="brand-name">PJPS Reference Checker</div>
+          <div class="brand-sub">by Softsols Pakistan</div>
         </div>
       </div>
-      
-      <div class="nav-badges">
-        <span class="api-status-badge">
-          <span class="pulse-dot"></span> CrossRef & Handle Live
-        </span>
-        <button id="theme-toggle-btn" class="icon-btn" aria-label="Toggle dark/light theme" title="Toggle theme">
-          <span id="theme-icon">☀️</span>
-        </button>
-      </div>
-    </div>
-  </header>
+      <h1>Reference integrity tools for editors</h1>
+      <p class="lead">Fabricated references, irrelevant self-citations and finding a suitable reviewer take up much of an editor's time — at the Pakistan Journal of Pharmaceutical Sciences as at most journals. These tools are open to editor accounts only.</p>
+      <ul class="feature-list">
+        <li><b>Citation pattern</b>Irrelevant self-citation and references piled on one author or one journal, before publication.</li>
+        <li><b>Reviewer Finder</b>Candidates who recently published on the manuscript's topic, with ORCID and conflict-of-interest flags.</li>
+        <li><b>Reviewer report check</b>Flags reviewers' requests to cite their own work or a single journal.</li>
+        <li><b>Editor report</b>One-page decision summary for desk review, a correction letter for the author and a revision comparison.</li>
+        <li><b>Issue report</b>Summary table of every manuscript checked in an issue: references, suspicious items and problems.</li>
+        <li><b>Reference, Citation &amp; Journal Check</b>12 academic databases, in-text citation matching, Scopus/WoS/HJRS indexing and predatory-journal checks.</li>
+      </ul>
+      <div class="foot">© <span id="yr"></span> Softsols Pakistan · Manuscripts are processed for checking only and never sent to plagiarism databases.</div>
+    </section>
 
-  <!-- Hero Section -->
-  <section class="hero-section">
-    <div class="container">
-      <div class="hero-badge">
-        <span class="badge-icon">✓</span> Free Editorial Tool · Real-Time Registry Lookups · No Sign-up
-      </div>
-      <h1 class="hero-title">
-        Academic Reference Verifier <br><span class="gradient-text">&amp; DOI Integrity Portal</span>
-      </h1>
-      <p class="hero-lede">
-        Paste a bibliography or upload an article to audit every citation against <strong>CrossRef</strong>, 
-        the <strong>Global DOI Handle Registry</strong>, and <strong>Retraction Watch</strong>. Instantly catch 
-        hallucinated AI citations, metadata mismatches, and retracted literature.
-      </p>
-
-      <!-- Quick Feature Pill Row -->
-      <div class="feature-pills">
-        <span class="feat-pill"><span class="feat-icon">🚫</span> Retractions Flagged</span>
-        <span class="feat-pill"><span class="feat-icon">🔍</span> Unresolvable DOIs Caught</span>
-        <span class="feat-pill"><span class="feat-icon">⚖️</span> Author &amp; Year Discrepancy Audit</span>
-        <span class="feat-pill"><span class="feat-icon">⚡</span> Missing DOI Auto-Discovery</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- Main Workspace -->
-  <main class="container main-workspace">
-    <div class="card workspace-card">
-      <!-- Input Mode Switcher Tabs -->
-      <div class="input-tabs-bar">
-        <button class="tab-btn active" id="tab-paste" data-mode="paste">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          Paste Bibliography
-        </button>
-        <button class="tab-btn" id="tab-upload" data-mode="upload">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-          Upload Article (.pdf, .docx, .txt, .bib)
-        </button>
-        <button class="tab-btn" id="tab-doi" data-mode="doi">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          Single DOI / Article Lookup
-        </button>
-      </div>
-
-      <!-- Quick Samples Row -->
-      <div class="sample-presets-bar">
-        <span class="sample-label">Try quick demo:</span>
-        <button type="button" class="sample-btn highlight" id="sample-integrity">
-          🚨 Retraction &amp; Typos Audit
-        </button>
-        <button type="button" class="sample-btn" id="sample-clean">
-          ✨ Clean Peer-Reviewed Set
-        </button>
-        <button type="button" class="sample-btn" id="sample-hallucinations">
-          🤖 AI Hallucinated DOIs
-        </button>
-        <button type="button" class="sample-btn ghost" id="sample-clear">
-          ✕ Clear
-        </button>
-      </div>
-
-      <!-- Pane 1: Paste Text Input -->
-      <div class="tab-pane active" id="pane-paste">
-        <div class="form-group">
-          <label for="references-input" class="form-label">
-            Reference List / Bibliography Text
-            <span class="label-aside">Nothing is stored. References are audited and immediately discarded.</span>
-          </label>
-          <textarea 
-            id="references-input" 
-            class="input-textarea" 
-            placeholder="Paste bibliography here, e.g.:
-
-1. Wakefield, A. J., et al. (1998). Ileal-lymphoid-nodular hyperplasia, non-specific colitis... Lancet. https://doi.org/10.1016/S0140-6736(97)11096-0
-
-2. Kucsko, G., et al. (2018). Nanometre-scale thermometry in a living cell. Nature. https://doi.org/10.1038/nature12373"
-            spellcheck="false"
-            rows="9"
-          ></textarea>
+    <section class="landing-panel">
+      <div class="box">
+        <div id="signin">
+          <h2>Editor sign in</h2>
+          <p class="muted">Use the account approved for your journal.</p>
+          <form id="login-form">
+            <div class="field"><label for="l-email">Email</label><input id="l-email" type="email" autocomplete="username" required></div>
+            <div class="field"><label for="l-pass">Password</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
+            <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center">Sign in</button>
+          </form>
+          <p style="margin-top:18px">New editor? <a href="#" id="show-request">Request editor access</a></p>
         </div>
 
-        <!-- Splitting Controls & Live Stats -->
-        <div class="split-controls-row">
-          <div class="split-mode-selector">
-            <span class="split-title">Splitting Strategy:</span>
-            <div class="btn-toggle-group" id="split-toggle-group">
-              <button type="button" class="toggle-pill active" data-strategy="auto">Auto-detect</button>
-              <button type="button" class="toggle-pill" data-strategy="numbered">Numbered [1]</button>
-              <button type="button" class="toggle-pill" data-strategy="blank-line">Blank lines</button>
-              <button type="button" class="toggle-pill" data-strategy="one-per-line">One per line</button>
+        <div id="request" hidden>
+          <h2>Request editor access</h2>
+          <p class="muted">Access is limited to journal editors. An administrator verifies your role before approval. Co-editors you list are approved automatically when they register.</p>
+          <form id="request-form">
+            <div class="field"><label for="r-name">Full name</label><input id="r-name" type="text" required></div>
+            <div class="field"><label for="r-email">Institutional email</label><input id="r-email" type="email" required></div>
+            <div class="grid grid-2">
+              <div class="field"><label for="r-journal">Journal</label><input id="r-journal" type="text" value="Pakistan Journal of Pharmaceutical Sciences" required></div>
+              <div class="field"><label for="r-role">Editor role</label>
+                <select id="r-role" required>
+                  <option>Editor-in-Chief</option><option>Managing Editor</option><option>Associate Editor</option><option>Section Editor</option><option>Editorial Assistant</option>
+                </select>
+              </div>
             </div>
-          </div>
-
-          <div class="live-detection-indicator" id="live-detection-pill">
-            <span class="dot"></span>
-            <span id="detected-text">0 references detected</span>
-          </div>
+            <div class="field"><label for="r-orcid">ORCID <span class="muted">(optional)</span></label><input id="r-orcid" type="text" placeholder="0000-0000-0000-0000"></div>
+            <div class="field"><label for="r-co">Co-editor emails <span class="muted">(optional)</span></label><input id="r-co" type="text" placeholder="name@pjps.pk, other@uok.edu.pk"></div>
+            <div class="field"><label for="r-pass">Password</label><input id="r-pass" type="password" minlength="8" autocomplete="new-password" required><div class="hint">At least 8 characters.</div></div>
+            <div class="field"><label for="r-note">Note to administrator <span class="muted">(optional)</span></label><textarea id="r-note" rows="2"></textarea></div>
+            <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center">Send request</button>
+          </form>
+          <p style="margin-top:18px"><a href="#" id="show-signin">Back to sign in</a></p>
         </div>
-      </div>
-
-      <!-- Pane 2: File Upload -->
-      <div class="tab-pane" id="pane-upload">
-        <div class="upload-dropzone" id="upload-dropzone">
-          <input type="file" id="file-input" accept=".pdf,.docx,.txt,.bib,.ris" hidden>
-          <div class="dropzone-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-          </div>
-          <h3 class="dropzone-heading">Drop your manuscript or bibliography file here</h3>
-          <p class="dropzone-sub">Supports <strong>PDF (.pdf)</strong>, <strong>Word (.docx)</strong>, <strong>Plain Text (.txt)</strong>, or <strong>BibTeX (.bib)</strong></p>
-          <button type="button" class="btn btn-secondary" id="browse-btn">Browse Files</button>
-          <div class="upload-status" id="upload-status" style="display:none;"></div>
-        </div>
-      </div>
-
-      <!-- Pane 3: Single DOI Lookup -->
-      <div class="tab-pane" id="pane-doi">
-        <div class="single-doi-box">
-          <label for="single-doi-input" class="form-label">Enter a single Article DOI or URL to verify</label>
-          <div class="doi-search-bar">
-            <input type="text" id="single-doi-input" class="text-input" placeholder="e.g. 10.1038/nature12373 or https://doi.org/10.1038/nature12373">
-            <button type="button" class="btn btn-secondary" id="lookup-doi-btn">Check DOI</button>
-          </div>
-          <p class="field-hint">Tests direct CrossRef registry status, Retraction Watch notices, and author details for a single work.</p>
-        </div>
-      </div>
-
-      <!-- Workspace Action Bar -->
-      <div class="workspace-action-bar">
-        <button type="button" class="btn btn-primary btn-large" id="verify-action-btn">
-          <span class="btn-icon">⚡</span>
-          <span class="btn-text">Audit References Now</span>
-        </button>
-        <span class="action-note">Verifies against CrossRef API, DOI Foundation &amp; Retraction Watch</span>
-      </div>
-    </div>
-
-    <!-- Live Progress Bar -->
-    <div class="card progress-card" id="progress-card" style="display: none;">
-      <div class="progress-header">
-        <div class="progress-title">
-          <div class="spinner"></div>
-          <span id="progress-status-text">Auditing references against registries...</span>
-        </div>
-        <div class="progress-pct" id="progress-pct">0%</div>
-      </div>
-      <div class="progress-bar-track">
-        <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
-      </div>
-      <div class="progress-subtext" id="progress-subtext">Connecting to CrossRef and DOI handles...</div>
-    </div>
-
-    <!-- Results Section -->
-    <section class="results-section" id="results-section" style="display: none;">
-      <!-- KPI Executive Summary Banner -->
-      <div class="kpi-grid">
-        <div class="kpi-card total">
-          <span class="kpi-number" id="kpi-total">0</span>
-          <span class="kpi-label">References Checked</span>
-        </div>
-        <div class="kpi-card good">
-          <span class="kpi-number" id="kpi-verified">0</span>
-          <span class="kpi-label">Fully Verified</span>
-        </div>
-        <div class="kpi-card warn">
-          <span class="kpi-number" id="kpi-discrepancies">0</span>
-          <span class="kpi-label">Discrepancies</span>
-        </div>
-        <div class="kpi-card bad">
-          <span class="kpi-number" id="kpi-retracted">0</span>
-          <span class="kpi-label">Retracted Works</span>
-        </div>
-        <div class="kpi-card unresolvable">
-          <span class="kpi-number" id="kpi-unregistered">0</span>
-          <span class="kpi-label">Does Not Resolve (Fake)</span>
-        </div>
-        <div class="kpi-card found">
-          <span class="kpi-number" id="kpi-matches">0</span>
-          <span class="kpi-label">Discovered DOIs</span>
-        </div>
-      </div>
-
-      <!-- Action & Filter Bar -->
-      <div class="card results-toolbar">
-        <div class="filter-tabs" id="filter-tabs">
-          <button class="filter-tab active" data-filter="all">All (<span id="count-all">0</span>)</button>
-          <button class="filter-tab" data-filter="verified">Verified (<span id="count-verified">0</span>)</button>
-          <button class="filter-tab" data-filter="discrepancy">Discrepancies (<span id="count-discrepancy">0</span>)</button>
-          <button class="filter-tab" data-filter="retracted">Retracted (<span id="count-retracted">0</span>)</button>
-          <button class="filter-tab" data-filter="unregistered">Does Not Resolve (<span id="count-unregistered">0</span>)</button>
-          <button class="filter-tab" data-filter="probable-match">Discovered DOIs (<span id="count-probable-match">0</span>)</button>
-        </div>
-
-        <div class="export-actions">
-          <button class="btn btn-outline btn-sm" id="btn-copy-report">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            Copy Summary
-          </button>
-          <button class="btn btn-outline btn-sm" id="btn-export-cleaned">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line></svg>
-            Cleaned References
-          </button>
-          <button class="btn btn-outline btn-sm" id="btn-export-csv">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            Export CSV
-          </button>
-        </div>
-      </div>
-
-      <!-- Feed of Results -->
-      <div class="results-list" id="results-list">
-        <!-- Rendered dynamically -->
+        <div id="msg" class="alert" hidden style="margin-top:16px"></div>
       </div>
     </section>
+  </div>
 
-    <!-- Informational Editorial Features Section -->
-    <section class="card explanation-card">
-      <div class="sec-head">
-        <span class="eyebrow">Editorial Integrity Standard</span>
-        <h2>What This Portal Audits</h2>
-        <p class="lede">Every check is a live query against an authoritative public registry, eliminating human oversight and AI hallucinated references.</p>
-      </div>
+  <script>
+    document.getElementById('yr').textContent = new Date().getFullYear();
+    const $ = id => document.getElementById(id);
+    const show = (el, on) => { el.hidden = !on; };
+    function message(text, kind) { const m = $('msg'); m.className = `alert alert-${kind}`; m.textContent = text; show(m, true); }
+    $('show-request').onclick = e => { e.preventDefault(); show($('signin'), false); show($('request'), true); show($('msg'), false); };
+    $('show-signin').onclick = e => { e.preventDefault(); show($('request'), false); show($('signin'), true); show($('msg'), false); };
 
-      <div class="features-grid">
-        <div class="feature-box">
-          <div class="feat-box-icon bad">✕</div>
-          <h3>DOIs That Resolve to Nothing</h3>
-          <p>Every DOI is validated against CrossRef and the global DOI Handle System. A DOI registered with no agency does not exist — the definitive hallmark of an AI-invented citation.</p>
-        </div>
+    async function post(url, body) {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.success === false) throw new Error(data.message || 'Request failed');
+      return data;
+    }
 
-        <div class="feature-box">
-          <div class="feat-box-icon warn">⚠️</div>
-          <h3>Metadata Discrepancies</h3>
-          <p>Where a DOI resolves, the registered title, authors, and year are compared against what was cited. Catches swapped DOIs, author spelling errors, and year misattributions.</p>
-        </div>
+    fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user && d.user.status === 'approved') location.href = '/app'; });
 
-        <div class="feature-box">
-          <div class="feat-box-icon bad">🚨</div>
-          <h3>Retractions &amp; Expressions of Concern</h3>
-          <p>Flags whether a cited paper has been retracted or placed under an expression of concern using CrossRef and Retraction Watch updates, protecting your manuscript's credibility.</p>
-        </div>
+    $('login-form').onsubmit = async e => {
+      e.preventDefault();
+      try {
+        const d = await post('/api/auth/login', { email: $('l-email').value, password: $('l-pass').value });
+        if (d.user.status === 'approved') location.href = '/app';
+        else message('Your access request is awaiting approval by an administrator.', 'info');
+      } catch (err) { message(err.message, 'bad'); }
+    };
 
-        <div class="feature-box">
-          <div class="feat-box-icon good">🔍</div>
-          <h3>Automatic DOI Resolution</h3>
-          <p>For references missing a DOI, the engine searches the CrossRef catalog to find and match the published paper, allowing one-click bibliography completion.</p>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container footer-wrap">
-      <div class="footer-left">
-        <strong>SOFTSOLS VERIFYREF</strong> · Academic Reference Verifier Portal
-        <p>Built for editors, researchers, peer-reviewers, and publishing teams. Powered by CrossRef &amp; the DOI Foundation.</p>
-      </div>
-      <div class="footer-right">
-        <span>Public Registry Lookup Engine</span>
-      </div>
-    </div>
-  </footer>
-
-  <!-- Toast Notification -->
-  <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true"></div>
-
-  <script src="app.js"></script>
+    $('request-form').onsubmit = async e => {
+      e.preventDefault();
+      try {
+        const d = await post('/api/auth/register', {
+          name: $('r-name').value, email: $('r-email').value, journal: $('r-journal').value, editorRole: $('r-role').value,
+          orcid: $('r-orcid').value, coEditors: $('r-co').value, password: $('r-pass').value, note: $('r-note').value
+        });
+        if (d.user.status === 'approved') location.href = '/app';
+        else { message(d.message, 'good'); e.target.reset(); }
+      } catch (err) { message(err.message, 'bad'); }
+    };
+  </script>
 </body>
 </html>

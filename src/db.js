@@ -8,10 +8,12 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: parseInt(process.env.DB_POOL_MAX || '8', 10),
+  max: parseInt(process.env.DB_POOL_MAX || (process.env.VERCEL ? '5' : '8'), 10),
   idleTimeoutMillis: 30000
 });
 pool.on('error', err => console.error('PostgreSQL pool error:', err.message));
+// On Vercel, close idle connections before an instance is suspended
+try { require('@vercel/functions').attachDatabasePool(pool); } catch (e) { /* not on Vercel */ }
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -123,6 +125,22 @@ CREATE TABLE IF NOT EXISTS cache (
   expires_at BIGINT
 );
 CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  input JSONB,
+  status TEXT NOT NULL DEFAULT 'queued',  -- queued | running | done | error
+  progress INTEGER NOT NULL DEFAULT 0,
+  step TEXT,
+  result JSONB,
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  heartbeat TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
 `;
 
 let ready = null;

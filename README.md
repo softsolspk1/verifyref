@@ -41,6 +41,15 @@ On first start the schema is created, the administrator account is seeded, and t
 3. Editors request access from the sign-in page; approve them under **Users & data**. Co-editors listed by an approved editor are approved automatically when they register.
 4. Add a free `OPENALEX_API_KEY` to `.env` — without it all users share OpenAlex's small anonymous daily budget, which Reviewer Finder exhausts quickly.
 
+## Deploying on Vercel
+
+The repository deploys with Vercel's Express preset (`server.js` exports the app; `public/` is served by the CDN).
+
+1. Add the environment variables from `.env.example` in **Project → Settings → Environment Variables** (at least `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `CONTACT_EMAIL`, and `CRON_SECRET` for the daily job). Session cookies are marked `Secure` automatically on Vercel.
+2. Push to `main` for production (other branches get preview deployments).
+
+How it works there: checks run as background jobs stored in the `jobs` table. Work continues after the response (`waitUntil`); if Vercel stops an instance at its time limit, the browser's next progress poll resumes the job, and the resumed run is quick because every database lookup is cached in PostgreSQL. A Vercel Cron (`vercel.json`) calls `/api/cron/daily` to refresh Retraction Watch and Beall's list weekly and clear old jobs. Uploads are limited to about 4.5 MB by Vercel — paste the text for larger manuscripts.
+
 ## Project layout
 
 ```
@@ -54,6 +63,6 @@ src/checks/               reference.js · citation.js · journal.js
 src/editor/               pattern.js · reviewers.js · reviewerReport.js · reports.js
 src/pipeline.js           Full manuscript check and persistence
 src/docx.js, format.js    Word exports; APA / Vancouver / PJPS formatting; CSV/BibTeX/RIS
-src/auth.js, jobs.js      Editor accounts and sessions; background jobs with progress
+src/auth.js, jobs.js      Editor accounts and sessions; resumable background jobs (PostgreSQL)
 public/                   Landing page and editor workspace (vanilla JS modules, no build step)
 ```

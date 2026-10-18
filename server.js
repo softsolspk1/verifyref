@@ -6,7 +6,7 @@ const multer = require('multer');
 const cfg = require('./src/config');
 const db = require('./src/db');
 const auth = require('./src/auth');
-const { createJob, getJob } = require('./src/jobs');
+const { defineJob, createJob, getJob, purgeJobs } = require('./src/jobs');
 const P = require('./src/parse');
 const D = require('./src/datasets');
 const { runCheck, saveCheck, loadCheck } = require('./src/pipeline');
@@ -20,8 +20,18 @@ const W = require('./src/docx');
 const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '20mb' }));
+
+// Schema + first administrator, once per instance (on Vercel there is no start-up hook)
+let ready = null;
+app.use((req, res, next) => {
+  if (!ready) ready = db.init().then(() => auth.seedAdmin()).catch(err => { ready = null; throw err; });
+  ready.then(() => next(), next);
+});
+
 app.use(auth.sessionMiddleware);
+// Locally Express serves public/; on Vercel the CDN does (express.static is ignored there)
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -81,20 +91,21 @@ app.post('/api/parse', editor, (req, res) => {
 app.post('/api/checks', editor, wrap(async (req, res) => {
   const b = req.body || {};
   if (!b.text && !b.referencesText && !(b.entries || []).length) return res.status(400).json({ success: false, message: 'Provide a manuscript or a reference list.' });
-  const userId = req.user.id;
-  const job = createJob(userId, 'check', async update => {
-    const result = await runCheck(b, update);
-    if (b.save !== false) await saveCheck(userId, result, { issueId: b.issueId || null, saveMode: b.saveMode || 'full' });
-    return result;
-  });
+  const job = await createJob(req.user.id, 'check', b);
   res.json({ success: true, jobId: job.id });
 }));
 
-app.get('/api/jobs/:id', editor, (req, res) => {
-  const j = getJob(req.params.id, req.user.id);
+defineJob('check', async (b, { userId, update }) => {
+  const result = await runCheck(b, update);
+  if (b.save !== false) await saveCheck(userId, result, { issueId: b.issueId || null, saveMode: b.saveMode || 'full' });
+  return result;
+});
+
+app.get('/api/jobs/:id', editor, wrap(async (req, res) => {
+  const j = await getJob(req.params.id, req.user.id);
   if (!j) return res.status(404).json({ success: false, message: 'Job not found or expired.' });
   res.json({ success: true, status: j.status, progress: j.progress, step: j.step, error: j.error, result: j.status === 'done' ? j.result : undefined });
-});
+}));
 
 app.get('/api/checks', editor, wrap(async (req, res) => {
   const params = [req.user.id];
@@ -209,7 +220,7 @@ app.post('/api/journal-check', editor, wrap(async (req, res) => {
 app.post('/api/reviewers', editor, wrap(async (req, res) => {
   const b = req.body || {};
   if (!b.title || b.title.trim().length < 10) return res.status(400).json({ success: false, message: 'Enter the manuscript title (and ideally the abstract).' });
-  const job = createJob(req.user.id, 'reviewers', update => findReviewers({
+  const job = await createJob(req.user.id, 'reviewers', {
     title: b.title.trim(),
     abstract: (b.abstract || '').trim(),
     keywords: Array.isArray(b.keywords) ? b.keywords : String(b.keywords || '').split(/[;,]/).map(s => s.trim()).filter(Boolean),
@@ -218,9 +229,11 @@ app.post('/api/reviewers', editor, wrap(async (req, res) => {
     exclude: String(b.exclude || '').split(/\s*[;\n]\s*/).map(s => s.trim()).filter(Boolean),
     yearsBack: parseInt(b.yearsBack || '5', 10),
     limit: Math.min(parseInt(b.limit || '25', 10), 50)
-  }, { onProgress: update }));
+  });
   res.json({ success: true, jobId: job.id });
 }));
+
+defineJob('reviewers', (input, { update }) => findReviewers(input, { onProgress: update }));
 
 app.post('/api/reviewers/export', editor, wrap(async (req, res) => {
   const data = req.body?.data;
@@ -243,21 +256,22 @@ app.post('/api/reviewer-report', editor, wrap(async (req, res) => {
     const c = await loadCheck(req.user.id, b.checkId);
     if (c?.result?.meta) manuscript = { title: manuscript.title || c.result.meta.title, abstract: manuscript.abstract || c.result.meta.abstract, keywords: manuscript.keywords.length ? manuscript.keywords : c.result.meta.keywords };
   }
-  const userId = req.user.id;
-  const job = createJob(userId, 'reviewer-report', async update => {
-    update('Extracting citation requests', 5);
-    const out = await checkReviewerReport({ text: b.text, reviewer: { name: b.reviewerName || '', orcid: b.reviewerOrcid || '' }, manuscript }, {
-      onProgress: (d, n) => update(`Verifying requested references (${d}/${n})`, 10 + d / n * 80)
-    });
-    out.manuscript = manuscript;
-    if (b.save !== false) {
-      await db.query(`INSERT INTO checks(user_id, kind, manuscript_code, title, ref_total, problems, result) VALUES($1, 'reviewer-report', $2, $3, $4, $5, $6)`,
-        [userId, b.manuscriptCode || null, `Reviewer report${b.reviewerName ? ' — ' + b.reviewerName : ''}${manuscript.title ? ': ' + manuscript.title : ''}`.slice(0, 300), out.items.length, JSON.stringify(out.flags.map(f => f.message)), JSON.stringify(out)]);
-    }
-    return out;
-  });
+  const job = await createJob(req.user.id, 'reviewer-report', { b, manuscript });
   res.json({ success: true, jobId: job.id });
 }));
+
+defineJob('reviewer-report', async ({ b, manuscript }, { userId, update }) => {
+  update('Extracting citation requests', 5);
+  const out = await checkReviewerReport({ text: b.text, reviewer: { name: b.reviewerName || '', orcid: b.reviewerOrcid || '' }, manuscript }, {
+    onProgress: (d, n) => update(`Verifying requested references (${d}/${n})`, 10 + d / n * 80)
+  });
+  out.manuscript = manuscript;
+  if (b.save !== false) {
+    await db.query(`INSERT INTO checks(user_id, kind, manuscript_code, title, ref_total, problems, result) VALUES($1, 'reviewer-report', $2, $3, $4, $5, $6)`,
+      [userId, b.manuscriptCode || null, `Reviewer report${b.reviewerName ? ' — ' + b.reviewerName : ''}${manuscript.title ? ': ' + manuscript.title : ''}`.slice(0, 300), out.items.length, JSON.stringify(out.flags.map(f => f.message)), JSON.stringify(out)]);
+  }
+  return out;
+});
 
 // ------------------------------------------------------------------ issues & issue report
 
@@ -328,11 +342,21 @@ app.post('/api/admin/users/:id', admin, wrap(async (req, res) => {
 app.get('/api/admin/datasets', admin, wrap(async (req, res) => res.json({ success: true, ...(await D.listStatus()) })));
 
 app.post('/api/admin/datasets/refresh', admin, wrap(async (req, res) => {
-  const job = createJob(req.user.id, 'datasets', async update => {
-    update('Downloading Retraction Watch and Beall\'s list', 10);
-    return D.ensureDatasets({ force: true });
-  });
+  const job = await createJob(req.user.id, 'datasets', {});
   res.json({ success: true, jobId: job.id });
+}));
+
+defineJob('datasets', async (input, { update }) => {
+  update('Downloading Retraction Watch and Beall\'s list', 10);
+  return D.ensureDatasets({ force: true });
+});
+
+// Vercel Cron (vercel.json): dataset refresh (weekly freshness rule) and job clean-up
+app.get('/api/cron/daily', wrap(async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ success: false, message: 'Unauthorized.' });
+  await purgeJobs();
+  res.json({ success: true, datasets: await D.ensureDatasets() });
 }));
 
 app.post('/api/admin/lists/:type', admin, upload.single('file'), wrap(async (req, res) => {
@@ -370,9 +394,9 @@ async function start() {
   listen(cfg.PORT);
   // Keep Retraction Watch / Beall's list fresh (weekly) without blocking startup
   D.ensureDatasets().catch(e => console.error('Dataset refresh failed:', e.message));
-  setInterval(() => D.ensureDatasets().catch(() => {}), 24 * 3600 * 1000).unref();
+  setInterval(() => { purgeJobs(); D.ensureDatasets().catch(() => {}); }, 24 * 3600 * 1000).unref();
 }
 
-if (require.main === module) start().catch(e => { console.error('Startup failed:', e); process.exit(1); });
+if (require.main === module && !process.env.VERCEL) start().catch(e => { console.error('Startup failed:', e); process.exit(1); });
 
 module.exports = app;

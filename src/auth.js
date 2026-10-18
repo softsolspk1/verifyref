@@ -29,7 +29,7 @@ function parseCookies(header) {
 }
 
 function setSessionCookie(res, token, maxAgeSec) {
-  const secure = process.env.COOKIE_SECURE === 'true' ? '; Secure' : '';
+  const secure = process.env.COOKIE_SECURE === 'true' || ['production', 'preview'].includes(process.env.VERCEL_ENV) ? '; Secure' : '';
   res.setHeader('Set-Cookie', `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure}`);
 }
 

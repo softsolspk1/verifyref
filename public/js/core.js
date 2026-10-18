@@ -12,6 +12,7 @@ export async function api(url, opts = {}) {
   else if (opts.body !== undefined) { init.body = JSON.stringify(opts.body); init.headers['Content-Type'] = 'application/json'; }
   const r = await fetch(url, init);
   if (r.status === 401) { location.href = '/'; throw new Error('Signed out'); }
+  if (r.status === 413) throw new Error('File too large to upload (limit about 4.5 MB). Paste the text instead, or save the document without images.');
   const data = await r.json().catch(() => ({ success: false, message: `Server error (${r.status})` }));
   if (!r.ok || data.success === false) throw new Error(data.message || `Request failed (${r.status})`);
   return data;

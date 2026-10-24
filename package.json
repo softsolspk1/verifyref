@@ -1,19 +1,27 @@
 {
   "name": "pjps-reference-checker",
-  "version": "2.0.0",
-  "description": "PJPS Reference Checker by Softsols Pakistan — editor-only reference, citation, journal and reviewer integrity tools",
+  "version": "3.0.0",
+  "description": "PJPS Reference Checker by Softsols Pakistan — reference integrity and research tools for the web and Windows desktop (offline mode)",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node test/smoke-web.js && node test/images-engine.mjs",
+    "desktop": "cd desktop && npm start",
+    "desktop:dist": "cd desktop && npm run dist",
+    "proposal": "node docs/build-proposal.js"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@vercel/functions": "^3.10.1",
+    "@xmldom/xmldom": "^0.8.15",
     "docx": "^9.12.0",
     "express": "^4.21.2",
+    "jszip": "^3.10.2",
     "mammoth": "^1.8.0",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^10.1.7",
     "pdf-parse": "^1.1.1",
     "pg": "^8.23.1"
   },

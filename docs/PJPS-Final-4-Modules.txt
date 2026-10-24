@@ -1,0 +1,461 @@
+PJPS REFERENCE CHECKER - FINAL MODULE SPECIFICATION
+Pakistan Journal of Pharmaceutical Sciences - by Softsols Pakistan
+Version: 24 Oct 2026 (rev. 2 - Module 5 Image Integrity added)
+=====================================================================
+
+The PJPS Editor wants five modules:
+   1. Check Bibliography
+   2. Reference Style Check & PJPS Converter
+   3. Citations
+   4. Paper Mill Detection
+   5. Image Integrity Detection (added 24 Oct 2026)
+
+
+=====================================================================
+RECOMMENDATION: MODIFY THE EXISTING SOFTWARE, DON'T REBUILD
+=====================================================================
+- About 80% of Modules 1-3 already exist and work: the reference
+  engine (src/checks/reference.js), 12 databases + Retraction Watch,
+  the style engine with a PJPS house style (src/styles.js), the
+  citation check (src/checks/citation.js), claim verification
+  (src/tools/verify.js), Word read/write (src/docx.js, src/ooxml.js),
+  users/roles, the job queue, saved reports and the Windows desktop
+  app.
+- Rebuilding would mean months of redoing the same matching,
+  database and Word-handling work, with new bugs.
+- The app already has a module/permission system (src/modules.js),
+  so the other tools can be switched off and removed from the menu
+  without touching their code.
+
+Plan:
+   a) Cut the navigation down to the 5 modules; hide Find Journal,
+      Conferences, Assistant, Authors, Evidence, Manuscript Format,
+      Reviewer tools etc. (keep the code, turn the modules off).
+   b) Rebrand the home page/dashboard around the 5 modules.
+   c) Fill the gaps: style compliance check (Module 2), the merged
+      Citations module (Module 3), Paper Mill Detection (Module 4,
+      new), Image Integrity Detection (Module 5, new).
+   d) Add one "Full Screening Report" that runs all 5 on one upload.
+
+Shared by all five modules:
+   - Upload once (.docx, .doc, .pdf, .odt, .rtf, .txt; .bib/.ris for
+     Module 1), reuse in every module
+   - Roles: Super Admin, Editor (all modules), Reviewer (Modules 1-3
+     only; Modules 4 and 5 are editor-only)
+   - Saved reports + history per manuscript (PJPS manuscript number
+     field)
+   - Exports: Word, PDF, CSV (+ BibTeX/RIS in Module 1)
+   - Web app + Windows desktop app (offline mode where data allows)
+
+
+=====================================================================
+MODULE 1 - CHECK BIBLIOGRAPHY
+=====================================================================
+Purpose: confirm every reference is real, correct and not retracted.
+
+1.1 Input
+   - Upload a manuscript (the reference list is found automatically)
+     or paste references; .bib/.ris import
+   - Edit the detected list before checking (split/merge entries)
+   - Clean up garbled PDF text (broken lines, hyphenation, ligatures)
+
+1.2 Verification against databases            [EXISTS]
+   - Crossref, DOI registry, DataCite, OpenAlex, PubMed, Europe PMC,
+     Semantic Scholar, arXiv, DBLP, Open Library, Google Books, ERIC
+   - PubMed/Europe PMC searched first (pharmacy/biomedical journal)
+   - Each reference matched on title, authors, year, journal,
+     volume/issue/pages and DOI
+
+1.3 Verdict per reference                       [EXISTS]
+   - Verified (green) / Miscited (yellow, real work but details wrong)
+     / Unverified (grey) / Suspicious (orange) / Retracted (red)
+   - 0-100 confidence score
+   - Matched record shown next to the original, with the differing
+     fields highlighted (year, volume, issue, pages, authors)
+   - Corrected reference in PJPS style, ready to copy
+   - Link to the matched record (DOI / PubMed / publisher)
+
+1.4 Fabrication checks (fake / AI-made references)   [MOSTLY EXISTS]
+   - DOI doesn't resolve, or resolves to a different paper
+   - DOI with page numbers or junk stuck on the end -> repaired
+   - PMID / arXiv ID that doesn't exist, or points elsewhere
+   - Journal name doesn't match the DOI/record
+   - Real title with invented words inserted
+   - Author names not found on the matched work
+   - "Claims to be in an indexed journal but is in no database"
+     -> Suspicious
+   - Fewer false alarms: multi-line references, book reviews,
+     articles derived from theses, Pakistani/regional journals not
+     indexed (shown as "Not indexed", not as fake)
+
+1.5 Retractions & concerns                       [EXISTS]
+   - Retraction Watch: retracted, expression of concern, correction
+   - Retraction reason and date shown
+   - Monitoring: alert the editor if a cited work in a saved report
+     is retracted later
+
+1.6 Link check                                    [EXISTS]
+   - Every URL and DOI link tested separately: working / broken /
+     redirected
+   - Kept separate from the verdict (a dead link doesn't mean a fake
+     reference)
+
+1.7 Reference age analysis                       [EXISTS - polish]
+   - Chart of references by year
+   - % from the last 5 years and the last 10 years
+   - List of references older than 10 years
+   - Warning if few recent references (threshold set by PJPS,
+     e.g. < 30% from the last 5 years)
+
+1.8 Extra quality indicators                     [ADD]
+   - Self-citation count (author names in the manuscript vs the
+     references)
+   - PJPS self-citation count (shown separately)
+   - Citations to predatory/hijacked journals (Beall's list +
+     hijacked journal list, already in datasets.js)
+   - Duplicate references (same work listed twice)
+
+1.9 Output
+   - Summary bar: counts per verdict + score
+   - Filter by verdict
+   - Export: Word report, PDF, CSV, BibTeX, RIS, corrected
+     reference list (PJPS style)
+   - Re-check button: shows only what changed since the last run
+
+
+=====================================================================
+MODULE 2 - REFERENCE STYLE CHECK & CONVERTER TO PJPS FORMAT
+=====================================================================
+Purpose: check that references follow PJPS style, and convert them
+when they don't.
+
+PJPS house style (as in src/styles.js - CONFIRM with the current PJPS
+author guidelines before release):
+   In text:   (Khan, 2019)  (Khan and Ali, 2019)  (Khan et al., 2019)
+   List:      Khan A, Ali B and Shah C (2019). Title of article.
+              Pak. J. Pharm. Sci., 32(1): 1-5.
+   Book:      Khan A and Ali B (2019). Title. Publisher, Place.
+   Order:     alphabetical by first author, then year; 2019a/2019b
+              for the same author and year
+
+2.1 Style compliance check (rule by rule)        [NEW]
+   For each reference, list every deviation with the expected form:
+   - Author format: Surname + initials without dots, comma between
+     authors, "and" before the last one
+   - Number of authors / when to use "et al."
+   - Year in parentheses after the authors
+   - Title in sentence case, ends with a full stop
+   - Journal name abbreviated (NLM/ISO abbreviation check)
+   - Volume(Issue): pages - punctuation, page range with a hyphen,
+     no "pp."
+   - DOI format (if PJPS requires it)
+   - Missing fields: volume, issue, pages, year, publisher
+   - List order: alphabetical; a/b suffixes correct
+   - Score: "% of references compliant" + list of failures
+   - Also checks the in-text citation format: (Author, Year), et al.
+     usage, ";" between multiple citations, chronological order
+     inside one bracket
+
+2.2 Converter to PJPS format                      [EXISTS - polish]
+   - Input: Word manuscript, or a pasted list
+   - Any source style -> PJPS: APA, Vancouver/numbered [1], Harvard,
+     IEEE, AMA, Chicago, Nature, Elsevier etc. detected automatically
+   - Converts BOTH the in-text citations and the reference list
+     (numbered [1] -> (Author, Year), with the list re-sorted
+     alphabetically)
+   - Fills missing DOI/volume/issue/pages from the matched record
+     (Module 1 engine)
+   - Never silently "corrects": entries it couldn't match are flagged
+     for the editor
+   - Suspicious DOIs flagged during conversion
+   - Keeps the manuscript's layout; only citations and references
+     change
+
+2.3 Review & output
+   - Before/after view side by side
+   - Changes shown in the Word file as Track Changes, so the
+     editor/author can accept or reject them   [ADD]
+   - Download the converted .docx, or copy the converted list
+   - Report of what was changed and what still needs manual fixing
+
+
+=====================================================================
+MODULE 3 - CITATIONS
+=====================================================================
+Purpose: check that in-text citations and the reference list match,
+and that each cited source really supports the claim.
+
+3.A CITATION <-> REFERENCE LIST CONSISTENCY        [EXISTS]
+   - Cited in the text but missing from the list
+   - In the list but never cited
+   - Year mismatch (Khan, 2018 in the text vs 2019 in the list)
+   - Spelling mismatch of author names
+   - Ambiguous citations: "Khan, 2020" when the list has 2020a and
+     2020b, or two different Khans in 2020
+   - Wrong "et al." use (e.g. et al. for 2 authors)
+   - Numbered styles: gaps, numbers out of sequence, numbers pointing
+     to nothing
+   - Citations inside tables, figure captions and footnotes included
+   - Each issue links to its location (page/paragraph)
+
+3.B CLAIM <-> SOURCE VERIFICATION                    [EXISTS]
+   - The text is split into cited claims (sentence + its citation)
+   - Each claim compared with the cited source: an uploaded PDF (with
+     page number), open-access full text, or the abstract
+   - Verdicts: Full support / Partial / Unsupported / Could not verify
+   - The supporting passage from the source is shown
+   - Shows which uploaded PDF matched which reference; separates
+     "not found in your PDF" from "source not accessible"
+   - Citing a retracted paper as evidence -> red flag
+   - Runs locally; no manuscript text sent to an outside AI
+
+3.C CITATION PATTERN FLAGS                          [EXISTS in editor tools]
+   - Heavy self-citation by the authors
+   - Citation stacking: many citations to one journal or one author
+     group
+   - Large blocks of citations with no claim (e.g. [1-25])
+
+3.D Output
+   - Combined Citations report: consistency + claim support + pattern
+     flags
+   - Export Word/PDF/CSV
+   - Author letter: list of citation problems to fix, which the
+     editor previews and approves before sending (EN/UR)
+
+
+=====================================================================
+MODULE 4 - PAPER MILL DETECTION  (EDITOR ONLY)
+=====================================================================
+Purpose: spot signs that a manuscript came from a paper mill (a
+business that sells fake or templated papers and authorships).
+
+Output: a risk level, LOW / MEDIUM / HIGH, with the evidence for every
+signal. This is a screening aid that tells the editor where to look
+closer. It never rejects a paper by itself; the editor decides. The
+report text says so.
+
+4.1 Text signals                                     [NEW]
+   - Tortured phrases: odd synonyms used to dodge plagiarism checks
+     (e.g. "counterfeit consciousness" = artificial intelligence,
+     "bosom peril" = breast cancer). List from the Problematic Paper
+     Screener (Cabanac et al.), plus a PJPS pharmacy list the editors
+     can add to
+   - Template wording common in mill papers: network pharmacology,
+     molecular docking, "miR-X sponges Y to promote Z", generic
+     "drug X inhibits cancer via the A/B pathway" structures
+   - Signs of AI-generated text, e.g. leftover prompts ("As an AI
+     language model", "Regenerate response") and placeholder text
+     (flagged only on clear hits; AI detectors are unreliable, so no
+     guessing score)
+   - Methods too vague to repeat (no supplier, catalogue number, dose
+     or ethics approval number)
+
+4.2 Reference signals (uses Module 1)                [NEW / REUSE]
+   - Fabricated references (Module 1.4)
+   - Cites papers retracted for paper-mill reasons (Retraction Watch
+     "Paper Mill" reason)
+   - Many citations to known mill-affected or predatory/hijacked
+     journals
+   - Citation stacking / irrelevant references (Module 3.C)
+
+4.3 Author & submission signals                     [NEW]
+   - Authors with earlier retractions, especially for paper mill or
+     fake peer review (Retraction Watch, by name + ORCID)
+   - Free-mail addresses (gmail, yahoo, 163.com) instead of the
+     institution's address
+   - Missing ORCID, or a brand-new ORCID with no works
+   - Affiliation that doesn't fit the topic, or institutions far apart
+     with no clear collaboration
+   - Authors added, removed or reordered during revision (compared
+     with the earlier version)
+   - Suggested reviewers with free-mail addresses or links to the
+     authors
+
+4.4 Biology / data signals (pharmacy-specific)     [NEW - phase 2]
+   - Misidentified or contaminated cell lines (Cellosaurus / ICLAC
+     register) named in Methods
+   - Wrong primer/gene sequences (NCBI check, the Seek & Blastn
+     method) - phase 3
+   - Statistics that don't add up (percentages, n values, p-values
+     that can't come from the stated data) - phase 3
+   - Duplicated or edited images (Western blots, microscopy) ->
+     now covered by Module 5; its findings feed the Module 4 risk
+     level as one signal
+
+4.5 Duplicate submission check                      [NEW - phase 2]
+   - Fingerprint every PJPS submission; compare a new manuscript
+     with earlier PJPS submissions (same text with small edits,
+     recycled title/abstract; same figures via the Module 5 image
+     fingerprint store)
+
+4.6 Output
+   - Risk badge + score; each signal with its weight and evidence
+     (quoted text, matched record, link)
+   - Editor notes field; decision record (cleared / needs
+     investigation / referred to the integrity committee)
+   - Export as a confidential PDF/Word for the editorial file
+   - Never shared with authors or reviewers
+
+Build phases for Module 4:
+   Phase 1: tortured phrases, AI-text leftovers, mill-retraction
+            citations, fabricated references, author retractions,
+            free-mail/ORCID checks
+   Phase 2: template wording, cell lines, duplicate submissions,
+            authorship changes between versions
+   Phase 3: primer sequences, statistics checks
+   (image forensics moved to Module 5)
+
+
+=====================================================================
+MODULE 5 - IMAGE INTEGRITY DETECTION  (EDITOR ONLY)
+=====================================================================
+Purpose: find figures that are duplicated, reused or edited - the
+problems that commercial tools such as ImageTwin and Proofig look for
+- inside PJPS, without sending images outside by default.
+
+Output: an image risk level, LOW / MEDIUM / HIGH, with every finding
+shown as images side by side. Like Module 4 this is a screening aid:
+repeated textures (cells, tissue, gel background) can look like
+copies, so the editor checks every finding. The report text says so.
+
+Benchmark (reviewed 24 Oct 2026):
+   ImageTwin - duplication, manipulation, AI-generated images, check
+               against 160M+ published figures, API (price on request)
+   Proofig   - duplication (rotate/flip/scale/overlap), manipulation,
+               AI-generated images, check against 155M+ PubMed open-
+               access images, self-plagiarism, API on Enterprise plan
+               (from USD 99 per 120 sub-images)
+
+5.1 Image extraction                                 [NEW - phase 1]
+   - Images taken out of .docx (embedded media) and .pdf files at
+     full resolution; separately uploaded figure files (TIFF, PNG,
+     JPG) also accepted
+   - Multi-panel figures split into sub-panels; panel labels (A, B,
+     C...) and figure numbers read by OCR so each finding says
+     "Fig. 2C vs Fig. 4A"
+   - Figure type guessed: Western blot / gel, microscopy /
+     histology, photo, graph / chart
+
+5.2 Duplication inside the manuscript                [NEW - phase 1]
+   - Same image or panel used twice, including copies that are
+     rotated, flipped, resized, cropped or only partly overlapping
+   - Method: image fingerprints for whole copies + feature-point
+     matching (OpenCV) for partial/rotated copies
+   - Matched areas outlined on both images, with the matched points
+     drawn in
+
+5.3 Edits inside one image                           [NEW - phase 1]
+   - Cloned (copy-move) areas: one part of the image pasted elsewhere
+     in the same image
+   - Shown as "check this area", not a verdict (textures cause false
+     alarms)
+
+5.4 Forensic viewer for the editor                   [NEW - phase 1]
+   - Visual filters to look closer: contrast/brightness boost, error
+     level analysis, noise map, edge view, side-by-side and overlay
+     with a slider
+   - Helps spot splicing, erased bands and pasted backgrounds; no
+     automatic splicing verdict (PDF compression wipes most traces)
+
+5.5 Western blot and gel checks                      [NEW - phase 2]
+   - Lanes and bands compared with each other: repeated lanes,
+     flipped or stretched bands, sharp cut lines between lanes
+   - Same band image reused for different proteins or conditions
+
+5.6 Reuse of earlier figures                         [NEW - phase 2]
+   - PJPS image fingerprint store: fingerprints of every PJPS
+     submission and published paper; a new manuscript is compared
+     with all of them (also used by Module 4.5)
+   - Authors' own earlier papers (found through Module 1 / ORCID):
+     open-access figures downloaded from Europe PMC / PMC and
+     compared (self-plagiarism check; open-access papers only)
+
+5.7 Vendor connection (optional)                     [OPTIONAL]
+   - Switch for the editor to send a manuscript's figures to the
+     ImageTwin or Proofig API, for the two checks that can't be
+     built in-house:
+       * comparison against 155-160M published figures
+       * AI-generated image detection
+   - Off by default; turned on per manuscript, because figures leave
+     PJPS systems; PJPS pays the vendor per use
+   - Without the vendor, the report says "not checked" for these two
+     items; no home-made AI-image score is shown (unreliable on
+     scientific images)
+
+5.8 Output
+   - Image risk badge + list of findings, each with the two images
+     side by side, matched area outlined, figure/panel labels and a
+     confidence level
+   - Editor marks each finding: confirmed / false alarm / ask the
+     authors; decision record kept with the manuscript
+   - "Ask the authors" builds a query letter with the image pairs
+     (requesting original images / raw blots), which the editor
+     approves before sending
+   - Export as a confidential PDF/Word for the editorial file
+   - Feeds the Module 4 paper mill risk level as one signal
+
+5.9 Technical notes
+   - Runs as a background job on the existing resumable job queue;
+     about 1-3 minutes for a manuscript with ~30 figures
+   - Desktop app: 5.1-5.5 work offline; 5.6 and 5.7 need the
+     internet and use the offline queue
+   - New libraries: OpenCV (WebAssembly build), a PDF image
+     extractor (MuPDF), image processing (sharp), OCR (tesseract.js)
+   - New module key "images" in src/modules.js, editor-only
+
+Build phases for Module 5:
+   Phase 1: extraction, duplication inside the manuscript, cloned
+            areas, forensic viewer, report
+   Phase 2: Western blot/gel checks, PJPS image fingerprint store,
+            authors' earlier open-access figures
+   Optional: ImageTwin / Proofig API connection
+
+
+=====================================================================
+FULL SCREENING REPORT (runs all 5 modules)
+=====================================================================
+   - One upload -> one report with 5 sections + a front-page summary:
+       Bibliography: X verified, Y miscited, Z suspicious, N retracted
+       Style: X% PJPS compliant
+       Citations: X missing, Y uncited, Z unsupported claims
+       Paper mill risk: LOW / MEDIUM / HIGH
+       Image integrity: X findings to check, risk LOW / MEDIUM / HIGH
+   - Desk-review recommendation for the editor (proceed / return to
+     author / investigate)
+   - Author version (Modules 1-3 only, editor approves before
+     sending) and editor version (includes Modules 4 and 5)
+
+
+=====================================================================
+SUMMARY OF WORK
+=====================================================================
+   Existing, keep & polish:  Module 1, Module 2 converter, Module 3
+   New:                      Module 2 compliance check, Track Changes
+                             output, Module 1.8 indicators, Module 4,
+                             Module 5, Full Screening Report
+   Remove from the menu:     all other tools (switched off with
+                             src/modules.js)
+
+
+=====================================================================
+BUILD STATUS (25 Oct 2026) - web portal only
+=====================================================================
+   Navigation      5 modules + Full Screening Report; other tools
+                   switched off (src/modules.js LEGACY)       DONE
+   Module 1        1.4 "Not indexed" for regional journals, 1.7 age
+                   rule (Super Admin setting), 1.8 indicators,
+                   re-check showing changes                    DONE
+   Module 2        2.1 rule-by-rule compliance, 2.3 Track Changes,
+                   before/after view                           DONE
+   Module 3        merged A+B+C, "et al." misuse, citation blocks,
+                   author letter EN/UR                         DONE
+   Module 4        phase 1 + phase 2 (template wording, cell lines,
+                   duplicate submissions, authorship changes,
+                   reviewers)                                  DONE
+                   phase 3 (primers, statistics)               OPEN
+   Module 5        5.1-5.4, 5.6 (PJPS fingerprint store),
+                   5.8 output, decision record                 DONE
+                   5.1 panel-letter OCR, 5.5 blot lane checks,
+                   5.6 Europe PMC author figures               OPEN
+                   5.7 vendor API (needs contract + API docs)  OPEN
+   Full Screening  summary, recommendation, editor/author Word DONE

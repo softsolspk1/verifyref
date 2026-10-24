@@ -60,9 +60,12 @@ function checkNumeric(body, refs) {
 
   const matched = refs.map((r, i) => ({ index: r.index, number: numbers[i], citations: citedCount.get(numbers[i]) || 0 }));
   const uncited = matched.filter(m => m.citations === 0).map(m => ({ index: m.index, number: m.number, raw: refs.find(r => r.index === m.index).raw }));
+  const blocks = cites.filter(c => c.nums.length >= BLOCK_SIZE).map(c => ({ citation: c.text, size: c.nums.length, context: c.context, message: `${c.nums.length} references cited together with no specific claim for each` }));
 
   return {
     system: 'numeric',
+    blocks,
+    etAlIssues: [],
     totalCitations: cites.reduce((a, c) => a + c.nums.length, 0),
     citationGroups: cites.length,
     matched,
@@ -74,8 +77,22 @@ function checkNumeric(body, refs) {
   };
 }
 
+const BLOCK_SIZE = 6; // a bracket citing six or more works at once is a "citation block"
+
+/** "et al." used for one or two authors, or missing for three or more */
+function etAlIssue(c, ref) {
+  const n = (ref.authors || []).length;
+  if (!n || ref.authors[0]?.corporate) return null;
+  const label = `${c.authors.join(' and ')}${c.etAl ? ' et al.' : ''}, ${c.year}${c.suffix}`;
+  if (c.etAl && n <= 2) return { citation: label, context: c.context, index: ref.index, message: `“et al.” used, but the work has ${n} author${n > 1 ? 's' : ''} — ${n === 2 ? 'name both' : 'name the author'}` };
+  if (!c.etAl && n >= 3 && c.authors.length < n) return { citation: label, context: c.context, index: ref.index, message: `The work has ${n} authors — cite as “${c.authors[0]} et al.”` };
+  if (!c.etAl && n === 2 && c.authors.length === 1) return { citation: label, context: c.context, index: ref.index, message: `The work has two authors — name both (“${c.authors[0]} and ${ref.authors[1].family}”)` };
+  return null;
+}
+
 function checkAuthorYear(body, refs) {
   const cites = extractAuthorYearCitations(body);
+  const etAlIssues = [];
   const refKeys = refs.map(r => ({ ref: r, authors: refAuthorKeys(r), year: r.year, suffix: r.yearSuffix || '' }));
   const citedCount = new Map();
   const missing = [];
@@ -105,6 +122,8 @@ function checkAuthorYear(body, refs) {
     const label = `${c.authors.join(c.authors.length === 2 ? ' & ' : ', ')}${c.etAl ? ' et al.' : ''}, ${c.year}${c.suffix}`;
     if (cands.length === 1) {
       citedCount.set(cands[0].ref.index, (citedCount.get(cands[0].ref.index) || 0) + 1);
+      const ei = etAlIssue(c, cands[0].ref);
+      if (ei) etAlIssues.push(ei);
     } else if (cands.length > 1) {
       // Same author and year without a/b suffixes
       ambiguous.push({ citation: label, context: c.context, candidates: cands.map(k => k.ref.index), message: 'Same author and year match several references — add a/b suffixes' });
@@ -145,9 +164,15 @@ function checkAuthorYear(body, refs) {
 
   const matched = refs.map(r => ({ index: r.index, citations: Math.ceil(citedCount.get(r.index) || 0) }));
   const uncited = matched.filter(m => m.citations === 0).map(m => ({ index: m.index, raw: refs.find(r => r.index === m.index).raw }));
+  // Parenthetical groups citing many works at once
+  const groupSize = new Map();
+  for (const c of cites) if (c.text.startsWith('(')) groupSize.set(c.index, { n: (groupSize.get(c.index)?.n || 0) + 1, c });
+  const blocks = [...groupSize.values()].filter(g => g.n >= BLOCK_SIZE).map(g => ({ citation: g.c.text, size: g.n, context: g.c.context, message: `${g.n} works cited together with no specific claim for each` }));
 
   return {
     system: 'author-year',
+    blocks,
+    etAlIssues: dedupe(etAlIssues, e => e.citation),
     totalCitations: cites.length,
     citationGroups: cites.length,
     matched,
@@ -189,6 +214,8 @@ function checkCitations(body, refs, { system } = {}) {
     yearMismatch: (res.yearMismatch || []).length,
     orderIssues: res.orderIssues.length,
     numberingIssues: res.numberingIssues.length,
+    etAlIssues: (res.etAlIssues || []).length,
+    blocks: (res.blocks || []).length,
     citedReferences: res.matched.filter(m => m.citations > 0).length
   };
   return res;

@@ -1,6 +1,6 @@
 // checks/journal.js - Journal Check: Scopus/WoS indexing, quartiles, HEC HJRS, MEDLINE, DOAJ, predatory & hijacked checks
 const S = require('../sources');
-const { getJson, getText } = require('../http');
+const { getJson, getText, isOnline } = require('../http');
 const { journalSimilarity, cleanIssn, issnChecksumValid, normalizeJournal } = require('../text');
 const D = require('../datasets');
 const cfg = require('../config');
@@ -69,6 +69,8 @@ function resolveJournal({ name = '', issn = '' }) {
     return { source, nlm, issns, name: source?.display_name || nlm?.title || name, publisher: source?.host_organization_name || null };
   })();
   resolveCache.set(key, p);
+  // A miss while offline is not an answer: allow a fresh lookup later
+  p.then(v => { if (!v && !isOnline()) resolveCache.delete(key); }, () => resolveCache.delete(key));
   return p;
 }
 
@@ -179,11 +181,12 @@ async function checkJournal(input) {
   const name = resolved?.name || input.name || '';
   const issns = resolved?.issns || (cleanIssn(input.issn) ? [cleanIssn(input.issn)] : []);
   const src = resolved?.source || null;
+  const offline = !isOnline();
 
   const [listHits, wd, doaj, rw, predatory, portal] = await Promise.all([
     D.listLookupAll(issns, name),
     wikidataScopus(issns),
-    issns.length ? doajLookup(issns) : { inDoaj: !!src?.is_in_doaj },
+    offline ? { inDoaj: null } : issns.length ? doajLookup(issns) : { inDoaj: !!src?.is_in_doaj },
     name ? D.journalRetractionCounts(name) : { retractions: 0, concerns: 0, corrections: 0 },
     D.predatoryMatches({ journal: name, publisher: resolved?.publisher, homepage: src?.homepage_url }),
     issns[0] ? issnPortal(issns[0]) : { registered: null }
@@ -221,7 +224,7 @@ async function checkJournal(input) {
   if (lists.scopus?.discontinued) flag('high', 'Coverage discontinued in Scopus');
   if (issns.length && issns.some(i => !issnChecksumValid(i))) flag('high', 'ISSN has an invalid check digit');
   if (portal.registered === false) flag('high', 'ISSN not found in the official ISSN registry');
-  if (!resolved) flag('medium', 'Journal not found in OpenAlex, NLM Catalog or Crossref');
+  if (!resolved && !offline) flag('medium', 'Journal not found in OpenAlex, NLM Catalog or Crossref');
   const isJournal = !src || src.type === 'journal';
   const indexed = [];
   if (scopusIndexed) indexed.push('Scopus');
@@ -242,10 +245,12 @@ async function checkJournal(input) {
   let verdict = 'ok';
   if (flags.some(f => f.severity === 'high')) verdict = 'high-risk';
   else if (flags.some(f => f.severity === 'medium') || (isJournal && !indexed.length && resolved)) verdict = 'caution';
+  else if (offline && !indexed.length) verdict = 'unknown';
 
   return {
     query: { name: input.name || '', issn: input.issn || '' },
-    found: !!resolved,
+    found: !!resolved || (offline && (Object.keys(listHits).length > 0 || predatory.length > 0)),
+    offline,
     title: name,
     type: src?.type || 'journal',
     publisher: resolved?.publisher || doaj.publisher || null,
@@ -328,4 +333,4 @@ async function checkCitedJournals(referenceResults, { onProgress, max = 80 } = {
   return { journals: out, summary };
 }
 
-module.exports = { resolveJournal, checkJournal, checkCitedJournals };
+module.exports = { resolveJournal, checkJournal, checkCitedJournals, interpretLists, doajLookup, nlmCatalog, pick };

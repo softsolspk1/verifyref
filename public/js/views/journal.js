@@ -42,7 +42,8 @@ export function journalCard(j) {
         <div><h2>${esc(j.title)}</h2><div class="muted">${esc(j.publisher || '')}${j.country ? ` · ${esc(j.country)}` : ''}${j.issns.length ? ` · ISSN ${esc(j.issns.join(', '))}` : ''}</div></div>
         <div class="row">${badge(verdict[0], verdict[1])}<button class="btn btn-sm" id="j-copy">${ICONS.copy} Copy report</button></div>
       </div>
-      ${j.flags.length ? j.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.message)}</div></div>`).join('') : '<div class="alert alert-good">No predatory, hijacked or registry red flags found.</div>'}
+      ${j.offline ? '<div class="alert alert-info"><b>Offline check.</b> Compared with the local copies of the uploaded journal lists, Beall’s list, hijacked journals and Retraction Watch only. DOAJ, MEDLINE, the ISSN registry and the publication profile need a connection.</div>' : ''}
+      ${j.flags.length ? j.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.message)}</div></div>`).join('') : j.offline ? '' : '<div class="alert alert-good">No predatory, hijacked or registry red flags found.</div>'}
       <div class="grid grid-2" style="margin-top:12px">
         <table class="t">
           <tr><th colspan="2">Indexing</th></tr>

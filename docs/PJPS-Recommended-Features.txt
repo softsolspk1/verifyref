@@ -1,0 +1,291 @@
+PJPS REFERENCE CHECKER - RECOMMENDED FEATURE LIST
+Based on ReferenceVerify (https://referenceverify.com/), reviewed 24 Oct 2026
+For: Pakistan Journal of Pharmaceutical Sciences (PJPS) - by Softsols Pakistan
+=====================================================================
+
+Status key:
+  [HAVE]  already in this codebase (per README / source)
+  [GAP]   recommended but not found in the codebase yet
+  [SKIP]  ReferenceVerify feature not recommended for PJPS
+
+Priority key:
+  P1 = must-have for PJPS editorial office
+  P2 = strongly recommended
+  P3 = nice-to-have / later phase
+
+
+---------------------------------------------------------------------
+A. CORE CHECKING TOOLS
+---------------------------------------------------------------------
+
+1. CHECK BIBLIOGRAPHY  (P1) [HAVE]
+   - Paste text or upload .docx/.doc/.pdf/.odt/.rtf/.txt/.bib/.ris
+   - Check every reference against scholarly databases. For a pharmacy
+     journal the key ones are PubMed/MEDLINE, Europe PMC, Crossref and
+     OpenAlex
+   - Verdict per reference: Verified / Miscited / Unverified /
+     Suspicious / Retracted, with a 0-100 confidence score
+   - Retraction detection (Retraction Watch)
+   - Missing/wrong DOI detection and repair (incl. DOIs with page numbers
+     stuck on the end)
+   - Corrected reference shown under each card, ready to copy
+   - Matched record's volume/issue/pages shown when one field differs
+   - Separate link check: dead URLs and dead DOI links
+   - Reference age analysis: age distribution, list of sources
+     older than 10 years
+   - Export: Word, CSV, BibTeX, RIS
+
+   Fabrication / AI-generated reference checks (P1):
+   - Invented words inserted into real titles
+   - Author names that can't be verified
+   - PMIDs and arXiv IDs that don't exist
+   - Journal name that doesn't match the DOI/record
+   - "Claims to be in an indexed journal but is in no database" ->
+     Suspicious
+   - Fixes citations garbled by PDF extraction before searching
+   - Fewer false positives: multi-line references, book reviews and
+     articles derived from theses shouldn't be flagged
+
+2. REFERENCE STYLE (restyle)  (P1) [HAVE]
+   - Rewrite in-text citations AND the reference list inside the Word
+     file, keeping its layout
+   - PJPS house style as the default target, plus Vancouver, AMA,
+     APA 7, Harvard, IEEE, Nature, Lancet, BMJ, etc.
+   - Numbered [1] <-> author-date <-> footnotes, both ways
+   - Fill missing DOI/issue/pages from matched records; flag entries
+     that don't match instead of quietly "correcting" them
+   - Before/after preview; download Word or copy the text
+   - Show suspicious DOIs during conversion
+   - Upload a .csl style file (P3) [GAP]
+   - Find a style by typing the journal name (P3) [GAP - optional]
+
+3. REFERENCE STYLE COMPLIANCE CHECK  (P1) [GAP]
+   - Rule-by-rule check of the reference list against the PJPS style
+     (then Vancouver / APA 7 / IEEE): author format, et al. rule,
+     journal abbreviation, year position, volume(issue):pages,
+     punctuation
+   - Order check: alphabetical for author-date, sequential for numbered
+   - Output: list of deviations per reference with the expected form
+   NOTE: This is the most useful single gap for PJPS desk screening.
+
+4. CITATION CHECK (in-text <-> reference list)  (P1) [HAVE]
+   - Missing references, references never cited, year mismatches
+   - Ambiguous citations (e.g., "Khan, 2020" when there are 2020a/2020b)
+   - Numbering out of sequence for numbered styles
+
+5. VERIFY CITATIONS (claim <-> source)  (P2) [HAVE]
+   - Split the text into cited claims and compare each with the source
+     (uploaded PDF with page number, open-access full text, or abstract)
+   - Verdicts: Full / Partial / Unsupported / Could not verify, with
+     the evidence passage
+   - Show which uploaded PDF matched which reference; separate
+     "not found in your PDF" from "could not access"
+   - Export Word/CSV; shareable link (P3)
+
+6. FIND EVIDENCE / REPAIR CITATION  (P3) [HAVE]
+   - Find verified sources that back a sentence, with the exact passage
+   - Suggest more cautious wording when the claim goes beyond the source
+   - Tick the supported statements and merge them into a revised
+     sentence with a citation per clause
+   - Leave out retracted papers
+
+7. MANUSCRIPT FORMAT  (P2) [HAVE]
+   - Apply the PJPS author-guideline template to a Word manuscript:
+     page size, margins, fonts, spacing, headings, line numbers
+   - Convert the references in the same pass
+   - Section checklist per PJPS article type (Original Article, Review,
+     Short Communication, Case Report): Abstract, Keywords, Introduction,
+     Materials and Methods, Results, Discussion, Conclusion,
+     Ethics/IRB/animal approval, Conflict of Interest, Funding,
+     Acknowledgements
+
+
+---------------------------------------------------------------------
+B. JOURNAL / RESEARCH-INTEGRITY TOOLS
+---------------------------------------------------------------------
+
+8. CHECK A JOURNAL  (P1) [HAVE]
+   - Indexing: Scopus/SJR quartile, WoS (SCI-E vs ESCI shown
+     separately), MEDLINE, DOAJ, ISSN registry, HEC HJRS category
+   - Predatory signals, hijacked/clone websites, retraction count,
+     DOAJ withdrawal reason
+   - Use the HEC rules for predatory/recognised journals, the same way
+     ReferenceVerify uses the Turkish national rules (P2) [check
+     coverage]
+   - Search by English title when the original-language name fails
+   Use at PJPS: screen the journals that submitted manuscripts cite
+
+9. FIND A JOURNAL  (P3) [HAVE]
+   - Rank journals by similar papers they published recently
+   - Filters: indexing, quartile, OA, APC; average time from submission
+     to publication and type of peer review
+   Low priority for an editorial office; useful for authors
+
+10. FIND & CHECK A CONFERENCE  (P3) [HAVE]
+   - Scopus coverage year by year, dormant series, general-purpose
+     publishers
+
+11. FIND BY AUTHOR  (P3) [HAVE]
+   - Disambiguate by ORCID/institution, list verified publications,
+     follow an author
+
+12. THESIS / PAPER ASSISTANT  (P3) [HAVE]
+   - Introduction / literature review / research gap built from
+     abstracts, every sentence linked to its source
+   NOTE: For a journal, keep this author-facing only; don't put it in
+   the editorial workflow.
+
+
+---------------------------------------------------------------------
+C. EDITOR TOOLS (the most valuable part for PJPS)
+---------------------------------------------------------------------
+
+13. CONSOLIDATED EDITOR REPORT  (P1) [HAVE]
+   - One run = bibliography check + in-text citation check both ways
+   - Editor summary: counts + top 5 critical issues
+   - Desk-review decision summary
+
+14. AUTHOR CORRECTION LETTER  (P1) [HAVE - EN/UR]
+   - Editor previews the exact text the author will get and ticks a
+     confirmation box; nothing is sent until the editor sends it
+   - Lists reference status, suggested corrections, citation
+     consistency
+
+15. REVISION COMPARISON  (P1) [HAVE]
+   - Compare original vs revised manuscript: references added, removed
+     or fixed, and issues still open
+
+16. RE-CHECK SAVED REPORT + RETRACTION MONITORING  (P2) [HAVE]
+   - "Re-check" shows only what changed
+   - Alert when a source in a saved check is later retracted
+     (important for published PJPS issues)
+
+17. REVIEWER FINDER  (P2) [HAVE]
+   - Candidates from the title/abstract/authors: ORCID, institution,
+     topic publications
+   - Conflict flags: co-authorship, same institution, retracted work
+
+18. REVIEWER REPORT CHECK  (P2) [HAVE]
+   - Flag reviewers asking authors to cite the reviewer's own work,
+     requests limited to one journal, and weakly related suggestions
+     (coercive citation)
+
+19. ISSUE REPORT / CITATION PATTERN  (P2) [HAVE]
+   - Citation stacking and self-citation patterns across an issue
+
+
+19a. PAPER MILL SCREENING  (P1) [GAP - new, not in ReferenceVerify]
+   Editor-only risk report: Low / Medium / High, with the evidence for
+   each signal. It highlights things to look at; it never accepts or
+   rejects a paper on its own.
+   Phase 1 (reuses data the app already has):
+   - Tortured phrases (list from the Problematic Paper Screener),
+     e.g. "counterfeit consciousness" = artificial intelligence
+   - Cites papers retracted for paper-mill reasons (Retraction Watch
+     "Paper Mill" reason)
+   - Fabricated / AI-generated references (from Check Bibliography)
+   - Authors with earlier retractions (Retraction Watch, name + ORCID)
+   Phase 2:
+   - Misidentified or contaminated cell lines (Cellosaurus / ICLAC)
+   - Template text (network pharmacology, docking, miRNA papers)
+   - Duplicate submissions compared against the PJPS archive
+   - Suspicious author details: free-mail addresses, missing or
+     brand-new ORCID, affiliation that doesn't fit the topic, author
+     list changed during revision
+   - Citation stacking / reviewer coercion (extends items 18-19)
+   Phase 3:
+   - Wrong primer/gene sequences (NCBI check, Seek & Blastn method)
+   - Duplicated or edited images (blots, microscopy)
+
+
+---------------------------------------------------------------------
+D. INTEGRATIONS
+---------------------------------------------------------------------
+
+20. OJS PLUGIN  (P1 if PJPS runs on OJS) [GAP]
+   - "Check with PJPS Reference Checker" action on each manuscript file
+     in the OJS workflow (OJS 3.3 / 3.4 / 3.5)
+   - Tab visible only to Journal Manager, Editor, Section Editor,
+     Production Editor and Admin; hidden from authors, reviewers,
+     copyeditors and layout editors
+   - Pick the report type per file: Reference check / In-text
+     citations / Consolidated
+   - "Send summary to OJS": counts + top 5 issues posted as an
+     editor-only discussion (no manuscript text)
+   - "Share with author": author report added to the OJS discussion
+     after the editor confirms
+   - Reviewer suggestions from the submission metadata (rate-limited)
+   - Only one setting: the journal key. Encrypted one-time file
+     transfer, deleted after it's opened or within 1 hour
+   - Connects only when the editor clicks (nothing sent automatically)
+   - Supports .docx/.doc/.pdf/.rtf up to 50 MB
+
+21. WORD ADD-IN  (P3) [GAP - desktop app exists instead]
+   - Side panel inside Word: check references, citations, restyle
+   - "Fix in document" replaces the entry with the corrected form;
+     Ctrl+Z undoes it
+   - Needs Microsoft 365 / Word 2021+ / Word on the web
+   For PJPS, the existing Windows desktop app covers most of this
+
+22. BROWSER EXTENSION  (P3) [SKIP unless no OJS access]
+   - Right-click a manuscript file in the submission system to check it
+   - Only worth building if the OJS plugin isn't possible
+
+
+---------------------------------------------------------------------
+E. PLATFORM / ACCOUNT FEATURES
+---------------------------------------------------------------------
+
+23. Upload once, use in every tool (manuscript reused without
+    re-uploading)  (P2) [check]
+24. Saved reports + activity history  (P1) [HAVE]
+25. Alerts by e-mail and in-app: retractions, new citations of
+    the user's work via ORCID, topic, author  (P2) [HAVE]
+26. Academic profile: ORCID, Scopus Author ID, WoS ResearcherID;
+    "My publications" shortcut  (P3) [check]
+27. Roles: Super Admin / Editor / Reviewer / Author, with editor-only
+    tools  (P1) [HAVE]
+28. Editor access request + adding co-editors  (P2) [check]
+29. Problem report with a file attached (Word/PDF/ODT/RTF/TXT, up to
+    15 MB)  (P3) [GAP]
+30. Usage allowance shown on every screen, with a low-balance
+    warning  (P3) - only if PJPS sets quotas
+
+
+---------------------------------------------------------------------
+F. NOT RECOMMENDED FOR PJPS
+---------------------------------------------------------------------
+  - Paid tiers / Pro-Max quotas / one-time payment (thesis pack) -
+    PJPS is an in-house editorial tool
+  - TUBITAK agreement labels and DergiPark integration - specific to
+    Turkey; replace with HEC HJRS and Pakistani publisher data
+  - Turkish national-catalogue book search - replace with
+    Pakistani/HEC library catalogues if needed
+  - Turkish İSNAD 2 style - not relevant
+
+
+---------------------------------------------------------------------
+G. FINAL PRIORITISED BUILD LIST
+---------------------------------------------------------------------
+Already built (keep and polish):
+   1  Check Bibliography (+ fabrication checks, link check, age
+      analysis, exports)
+   2  Reference Style converter (PJPS default)
+   4  Citation Check
+   5  Verify Citations
+   7  Manuscript Format (PJPS template + section checklist)
+   8  Check a Journal (HEC HJRS, hijacked, predatory)
+   13-19  Editor tools (consolidated report, author letter EN/UR,
+      revision comparison, re-check, reviewer finder, reviewer
+      report check, issue/citation pattern)
+
+Gaps to build next, in order:
+   P1  Paper Mill Screening - Phase 1 (then Phases 2-3)
+   P1  Reference Style Compliance Check (rule-by-rule, PJPS first)
+   P1  OJS plugin (if pjps.pk runs on OJS)
+   P2  HEC predatory/recognition rules applied in Check a Journal
+       (confirm how much is already covered)
+   P2  Upload once, use in every tool
+   P3  .csl upload and find-style-by-journal-name
+   P3  Problem report with a file attached
+   P3  Word add-in (only if editors ask for it beyond the desktop app)

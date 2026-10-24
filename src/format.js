@@ -1,4 +1,4 @@
-// format.js - render a matched record as a reference string (APA 7, Vancouver, PJPS) and export formats
+// format.js - render a matched record as a reference string (all styles via styles.js) and export formats
 
 function initialsOf(given, { dots = true, space = true } = {}) {
   const parts = String(given || '').split(/[\s.\-]+/).filter(Boolean).map(p => p[0].toUpperCase());
@@ -61,9 +61,11 @@ function pjps(r) {
 }
 
 const STYLES = { apa, vancouver, pjps };
+const styleEngine = require('./styles');
 
+/** Format with any of the 23 styles in styles.js (apa / vancouver / pjps keep their original aliases) */
 function formatReference(record, style = 'pjps') {
-  return (STYLES[style] || pjps)(record);
+  return styleEngine.formatText(record, style);
 }
 
 /** Guess the style of the input list so suggestions look like the author's own entries */

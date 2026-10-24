@@ -88,7 +88,11 @@ const T = {
       uncited: 'References that are never cited in the text (cite them or remove them):',
       ambiguous: 'Ambiguous citations (same author and year — please add a/b suffixes):',
       doi: 'Missing DOIs we found for you (please add them):',
-      selfcite: 'Self-citations that appear weakly related to the topic (please justify or remove):'
+      selfcite: 'Self-citations that appear weakly related to the topic (please justify or remove):',
+      yearMismatch: 'Citations whose year differs between the text and the reference list:',
+      etal: 'Incorrect use of “et al.” in in-text citations:',
+      unsupported: 'Cited sources that do not appear to support the statement they are cited for (please check the citation or the wording):',
+      style: 'References not in PJPS style (the expected form is shown):'
     },
     suggested: 'Suggested:',
     found: 'Registered record:',
@@ -109,7 +113,11 @@ const T = {
       uncited: 'فہرست کے وہ حوالہ جات جن کا متن میں کہیں ذکر نہیں (متن میں حوالہ دیں یا حذف کریں):',
       ambiguous: 'مبہم حوالے (ایک ہی مصنف اور سال — براہِ کرم a/b کا اضافہ کریں):',
       doi: 'وہ DOI جو موجود نہیں تھے اور ہم نے تلاش کیے (براہِ کرم شامل کریں):',
-      selfcite: 'خود حوالگی (Self-citation) جو موضوع سے کمزور تعلق رکھتی ہے (براہِ کرم جواز دیں یا حذف کریں):'
+      selfcite: 'خود حوالگی (Self-citation) جو موضوع سے کمزور تعلق رکھتی ہے (براہِ کرم جواز دیں یا حذف کریں):',
+      yearMismatch: 'وہ حوالے جن کا سال متن اور فہرستِ حوالہ جات میں مختلف ہے:',
+      etal: 'متن کے حوالوں میں “et al.” کا غلط استعمال:',
+      unsupported: 'وہ ماخذ جو اس بیان کی تائید کرتے نظر نہیں آتے جس کے لیے ان کا حوالہ دیا گیا (براہِ کرم حوالہ یا عبارت کی جانچ کریں):',
+      style: 'وہ حوالہ جات جو PJPS اسلوب کے مطابق نہیں (درست صورت ساتھ دی گئی ہے):'
     },
     suggested: 'تجویز:',
     found: 'رجسٹرڈ ریکارڈ:',
@@ -123,7 +131,7 @@ function correctionLetter(result, lang = 'en') {
   const t = T[lang] || T.en;
   const journal = cfg.HOME_JOURNAL.name;
   const refs = result.references?.results || [];
-  const cit = result.citations || {};
+  const cit = result.citations || result.consistency || {};
   const sections = [];
   const sec = (key, items) => { if (items.length) sections.push({ key, heading: t.sections[key], items }); };
 
@@ -131,14 +139,18 @@ function correctionLetter(result, lang = 'en') {
   sec('retracted', refs.filter(r => r.status === 'retracted').map(r => ({ ref: r.index, text: r.raw, note: r.retraction ? `${r.retraction.nature || 'Retraction'}${r.retraction.date ? ` (${r.retraction.date})` : ''}${r.retraction.doi ? ` — https://doi.org/${r.retraction.doi}` : ''}` : r.reason })));
   sec('miscited', refs.filter(r => r.status === 'miscited').map(r => ({
     ref: r.index, text: r.raw,
-    note: r.issues.filter(i => i.severity !== 'info').map(i => `${i.message}${i.cited !== undefined && i.registered !== undefined ? ` (${i.cited} → ${i.registered})` : ''}`).join('; '),
+    note: (r.issues || []).filter(i => i.severity !== 'info').map(i => `${i.message}${i.cited !== undefined && i.registered !== undefined ? ` (${i.cited} → ${i.registered})` : ''}`).join('; '),
     suggestion: r.suggestion
   })));
   sec('unverified', refs.filter(r => r.status === 'unverified').map(r => ({ ref: r.index, text: r.raw, note: r.reason, suggestion: r.suggestion })));
   sec('missing', (cit.missing || []).map(m => ({ text: m.citation, note: m.reason + (m.context ? ` — “…${m.context}…”` : '') })));
   sec('uncited', (cit.uncited || []).map(u => ({ ref: u.index, text: u.raw })));
   sec('ambiguous', (cit.ambiguous || []).map(a => ({ text: a.citation, note: a.message })));
-  sec('doi', refs.filter(r => r.status === 'verified' && !r.parsed.doi && r.record?.doi).map(r => ({ ref: r.index, text: r.raw.slice(0, 140), suggestion: `https://doi.org/${r.record.doi}` })));
+  sec('yearMismatch', (cit.yearMismatch || []).map(y => ({ text: y.citation, note: y.message })));
+  sec('etal', (cit.etAlIssues || []).map(e => ({ text: e.citation, note: e.message })));
+  sec('unsupported', (result.claims?.claims || []).flatMap(c => c.citations.filter(x => x.verdict === 'unsupported').map(x => ({ ref: x.refIndex, text: `“${c.claim.slice(0, 220)}”`, note: x.refRaw.slice(0, 160) }))));
+  sec('style', (result.compliance?.entries || []).filter(e => !e.compliant).map(e => ({ ref: e.index, text: e.original.slice(0, 200), note: e.deviations.filter(d => d.severity !== 'info').map(d => d.message).join('; '), suggestion: e.expected })));
+  sec('doi', refs.filter(r => r.status === 'verified' && !r.parsed?.doi && r.record?.doi).map(r => ({ ref: r.index, text: r.raw.slice(0, 140), suggestion: `https://doi.org/${r.record.doi}` })));
   const weakSelf = (result.pattern?.selfCitation?.refs || []).filter(s => s.relevance?.level === 'weak');
   sec('selfcite', weakSelf.map(s => ({ ref: s.index, text: s.title || '' })));
 

@@ -1,21 +1,44 @@
 // views/report.js - renders a check result: References, Citations, Journals, Citation pattern, Editor report
-import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, issueOptions, state } from '../core.js';
+import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, issueOptions, state, runJob, hasModule } from '../core.js';
+import { decisionCard } from './decision.js';
 
 export async function renderSavedReport(view, id) {
   view.innerHTML = '<div class="empty">Loading report…</div>';
   const d = await api(`/api/checks/${id}`);
   view.innerHTML = '';
-  if (d.result.kind === 'reviewer-report') {
+  const kind = d.kind || d.result.kind;
+  if (kind === 'citations' && d.result.module === 3) {
+    const { renderCitationsResult } = await import('./citations.js');
+    view.innerHTML = `<p class="muted no-print"><a href="#/activity">← My Activity</a> · saved ${fmtDate(d.result.createdAt)}</p><div id="saved"></div>`;
+    renderCitationsResult($('#saved', view), d.result, {});
+    return;
+  }
+  if (kind === 'reviewer-report') {
     const { renderReviewerReportResult } = await import('./reviewerReport.js');
     view.innerHTML = '<div id="rr"></div>';
     renderReviewerReportResult($('#rr', view), d.result);
     return;
   }
-  renderReport(view, d.result, { kind: d.result.kind, saved: true });
+  const other = KIND_VIEWS[kind];
+  if (other) {
+    const mod = await import(other[0]);
+    view.innerHTML = `<p class="muted no-print"><a href="#/activity">← My Activity</a> · saved ${fmtDate(d.result.createdAt)}</p><div id="saved"></div>`;
+    mod[other[1]]($('#saved', view), d.result, {});
+    return;
+  }
+  renderReport(view, d.result, { kind, saved: true });
 }
 
-const STATUS_ORDER = ['suspicious', 'retracted', 'miscited', 'unverified', 'verified'];
-const statusTone = s => ({ verified: 'good', miscited: 'warn', retracted: 'bad', suspicious: 'bad', unverified: 'neutral' }[s] || 'neutral');
+// Saved results of the other tools are shown with that tool's own result view
+const KIND_VIEWS = {
+  restyle: ['./restyle.js', 'renderRestyleResult'], format: ['./format.js', 'renderFormatResult'], verify: ['./verify.js', 'renderVerifyResult'],
+  evidence: ['./evidence.js', 'renderEvidenceResult'], 'journal-finder': ['./journalFinder.js', 'renderJournalFinderResult'],
+  conferences: ['./conferences.js', 'renderConferenceResult'], assistant: ['./assistant.js', 'renderAssistantResult'], authors: ['./authors.js', 'renderAuthorWorks'],
+  papermill: ['./papermill.js', 'renderPaperMillResult'], images: ['./images.js', 'renderImagesResult']
+};
+
+const STATUS_ORDER = ['suspicious', 'retracted', 'miscited', 'pending', 'unverified', 'verified'];
+const statusTone = s => ({ verified: 'good', miscited: 'warn', retracted: 'bad', suspicious: 'bad', unverified: 'neutral', pending: 'info' }[s] || 'neutral');
 
 export function renderReport(el, result, { kind } = {}) {
   const refs = result.references?.results || [];
@@ -23,16 +46,20 @@ export function renderReport(el, result, { kind } = {}) {
   const meta = result.meta || {};
   const id = result.id;
   const tabs = [];
+  if (result.screening) tabs.push(['summary', 'Screening summary', null]);
   if (kind !== 'citations') tabs.push(['references', 'References', s.total]);
+  if (result.compliance) tabs.push(['style', 'PJPS style', result.compliance.summary.nonCompliant]);
   if (result.citations) tabs.push(['citations', 'Citations', result.citations.summary ? (result.citations.summary.missing + result.citations.summary.uncited) : null]);
   if (result.journals) tabs.push(['journals', 'Journals', result.journals.summary?.journals]);
   if (result.pattern) tabs.push(['pattern', 'Citation pattern', result.pattern.flags?.length]);
+  if (result.papermill && hasModule('papermill')) tabs.push(['papermill', 'Paper mill', result.papermill.signals.length]);
+  if (result.images && hasModule('images')) tabs.push(['images', 'Images', result.images.summary.findings]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
 
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <h1>${esc(meta.title || (kind === 'citations' ? 'Citation Check' : 'Reference Check'))}</h1>
+        <h1>${esc(meta.title || (kind === 'citations' ? 'Citation Check' : kind === 'manuscript' ? 'Full Screening Report' : 'Check Bibliography'))}</h1>
         <p>${meta.manuscriptCode ? `<b>${esc(meta.manuscriptCode)}</b> · version ${meta.version || 1} · ` : ''}${fmtDate(result.createdAt)}${result.truncated ? ` · <span class="badge b-warn">Only the first ${refs.length} of ${result.totalFound} references were checked</span>` : ''}</p>
       </div>
       <div class="row no-print">
@@ -41,12 +68,15 @@ export function renderReport(el, result, { kind } = {}) {
           <div style="position:relative">
             <button class="btn btn-sm" id="export-btn">${ICONS.download} Export ▾</button>
             <div id="export-menu" class="card" hidden style="position:absolute;right:0;top:36px;z-index:20;padding:6px;min-width:230px">
-              ${[['csv', 'Audit report (CSV)'], ['docx', 'Reference report (Word)'], ['corrected', 'Corrected reference list (.txt)'], ['bibtex', 'BibTeX (.bib)'], ['ris', 'RIS (.ris)']].map(([f, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-export="${f}">${l}</button>`).join('')}
+              ${result.screening ? [['editor', 'Screening report — editor version (Word)'], ...(hasModule('reports') ? [['author', 'Screening report — author version (Word)']] : [])].map(([v, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-screen="${v}">${l}</button>`).join('') : ''}
+              ${[['csv', 'Audit report (CSV)'], ['docx', 'Reference report (Word)'], ['corrected', 'Corrected reference list, PJPS style (.txt)'], ['bibtex', 'BibTeX (.bib)'], ['ris', 'RIS (.ris)']].map(([f, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-export="${f}">${l}</button>`).join('')}
             </div>
           </div>` : ''}
+        ${id && ['references', 'manuscript'].includes(kind) ? `<button class="btn btn-sm" id="recheck" title="Run the same reference list again and show only what changed">↻ Re-check</button>` : ''}
         <button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>
       </div>
     </div>
+    ${result.changes ? changesBanner(result.changes) : ''}
     ${kind !== 'citations' ? kpis(s) : ''}
     ${s.suspicious || s.retracted ? `<div class="alert alert-bad"><b>Publication integrity alert:</b> ${s.suspicious ? `${s.suspicious} reference(s) could not be found in any of the 12 databases (possibly fabricated)` : ''}${s.suspicious && s.retracted ? '; ' : ''}${s.retracted ? `${s.retracted} retracted work(s) cited` : ''}.</div>` : ''}
     <div class="tabs">${tabs.map(([k, l, c], i) => `<button class="tab ${i === 0 ? 'active' : ''}" data-tab="${k}">${esc(l)}${c !== null && c !== undefined ? `<span class="count">${c}</span>` : ''}</button>`).join('')}</div>
@@ -55,7 +85,11 @@ export function renderReport(el, result, { kind } = {}) {
   const body = $('#tab-body', el);
   const show = k => {
     $$('.tab', el).forEach(t => t.classList.toggle('active', t.dataset.tab === k));
-    if (k === 'references') referencesTab(body, refs, s);
+    if (k === 'summary') summaryTab(body, result);
+    else if (k === 'style') styleTab(body, result.compliance);
+    else if (k === 'papermill') import('./papermill.js').then(m => { body.innerHTML = '<div id="pm"></div>'; m.renderPaperMillResult($('#pm', body), { ...result.papermill, id: null }); });
+    else if (k === 'images') body.innerHTML = `<div class="card"><h3>Image Integrity (Module 5)</h3><p>Image risk <b>${esc(result.images.summary.level)}</b> — ${result.images.summary.findings} finding(s) in ${result.images.summary.panels} panels${result.images.summary.earlier ? `, ${result.images.summary.earlier} match(es) with earlier PJPS manuscripts` : ''}.</p><a class="btn btn-sm" href="#/check/${result.images.checkId}">Open the image report</a></div>`;
+    else if (k === 'references') referencesTab(body, refs, s, result.indicators);
     else if (k === 'citations') citationsTab(body, result.citations, refs);
     else if (k === 'journals') journalsTab(body, result.journals);
     else if (k === 'pattern') patternTab(body, result.pattern, refs);
@@ -70,10 +104,85 @@ export function renderReport(el, result, { kind } = {}) {
     const menu = $('#export-menu', el);
     eb.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; };
     document.addEventListener('click', () => (menu.hidden = true), { once: true });
-    $$('[data-export]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/export?format=${b.dataset.export}`).catch(e => toast(e.message, 'error'))));
+    $$('[data-export]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/export?format=${b.dataset.export}${b.dataset.export === 'corrected' ? '&style=pjps' : ''}`).catch(e => toast(e.message, 'error'))));
+    $$('[data-screen]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/screening?version=${b.dataset.screen}`).catch(e => toast(e.message, 'error'))));
   }
+  const rc = $('#recheck', el);
+  if (rc) rc.onclick = async () => {
+    rc.disabled = true;
+    try {
+      const { jobId } = await api(`/api/checks/${id}/recheck`, { body: {} });
+      const holder = document.createElement('div');
+      el.prepend(holder);
+      const fresh = await runJob(jobId, holder, 'Re-checking the reference list');
+      holder.remove();
+      location.hash = `#/check/${fresh.id}`;
+      toast(fresh.changes?.rows?.length ? `${fresh.changes.rows.length} change(s) since the last run` : 'No changes since the last run');
+    } catch (e) { toast(e.message, 'error'); rc.disabled = false; }
+  };
   const ia = $('#issue-assign', el);
   if (ia) ia.onchange = () => api(`/api/checks/${id}`, { method: 'PATCH', body: { issueId: ia.value || null } }).then(() => toast(ia.value ? 'Added to issue' : 'Removed from issue')).catch(e => toast(e.message, 'error'));
+}
+
+function changesBanner(c) {
+  if (!c.rows.length) return `<div class="alert alert-good">Re-check: nothing changed since the run of ${fmtDate(c.previousDate)}. <a href="#/check/${c.previousId}">Earlier report</a></div>`;
+  return `<div class="card"><div class="card-head"><h3>Changes since the run of ${fmtDate(c.previousDate)}</h3><a href="#/check/${c.previousId}">Earlier report</a></div><table class="t"><tr><th>#</th><th>Change</th><th>Reference</th></tr>
+    ${c.rows.map(r => `<tr><td class="num">${r.index}</td><td>${r.change === 'status' ? `${esc(r.before)} → <b>${esc(r.after)}</b>` : r.change === 'new' ? `New: ${esc(r.after)}` : `Removed (${esc(r.before)})`}</td><td>${esc(r.raw.slice(0, 180))}${r.reason ? `<div class="muted">${esc(r.reason)}</div>` : ''}</td></tr>`).join('')}</table></div>`;
+}
+
+const REC_TONE = { proceed: 'good', return: 'warn', investigate: 'bad' };
+
+function summaryTab(body, r) {
+  const sc = r.screening;
+  const row = (n, label, line, tone) => `<tr><td class="num">${n}</td><td><b>${label}</b></td><td>${badge(tone === 'good' ? 'OK' : tone === 'bad' ? 'Problem' : tone === 'warn' ? 'Check' : '—', tone || 'neutral')}</td><td>${esc(line)}</td></tr>`;
+  const s = r.references.summary, c = r.citations?.summary, cp = r.compliance?.summary, pm = r.papermill?.risk, im = r.images?.summary;
+  body.innerHTML = `
+    <div class="risk-banner risk-${sc.recommendation === 'proceed' ? 'low' : sc.recommendation === 'return' ? 'medium' : 'high'}"><div class="risk-level">${sc.recommendation === 'proceed' ? '✓' : sc.recommendation === 'return' ? '↩' : '!'}</div><div><b>Desk-review recommendation: ${esc(sc.recommendationLabel)}</b><div class="muted">${sc.reasons.length ? sc.reasons.map(esc).join(' · ') : 'No blocking problems were found.'} The editor decides.</div></div></div>
+    <div class="card"><table class="t"><tr><th>#</th><th>Module</th><th>Status</th><th>Summary</th></tr>
+      ${row(1, 'Check Bibliography', sc.lines.bibliography, s.suspicious || s.retracted ? 'bad' : s.miscited ? 'warn' : 'good')}
+      ${row(2, 'PJPS style', sc.lines.style, !cp ? '' : cp.score >= 90 ? 'good' : cp.score >= 60 ? 'warn' : 'bad')}
+      ${row(3, 'Citations', sc.lines.citations, !c ? '' : c.missing || c.uncited > 3 ? 'warn' : 'good')}
+      ${hasModule('papermill') ? row(4, 'Paper mill risk', sc.lines.papermill, !pm ? '' : pm.level === 'HIGH' ? 'bad' : pm.level === 'MEDIUM' ? 'warn' : 'good') : ''}
+      ${hasModule('images') ? row(5, 'Image integrity', sc.lines.images, !im ? '' : im.level === 'HIGH' ? 'bad' : im.level === 'MEDIUM' ? 'warn' : 'good') : ''}
+    </table>
+    <p class="muted" style="margin:10px 0 0">Author version: Modules 1–3 only, after your approval. Editor version: all modules. Claim support (does each source support its claim?) is checked in Module 3.</p></div>
+    ${r.indicators?.flags?.length ? `<div class="card"><h3>Bibliography indicators</h3>${r.indicators.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.message)}</div></div>`).join('')}</div>` : ''}
+    <div id="scr-decision"></div>`;
+  decisionCard($('#scr-decision', body), r, 'manuscript');
+}
+
+function styleTab(body, cp) {
+  const s = cp.summary;
+  const bad = cp.entries.filter(e => !e.compliant);
+  body.innerHTML = `
+    <div class="kpis"><div class="kpi ${s.score >= 90 ? 'good' : s.score >= 60 ? 'warn' : 'bad'}"><div class="n">${s.score}%</div><div class="l">PJPS compliant (${s.compliant}/${s.total})</div></div><div class="kpi"><div class="n">${s.deviations}</div><div class="l">Deviations</div></div><div class="kpi"><div class="n">${s.inTextIssues}</div><div class="l">In-text problems</div></div></div>
+    <p class="muted">To convert the manuscript to PJPS format with Track Changes, use Module 2.</p>
+    ${cp.inText.issues.length ? `<div class="card"><h3>In-text citations</h3><table class="t">${cp.inText.issues.map(i => `<tr><td><b>${esc(i.citation || '—')}</b></td><td>${esc(i.message)}</td></tr>`).join('')}</table></div>` : ''}
+    ${bad.map(e => `<div class="entry kept"><div><b>[${e.index}]</b> ${esc(e.original)}</div><ul class="issue-list">${e.deviations.map(d => `<li>${esc(d.message)}${d.found ? ` — <span class="diff-old">${esc(d.found)}</span>` : ''}${d.expected ? ` → <span class="diff-new">${esc(d.expected)}</span>` : ''}</li>`).join('')}</ul>${e.expected ? `<div class="suggest"><b>PJPS form:</b> ${esc(e.expected)}</div>` : ''}</div>`).join('') || '<div class="alert alert-good">All references follow the PJPS house style.</div>'}`;
+}
+
+function indicatorsCard(ind) {
+  if (!ind) return '';
+  const a = ind.age;
+  const years = Object.keys(a.byYear).map(Number).sort((x, y) => x - y);
+  const maxN = Math.max(1, ...Object.values(a.byYear));
+  const y0 = years.length ? Math.max(years[0], new Date().getFullYear() - 30) : 0;
+  const span = years.length ? years.filter(y => y >= y0) : [];
+  return `<div class="grid grid-2">
+    <div class="card"><h3>References by year</h3>
+      ${span.length ? `<div class="year-chart">${span.map(y => `<div class="yc-col" title="${y}: ${a.byYear[y]}"><span style="height:${Math.round(a.byYear[y] / maxN * 100)}%" class="${y >= new Date().getFullYear() - a.rule.years ? 'recent' : ''}"></span></div>`).join('')}</div><div class="row" style="justify-content:space-between"><span class="muted">${span[0]}</span><span class="muted">${span[span.length - 1]}</span></div>` : '<p class="muted">No years found.</p>'}
+      <div class="stat-line"><span><b>${a.recentShare ?? '—'}%</b> from the last ${a.rule.years} years</span><span><b>${a.within10Share ?? '—'}%</b> from the last 10 years</span></div>
+      ${a.rule.minShare && a.recentShare !== null && a.recentShare < a.rule.minShare ? `<div class="alert alert-warn" style="margin:8px 0 0">Below the PJPS minimum of ${a.rule.minShare}% recent references.</div>` : ''}
+    </div>
+    <div class="card"><h3>Quality indicators</h3>
+      <div class="stat-line"><span>Self-citation</span><b>${ind.selfCitation.measured ? `${ind.selfCitation.count} (${ind.selfCitation.rate}%)` : 'enter the authors to measure'}</b></div>
+      <div class="stat-line"><span>${esc(ind.homeJournal.name)} citations</span><b>${ind.homeJournal.count}</b></div>
+      <div class="stat-line"><span>Predatory / hijacked journals</span><b class="${ind.riskyJournals.length ? 'txt-bad' : ''}">${ind.riskyJournals.reduce((n, j) => n + j.refs.length, 0)}</b></div>
+      <div class="stat-line"><span>Duplicate references</span><b>${ind.duplicates.length}</b></div>
+      ${ind.riskyJournals.length ? `<ul class="issue-list">${ind.riskyJournals.map(j => `<li>${badge(j.kind, 'bad')} ${esc(j.journal)} — ${j.refs.map(i => `<a href="#" data-goto="${i}">[${i}]</a>`).join(' ')}</li>`).join('')}</ul>` : ''}
+      ${ind.duplicates.length ? `<ul class="issue-list">${ind.duplicates.map(d => `<li>${d.indexes.map(i => `<a href="#" data-goto="${i}">[${i}]</a>`).join(' = ')} ${esc(d.by)}</li>`).join('')}</ul>` : ''}
+    </div>
+  </div>`;
 }
 
 function kpis(s) {
@@ -85,17 +194,20 @@ function kpis(s) {
     ${k(s.unverified, 'Unverified', '', 'unverified')}
     ${k(s.suspicious, 'Suspicious', 'bad', 'suspicious')}
     ${k(s.retracted, 'Retracted', 'bad', 'retracted')}
+    ${s.pending ? k(s.pending, 'Pending — online', 'info', 'pending') : ''}
     ${k(s.doiSuggested, 'DOIs found', 'info', 'doi')}
-  </div>`;
+  </div>
+  ${s.pending ? `<div class="alert alert-info"><b>${s.pending} reference(s) could not be checked offline.</b> They were checked against the local Retraction Watch and predatory-journal datasets only, and will be verified against the 12 databases automatically when the connection returns.</div>` : ''}`;
 }
 
 // ------------------------------------------------------------------ References tab
 
-function referencesTab(body, refs, s) {
+function referencesTab(body, refs, s, indicators) {
   const ages = s.ages || {};
   const totalAged = (ages.last5 || 0) + (ages.y6to10 || 0) + (ages.y11to20 || 0) + (ages.older || 0);
   const bar = (label, n) => `<div class="bar-row"><span>${label}</span><div class="bar-track"><span style="width:${pct(n, totalAged)}%"></span></div><span class="num">${n || 0}</span></div>`;
   body.innerHTML = `
+    ${indicatorsCard(indicators)}
     <div class="grid grid-2">
       <div class="card"><h3>Reference age</h3><div class="bars">
         ${bar('Last 5 years', ages.last5)}${bar('6–10 years', ages.y6to10)}${bar('11–20 years', ages.y11to20)}${bar('Older than 20', ages.older)}
@@ -107,7 +219,7 @@ function referencesTab(body, refs, s) {
       </div>
     </div>
     <div class="filters no-print">
-      ${[['all', 'All', refs.length], ...STATUS_ORDER.map(st => [st, st[0].toUpperCase() + st.slice(1), refs.filter(r => r.status === st).length]), ['doi', 'DOI found', refs.filter(r => !r.parsed?.doi && r.record?.doi).length], ['broken', 'Broken links', refs.filter(r => r.links?.some(l => l.status === 'broken')).length]]
+      ${[['all', 'All', refs.length], ...STATUS_ORDER.filter(st => st !== 'pending' || refs.some(r => r.status === 'pending')).map(st => [st, st[0].toUpperCase() + st.slice(1), refs.filter(r => r.status === st).length]), ['doi', 'DOI found', refs.filter(r => !r.parsed?.doi && r.record?.doi).length], ['notindexed', 'Not indexed', refs.filter(r => r.notIndexed).length], ['broken', 'Broken links', refs.filter(r => r.links?.some(l => l.status === 'broken')).length]]
         .map(([f, l, c]) => `<button class="filter ${f === 'all' ? 'active' : ''}" data-f="${f}">${l} (${c})</button>`).join('')}
       <span class="spacer"></span>
       <button class="filter" id="expand-all">Expand all</button>
@@ -116,7 +228,7 @@ function referencesTab(body, refs, s) {
 
   const list = $('#ref-list', body);
   const draw = f => {
-    const shown = refs.filter(r => f === 'all' || r.status === f || (f === 'doi' && !r.parsed?.doi && r.record?.doi) || (f === 'broken' && r.links?.some(l => l.status === 'broken')));
+    const shown = refs.filter(r => f === 'all' || r.status === f || (f === 'doi' && !r.parsed?.doi && r.record?.doi) || (f === 'notindexed' && r.notIndexed) || (f === 'broken' && r.links?.some(l => l.status === 'broken')));
     list.innerHTML = shown.length ? shown.map(refRow).join('') : '<div class="empty">No references in this category.</div>';
     $$('.ref-head', list).forEach(h => (h.onclick = () => h.parentElement.classList.toggle('open')));
     $$('[data-copy]', list).forEach(b => (b.onclick = e => { e.stopPropagation(); copyText(b.dataset.copy); }));

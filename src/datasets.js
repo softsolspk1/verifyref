@@ -58,15 +58,16 @@ async function loadRetractionWatch() {
     const prev = byDoi.get(doi);
     if (prev && /retraction/i.test(prev[3]) && !/retraction/i.test(row.RetractionNature || '')) continue;
     byDoi.set(doi, [doi, cleanDoi(row.RetractionDOI) || '', (row.RetractionDate || '').split(' ')[0], row.RetractionNature || '',
-      (row.Reason || '').replace(/;$/, '').replace(/^\+/, ''), row.Title || '', row.Journal || '', normalizeJournal(row.Journal || '')]);
+      (row.Reason || '').replace(/;$/, '').replace(/^\+/, ''), row.Title || '', row.Journal || '', normalizeJournal(row.Journal || ''), (row.Author || '').slice(0, 2000)]);
   }
   const data = [...byDoi.values()];
   await transaction(async client => {
     await client.query('TRUNCATE retractions');
-    await bulkInsert(client, 'retractions', ['doi', 'retraction_doi', 'retraction_date', 'nature', 'reason', 'title', 'journal', 'journal_norm'].map(name => ({ name, type: 'text' })), data);
+    await bulkInsert(client, 'retractions', ['doi', 'retraction_doi', 'retraction_date', 'nature', 'reason', 'title', 'journal', 'journal_norm', 'authors'].map(name => ({ name, type: 'text' })), data);
   });
   await setMeta('rw_loaded_at', new Date().toISOString());
   await setMeta('rw_count', data.length);
+  await setMeta('rw_authors', '1');
   return data.length;
 }
 
@@ -81,6 +82,12 @@ async function retractionsFor(dois) {
   if (!list.length) return new Map();
   const rows = await db.all('SELECT * FROM retractions WHERE doi = ANY($1::text[])', [list]);
   return new Map(rows.map(r => [r.doi, r]));
+}
+
+/** Retracted papers listing an author with this surname (candidates; exact matching is done by the caller) */
+async function retractionsByAuthor(family) {
+  if (!family || family.length < 3) return [];
+  return db.all("SELECT doi, retraction_date, nature, reason, title, journal, authors FROM retractions WHERE authors ILIKE $1 AND nature ILIKE '%retraction%' LIMIT 200", [`%${family}%`]);
 }
 
 async function journalRetractionCounts(journalName) {
@@ -238,7 +245,9 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
     return force || !at || Date.now() - new Date(at).getTime() > maxAgeDays * 86400000;
   };
   const results = {};
-  if (await stale('rw_loaded_at')) {
+  // v4 added author names: reload once if the stored copy predates that column
+  const noAuthors = !force && (await getMeta('rw_authors')) !== '1';
+  if (noAuthors || await stale('rw_loaded_at')) {
     try { results.retractionWatch = await loadRetractionWatch(); log(`Retraction Watch: ${results.retractionWatch} records loaded`); }
     catch (e) { results.retractionWatchError = e.message; log(`Retraction Watch load failed: ${e.message}`); }
   }
@@ -250,6 +259,6 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
 }
 
 module.exports = {
-  parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, journalRetractionCounts, loadBeall, predatoryMatches,
+  parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, predatoryMatches,
   importJournalList, listLookupAll, listStatus, ensureDatasets, LIST_TYPES, domainOf
 };

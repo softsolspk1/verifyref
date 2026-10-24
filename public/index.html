@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PJPS Reference Checker</title>
-  <meta name="description" content="Editor-only reference integrity tools for the Pakistan Journal of Pharmaceutical Sciences — by Softsols Pakistan.">
+  <meta name="description" content="Five-module manuscript screening for the Pakistan Journal of Pharmaceutical Sciences — by Softsols Pakistan.">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -17,53 +17,42 @@
           <div class="brand-sub">by Softsols Pakistan</div>
         </div>
       </div>
-      <h1>Reference integrity tools for editors</h1>
-      <p class="lead">Fabricated references, irrelevant self-citations and finding a suitable reviewer take up much of an editor's time — at the Pakistan Journal of Pharmaceutical Sciences as at most journals. These tools are open to editor accounts only.</p>
+      <h1>Manuscript screening for PJPS</h1>
+      <p class="lead">Five modules check every submission before peer review: fabricated, wrong or retracted references, the PJPS reference style, citations that do not support the text, paper-mill signs and duplicated or edited figures.</p>
       <ul class="feature-list">
-        <li><b>Citation pattern</b>Irrelevant self-citation and references piled on one author or one journal, before publication.</li>
-        <li><b>Reviewer Finder</b>Candidates who recently published on the manuscript's topic, with ORCID and conflict-of-interest flags.</li>
-        <li><b>Reviewer report check</b>Flags reviewers' requests to cite their own work or a single journal.</li>
-        <li><b>Editor report</b>One-page decision summary for desk review, a correction letter for the author and a revision comparison.</li>
-        <li><b>Issue report</b>Summary table of every manuscript checked in an issue: references, suspicious items and problems.</li>
-        <li><b>Reference, Citation &amp; Journal Check</b>12 academic databases, in-text citation matching, Scopus/WoS/HJRS indexing and predatory-journal checks.</li>
+        <li><b>1 · Check Bibliography</b>12 scholarly databases, Retraction Watch, links, reference age, self-citation, predatory journals and duplicates.</li>
+        <li><b>2 · Reference Style &amp; PJPS Converter</b>Rule-by-rule PJPS style check and conversion of citations and references, in Word as Track Changes.</li>
+        <li><b>3 · Citations</b>In-text citations against the reference list, claim support from the cited sources, citation patterns and author letters in English and Urdu.</li>
+        <li><b>4 · Paper Mill Detection</b>Tortured phrases, AI-text leftovers, mill-retracted references, author retractions, ORCID, cell lines and duplicate submissions.</li>
+        <li><b>5 · Image Integrity</b>Duplicated, rotated, mirrored, cropped or cloned figures and re-use of earlier PJPS figures, with a forensic viewer.</li>
+        <li><b>Full Screening Report</b>One upload, one report with a desk-review recommendation; author and editor versions.</li>
       </ul>
-      <div class="foot">© <span id="yr"></span> Softsols Pakistan · Manuscripts are processed for checking only and never sent to plagiarism databases.</div>
+      <div class="foot">© <span id="yr"></span> Softsols Pakistan · Manuscripts are processed for checking only and never sent to plagiarism databases or external AI services.</div>
     </section>
 
     <section class="landing-panel">
       <div class="box">
         <div id="signin">
-          <h2>Editor sign in</h2>
-          <p class="muted">Use the account approved for your journal.</p>
+          <h2>Sign in</h2>
+          <p class="muted">Accounts are created by the Super Admin. Contact your administrator if you need access.</p>
           <form id="login-form">
-            <div class="field"><label for="l-email">Email</label><input id="l-email" type="email" autocomplete="username" required></div>
+            <div class="field"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" required></div>
             <div class="field"><label for="l-pass">Password</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
             <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center">Sign in</button>
           </form>
-          <p style="margin-top:18px">New editor? <a href="#" id="show-request">Request editor access</a></p>
+          <div id="desk" hidden style="margin-top:18px">
+            <p class="muted" style="margin:0 0 6px"><span id="conn-state"></span> The first sign-in on this computer must be online; afterwards you can sign in offline for the period set by the Super Admin.</p>
+            <a href="#" id="show-settings">Web platform address</a>
+          </div>
         </div>
 
-        <div id="request" hidden>
-          <h2>Request editor access</h2>
-          <p class="muted">Access is limited to journal editors. An administrator verifies your role before approval. Co-editors you list are approved automatically when they register.</p>
-          <form id="request-form">
-            <div class="field"><label for="r-name">Full name</label><input id="r-name" type="text" required></div>
-            <div class="field"><label for="r-email">Institutional email</label><input id="r-email" type="email" required></div>
-            <div class="grid grid-2">
-              <div class="field"><label for="r-journal">Journal</label><input id="r-journal" type="text" value="Pakistan Journal of Pharmaceutical Sciences" required></div>
-              <div class="field"><label for="r-role">Editor role</label>
-                <select id="r-role" required>
-                  <option>Editor-in-Chief</option><option>Managing Editor</option><option>Associate Editor</option><option>Section Editor</option><option>Editorial Assistant</option>
-                </select>
-              </div>
-            </div>
-            <div class="field"><label for="r-orcid">ORCID <span class="muted">(optional)</span></label><input id="r-orcid" type="text" placeholder="0000-0000-0000-0000"></div>
-            <div class="field"><label for="r-co">Co-editor emails <span class="muted">(optional)</span></label><input id="r-co" type="text" placeholder="name@pjps.pk, other@uok.edu.pk"></div>
-            <div class="field"><label for="r-pass">Password</label><input id="r-pass" type="password" minlength="8" autocomplete="new-password" required><div class="hint">At least 8 characters.</div></div>
-            <div class="field"><label for="r-note">Note to administrator <span class="muted">(optional)</span></label><textarea id="r-note" rows="2"></textarea></div>
-            <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center">Send request</button>
+        <div id="settings" hidden>
+          <h2>Web platform</h2>
+          <p class="muted">The desktop application signs in and synchronises with your organisation's web platform.</p>
+          <form id="settings-form">
+            <div class="field"><label for="s-url">Address</label><input id="s-url" type="text" placeholder="https://refcheck.pjps.pk" required></div>
+            <button class="btn btn-primary" type="submit">Save</button> <a href="#" id="back">Back</a>
           </form>
-          <p style="margin-top:18px"><a href="#" id="show-signin">Back to sign in</a></p>
         </div>
         <div id="msg" class="alert" hidden style="margin-top:16px"></div>
       </div>
@@ -74,9 +63,7 @@
     document.getElementById('yr').textContent = new Date().getFullYear();
     const $ = id => document.getElementById(id);
     const show = (el, on) => { el.hidden = !on; };
-    function message(text, kind) { const m = $('msg'); m.className = `alert alert-${kind}`; m.textContent = text; show(m, true); }
-    $('show-request').onclick = e => { e.preventDefault(); show($('signin'), false); show($('request'), true); show($('msg'), false); };
-    $('show-signin').onclick = e => { e.preventDefault(); show($('request'), false); show($('signin'), true); show($('msg'), false); };
+    function message(text, kind) { const m = $('msg'); m.className = `alert alert-${kind}`; m.textContent = text; show(m, !!text); }
 
     async function post(url, body) {
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -85,27 +72,33 @@
       return data;
     }
 
-    fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user && d.user.status === 'approved') location.href = '/app'; });
+    fetch('/api/app').then(r => r.json()).then(async app => {
+      if (app.user) { location.href = '/app'; return; }
+      if (!app.desktop) return;
+      show($('desk'), true);
+      const s = await fetch('/api/desktop/settings').then(r => r.json());
+      $('s-url').value = s.remoteUrl || '';
+      $('conn-state').textContent = s.online ? 'Online.' : 'Offline.';
+      if (!s.remoteUrl) { show($('signin'), false); show($('settings'), true); message('Enter the web platform address once to link this computer.', 'info'); }
+    });
+
+    $('show-settings').onclick = e => { e.preventDefault(); show($('signin'), false); show($('settings'), true); message(''); };
+    $('back').onclick = e => { e.preventDefault(); show($('settings'), false); show($('signin'), true); message(''); };
+    $('settings-form').onsubmit = async e => {
+      e.preventDefault();
+      try { await post('/api/desktop/settings', { remoteUrl: $('s-url').value }); show($('settings'), false); show($('signin'), true); message('Saved. Sign in with the account the Super Admin created for you.', 'good'); }
+      catch (err) { message(err.message, 'bad'); }
+    };
 
     $('login-form').onsubmit = async e => {
       e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
       try {
         const d = await post('/api/auth/login', { email: $('l-email').value, password: $('l-pass').value });
-        if (d.user.status === 'approved') location.href = '/app';
-        else message('Your access request is awaiting approval by an administrator.', 'info');
-      } catch (err) { message(err.message, 'bad'); }
-    };
-
-    $('request-form').onsubmit = async e => {
-      e.preventDefault();
-      try {
-        const d = await post('/api/auth/register', {
-          name: $('r-name').value, email: $('r-email').value, journal: $('r-journal').value, editorRole: $('r-role').value,
-          orcid: $('r-orcid').value, coEditors: $('r-co').value, password: $('r-pass').value, note: $('r-note').value
-        });
-        if (d.user.status === 'approved') location.href = '/app';
-        else { message(d.message, 'good'); e.target.reset(); }
-      } catch (err) { message(err.message, 'bad'); }
+        if (d.message) { message(d.message, 'info'); setTimeout(() => (location.href = '/app'), 1500); }
+        else location.href = '/app';
+      } catch (err) { message(err.message, 'bad'); btn.disabled = false; }
     };
   </script>
 </body>

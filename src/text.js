@@ -83,7 +83,11 @@ function splitName(name) {
   return { given: parts.slice(0, i).join(' '), family: parts.slice(i).join(' ') };
 }
 
+// Initials written together, as in Vancouver / PJPS style ("Hewlings SJ"): two to four capitals, not a short name
+const joinedInitials = g => /^[A-Z]{2,4}$/.test(String(g || '').trim());
+
 function initials(given) {
+  if (joinedInitials(given)) return String(given).trim();
   return stripDiacritics(given || '').split(/[\s.\-]+/).filter(Boolean).map(p => p[0].toUpperCase()).join('');
 }
 
@@ -109,7 +113,8 @@ function nameMatch(a, b) {
   const ia = initials(A.given), ib = initials(B.given);
   if (!ia || !ib) return 'likely';
   if (ia[0] !== ib[0]) return null;
-  const ga = normalize(A.given).split(' ')[0], gb = normalize(B.given).split(' ')[0];
+  const ga = joinedInitials(A.given) ? ia[0].toLowerCase() : normalize(A.given).split(' ')[0];
+  const gb = joinedInitials(B.given) ? ib[0].toLowerCase() : normalize(B.given).split(' ')[0];
   if (ga.length > 1 && gb.length > 1) return ga === gb ? 'exact' : null;
   return ia === ib || ia.startsWith(ib) || ib.startsWith(ia) ? 'exact' : 'likely';
 }

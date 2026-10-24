@@ -1,0 +1,45 @@
+{
+  "name": "pjps-reference-checker-desktop",
+  "productName": "PJPS Reference Checker",
+  "version": "3.0.0",
+  "description": "PJPS Reference Checker for Windows — desktop edition with offline mode, by Softsols Pakistan",
+  "author": "Softsols Pakistan",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "stage": "node stage.js",
+    "dist": "node stage.js && electron-builder --win --x64",
+    "dist:dir": "node stage.js && electron-builder --win --x64 --dir"
+  },
+  "devDependencies": {
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "pk.softsols.pjps-reference-checker",
+    "productName": "PJPS Reference Checker",
+    "copyright": "© Softsols Pakistan",
+    "directories": { "app": "app", "output": "dist", "buildResources": "build" },
+    "asar": true,
+    "asarUnpack": ["node_modules/@electric-sql/pglite/**"],
+    "extraResources": [{ "from": "desktop-config.json", "to": "desktop-config.json" }],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "artifactName": "PJPS-Reference-Checker-${version}-${arch}-${target}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PJPS Reference Checker",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "PJPS-Reference-Checker-Setup-${version}.${ext}"
+    },
+    "portable": { "artifactName": "PJPS-Reference-Checker-Portable-${version}.${ext}" }
+  }
+}

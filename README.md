@@ -1,68 +1,88 @@
 # PJPS Reference Checker
 
-**by Softsols Pakistan** — editor-only reference integrity tools for the *Pakistan Journal of Pharmaceutical Sciences*.
+**by Softsols Pakistan** — five-module manuscript screening portal for the *Pakistan Journal of Pharmaceutical Sciences* (web platform). The earlier Windows desktop edition is still in the repository but is not developed further for the v4 modules.
 
-Fabricated references, irrelevant self-citations and finding a suitable reviewer take up much of an editor's time. These tools are open to approved editor accounts only.
+The feature set follows [ReferenceVerify](https://referenceverify.com/) (all tools except its integrations and pricing), adapted to PJPS. The proposal is in [`docs/PJPS-Reference-Checker-Proposal.docx`](docs/PJPS-Reference-Checker-Proposal.docx).
 
-## Editor tools
+## PJPS modules (v4)
 
-| Tool | What it does |
-|---|---|
-| **Citation pattern** | Self-citation rate (matched by ORCID or name), self-citations that are weakly related to the topic, references piled on one author or one journal, citation stacking toward PJPS (incl. the two-year impact-factor window) and off-topic sources — with guidance on when a pattern can be legitimate. |
-| **Reviewer Finder** | Candidates who published on the manuscript's topic in the last 3–8 years (OpenAlex), with ORCID, institution, h-index, current-year workload, retractions and conflict-of-interest flags (co-authorship with the manuscript authors, shared institution). Filters: ORCID only, hide conflicts, Pakistan-based / international. Word & CSV export; no contact details. |
-| **Reviewer report check** | Extracts citation requests (full references, DOIs, author–year mentions, generic requests) from a reviewer report, verifies them and flags the reviewer's own work, single-journal or single-author groups, weakly related or unverifiable sources and coercive wording ("must cite… for acceptance"). Produces a note to the author. |
-| **Editor report** | One-page desk-review decision summary (proceed / revise / consider rejection), author correction letter in **English and Urdu** with suggested corrections, and a **revision comparison** (fixed, removed, still problematic, new problems, % of requested fixes made). Word, text and print/PDF. |
-| **Issue report** | Summary table of every manuscript checked in an issue (or the last 1/3/6/12 months): references, suspicious, retracted, miscited, citation mismatches, self-citation and most frequent problems. Word & CSV. Checks can be saved as *counts only* so no manuscript content is stored. |
+The portal is reduced to the five modules the PJPS Editor asked for, plus one Full Screening Report (spec: [`docs/PJPS-Final-4-Modules.txt`](docs/PJPS-Final-4-Modules.txt), proposal: [`docs/PJPS-4-Modules-Proposal.docx`](docs/PJPS-4-Modules-Proposal.docx)). The earlier tools remain in the code base but are switched off in `src/modules.js` (`LEGACY`): they are not shown, not granted, and their API routes refuse access.
 
-## Also included
+| Module | Page | What it does |
+|---|---|---|
+| **Full Screening Report** (editor) | `#/manuscript` | One upload runs Modules 1, 2 (compliance), 3 (list matching, pattern) and 4, and attaches a Module 5 report if selected. Front-page summary per module and a desk-review recommendation (proceed / return / investigate). Word export: editor version (all modules) and author version (Modules 1–3). Editor decision record. |
+| **1 · Check Bibliography** | `#/references` | 12 databases + Retraction Watch; Verified / Miscited / Unverified / Suspicious / Retracted with confidence; fabrication checks; link check; regional journals shown as *Not indexed*; reference-age chart against the PJPS rule (Super Admin setting); self-citation, PJPS citations, predatory / hijacked journals, duplicate references (`src/checks/indicators.js`); **Re-check** shows only what changed. |
+| **2 · Reference Style & PJPS Converter** | `#/restyle` | Rule-by-rule PJPS compliance of every reference and in-text citation with the expected form (`src/checks/compliance.js`); conversion to PJPS (or any of 23 styles) with **Word Track Changes** (`Docx.trackChanges()` in `src/ooxml.js`); before/after view. |
+| **3 · Citations** | `#/citations` | A. citations ↔ list (missing, uncited, year, ambiguous, wrong “et al.”, numbering, citation blocks); B. claim support from uploaded PDFs / open access / abstracts; C. citation pattern; author letter EN/UR (`src/tools/citationsModule.js`). |
+| **4 · Paper Mill Detection** (editor) | `#/papermill` | Tortured phrases (Problematic Paper Screener list + editor additions), AI-text leftovers, template wording, vague methods, fabricated and mill-retracted references, predatory journals, citation stacking, author retractions (Retraction Watch by name), free-mail, ORCID checks, off-topic affiliations, authorship changes between versions, suggested reviewers, ICLAC misidentified cell lines, duplicate submissions (text fingerprints), Module 5 findings. LOW / MEDIUM / HIGH with evidence; confidential Word export; decision record (`src/papermill/`). |
+| **5 · Image Integrity** (editor) | `#/images` | Runs **in the editor's browser** (no large upload — Vercel's 4.5 MB request limit): figures from .docx (with “Figure n” captions), PDF (pdf.js) or image files; panel splitting; whole-panel duplicates in 8 orientations (perceptual hash + correlation); partial / resized / rotated / mirrored copies (ORB keypoints + RANSAC); cloned areas (keypoint self-matching + DCT blocks); forensic viewer (contrast, error level, noise, edges, invert, magnifier, aligned flicker); comparison with all earlier PJPS manuscripts via stored panel fingerprints; editor marks per finding; query letter; confidential Word report with the image pairs (`public/js/images/`, `src/images.js`). The 155–160 M published-figure search and AI-generated-image detection need an ImageTwin / Proofig contract and are reported as “not checked”. |
 
-- **Reference Check** — every reference is checked against 12 academic databases: Crossref, DOI Foundation (Handle registry), DataCite, OpenAlex, PubMed, Europe PMC, Semantic Scholar, arXiv, DBLP, Open Library, Google Books and ERIC; plus the Retraction Watch dataset. Statuses: Verified / Miscited / Unverified / Suspicious / Retracted with a 0–100 confidence score. Detects non-existent DOIs, PMIDs and arXiv IDs, identifiers pointing to a different paper, real articles attributed to the wrong journal, wrong year/volume/pages, articles claimed in well-indexed journals that appear nowhere, preprint-vs-published versions, broken links (with archive.org copies) and reference age distribution. Suggests corrected references and missing DOIs. Exports: CSV, Word, BibTeX, RIS, corrected list.
-- **Citation Check** — matches in-text citations with the reference list for numbered (Vancouver) and author–year (APA/Harvard/PJPS) styles: citations missing from the list, references never cited, ambiguous same-author/same-year citations, year mismatches, numbering order and alphabetical order.
-- **Journal Check** — Scopus (uploaded Scopus/SJR list or Wikidata), SJR quartile, Web of Science collections (SCIE/SSCI/AHCI/ESCI) and JCR quartile from uploaded lists, **HEC HJRS** category (W/X/Y), MEDLINE (NLM Catalog), DOAJ (seal, APC, review type), ISSN registry and check digit, Retraction Watch retraction rate, Beall's list predatory publishers/journals, hijacked-journal clones and output-growth warnings. Runs for every journal cited in a manuscript or as a single lookup.
+Tests: `npm test` runs the web smoke test (in-memory database; Modules 2, 4, 5, permissions) and the image-engine test (synthetic figures with planted duplicates, crops, mirrored copies and clones, plus a false-alarm check).
 
-Input: Word (.docx), PDF, plain text, BibTeX, RIS, or pasted text. Title, authors, affiliations, abstract and keywords are detected automatically.
+## Users — Super Admin only
 
-## Setup
+There is no self-registration. The Super Admin (seeded from `ADMIN_EMAIL`/`ADMIN_PASSWORD`) creates every account under **Administration → Users** and sets:
 
-Requirements: Node.js 18+ and a PostgreSQL database.
+- **Role**: Super Admin, Editor or Reviewer/Researcher (editor-only tools are off for researchers by default).
+- **Tools**: per-user module permissions (or the role defaults).
+- **Access**: web platform, desktop application, or both; the **offline period** (days) a desktop may work without reconnecting.
+- Temporary passwords (must be changed at first sign-in), password resets, suspension (signs the user out everywhere and blocks their desktops), desktop device revocation.
+
+The **audit log** records sign-ins and every account, permission and list change; **usage** shows runs per tool and per user.
+
+Upgrading from v2: on first start the schema migrates automatically — `admin` becomes `super_admin`, approved editors become active, pending/rejected requests become suspended.
+
+## Web platform
+
+Requirements: Node.js 18+ and PostgreSQL.
 
 ```bash
 npm install
-cp .env.example .env      # set DATABASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD, CONTACT_EMAIL
+cp .env.example .env      # DATABASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD, CONTACT_EMAIL (+ SMTP_* for e-mail alerts)
 npm start                 # http://localhost:3005
+npm test                  # auth / Super Admin / permission smoke test (in-memory database)
 ```
 
-On first start the schema is created, the administrator account is seeded, and the Retraction Watch (~64,000 records) and Beall's list datasets are downloaded in the background (a few minutes; refreshed weekly).
+Deploys to Vercel as before (`server.js` exports the app; the daily cron at `/api/cron/daily` now also runs alerts and retraction monitoring). Uploads are limited to about 4.5 MB on Vercel; a VPS has no such limit.
 
-### First steps for the administrator
+## Windows desktop application
 
-1. Sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD` and change the password (Account).
-2. **Users & data → Journal index lists** — upload the current CSVs PJPS has access to: SJR (scimagojr.com download), Scopus source list, WoS Master Journal List per collection, JCR, HEC HJRS. Without them Scopus coverage comes from Wikidata and WoS/JCR/HJRS columns stay empty.
-3. Editors request access from the sign-in page; approve them under **Users & data**. Co-editors listed by an approved editor are approved automatically when they register.
-4. Add a free `OPENALEX_API_KEY` to `.env` — without it all users share OpenAlex's small anonymous daily budget, which Reviewer Finder exhausts quickly.
+`desktop/` packages the same engine with [Electron](https://www.electronjs.org/) and an embedded PostgreSQL-compatible database ([PGlite](https://pglite.dev/)) stored in `%APPDATA%\PJPS Reference Checker\data`. The local server listens on 127.0.0.1 only.
 
-## Deploying on Vercel
+```bash
+cd desktop
+npm install               # if npm skips Electron's download step: node node_modules/electron/install.js
+npm start                 # run from source
+npm run dist              # installer + portable exe in desktop/dist/
+```
 
-The repository deploys with Vercel's Express preset (`server.js` exports the app; `public/` is served by the CDN).
+Set the web platform address in `desktop/desktop-config.json` before building (`"remoteUrl": "https://…"`), or enter it on the sign-in screen at first launch.
 
-1. Add the environment variables from `.env.example` in **Project → Settings → Environment Variables** (at least `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `CONTACT_EMAIL`, and `CRON_SECRET` for the daily job). Session cookies are marked `Secure` automatically on Vercel.
-2. Push to `main` for production (other branches get preview deployments).
+**How it works**
 
-How it works there: checks run as background jobs stored in the `jobs` table. Work continues after the response (`waitUntil`); if Vercel stops an instance at its time limit, the browser's next progress poll resumes the job, and the resumed run is quick because every database lookup is cached in PostgreSQL. A Vercel Cron (`vercel.json`) calls `/api/cron/daily` to refresh Retraction Watch and Beall's list weekly and clear old jobs. Uploads are limited to about 4.5 MB by Vercel — paste the text for larger manuscripts.
+- First sign-in is online, against the web platform (only accounts with desktop access). Afterwards the user can sign in offline until the offline period ends.
+- **Sync** (automatic every 30 minutes and on reconnection, or *Sync & offline queue → Sync now*): account and permissions, Retraction Watch, Beall's list, hijacked journals, uploaded journal index lists, saved reports (both directions) and notifications.
+- **Offline**: document reading, Citation Check, retraction / predatory / journal-list checks, Reference Style and Manuscript Format, citation pattern, editor reports and letters, issue reports, saved reports and all exports. References already looked up are verified from the cache; others are marked *Pending — online verification* (never "suspicious") and re-checked automatically when the connection returns. Online-only tools (Find Evidence, Find a Journal, conferences, the Thesis Assistant) are queued.
+- Suspending a user or revoking a device on the web platform locks the desktop at its next connection.
+
+`node test/smoke-desktop.js` (with `REMOTE_URL`, `DESK_EMAIL`, `DESK_PASSWORD`) runs the online → offline → reconnect cycle against a running web platform; `SIMULATE_OFFLINE=1` makes the desktop engine behave as if the network were down.
 
 ## Project layout
 
 ```
-server.js                 Express app and API routes
-src/config.js, db.js      Configuration and PostgreSQL schema/helpers
-src/http.js               Polite HTTP client (per-host concurrency, retries, two-tier cache)
-src/sources.js            Adapters for the 12 databases
-src/parse.js              Document extraction, reference splitting/parsing, manuscript metadata, in-text citations
-src/datasets.js           Retraction Watch, Beall's list, uploaded journal lists
-src/checks/               reference.js · citation.js · journal.js
-src/editor/               pattern.js · reviewers.js · reviewerReport.js · reports.js
-src/pipeline.js           Full manuscript check and persistence
-src/docx.js, format.js    Word exports; APA / Vancouver / PJPS formatting; CSV/BibTeX/RIS
-src/auth.js, jobs.js      Editor accounts and sessions; resumable background jobs (PostgreSQL)
-public/                   Landing page and editor workspace (vanilla JS modules, no build step)
+server.js                   Express app: web platform and desktop engine
+src/config.js, db.js        Configuration; PostgreSQL (pg) or embedded PGlite, schema and migrations
+src/auth.js, modules.js     Accounts, sessions, roles, per-module permissions, audit log
+src/http.js, sources.js     HTTP client (cache, offline detection) and the 12 database adapters
+src/parse.js, datasets.js   Document extraction and reference parsing; Retraction Watch, Beall's list, journal lists
+src/checks/, editor/        Reference / Citation / Journal checks; citation pattern, reviewers, reports
+src/styles.js, ooxml.js     Citation style engine (23 styles); in-place Word (.docx) editing
+src/tools/                  restyle, msformat, verify, match, fulltext, evidence, journalFinder, conferences, assistant, authors
+src/alerts.js, queue.js     Notifications and scheduled alerts; desktop offline queue
+src/desktop.js              Desktop sign-in and synchronisation
+src/routes/                 core, tools, activity, admin, sync (device API used by the desktop)
+public/                     Sign-in page and workspace (vanilla JS modules)
+desktop/                    Electron shell, icon, packaging (stage.js → app/, electron-builder → dist/)
+docs/                       Proposal (Word) and its generator
+test/                       Smoke tests
 ```

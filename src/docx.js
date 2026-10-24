@@ -1,6 +1,6 @@
 // docx.js - Word exports built from simple blocks: {h1|h2|p|bullets|table|kv}
 const {
-  Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType
+  Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, ImageRun
 } = require('docx');
 const cfg = require('./config');
 
@@ -48,6 +48,19 @@ async function buildDocx(blocks, { rtl = false, title = cfg.APP_NAME } = {}) {
     else if (b.bullets) for (const t of b.bullets) children.push(para(t, { rtl, bullet: true }));
     else if (b.kv) for (const [k, v] of b.kv) children.push(para([run(`${k}: `, { bold: true, rtl }), run(v, { rtl })], { rtl }));
     else if (b.table) { children.push(table(b.table.headers, b.table.rows, rtl)); children.push(para('', { after: 120 })); }
+    else if (b.images) {
+      // Images side by side (data: URLs from the browser), each scaled to fit half a page width
+      const runs = [];
+      for (const im of b.images) {
+        const m = String(im.src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/);
+        if (!m) continue;
+        const maxW = im.maxWidth || 300, w = im.width || maxW, h = im.height || maxW;
+        const k = Math.min(1, maxW / w, 260 / h);
+        runs.push(new ImageRun({ type: m[1] === 'png' ? 'png' : 'jpg', data: Buffer.from(m[2], 'base64'), transformation: { width: Math.round(w * k), height: Math.round(h * k) } }), run('    '));
+      }
+      if (runs.length) children.push(new Paragraph({ children: runs, spacing: { after: 40 } }));
+      if (b.caption) children.push(para(b.caption, { size: 17, italics: true, after: 160 }));
+    }
   }
   children.push(para(`${cfg.APP_NAME} · ${cfg.APP_VENDOR} · ${new Date().toISOString().slice(0, 10)}`, { size: 16, color: '7A8794', italics: true }));
   const doc = new Document({ title, creator: cfg.APP_VENDOR, sections: [{ properties: { page: { margin: { top: 900, bottom: 900, left: 900, right: 900 } } }, children }] });
@@ -117,4 +130,206 @@ function revisionBlocks(cmp) {
   ];
 }
 
-module.exports = { buildDocx, decisionSummaryBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks };
+// ------------------------------------------------------------------ new tools
+
+function verifyBlocks(r) {
+  const s = r.summary;
+  return [
+    { h1: 'Verify Citations — Claim Support Report' },
+    { kv: [['Manuscript', r.meta?.title || '—'], ['Cited claims', String(s.claims)], ['Citations checked', String(s.citations)], ['Full match', String(s.full)], ['Partial match', String(s.partial)], ['Unsupported', String(s.unsupported)], ['Could not verify', String(s.couldNotVerify)]] },
+    { p: r.method, italics: true },
+    { table: { headers: ['Claim', 'Ref.', 'Verdict', 'Evidence', 'Notes'], rows: r.claims.flatMap(c => c.citations.map(x => [c.claim, `[${x.refIndex}] ${x.refStatusLabel}`, x.verdictLabel, x.evidence ? `“${x.evidence.quote}” — ${x.evidence.origin}${x.evidence.page ? ', p. ' + x.evidence.page : ''}` : '—', x.notes.join('; ')])) } }
+  ];
+}
+
+function evidenceBlocks(r) {
+  return [
+    { h1: 'Find Evidence' },
+    { kv: [['Claim', r.claim], ['Search', r.query], ['Sources screened', String(r.screened || 0)]] },
+    ...r.results.flatMap((x, i) => [
+      { h2: `${i + 1}. ${x.record.title}` },
+      { p: x.citation.text },
+      { kv: [['In-text', x.citation.inText], ['Evidence level', `${x.level} (${x.origin})`], ['Support', x.support]] },
+      { p: `“${x.quote}”`, italics: true },
+      ...(x.wording ? [{ kv: [['Suggested wording', x.wording.wording]] }, { bullets: x.wording.changes }] : [])
+    ]),
+    ...(r.note ? [{ p: r.note, italics: true }] : [])
+  ];
+}
+
+function assistantBlocks(r) {
+  const out = [{ h1: `Thesis / Paper Assistant — ${r.topic}` }, { p: r.disclaimer, italics: true }];
+  const sec = (s, level) => {
+    out.push(level === 1 ? { h1: s.heading } : { h2: s.heading });
+    for (const p of s.paragraphs || []) if (p.sentences.length) out.push({ p: p.sentences.map(x => (x.label ? `[${x.label}] ` : '') + x.display).join(' ') });
+    for (const sub of s.subsections || []) sec(sub, 2);
+  };
+  for (const s of r.sections) sec(s, 1);
+  if (r.analysis?.topics?.length) out.push({ h2: 'Sub-topics (last six years)' }, { table: { headers: ['Sub-topic', 'Papers', 'Growth (3 yrs)'], rows: r.analysis.topics.map(t => [t.name, String(t.works), t.growth === null || t.growth === undefined ? '—' : `${t.growth}%`]) } });
+  out.push({ h1: 'References' }, ...r.references.map(x => ({ p: `${x.number}. ${x.text}` })));
+  return out;
+}
+
+function journalFinderBlocks(r) {
+  const list = r.journals || [];
+  return [
+    { h1: 'Journal Suggestions' },
+    { kv: [['Paper', r.title], ['Similar papers screened', String(r.screened)], ['Period', `${r.since}–present`]] },
+    { table: { headers: ['Journal', 'Similar papers', 'Indexing', 'Quartile', 'Access / APC', 'Weeks', 'Signals'], rows: list.map(j => [`${j.name}${j.publisher ? ` (${j.publisher})` : ''}`, String(j.similar), [j.indexing.scopus ? 'Scopus' : null, ...(j.indexing.wos || []), j.indexing.medline ? 'MEDLINE' : null, j.doaj ? 'DOAJ' : null, j.indexing.hjrs ? `HJRS ${j.indexing.hjrs}` : null].filter(Boolean).join(', ') || '—', j.quartile ? `Q${j.quartile}` : '—', `${j.diamond ? 'Diamond OA' : j.oa ? 'Open access' : 'Subscription/hybrid'}${j.apcUsd ? ` · $${j.apcUsd}` : ''}`, j.weeksToPublication ? String(j.weeksToPublication) : '—', (j.flags || []).map(f => f.message).join('; ') || (j.scopeMatch === 'weak' ? 'Weak scope match' : '')]) } }
+  ];
+}
+
+function conferenceBlocks(r) {
+  if (r.mode === 'check') {
+    return [{ h1: `Conference Check — ${r.query}` }, { p: r.note, italics: true }, ...r.candidates.flatMap(c => [{ h2: c.name }, { kv: [['Publisher', c.publisher || '—'], ['Scopus (uploaded list)', c.scopus.known ? (c.scopus.indexed ? `Indexed: ${c.scopus.coverage || ''}` : 'Discontinued') : 'Not in the uploaded Scopus list'], ['Regularity', c.regularity]] }, { table: { headers: ['Year', 'Papers (OpenAlex)', 'Scopus coverage'], rows: (c.yearByYear || []).map(y => [String(y.year), String(y.works), y.scopus === null ? '—' : y.scopus ? 'Yes' : 'No']) } }])];
+  }
+  return [{ h1: 'Conference Suggestions' }, { kv: [['Paper', r.title]] }, { p: r.note, italics: true }, { table: { headers: ['Proceedings', 'Similar papers', 'Scopus', 'Years', 'Last edition', 'Example'], rows: r.conferences.map(c => [c.name, String(c.similar), c.scopus.known ? (c.scopus.indexed ? 'Indexed' : 'Discontinued') : 'Unknown', c.regularity, String(c.lastYear || '—'), c.samples[0]?.title || '']) } }];
+}
+
+function complianceBlocks(c) {
+  if (!c) return [];
+  const s = c.summary;
+  return [
+    { h2: 'PJPS style compliance' },
+    { kv: [['Compliant references', `${s.compliant} of ${s.total} (${s.score}%)`], ['Deviations', String(s.deviations)], ['In-text citation problems', String(s.inTextIssues)]] },
+    { table: { headers: ['#', 'Reference as submitted', 'Deviations', 'Expected (PJPS)'], rows: c.entries.filter(e => !e.compliant).map(e => [String(e.index), e.original, e.deviations.filter(d => d.severity !== 'info').map(d => d.message + (d.found ? ` (found: ${d.found})` : '') + (d.expected ? ` → ${d.expected}` : '')).join('; '), e.expected || '']) } },
+    ...(c.inText.issues.length ? [{ h2: 'In-text citations' }, { table: { headers: ['Citation', 'Problem'], rows: c.inText.issues.map(i => [i.citation || '—', i.message]) } }] : [])
+  ];
+}
+
+function restyleBlocks(r) {
+  return [
+    ...complianceBlocks(r.compliance),
+    { h1: `Reference Style — ${r.styleLabel}` },
+    { kv: [['File', r.filename || 'Pasted list'], ['References', String(r.counts.total)], ['Matched to registered records', String(r.counts.matched)], ['Formatted from the text as written', String(r.counts.parsed)], ['Left unchanged', String(r.counts.kept)], ['In-text citations converted', String(r.citationsConverted || 0)]] },
+    { table: { headers: ['#', 'Converted reference', 'Status', 'Filled in / corrected'], rows: r.entries.map(e => [String(e.number), e.text, e.status, [...(e.filled || []), ...(e.corrected || []).map(c => `${c} corrected`)].join(', ')]) } }
+  ];
+}
+
+function formatBlocks(r) {
+  return [
+    { h1: `Manuscript Format — ${r.templateLabel}` },
+    { kv: [['File', r.filename], ['Article type', r.structure.articleType], ['Abstract', r.structure.abstractWords === null ? 'not found' : `${r.structure.abstractWords} words (limit ${r.structure.abstractLimit})`]] },
+    { h2: 'Changes applied' }, { bullets: r.changes },
+    { h2: 'Section checklist' }, { table: { headers: ['Section', 'Present'], rows: r.structure.sections.map(s => [s.section, s.present ? 'Yes' : 'Missing']) } },
+    { p: r.note, italics: true }
+  ];
+}
+
+function authorBlocks(r) {
+  return [
+    { h1: `Publications — ${r.author?.name || ''}` },
+    { kv: [['Institution', r.author?.institution || '—'], ['ORCID', r.author?.orcid || '—'], ['Works', String(r.total)]] },
+    ...r.works.map(w => ({ p: w.text }))
+  ];
+}
+
+// ------------------------------------------------------------------ PJPS v4 modules
+
+function citationsBlocks(r) {
+  const s = r.summary, c = r.consistency || {};
+  const rows = (items, f) => (items || []).map(f);
+  return [
+    { h1: 'Module 3 — Citations Report' },
+    { kv: [['Manuscript', r.meta?.title || '—'], ['References', String(s.references)], ['In-text citations', String(s.citations)], ['Missing from the list', String(s.missing)], ['Never cited', String(s.uncited)], ['Year mismatches', String(s.yearMismatch)], ['“et al.” problems', String(s.etAl)], ['Citation blocks', String(s.blocks)], ['Claims checked', String(s.claims)], ['Unsupported claims', String(s.unsupported)], ['Partially supported', String(s.partial)]] },
+    { h2: 'A. Citations and reference list' },
+    { table: { headers: ['Problem', 'Citation / reference', 'Detail'], rows: [
+      ...rows(c.missing, m => ['Missing from list', m.citation, `${m.reason}${m.context ? ` — …${m.context}…` : ''}`]),
+      ...rows(c.uncited, u => ['Never cited', `[${u.index}]`, u.raw]),
+      ...rows(c.yearMismatch, y => ['Year mismatch', y.citation, y.message]),
+      ...rows(c.ambiguous, a => ['Ambiguous', a.citation, a.message]),
+      ...rows(c.etAlIssues, e => ['“et al.”', e.citation, e.message]),
+      ...rows(c.blocks, b => ['Citation block', b.citation, b.message]),
+      ...rows(c.orderIssues, o => ['Order', '', o.message]),
+      ...rows(c.numberingIssues, n => ['Numbering', '', n])
+    ] } },
+    ...(r.claims && !r.claims.error ? [{ h2: 'B. Claim support' }, { p: r.claims.method, italics: true }, { table: { headers: ['Claim', 'Ref.', 'Verdict', 'Evidence'], rows: r.claims.claims.flatMap(cl => cl.citations.filter(x => x.verdict !== 'full').map(x => [cl.claim, `[${x.refIndex}] ${x.refStatusLabel}`, x.verdictLabel, x.evidence ? `“${x.evidence.quote}” — ${x.evidence.origin}${x.evidence.page ? ', p. ' + x.evidence.page : ''}` : x.notes.join('; ')])) } }] : []),
+    { h2: 'C. Citation pattern' },
+    { bullets: r.pattern.flags.length ? r.pattern.flags.map(f => `${f.message} — ${f.guidance}`) : ['No unusual citation pattern found.'] }
+  ];
+}
+
+function papermillBlocks(r) {
+  const groups = { text: 'Text signals', references: 'Reference signals', authors: 'Author & submission signals', data: 'Data signals' };
+  return [
+    { h1: 'CONFIDENTIAL — Module 4 Paper Mill Screening' },
+    { p: r.disclaimer, italics: true },
+    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || '—'}`], ['Risk level', `${r.risk.level} (score ${r.risk.score}, ${r.risk.highSignals} strong signal(s))`], ['Date', new Date(r.createdAt).toISOString().slice(0, 10)]] },
+    ...Object.entries(groups).flatMap(([g, label]) => {
+      const list = r.signals.filter(x => x.group === g);
+      return [{ h2: label }, list.length ? { table: { headers: ['Signal', 'Weight', 'Evidence'], rows: list.map(x => [`${x.title}${x.note ? ` — ${x.note}` : ''}`, `${x.severity} (${x.weight})`, (x.evidence || []).slice(0, 12).map(e => `${e.text}${e.quote ? ` — “${e.quote}”` : ''}${e.note ? ` (${e.note})` : ''}`).join('\n')]) } } : { p: 'No signal found.' }];
+    }),
+    ...(r.decision ? [{ h2: 'Editor decision' }, { kv: [['Decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—'], ['By', `${r.decision.by}, ${r.decision.at.slice(0, 10)}`]] }] : [])
+  ];
+}
+
+function imagesBlocks(r) {
+  const s = r.summary;
+  const marks = new Map((r.findingMarks || []).map(m => [m.id, m.mark]));
+  const label = { confirmed: 'Confirmed by editor', false: 'False alarm', ask: 'Ask the authors' };
+  return [
+    { h1: 'CONFIDENTIAL — Module 5 Image Integrity Report' },
+    { p: r.disclaimer, italics: true },
+    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || r.meta?.filename || '—'}`], ['Image risk', s.level], ['Images / panels analysed', `${s.images} / ${s.panels}`], ['Findings', `${s.findings} (${s.byLevel.high || 0} strong, ${s.byLevel.medium || 0} to check)`], ['Earlier PJPS manuscripts sharing a figure', String((r.earlier || []).length)], ['Published-figure database / AI-image check', r.vendor?.connected ? 'Checked by vendor' : 'Not checked (vendor not connected)']] },
+    { p: r.method, italics: true },
+    ...r.findings.flatMap((f, i) => [
+      { h2: `Finding ${i + 1}: ${f.a.label}${f.a.panel !== f.b.panel ? ` ↔ ${f.b.label}` : ''}` },
+      { p: `${f.level === 'high' ? 'Strong' : 'Check'} — ${f.description}${marks.get(f.id) ? ` · ${label[marks.get(f.id)] || marks.get(f.id)}` : ''}` },
+      { images: [{ src: f.thumbA, width: f.thumbAW, height: f.thumbAH }, ...(f.thumbB && f.b.panel !== f.a.panel ? [{ src: f.thumbB, width: f.thumbBW, height: f.thumbBH }] : [])], caption: 'Matched areas are outlined.' }
+    ]),
+    ...((r.earlier || []).length ? [{ h2: 'Figures matching earlier PJPS manuscripts' }, { table: { headers: ['This manuscript', 'Earlier manuscript', 'Earlier figure', 'Distance'], rows: r.earlier.map(e => [e.panelLabel, `${e.manuscriptCode || 'check #' + e.checkId}: ${e.title || ''}`, e.label || '', String(e.distance)]) } }] : []),
+    ...(r.decision ? [{ h2: 'Editor decision' }, { kv: [['Decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—'], ['By', `${r.decision.by}, ${r.decision.at.slice(0, 10)}`]] }] : [])
+  ];
+}
+
+/**
+ * Full Screening Report. version 'editor': all modules with the recommendation; 'author': Modules 1-3 only (problems
+ * the authors must fix), for sending after the editor's approval.
+ */
+function screeningBlocks(r, version = 'editor') {
+  const sc = r.screening || { lines: {} };
+  const s = r.references.summary;
+  const meta = r.meta || {};
+  const problemRefs = r.references.results.filter(x => ['suspicious', 'retracted', 'miscited', 'unverified'].includes(x.status));
+  const c = r.citations && !r.citations.error ? r.citations : null;
+  const blocks = [
+    { h1: version === 'editor' ? 'Full Screening Report — editor version (confidential)' : 'Manuscript screening — items to correct' },
+    { kv: [['Manuscript', `${meta.manuscriptCode ? meta.manuscriptCode + ' — ' : ''}${meta.title || '—'}`], ['Version', String(meta.version || 1)], ['Date', new Date(r.createdAt).toISOString().slice(0, 10)]] }
+  ];
+  if (version === 'editor') {
+    blocks.push({ h2: 'Summary' }, { kv: [
+      ['Recommendation', sc.recommendationLabel || '—'], ['1. Bibliography', sc.lines.bibliography || '—'], ['2. PJPS style', sc.lines.style || '—'], ['3. Citations', sc.lines.citations || '—'],
+      ['4. Paper mill risk', sc.lines.papermill || '—'], ['5. Image integrity', sc.lines.images || '—']] });
+    if (sc.reasons?.length) blocks.push({ bullets: sc.reasons });
+    if (r.decision) blocks.push({ kv: [['Editor decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—']] });
+  } else {
+    blocks.push({ p: `Before peer review your manuscript was checked: references against international scholarly databases, the journal's reference style, and in-text citations against the reference list. Please correct the items below and resubmit with a point-by-point response.` });
+  }
+  blocks.push({ h2: '1. References' }, { kv: [['Checked', String(s.total)], ['Verified', String(s.verified)], ['Wrong details', String(s.miscited)], ['Not found in any database', String(s.suspicious)], ['Retracted', String(s.retracted)]] });
+  if (problemRefs.length) blocks.push({ table: { headers: ['#', 'Reference', 'Problem', 'Suggested correction'], rows: problemRefs.map(x => [String(x.index), x.raw, `${x.statusLabel}: ${x.reason}`, x.suggestion || '']) } });
+  if (r.indicators?.flags?.length) blocks.push({ bullets: r.indicators.flags.map(f => f.message) });
+  if (r.compliance) blocks.push(...complianceBlocks(r.compliance).map(b => (b.h2 ? { h2: '2. Reference style (PJPS)' } : b)));
+  blocks.push({ h2: '3. In-text citations' });
+  if (c) {
+    const rows = [
+      ...(c.missing || []).map(m => ['Cited but not in the list', m.citation, m.reason]),
+      ...(c.uncited || []).map(u => ['In the list but never cited', `[${u.index}]`, u.raw]),
+      ...(c.yearMismatch || []).map(y => ['Year differs', y.citation, y.message]),
+      ...(c.ambiguous || []).map(a => ['Ambiguous', a.citation, a.message]),
+      ...(c.etAlIssues || []).map(e => ['“et al.”', e.citation, e.message])
+    ];
+    blocks.push(rows.length ? { table: { headers: ['Problem', 'Citation', 'Detail'], rows } } : { p: 'No problems found.' });
+  } else blocks.push({ p: 'Not checked (manuscript text not available).' });
+  if (version === 'editor') {
+    if (r.pattern?.flags?.length) blocks.push({ h2: 'Citation pattern' }, { bullets: r.pattern.flags.map(f => f.message) });
+    if (r.papermill) blocks.push(...papermillBlocks(r.papermill).map(b => (b.h1 ? { h2: '4. Paper mill screening (confidential)' } : b)));
+    blocks.push({ h2: '5. Image integrity' }, { p: r.images ? `Image risk ${r.images.summary.level}: ${r.images.summary.findings} finding(s) in ${r.images.summary.panels} panels — see the separate confidential image report.` : 'Not checked — run Module 5 and attach its report.' });
+  }
+  return blocks;
+}
+
+module.exports = {
+  complianceBlocks, citationsBlocks, papermillBlocks, imagesBlocks, screeningBlocks,
+  buildDocx, decisionSummaryBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks,
+  verifyBlocks, evidenceBlocks, assistantBlocks, journalFinderBlocks, conferenceBlocks, restyleBlocks, formatBlocks, authorBlocks
+};

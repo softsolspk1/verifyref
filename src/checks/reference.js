@@ -1,6 +1,6 @@
 // checks/reference.js - Reference Check: verify each reference against 12 academic databases
 const S = require('../sources');
-const { request } = require('../http');
+const { request, isOnline } = require('../http');
 const { titleSimilarity, titleContains, nameMatch, journalSimilarity, normalize } = require('../text');
 const { retractionsFor } = require('../datasets');
 const { formatReference, detectStyle } = require('../format');
@@ -11,7 +11,8 @@ const STATUS = {
   miscited: { label: 'Miscited', tone: 'warn' },
   retracted: { label: 'Retracted', tone: 'bad' },
   unverified: { label: 'Unverified', tone: 'neutral' },
-  suspicious: { label: 'Suspicious', tone: 'bad' }
+  suspicious: { label: 'Suspicious', tone: 'bad' },
+  pending: { label: 'Pending — online verification', tone: 'info' }
 };
 
 // ------------------------------------------------------------------ scoring
@@ -245,7 +246,10 @@ async function verifyReference(ref, opts = {}) {
     }
   }
 
-  return { ref, record, openalexRecord, confidence, issues, matchedIn, checked: Object.fromEntries(checked), topScore: top?.score || 0 };
+  // Offline (desktop): nothing reachable and nothing cached — verify later instead of calling it fabricated
+  const outcomes = [...checked.values()];
+  const offline = !record && !isOnline() && outcomes.length > 0 && outcomes.every(o => o === 'error');
+  return { ref, record, openalexRecord, confidence, issues, matchedIn, checked: Object.fromEntries(checked), topScore: top?.score || 0, offline };
 }
 
 // ------------------------------------------------------------------ "well-indexed journal but article absent" check
@@ -259,6 +263,9 @@ async function journalProfile(name) {
 
 // ------------------------------------------------------------------ classification
 
+// Pakistani and other regional journals that are often missing from Crossref/PubMed/OpenAlex: "Not indexed", not fake
+const REGIONAL = /(pak(istan)?|karachi|lahore|peshawar|islamabad|rawalpindi|sindh|punjab|khyber|balochistan|quetta|multan|faisalabad|hyderabad|ayub|jpma|jcpsp|liaquat|dow|isra|baqai|ziauddin|aga khan|nishtar|gomal|hamdard|bangladesh|nepal|sri lanka|iraq|iran|sudan|nigeria)/i;
+
 async function classify(v, retraction) {
   const { ref, record, issues } = v;
   const high = issues.filter(i => i.severity === 'high');
@@ -267,7 +274,10 @@ async function classify(v, retraction) {
   const anyFound = !!record;
   let status, reason;
 
-  if (anyFound && (record.retracted || (retraction && /retraction/i.test(retraction.nature)))) {
+  if (!anyFound && v.offline) {
+    status = retraction && /retraction/i.test(retraction.nature) ? 'retracted' : 'pending';
+    reason = status === 'retracted' ? 'This work has been retracted (Retraction Watch, offline dataset)' : 'No internet connection — this reference will be verified automatically when the connection returns';
+  } else if (anyFound && (record.retracted || (retraction && /retraction/i.test(retraction.nature)))) {
     status = 'retracted';
     reason = 'This work has been retracted';
   } else if (!anyFound) {
@@ -277,6 +287,7 @@ async function classify(v, retraction) {
     if (!grey && ref.journal) journal = await journalProfile(ref.journal);
     const wellIndexed = journal && journal.works > 300 && (!ref.year || (ref.year >= (journal.first || 0) && ref.year <= (journal.last || 9999)));
     if (idFailed) { status = 'suspicious'; reason = 'Identifier does not exist and no matching record was found'; }
+    else if (!wellIndexed && REGIONAL.test(ref.journal || '')) { status = 'unverified'; reason = `Not indexed — ${ref.journal} is a regional journal that the scholarly databases do not cover fully; check manually (not a sign of fabrication)`; v.notIndexed = true; }
     else if (wellIndexed) { status = 'suspicious'; reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles)`; }
     else if (errors >= 4) { status = 'unverified'; reason = 'Verification could not be completed (several databases did not respond)'; }
     else if (grey) { status = 'unverified'; reason = 'Book, report or web source — not found in scholarly databases; check manually'; }
@@ -360,6 +371,7 @@ async function checkReferences(refs, opts = {}) {
         : status !== 'verified' || (!v.ref.doi && rec.doi) ? formatReference({ ...rec, title: rec.title.replace(/^(retracted|withdrawn)\s*:\s*/i, '') }, style) : null,
       age: (rec?.year || v.ref.year) ? year - (rec?.year || v.ref.year) : null,
       journalProfile: v.journalProfile || null,
+      notIndexed: !!v.notIndexed,
       links: [],
       error: v.error
     });
@@ -408,9 +420,11 @@ function summarize(results) {
     retracted: count('retracted'),
     unverified: count('unverified'),
     suspicious: count('suspicious'),
+    pending: count('pending'),
     withDoi: results.filter(r => r.parsed.doi).length,
     doiSuggested: results.filter(r => !r.parsed.doi && r.record?.doi).length,
     concerns: results.filter(r => r.notices.some(n => /concern/i.test(n.type))).length,
+    notIndexed: results.filter(r => r.notIndexed).length,
     ages,
     olderThan10: results.filter(r => r.age !== null && r.age > 10).map(r => r.index),
     links,

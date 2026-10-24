@@ -1,6 +1,7 @@
-// http.js - polite HTTP client: timeouts, retry on 429/5xx, per-host concurrency, SQLite cache
+// http.js - polite HTTP client: timeouts, retry on 429/5xx, per-host concurrency, PostgreSQL cache, offline detection
 const db = require('./db');
-const { CONTACT_EMAIL } = require('./config');
+const cfg = require('./config');
+const { CONTACT_EMAIL } = cfg;
 
 const USER_AGENT = `PJPSReferenceChecker/2.0 (Softsols Pakistan; mailto:${CONTACT_EMAIL})`;
 
@@ -51,6 +52,37 @@ function release(host) {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---- Connectivity. The desktop edition works offline: once the network is unreachable, requests are answered from
+// the cache (or fail immediately) instead of waiting for timeouts and retries; a probe re-checks every 30 s.
+const NETWORK_ERRORS = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ENETDOWN|ECONNRESET|fetch failed|network/i;
+let online = true;
+let lastProbe = 0;
+const listeners = [];
+function setOnline(v) {
+  if (v === online) return;
+  online = v;
+  for (const fn of listeners) { try { fn(v); } catch (e) { /* ignore */ } }
+}
+const isOnline = () => online;
+const onConnectivity = fn => listeners.push(fn);
+/** Actively test connectivity (cheap request to a highly available host) */
+// Testing aid: SIMULATE_OFFLINE=1 makes the desktop behave as if the network were down
+const simulatedOffline = () => cfg.DESKTOP && process.env.SIMULATE_OFFLINE === '1';
+
+async function probe() {
+  lastProbe = Date.now();
+  if (simulatedOffline()) { setOnline(false); return false; }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    await fetch('https://api.crossref.org/', { method: 'HEAD', signal: controller.signal });
+    setOnline(true);
+  } catch (e) {
+    setOnline(false);
+  } finally { clearTimeout(timer); }
+  return online;
+}
 
 // Two-tier cache: in-process LRU in front of the PostgreSQL cache table
 const MEM_MAX = 5000;
@@ -107,6 +139,11 @@ async function request(url, options = {}) {
     if (cached) return cached;
   }
 
+  if (simulatedOffline()) { setOnline(false); return { ok: false, status: 0, error: 'offline', offline: true }; }
+  if (cfg.DESKTOP && !online) {
+    if (Date.now() - lastProbe < 30000 || !(await probe())) return { ok: false, status: 0, error: 'offline', offline: true };
+  }
+
   const host = new URL(url).hostname;
   let attempt = 0;
   let result;
@@ -128,13 +165,18 @@ async function request(url, options = {}) {
       });
       const text = method === 'HEAD' ? '' : await res.text();
       result = { ok: res.ok, status: res.status, url: res.url, headers: Object.fromEntries(res.headers) };
+      if (!online) setOnline(true);
       if (json && res.ok) {
         try { result.data = JSON.parse(text); } catch (e) { result.ok = false; result.error = 'Invalid JSON'; }
       } else {
         result.text = text;
       }
     } catch (err) {
+      const detail = `${err.message} ${err.cause?.code || ''} ${err.cause?.message || ''}`;
       result = { ok: false, status: 0, error: err.name === 'AbortError' ? 'timeout' : err.message };
+      if (cfg.DESKTOP && err.name !== 'AbortError' && NETWORK_ERRORS.test(detail) && !(await probe())) {
+        return { ok: false, status: 0, error: 'offline', offline: true };
+      }
     } finally {
       clearTimeout(timer);
       release(host);
@@ -165,4 +207,4 @@ setInterval(() => {
   db.query('DELETE FROM cache WHERE expires_at < $1', [Date.now()]).catch(() => {});
 }, 6 * 3600 * 1000).unref();
 
-module.exports = { request, getJson, getText, USER_AGENT, sleep };
+module.exports = { request, getJson, getText, USER_AGENT, sleep, isOnline, onConnectivity, probe };

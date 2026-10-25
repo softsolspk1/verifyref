@@ -92,6 +92,15 @@ CREATE TABLE IF NOT EXISTS retractions (
 );
 CREATE INDEX IF NOT EXISTS idx_retractions_journal ON retractions(journal_norm);
 
+-- Problematic Paper Screener fingerprints (Cabanac et al.): tortured phrases and SCIgen text; terms are ANDed
+CREATE TABLE IF NOT EXISTS pps_fingerprints (
+  kind TEXT NOT NULL,                    -- tortured | scigen
+  terms TEXT NOT NULL,                   -- JSON array of lower-case phrases that must all appear
+  expected TEXT,
+  papers INT
+);
+CREATE INDEX IF NOT EXISTS idx_pps_kind ON pps_fingerprints(kind);
+
 CREATE TABLE IF NOT EXISTS predatory (
   id SERIAL PRIMARY KEY,
   kind TEXT NOT NULL,                    -- publisher | journal | hijacked

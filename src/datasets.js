@@ -101,6 +101,49 @@ async function journalRetractionCounts(journalName) {
   return out;
 }
 
+// ------------------------------------------------------------------ Problematic Paper Screener fingerprints
+
+const PPS_URL = kind => `https://dbrech.irit.fr/pls/apex/f?p=9999:5::IR%5B${kind}%5D_CSV::::`;
+
+/** '"a" AND "b"' -> ['a', 'b']; null when the expression uses OR / has no quoted term */
+function ppsTerms(expr) {
+  const rest = String(expr).replace(/"((?:[^"\\]|\\.)*)"/g, '');
+  if (/\bOR\b/.test(rest)) return null;
+  const terms = [...String(expr).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => m[1].replace(/\\(.)/g, '$1').toLowerCase().replace(/\s+/g, ' ').trim()).filter(Boolean);
+  return terms.length ? terms : null;
+}
+
+async function loadProblematicScreener() {
+  const rows = [];
+  for (const kind of ['tortured', 'scigen']) {
+    const r = await getText(PPS_URL(kind), { ttl: 0, timeout: 120000, retries: 1 });
+    if (!r.ok || !r.text) throw new Error(`Problematic Paper Screener download failed (${kind}: ${r.status || r.error})`);
+    for (const row of parseCsv(r.text).slice(1)) {
+      const terms = ppsTerms(row[0]);
+      if (!terms) continue;
+      rows.push([kind, JSON.stringify(terms), kind === 'tortured' ? (row[1] || '') : '', parseInt(String(row[kind === 'tortured' ? 2 : 1] || '0').replace(/,/g, ''), 10) || 0]);
+    }
+  }
+  if (rows.length < 1000) throw new Error('Problematic Paper Screener parse returned too few fingerprints');
+  await transaction(async client => {
+    await client.query('TRUNCATE pps_fingerprints');
+    await bulkInsert(client, 'pps_fingerprints', [{ name: 'kind', type: 'text' }, { name: 'terms', type: 'text' }, { name: 'expected', type: 'text' }, { name: 'papers', type: 'int' }], rows);
+  });
+  ppsCache = null;
+  await setMeta('pps_loaded_at', new Date().toISOString());
+  await setMeta('pps_count', rows.length);
+  return rows.length;
+}
+
+let ppsCache = null;
+async function ppsFingerprints() {
+  if (!ppsCache || Date.now() - ppsCache.at > 600000) {
+    const rows = await db.all('SELECT kind, terms, expected, papers FROM pps_fingerprints');
+    ppsCache = { at: Date.now(), list: rows.map(r => ({ kind: r.kind, terms: JSON.parse(r.terms), expected: r.expected, papers: r.papers })) };
+  }
+  return ppsCache.list;
+}
+
 // ------------------------------------------------------------------ Beall's list
 
 const BEALL_PAGES = [
@@ -248,7 +291,8 @@ async function listStatus() {
   return {
     lists: Object.entries(LIST_TYPES).map(([type, label]) => ({ type, label, ...(uploaded[type] || {}) })),
     retractionWatch: { loadedAt: await getMeta('rw_loaded_at'), count: parseInt((await getMeta('rw_count')) || '0', 10) },
-    beall: { loadedAt: await getMeta('beall_loaded_at'), count: parseInt((await getMeta('beall_count')) || '0', 10) }
+    beall: { loadedAt: await getMeta('beall_loaded_at'), count: parseInt((await getMeta('beall_count')) || '0', 10) },
+    screener: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('pps_count')) || '0', 10) }
   };
 }
 
@@ -265,6 +309,10 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
     try { results.retractionWatch = await loadRetractionWatch(); log(`Retraction Watch: ${results.retractionWatch} records loaded`); }
     catch (e) { results.retractionWatchError = e.message; log(`Retraction Watch load failed: ${e.message}`); }
   }
+  if (await stale('pps_loaded_at')) {
+    try { results.screener = await loadProblematicScreener(); log(`Problematic Paper Screener: ${results.screener} fingerprints loaded`); }
+    catch (e) { results.screenerError = e.message; log(`Problematic Paper Screener load failed: ${e.message}`); }
+  }
   if (await stale('beall_loaded_at')) {
     try { results.beall = await loadBeall(); log(`Beall's list: ${results.beall} entries loaded`); }
     catch (e) { results.beallError = e.message; log(`Beall's list load failed: ${e.message}`); }
@@ -273,6 +321,6 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
 }
 
 module.exports = {
-  parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, predatoryMatches,
+  parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, LIST_TYPES, domainOf
 };

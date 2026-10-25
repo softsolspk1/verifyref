@@ -1,5 +1,5 @@
 // views/admin.js - Super Admin: integrity datasets, journal index lists, alert run; audit log and usage statistics
-import { api, esc, $, $$, badge, toast, fmtDate, runJob, state } from '../core.js';
+import { api, esc, $, $$, badge, toast, fmtDate, runJob, modal, state } from '../core.js';
 
 export async function renderAdmin(view) {
   const ds = await api('/api/admin/datasets');
@@ -47,7 +47,7 @@ export async function renderAdmin(view) {
           <td>${esc(l.label)}${l.filename ? `<div class="muted">${esc(l.filename)}</div>` : ''}</td>
           <td class="num">${l.row_count ? Number(l.row_count).toLocaleString() : '—'}</td>
           <td>${l.uploaded_at ? fmtDate(l.uploaded_at) : badge('not uploaded', 'neutral')}</td>
-          <td class="row" style="flex-wrap:nowrap">${desk ? '' : `<label class="btn btn-sm" style="margin:0">Upload CSV<input type="file" accept=".csv,.txt" hidden data-list="${l.type}"></label>${l.row_count ? `<button class="btn btn-sm btn-ghost btn-danger" data-rm="${l.type}">✕</button>` : ''}`}</td>
+          <td class="row" style="flex-wrap:nowrap">${l.row_count ? `<button class="btn btn-sm" data-view="${l.type}">View</button>` : ''}${desk ? '' : `<label class="btn btn-sm" style="margin:0">Upload CSV<input type="file" accept=".csv,.txt" hidden data-list="${l.type}"></label>${l.row_count ? `<button class="btn btn-sm btn-ghost btn-danger" data-rm="${l.type}">✕</button>` : ''}`}</td>
         </tr>`).join('')}
       </table></div>
     </div>`;
@@ -91,6 +91,39 @@ export async function renderAdmin(view) {
     await api(`/api/admin/lists/${b.dataset.rm}`, { method: 'DELETE' });
     renderAdmin(view);
   }));
+  $$('[data-view]', view).forEach(b => (b.onclick = () => viewList(ds.lists.find(l => l.type === b.dataset.view))));
+}
+
+/** Read-only, searchable, paged view of an uploaded journal list */
+function viewList(list) {
+  modal(`<div class="card-head"><div><h2 style="margin:0">${esc(list.label)}</h2><div class="muted">${list.filename ? `${esc(list.filename)} · ` : ''}${Number(list.row_count).toLocaleString()} journals</div></div><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    <div class="row" style="margin:12px 0"><input type="search" id="lv-q" placeholder="Search title or ISSN" style="flex:1"><button class="btn btn-sm" id="lv-go">Search</button></div>
+    <div id="lv-body"><div class="progress">Loading…</div></div>`, {
+    onMount: el => {
+      let page = 1, q = '';
+      const body = $('#lv-body', el);
+      const load = async () => {
+        try {
+          const d = await api(`/api/admin/lists/${list.type}/entries?page=${page}&q=${encodeURIComponent(q)}`);
+          // columns: the first few that have a value in this page and are short enough to read in a table
+          const cols = [];
+          for (const r of d.rows) for (const k of Object.keys(r.data || {})) if (!cols.includes(k) && String(r.data[k] || '').trim() && !/^[\s\S]*\n/.test(k) && cols.length < 8) cols.push(k);
+          const pages = Math.max(1, Math.ceil(d.total / d.size));
+          body.innerHTML = d.rows.length ? `<div class="table-wrap"><table class="t"><tr>${cols.map(c => `<th>${esc(c.slice(0, 40))}</th>`).join('')}</tr>
+            ${d.rows.map(r => `<tr>${cols.map(c => `<td>${esc(String((r.data || {})[c] ?? '').slice(0, 120))}</td>`).join('')}</tr>`).join('')}</table></div>
+            <div class="row" style="justify-content:space-between;margin-top:10px"><span class="muted">${d.total.toLocaleString()} ${q ? 'matching ' : ''}journals · page ${page} of ${pages.toLocaleString()}</span>
+            <span class="row"><button class="btn btn-sm" id="lv-prev" ${page <= 1 ? 'disabled' : ''}>Previous</button><button class="btn btn-sm" id="lv-next" ${page >= pages ? 'disabled' : ''}>Next</button></span></div>`
+            : '<p class="muted">No journals match.</p>';
+          if ($('#lv-prev', el)) $('#lv-prev', el).onclick = () => { page--; load(); };
+          if ($('#lv-next', el)) $('#lv-next', el).onclick = () => { page++; load(); };
+        } catch (e) { body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+      };
+      const search = () => { q = $('#lv-q', el).value.trim(); page = 1; load(); };
+      $('#lv-go', el).onclick = search;
+      $('#lv-q', el).onkeydown = e => { if (e.key === 'Enter') search(); };
+      load();
+    }
+  });
 }
 
 const ACTION = { login: 'Signed in', 'login-failed': 'Failed sign-in', 'desktop-login': 'Linked a desktop', 'desktop-login-failed': 'Failed desktop sign-in', 'user-created': 'Created user', 'user-updated': 'Updated user', 'user-suspended': 'Suspended user', 'user-activated': 'Activated user', 'user-deleted': 'Deleted user', 'password-reset': 'Reset password', 'password-changed': 'Changed password', 'device-revoked': 'Revoked device', 'list-uploaded': 'Uploaded list', 'list-removed': 'Removed list' };

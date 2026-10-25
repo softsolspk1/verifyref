@@ -230,6 +230,19 @@ async function listLookupAll(issns = [], title = '') {
   return out;
 }
 
+/** Page through the rows of an uploaded list, optionally filtered by title or ISSN */
+async function listEntries(listType, { q = '', page = 1, size = 50 } = {}) {
+  size = Math.min(Math.max(parseInt(size, 10) || 50, 1), 200);
+  page = Math.max(parseInt(page, 10) || 1, 1);
+  const term = String(q).trim();
+  const where = term ? 'AND (title_norm LIKE $2 OR title ILIKE $3 OR issn = $4 OR eissn = $4)' : '';
+  const args = term ? [listType, `%${normalizeJournal(term)}%`, `%${term}%`, cleanIssn(term) || term] : [listType];
+  const total = (await db.one(`SELECT COUNT(*)::int AS n FROM journal_list_entries WHERE list_type = $1 ${where}`, args)).n;
+  const rows = await db.all(
+    `SELECT title, issn, eissn, data FROM journal_list_entries WHERE list_type = $1 ${where} ORDER BY title_norm, issn LIMIT ${size} OFFSET ${(page - 1) * size}`, args);
+  return { total, page, size, rows };
+}
+
 async function listStatus() {
   const uploaded = Object.fromEntries((await db.all('SELECT * FROM journal_lists')).map(r => [r.list_type, r]));
   return {
@@ -261,5 +274,5 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
 
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, predatoryMatches,
-  importJournalList, listLookupAll, listStatus, ensureDatasets, LIST_TYPES, domainOf
+  importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, LIST_TYPES, domainOf
 };

@@ -160,6 +160,11 @@ defineJob('datasets', async (input, { update }) => {
   return D.ensureDatasets({ force: true });
 });
 
+router.get('/admin/lists/:type/entries', wrap(async (req, res) => {
+  if (!D.LIST_TYPES[req.params.type]) return res.status(400).json({ success: false, message: 'Unknown list type.' });
+  res.json({ success: true, ...(await D.listEntries(req.params.type, req.query)) });
+}));
+
 router.post('/admin/lists/:type', webOnly, upload.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: 'Choose a CSV file.' });
   if (!D.LIST_TYPES[req.params.type]) return res.status(400).json({ success: false, message: 'Unknown list type.' });

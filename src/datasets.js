@@ -115,13 +115,13 @@ function ppsTerms(expr) {
 
 async function loadProblematicScreener() {
   const rows = [];
-  for (const kind of ['tortured', 'scigen']) {
+  for (const kind of ['tortured', 'scigen', 'suspect']) {
     const r = await getText(PPS_URL(kind), { ttl: 0, timeout: 120000, retries: 1 });
     if (!r.ok || !r.text) throw new Error(`Problematic Paper Screener download failed (${kind}: ${r.status || r.error})`);
     for (const row of parseCsv(r.text).slice(1)) {
       const terms = ppsTerms(row[0]);
       if (!terms) continue;
-      rows.push([kind, JSON.stringify(terms), kind === 'tortured' ? (row[1] || '') : '', parseInt(String(row[kind === 'tortured' ? 2 : 1] || '0').replace(/,/g, ''), 10) || 0]);
+      rows.push([kind, JSON.stringify(terms), kind === 'scigen' ? '' : (row[1] || ''), parseInt(String(row[kind === 'scigen' ? 1 : 2] || '0').replace(/,/g, ''), 10) || 0]);
     }
   }
   if (rows.length < 1000) throw new Error('Problematic Paper Screener parse returned too few fingerprints');

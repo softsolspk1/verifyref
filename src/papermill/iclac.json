@@ -1,0 +1,3488 @@
+[
+{
+"name": "1.1B4",
+"actual": "Hybrid, PANC-1 / unknown (Hybrid, PANC-1 / unknown rat cells)",
+"id": "ICLAC-00599",
+"table": 1
+},
+{
+"name": "1.1E7",
+"actual": "Hybrid, PANC-1 / unknown (Hybrid, PANC-1 / unknown rat cells)",
+"id": "ICLAC-00600",
+"table": 1
+},
+{
+"name": "1-1ras1000",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00531",
+"table": 1
+},
+{
+"name": "1-1src",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00532",
+"table": 1
+},
+{
+"name": "1E8",
+"actual": "NALM-6 (Leukemia, acute lymphoblastic, B cell precursor)",
+"id": "ICLAC-00169",
+"table": 1
+},
+{
+"name": "2008/C13*5.25",
+"actual": "ME-180 (Cervical carcinoma)",
+"id": "ICLAC-00522",
+"table": 1
+},
+{
+"name": "28SC-ES",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00526",
+"table": 1
+},
+{
+"name": "3AB-OS",
+"actual": "RD (Sarcoma (rhabdomyosarcoma))",
+"id": "ICLAC-00545",
+"table": 1
+},
+{
+"name": "41M",
+"actual": "OAW 28 (Ovarian carcinoma)",
+"id": "ICLAC-00110",
+"table": 1
+},
+{
+"name": "5-8F",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00596",
+"table": 1
+},
+{
+"name": "6-10B",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00597",
+"table": 1
+},
+{
+"name": "A172TR3",
+"actual": "U-251 MG (Glioblastoma)",
+"id": "ICLAC-00523",
+"table": 1
+},
+{
+"name": "ACC2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00357",
+"table": 1
+},
+{
+"name": "ACC3",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00358",
+"table": 1
+},
+{
+"name": "ACCM",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00359",
+"table": 1
+},
+{
+"name": "ACCNS",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00360",
+"table": 1
+},
+{
+"name": "ACCS",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00361",
+"table": 1
+},
+{
+"name": "ACN",
+"actual": "a different cell line than claimed (actual: Unknown, possibly melanoma)",
+"id": "ICLAC-00623",
+"table": 1
+},
+{
+"name": "ADLC-5M2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00111",
+"table": 1
+},
+{
+"name": "Aedes aegypti, Suitor's clone",
+"actual": "Unknown, possibly Ae (Grace's Antheraea eucalypti cells)",
+"id": "ICLAC-00014",
+"table": 1
+},
+{
+"name": "Aedes vexans culture",
+"actual": "Unknown, possibly Ae (Grace's Antheraea eucalypti cells)",
+"id": "ICLAC-00015",
+"table": 1
+},
+{
+"name": "AG-F",
+"actual": "CCRF-CEM (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00171",
+"table": 1
+},
+{
+"name": "AKI",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00172",
+"table": 1
+},
+{
+"name": "ALVA-101",
+"actual": "PC-3 (Prostate carcinoma)",
+"id": "ICLAC-00176",
+"table": 1
+},
+{
+"name": "ALVA-31",
+"actual": "PC-3 (Prostate carcinoma)",
+"id": "ICLAC-00173",
+"table": 1
+},
+{
+"name": "ALVA-41",
+"actual": "PC-3 (Prostate carcinoma)",
+"id": "ICLAC-00174",
+"table": 1
+},
+{
+"name": "ALVA-55",
+"actual": "PC-3 (Prostate carcinoma)",
+"id": "ICLAC-00175",
+"table": 1
+},
+{
+"name": "Ao38",
+"actual": "a different cell line than claimed (actual: Eggs, normal)",
+"id": "ICLAC-00510",
+"table": 1
+},
+{
+"name": "ARO81-1",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00177",
+"table": 1
+},
+{
+"name": "ASAN-PaCa",
+"actual": "T3M-4 (Pancreatic adenocarcinoma)",
+"id": "ICLAC-00647",
+"table": 1
+},
+{
+"name": "AV3",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00001",
+"table": 1
+},
+{
+"name": "AZ521",
+"actual": "HuTu 80 (Duodenal carcinoma)",
+"id": "ICLAC-00369",
+"table": 1
+},
+{
+"name": "BALB/3T3 A31-1-1",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00528",
+"table": 1
+},
+{
+"name": "BALB/3T3 A31-1-13",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00529",
+"table": 1
+},
+{
+"name": "BCaP-37",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00625",
+"table": 1
+},
+{
+"name": "BCC1/KMC",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00112",
+"table": 1
+},
+{
+"name": "BE-13",
+"actual": "PEER (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00178",
+"table": 1
+},
+{
+"name": "BEL-7402",
+"actual": "HeLa / HCT 8 (Cervical adenocarcinoma / colon carcinoma)",
+"id": "ICLAC-00549",
+"table": 1
+},
+{
+"name": "BEL-7404",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00550",
+"table": 1
+},
+{
+"name": "BGC-823",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00570",
+"table": 1
+},
+{
+"name": "Bhas42",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00530",
+"table": 1
+},
+{
+"name": "BHP 10-3",
+"actual": "TPC-1 (Thyroid, papillary carcinoma)",
+"id": "ICLAC-00179",
+"table": 1
+},
+{
+"name": "BHP 14-9",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00180",
+"table": 1
+},
+{
+"name": "BHP 15-3",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00555",
+"table": 1
+},
+{
+"name": "BHP 17-10",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00181",
+"table": 1
+},
+{
+"name": "BHP 18-21",
+"actual": "Mixture, M14 / TPC-1 (Mixture, melanoma / papillary thyroid carcinoma)",
+"id": "ICLAC-00571",
+"table": 1
+},
+{
+"name": "BHP 2-7",
+"actual": "TPC-1 (Thyroid, papillary carcinoma)",
+"id": "ICLAC-00182",
+"table": 1
+},
+{
+"name": "BHP 5-16",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00183",
+"table": 1
+},
+{
+"name": "BHP 7-13",
+"actual": "TPC-1 (Thyroid, papillary carcinoma)",
+"id": "ICLAC-00184",
+"table": 1
+},
+{
+"name": "BIC-1",
+"actual": "SW-480, SW-620 (Colon carcinoma)",
+"id": "ICLAC-00365",
+"table": 1
+},
+{
+"name": "BIU-87",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00642",
+"table": 1
+},
+{
+"name": "BLIN-1",
+"actual": "NALM-6 (Leukemia, acute lymphoblastic, B cell precursor)",
+"id": "ICLAC-00170",
+"table": 1
+},
+{
+"name": "BM-1604",
+"actual": "DU-145 (Prostate carcinoma)",
+"id": "ICLAC-00113",
+"table": 1
+},
+{
+"name": "BrCA 5",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00016",
+"table": 1
+},
+{
+"name": "BSCC-93",
+"actual": "DJM-1 (Skin, squamous cell carcinoma)",
+"id": "ICLAC-00185",
+"table": 1
+},
+{
+"name": "BT-B",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00394",
+"table": 1
+},
+{
+"name": "C16",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00296",
+"table": 1
+},
+{
+"name": "C-433",
+"actual": "RD-ES (Sarcoma (Ewing's))",
+"id": "ICLAC-00395",
+"table": 1
+},
+{
+"name": "CAC2",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00362",
+"table": 1
+},
+{
+"name": "CaES-17",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00604",
+"table": 1
+},
+{
+"name": "CaMa",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00034",
+"table": 1
+},
+{
+"name": "CaOV",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00035",
+"table": 1
+},
+{
+"name": "Caov-2",
+"actual": "NIH:OVCAR-2 (Ovarian carcinoma)",
+"id": "ICLAC-00458",
+"table": 1
+},
+{
+"name": "CaVe",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00036",
+"table": 1
+},
+{
+"name": "CCL3",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00381",
+"table": 1
+},
+{
+"name": "CCO",
+"actual": "Unknown, possibly BB",
+"id": "ICLAC-00618",
+"table": 1
+},
+{
+"name": "CCO-SFM",
+"actual": "Unknown, possibly BB",
+"id": "ICLAC-00619",
+"table": 1
+},
+{
+"name": "CGTH-W-1",
+"actual": "SW579 (Thyroid, squamous cell carcinoma)",
+"id": "ICLAC-00536",
+"table": 1
+},
+{
+"name": "CH1",
+"actual": "PA1 (Teratocarcinoma)",
+"id": "ICLAC-00459",
+"table": 1
+},
+{
+"name": "CH1-cisR",
+"actual": "PA1 (Teratocarcinoma)",
+"id": "ICLAC-00559",
+"table": 1
+},
+{
+"name": "Chang liver",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00002",
+"table": 1
+},
+{
+"name": "CHB",
+"actual": "a different cell line than claimed (actual: Not specified)",
+"id": "ICLAC-00017",
+"table": 1
+},
+{
+"name": "CHP-234",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00297",
+"table": 1
+},
+{
+"name": "Clom 15",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00383",
+"table": 1
+},
+{
+"name": "Clone 1-5c-4",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00298",
+"table": 1
+},
+{
+"name": "Clone 1A",
+"actual": "CHSE-214 (Embryo)",
+"id": "ICLAC-00371",
+"table": 1
+},
+{
+"name": "CM-319",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00626",
+"table": 1
+},
+{
+"name": "CMP",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00003",
+"table": 1
+},
+{
+"name": "CMPII C2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00038",
+"table": 1
+},
+{
+"name": "CNDT2",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00384",
+"table": 1
+},
+{
+"name": "CNE-1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00473",
+"table": 1
+},
+{
+"name": "CNE-2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00474",
+"table": 1
+},
+{
+"name": "COLO 38",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00556",
+"table": 1
+},
+{
+"name": "COLO 587",
+"actual": "COLO 320DM (Colon carcinoma)",
+"id": "ICLAC-00396",
+"table": 1
+},
+{
+"name": "COLO 677",
+"actual": "RPMI-8226 (Myeloma)",
+"id": "ICLAC-00299",
+"table": 1
+},
+{
+"name": "COLO 699",
+"actual": "HMCB (RPMI-7272) or RPMI-7932 (Melanoma)",
+"id": "ICLAC-00650",
+"table": 1
+},
+{
+"name": "COLO 699N",
+"actual": "HMCB (RPMI-7272) or RPMI-7932 (Melanoma)",
+"id": "ICLAC-00651",
+"table": 1
+},
+{
+"name": "COLO 704",
+"actual": "COLO 684 or COLO 685 (Uterine adenocarcinoma)",
+"id": "ICLAC-00653",
+"table": 1
+},
+{
+"name": "COLO 738",
+"actual": "HMCB (RPMI-7272) or RPMI-7932 (Melanoma)",
+"id": "ICLAC-00652",
+"table": 1
+},
+{
+"name": "COLO 775",
+"actual": "RPMI-8226 (Myeloma)",
+"id": "ICLAC-00537",
+"table": 1
+},
+{
+"name": "COLO 818",
+"actual": "COLO 800 (Melanoma)",
+"id": "ICLAC-00114",
+"table": 1
+},
+{
+"name": "CoLo-TC",
+"actual": "COLO 205 (Colon carcinoma)",
+"id": "ICLAC-00300",
+"table": 1
+},
+{
+"name": "Culiseta inornata",
+"actual": "Unknown, possibly Ae (Grace's Antheraea eucalypti cells)",
+"id": "ICLAC-00018",
+"table": 1
+},
+{
+"name": "D-11",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00582",
+"table": 1
+},
+{
+"name": "D18T",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00039",
+"table": 1
+},
+{
+"name": "D-54 MG",
+"actual": "A-172 (Glioblastoma)",
+"id": "ICLAC-00505",
+"table": 1
+},
+{
+"name": "D98/AH",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00115",
+"table": 1
+},
+{
+"name": "D98/AH2 Clone B",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00301",
+"table": 1
+},
+{
+"name": "DAMI",
+"actual": "HEL (Leukemia, acute myeloid, M6)",
+"id": "ICLAC-00116",
+"table": 1
+},
+{
+"name": "DAPT",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00040",
+"table": 1
+},
+{
+"name": "Det30A",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00041",
+"table": 1
+},
+{
+"name": "Detroit 98/AG",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00019",
+"table": 1
+},
+{
+"name": "Detroit 98/AH-2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00020",
+"table": 1
+},
+{
+"name": "Detroit 98/AH-R",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00021",
+"table": 1
+},
+{
+"name": "Detroit 98s",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00022",
+"table": 1
+},
+{
+"name": "Detroit-6",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00004",
+"table": 1
+},
+{
+"name": "Detroit-98",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00005",
+"table": 1
+},
+{
+"name": "DM12",
+"actual": "UM-SCC-1 (Oral squamous cell carcinoma (recurrence))",
+"id": "ICLAC-00397",
+"table": 1
+},
+{
+"name": "DM14",
+"actual": "UM-SCC-1 (Oral squamous cell carcinoma (recurrence))",
+"id": "ICLAC-00398",
+"table": 1
+},
+{
+"name": "DRO90-1",
+"actual": "A-375 (Melanoma)",
+"id": "ICLAC-00188",
+"table": 1
+},
+{
+"name": "DuPro-1",
+"actual": "PC-3 (Prostate carcinoma)",
+"id": "ICLAC-00189",
+"table": 1
+},
+{
+"name": "E006AA",
+"actual": "786-O (Kidney, renal cell carcinoma)",
+"id": "ICLAC-00585",
+"table": 1
+},
+{
+"name": "E006AA-hT",
+"actual": "786-O (Kidney, renal cell carcinoma)",
+"id": "ICLAC-00586",
+"table": 1
+},
+{
+"name": "EB33",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00023",
+"table": 1
+},
+{
+"name": "EC9706",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00633",
+"table": 1
+},
+{
+"name": "eCAS",
+"actual": "RAW 264.7 (Macrophage, transformed)",
+"id": "ICLAC-00601",
+"table": 1
+},
+{
+"name": "ECC-1",
+"actual": "Ishikawa (Endometrial carcinoma)",
+"id": "ICLAC-00460",
+"table": 1
+},
+{
+"name": "ECTC",
+"actual": "Vero (Kidney, normal renal cells)",
+"id": "ICLAC-00190",
+"table": 1
+},
+{
+"name": "ECV-304",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00117",
+"table": 1
+},
+{
+"name": "ED27",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00191",
+"table": 1
+},
+{
+"name": "EEK",
+"actual": "NSK (Kidney, normal renal cells)",
+"id": "ICLAC-00192",
+"table": 1
+},
+{
+"name": "EJ-1",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00194",
+"table": 1
+},
+{
+"name": "Ej138",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00195",
+"table": 1
+},
+{
+"name": "EL 1",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00524",
+"table": 1
+},
+{
+"name": "ElCo",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00042",
+"table": 1
+},
+{
+"name": "EPC",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00302",
+"table": 1
+},
+{
+"name": "EPLC3-2M1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00118",
+"table": 1
+},
+{
+"name": "EPLC-65",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00119",
+"table": 1
+},
+{
+"name": "ESP1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00043",
+"table": 1
+},
+{
+"name": "ETK-1",
+"actual": "SSP-25 (Cholangiocarcinoma)",
+"id": "ICLAC-00196",
+"table": 1
+},
+{
+"name": "EU-1",
+"actual": "REH (Leukemia, acute lymphoblastic, B cell precursor)",
+"id": "ICLAC-00197",
+"table": 1
+},
+{
+"name": "EU-7",
+"actual": "CCRF-CEM (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00198",
+"table": 1
+},
+{
+"name": "EUE",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00044",
+"table": 1
+},
+{
+"name": "EVLC2",
+"actual": "a different cell line than claimed (actual: Non-endothelial?)",
+"id": "ICLAC-00199",
+"table": 1
+},
+{
+"name": "F2-4E5",
+"actual": "SK-HEP-1 (Liver carcinoma)",
+"id": "ICLAC-00120",
+"table": 1
+},
+{
+"name": "F255A4",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00045",
+"table": 1
+},
+{
+"name": "F2-5B6",
+"actual": "SK-HEP-1 (Liver carcinoma)",
+"id": "ICLAC-00121",
+"table": 1
+},
+{
+"name": "FB2",
+"actual": "TPC-1 (Thyroid, papillary carcinoma)",
+"id": "ICLAC-00200",
+"table": 1
+},
+{
+"name": "Fitz-HSA",
+"actual": "DEN-HSA  (Sarcoma (hemangiosarcoma))",
+"id": "ICLAC-00400",
+"table": 1
+},
+{
+"name": "Flow 13000",
+"actual": "MRC-5 (Lung cells, embryonic fibroblast)",
+"id": "ICLAC-00303",
+"table": 1
+},
+{
+"name": "Flow 5000",
+"actual": "Flow 1000 (Lung cells, embryonic fibroblast)",
+"id": "ICLAC-00304",
+"table": 1
+},
+{
+"name": "Flow 6000",
+"actual": "Flow 1000 (Lung cells, embryonic fibroblast)",
+"id": "ICLAC-00305",
+"table": 1
+},
+{
+"name": "Flow 7000",
+"actual": "Flow 3000 (Lung cells, embryonic fibroblast)",
+"id": "ICLAC-00306",
+"table": 1
+},
+{
+"name": "FRI-SpIm-1229",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00566",
+"table": 1
+},
+{
+"name": "G-11",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00048",
+"table": 1
+},
+{
+"name": "GHE",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00122",
+"table": 1
+},
+{
+"name": "Girardi heart",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00006",
+"table": 1
+},
+{
+"name": "GLC-82",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00572",
+"table": 1
+},
+{
+"name": "GM1312",
+"actual": "Correct name, incorrect cell type (EBV+ B-lymphoblastoid cell line)",
+"id": "ICLAC-00201",
+"table": 1
+},
+{
+"name": "GOS-3",
+"actual": "U-343 MG (Glioblastoma)",
+"id": "ICLAC-00449",
+"table": 1
+},
+{
+"name": "GPS-M",
+"actual": "Strain L-M (Connective tissue)",
+"id": "ICLAC-00049",
+"table": 1
+},
+{
+"name": "GPS-PD",
+"actual": "Strain L-M (Connective tissue)",
+"id": "ICLAC-00050",
+"table": 1
+},
+{
+"name": "GREF-X",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00123",
+"table": 1
+},
+{
+"name": "GR-M",
+"actual": "PSN1 (Pancreatic adenocarcinoma)",
+"id": "ICLAC-00538",
+"table": 1
+},
+{
+"name": "GT3TKB",
+"actual": "RERF-LC-A1 (Lung carcinoma)",
+"id": "ICLAC-00202",
+"table": 1
+},
+{
+"name": "H-494",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00051",
+"table": 1
+},
+{
+"name": "H7D7A",
+"actual": "HepG2 (Liver, hepatoblastoma)",
+"id": "ICLAC-00203",
+"table": 1
+},
+{
+"name": "H7D7B",
+"actual": "HepG2 (Liver, hepatoblastoma)",
+"id": "ICLAC-00204",
+"table": 1
+},
+{
+"name": "H7D7BD5",
+"actual": "HepG2 (Liver, hepatoblastoma)",
+"id": "ICLAC-00560",
+"table": 1
+},
+{
+"name": "H7D7C",
+"actual": "HepG2 (Liver, hepatoblastoma)",
+"id": "ICLAC-00205",
+"table": 1
+},
+{
+"name": "H7D7D",
+"actual": "HepG2 (Liver, hepatoblastoma)",
+"id": "ICLAC-00206",
+"table": 1
+},
+{
+"name": "HAC15",
+"actual": "NCI-H295R (Adrenal gland, adrenal cortex carcinoma)",
+"id": "ICLAC-00518",
+"table": 1
+},
+{
+"name": "HAC-84",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00605",
+"table": 1
+},
+{
+"name": "HAG",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00124",
+"table": 1
+},
+{
+"name": "HAPI",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00602",
+"table": 1
+},
+{
+"name": "HBC",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00024",
+"table": 1
+},
+{
+"name": "HBL-100",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00207",
+"table": 1
+},
+{
+"name": "HBT-3",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00052",
+"table": 1
+},
+{
+"name": "HBT-39b",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00053",
+"table": 1
+},
+{
+"name": "HBT-E",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00054",
+"table": 1
+},
+{
+"name": "HCC60",
+"actual": "NCI-H23 (Lung carcinoma)",
+"id": "ICLAC-00533",
+"table": 1
+},
+{
+"name": "HCE",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00055",
+"table": 1
+},
+{
+"name": "HCu-10",
+"actual": "Hcu-10, Hcu-18, Hcu-22, Hcu-27, Hcu-33, Hcu-37, Hcu-39 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00056",
+"table": 1
+},
+{
+"name": "HCu-18",
+"actual": "Hcu-10, Hcu-18, Hcu-22, Hcu-27, Hcu-33, Hcu-37, Hcu-39 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00057",
+"table": 1
+},
+{
+"name": "HCu-22",
+"actual": "Hcu-10, Hcu-18, Hcu-22, Hcu-27, Hcu-33, Hcu-37, Hcu-39 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00058",
+"table": 1
+},
+{
+"name": "HCu-27",
+"actual": "Hcu-10, Hcu-18, Hcu-22, Hcu-27, Hcu-33, Hcu-37, Hcu-39 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00059",
+"table": 1
+},
+{
+"name": "HCu-33",
+"actual": "Hcu-10, Hcu-18, Hcu-22, Hcu-27, Hcu-33, Hcu-37, Hcu-39 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00060",
+"table": 1
+},
+{
+"name": "HCu-37",
+"actual": "Hcu-10, Hcu-18, Hcu-22, Hcu-27, Hcu-33, Hcu-37, Hcu-39 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00061",
+"table": 1
+},
+{
+"name": "HCu-39",
+"actual": "Hcu-10, Hcu-18, Hcu-22, Hcu-27, Hcu-33, Hcu-37, Hcu-39 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00062",
+"table": 1
+},
+{
+"name": "HCV-29Tmv",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00125",
+"table": 1
+},
+{
+"name": "HEC-155",
+"actual": "HEC-155, HEC-180 (synonymous cell lines, donor origin unknown) (Uterine carcinoma)",
+"id": "ICLAC-00307",
+"table": 1
+},
+{
+"name": "HEC-180",
+"actual": "HEC-155, HEC-180 (synonymous cell lines, donor origin unknown) (Uterine adenocarcinoma)",
+"id": "ICLAC-00308",
+"table": 1
+},
+{
+"name": "HEK",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00063",
+"table": 1
+},
+{
+"name": "HEK/HRV",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00064",
+"table": 1
+},
+{
+"name": "HEL-R66",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00065",
+"table": 1
+},
+{
+"name": "Hep2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00310",
+"table": 1
+},
+{
+"name": "HEp-2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00007",
+"table": 1
+},
+{
+"name": "Hep-2C",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00309",
+"table": 1
+},
+{
+"name": "Hepa-T1",
+"actual": "Unknown, possibly Hepa-E1",
+"id": "ICLAC-00567",
+"table": 1
+},
+{
+"name": "HES",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00461",
+"table": 1
+},
+{
+"name": "HHUA",
+"actual": "SNG-M, HHUA (synonymous cell lines, donor origin unknown) (Endometrial carcinoma)",
+"id": "ICLAC-00628",
+"table": 1
+},
+{
+"name": "HIMEG-1",
+"actual": "HL-60 (Leukemia, acute myeloid, M2)",
+"id": "ICLAC-00208",
+"table": 1
+},
+{
+"name": "HKB-1",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00209",
+"table": 1
+},
+{
+"name": "HKMUS",
+"actual": "SKG-II-SF (Cervical carcinoma)",
+"id": "ICLAC-00311",
+"table": 1
+},
+{
+"name": "HKMUS-SF",
+"actual": "SKG-II-SF (Cervical carcinoma)",
+"id": "ICLAC-00210",
+"table": 1
+},
+{
+"name": "HKTN-2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00635",
+"table": 1
+},
+{
+"name": "HL111783",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00211",
+"table": 1
+},
+{
+"name": "HMV-1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00126",
+"table": 1
+},
+{
+"name": "HNOS",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00580",
+"table": 1
+},
+{
+"name": "HO-8910",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00606",
+"table": 1
+},
+{
+"name": "HO-8910PM",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00607",
+"table": 1
+},
+{
+"name": "HONE-1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00496",
+"table": 1
+},
+{
+"name": "HPB-MLT",
+"actual": "HPB-ALL (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00212",
+"table": 1
+},
+{
+"name": "HPC-36M",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00213",
+"table": 1
+},
+{
+"name": "hPTC",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00127",
+"table": 1
+},
+{
+"name": "HROBML03",
+"actual": "NCI-H460 (Lung carcinoma, large cell)",
+"id": "ICLAC-00587",
+"table": 1
+},
+{
+"name": "Hs 677.St",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00401",
+"table": 1
+},
+{
+"name": "HSC-41",
+"actual": "HSC-42 (Gastric carcinoma)",
+"id": "ICLAC-00312",
+"table": 1
+},
+{
+"name": "HSG",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00313",
+"table": 1
+},
+{
+"name": "HSG-AZA1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00314",
+"table": 1
+},
+{
+"name": "HSG-AZA3",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00315",
+"table": 1
+},
+{
+"name": "HSGc-C5",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00316",
+"table": 1
+},
+{
+"name": "HS-SULTAN",
+"actual": "JIJOYE (Lymphoma, Burkitt)",
+"id": "ICLAC-00214",
+"table": 1
+},
+{
+"name": "HSY",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00317",
+"table": 1
+},
+{
+"name": "hTERT-EEC",
+"actual": "MCF-7 (Breast carcinoma)",
+"id": "ICLAC-00462",
+"table": 1
+},
+{
+"name": "Hu1734",
+"actual": "HCV-29 (Bladder, non-malignant urothelial cells)",
+"id": "ICLAC-00128",
+"table": 1
+},
+{
+"name": "Hu456",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00129",
+"table": 1
+},
+{
+"name": "Hu549",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00130",
+"table": 1
+},
+{
+"name": "Hu609",
+"actual": "J82 (Bladder carcinoma)",
+"id": "ICLAC-00131",
+"table": 1
+},
+{
+"name": "Hu609Tmv",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00132",
+"table": 1
+},
+{
+"name": "Hu961a, Hu961t",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00133",
+"table": 1
+},
+{
+"name": "Huker",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00636",
+"table": 1
+},
+{
+"name": "HuKo39",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00066",
+"table": 1
+},
+{
+"name": "HuL-1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00318",
+"table": 1
+},
+{
+"name": "Hut",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00067",
+"table": 1
+},
+{
+"name": "IMC-2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00134",
+"table": 1
+},
+{
+"name": "IMC-3",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00215",
+"table": 1
+},
+{
+"name": "IMC-4",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00319",
+"table": 1
+},
+{
+"name": "ImKC",
+"actual": "RAW 264.7 (Macrophage, transformed)",
+"id": "ICLAC-00620",
+"table": 1
+},
+{
+"name": "Intestine 407",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00008",
+"table": 1
+},
+{
+"name": "IPDDC-A2",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00320",
+"table": 1
+},
+{
+"name": "IPRB",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00385",
+"table": 1
+},
+{
+"name": "IPRI-OL-11",
+"actual": "IPRI-CF-124 (Neonate larvae)",
+"id": "ICLAC-00512",
+"table": 1
+},
+{
+"name": "IPRI-OL-7",
+"actual": "IPRI-CF-124 (Neonate larvae)",
+"id": "ICLAC-00511",
+"table": 1
+},
+{
+"name": "IPTP/98",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00321",
+"table": 1
+},
+{
+"name": "IST-1",
+"actual": "SK-OV-3 (Ovarian carcinoma)",
+"id": "ICLAC-00402",
+"table": 1
+},
+{
+"name": "IZD-MB-0503",
+"actual": "Unknown, possibly TN-CL1",
+"id": "ICLAC-00603",
+"table": 1
+},
+{
+"name": "J-111",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00009",
+"table": 1
+},
+{
+"name": "J96",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00068",
+"table": 1
+},
+{
+"name": "JCA-1",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00216",
+"table": 1
+},
+{
+"name": "JHC",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00069",
+"table": 1
+},
+{
+"name": "JHPI-1 clone 16",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00037",
+"table": 1
+},
+{
+"name": "JHT",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00070",
+"table": 1
+},
+{
+"name": "JHU012",
+"actual": "JHU022 (Laryngeal squamous cell carcinoma (lymph node))",
+"id": "ICLAC-00403",
+"table": 1
+},
+{
+"name": "JHU013",
+"actual": "FaDu (Hypopharyngeal squamous cell carcinoma)",
+"id": "ICLAC-00404",
+"table": 1
+},
+{
+"name": "JHU019",
+"actual": "PC-3 (Prostate carcinoma)",
+"id": "ICLAC-00405",
+"table": 1
+},
+{
+"name": "JHU028",
+"actual": "A549 (Lung carcinoma)",
+"id": "ICLAC-00406",
+"table": 1
+},
+{
+"name": "JMAR",
+"actual": "UM-SCC-1 (Oral squamous cell carcinoma (recurrence))",
+"id": "ICLAC-00407",
+"table": 1
+},
+{
+"name": "JOSK-I",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00135",
+"table": 1
+},
+{
+"name": "JOSK-K",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00136",
+"table": 1
+},
+{
+"name": "JOSK-M",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00137",
+"table": 1
+},
+{
+"name": "JOSK-S",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00138",
+"table": 1
+},
+{
+"name": "JROECL 47",
+"actual": "HCT-116 (Colon carcinoma)",
+"id": "ICLAC-00546",
+"table": 1
+},
+{
+"name": "JROECL 50",
+"actual": "HCT-116 (Colon carcinoma)",
+"id": "ICLAC-00547",
+"table": 1
+},
+{
+"name": "JTC-17",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00139",
+"table": 1
+},
+{
+"name": "JTC-3",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00140",
+"table": 1
+},
+{
+"name": "K051",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00217",
+"table": 1
+},
+{
+"name": "K2 [multiple cell lines with same name, see Cellosaurus]",
+"actual": "GLAG-66 (Thyroid, papillary carcinoma)",
+"id": "ICLAC-00219",
+"table": 1
+},
+{
+"name": "KAK1",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00220",
+"table": 1
+},
+{
+"name": "KAT10",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00221",
+"table": 1
+},
+{
+"name": "KAT4",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00222",
+"table": 1
+},
+{
+"name": "KAT5",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00223",
+"table": 1
+},
+{
+"name": "KAT50",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00224",
+"table": 1
+},
+{
+"name": "KAT7",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00225",
+"table": 1
+},
+{
+"name": "KB-3-1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00372",
+"table": 1
+},
+{
+"name": "KB-V1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00373",
+"table": 1
+},
+{
+"name": "KCI-MOH1",
+"actual": "HPAC (Pancreatic carcinoma)",
+"id": "ICLAC-00322",
+"table": 1
+},
+{
+"name": "KKU-213B",
+"actual": "KKU-213A (KKU-M213) (Cholangiocarcinoma)",
+"id": "ICLAC-00592",
+"table": 1
+},
+{
+"name": "KKU-213C",
+"actual": "KKU-213A (KKU-M213) (Cholangiocarcinoma)",
+"id": "ICLAC-00591",
+"table": 1
+},
+{
+"name": "KM20",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00513",
+"table": 1
+},
+{
+"name": "KM20L2",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00514",
+"table": 1
+},
+{
+"name": "KM3",
+"actual": "a different cell line than claimed (actual: Not specified)",
+"id": "ICLAC-00227",
+"table": 1
+},
+{
+"name": "KM-3",
+"actual": "REH (Leukemia, acute lymphoblastic, B cell precursor)",
+"id": "ICLAC-00226",
+"table": 1
+},
+{
+"name": "KMS-21-BM",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00228",
+"table": 1
+},
+{
+"name": "KMT-2",
+"actual": "KG-1 (Leukemia)",
+"id": "ICLAC-00229",
+"table": 1
+},
+{
+"name": "KNS-89",
+"actual": "U-251 MG (Glioblastoma)",
+"id": "ICLAC-00323",
+"table": 1
+},
+{
+"name": "KOSC-3",
+"actual": "Ca9-22 (Oral carcinoma)",
+"id": "ICLAC-00324",
+"table": 1
+},
+{
+"name": "KP-1N",
+"actual": "PANC-1 (Pancreatic carcinoma)",
+"id": "ICLAC-00374",
+"table": 1
+},
+{
+"name": "KPB-M15",
+"actual": "KYO-1 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00230",
+"table": 1
+},
+{
+"name": "KPL-1",
+"actual": "MCF-7 (Breast carcinoma)",
+"id": "ICLAC-00325",
+"table": 1
+},
+{
+"name": "KP-P1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00071",
+"table": 1
+},
+{
+"name": "KSY-1",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00408",
+"table": 1
+},
+{
+"name": "KU7",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00480",
+"table": 1
+},
+{
+"name": "KU-YS",
+"actual": "KU-SN (Neuroectodermal tumor)",
+"id": "ICLAC-00326",
+"table": 1
+},
+{
+"name": "L-02",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00575",
+"table": 1
+},
+{
+"name": "L-132",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00025",
+"table": 1
+},
+{
+"name": "L-41",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00327",
+"table": 1
+},
+{
+"name": "LAH1",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00568",
+"table": 1
+},
+{
+"name": "LAH2",
+"actual": "Unknown, possibly LAH3",
+"id": "ICLAC-00569",
+"table": 1
+},
+{
+"name": "LC5",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00515",
+"table": 1
+},
+{
+"name": "LC5-HIV",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00516",
+"table": 1
+},
+{
+"name": "LED-Ti",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00072",
+"table": 1
+},
+{
+"name": "LF-BK",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00612",
+"table": 1
+},
+{
+"name": "LFBK-alphaVbeta6",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00613",
+"table": 1
+},
+{
+"name": "LLC-15MB",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00231",
+"table": 1
+},
+{
+"name": "LN-319",
+"actual": "LN-992 (Glioblastoma)",
+"id": "ICLAC-00450",
+"table": 1
+},
+{
+"name": "LN-443",
+"actual": "LN-444 (Glioblastoma, recurrence (different donor))",
+"id": "ICLAC-00451",
+"table": 1
+},
+{
+"name": "LN-464",
+"actual": "a different cell line than claimed (actual: Unknown, possibly melanoma)",
+"id": "ICLAC-00624",
+"table": 1
+},
+{
+"name": "LR10.6",
+"actual": "NALM-6 (Leukemia, acute lymphoblastic, B cell precursor)",
+"id": "ICLAC-00141",
+"table": 1
+},
+{
+"name": "LT-1",
+"actual": "Mixture, FHM  / TH (Mixture, unspecified (FHM) / heart (TH))",
+"id": "ICLAC-00073",
+"table": 1
+},
+{
+"name": "LTEP-a2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00576",
+"table": 1
+},
+{
+"name": "LU 106",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00075",
+"table": 1
+},
+{
+"name": "Lu-130",
+"actual": "Lu-134A, B (Lung carcinoma)",
+"id": "ICLAC-00232",
+"table": 1
+},
+{
+"name": "M10T",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00076",
+"table": 1
+},
+{
+"name": "M4A4",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00375",
+"table": 1
+},
+{
+"name": "M4A4 GFP",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00561",
+"table": 1
+},
+{
+"name": "M4A4 LM3-2 GFP",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00562",
+"table": 1
+},
+{
+"name": "M4A4 LM3-4 CL16 GFP",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00563",
+"table": 1
+},
+{
+"name": "MA-1",
+"actual": "Pfeiffer (Lymphoma, non-Hodgkin)",
+"id": "ICLAC-00471",
+"table": 1
+},
+{
+"name": "MA-104",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00077",
+"table": 1
+},
+{
+"name": "MA-111",
+"actual": "Unknown, possibly Vero (Kidney, normal renal cells)",
+"id": "ICLAC-00078",
+"table": 1
+},
+{
+"name": "MA-160",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00026",
+"table": 1
+},
+{
+"name": "MARC-145",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00621",
+"table": 1
+},
+{
+"name": "Mash-1",
+"actual": "MMac (Melanoma)",
+"id": "ICLAC-00233",
+"table": 1
+},
+{
+"name": "MaTu",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00142",
+"table": 1
+},
+{
+"name": "MC-4000",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00143",
+"table": 1
+},
+{
+"name": "McCoy",
+"actual": "Strain L (Connective tissue)",
+"id": "ICLAC-00079",
+"table": 1
+},
+{
+"name": "MCF-7/AdrR",
+"actual": "OVCAR-8 (Ovarian carcinoma)",
+"id": "ICLAC-00234",
+"table": 1
+},
+{
+"name": "MDA-MB-435",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00235",
+"table": 1
+},
+{
+"name": "MDA-MB-435S",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00565",
+"table": 1
+},
+{
+"name": "MDA-N",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00236",
+"table": 1
+},
+{
+"name": "MDS",
+"actual": "JURKAT (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00237",
+"table": 1
+},
+{
+"name": "MEL-HO",
+"actual": "MEL-HO, MEL-WEI (synonymous cell lines, donor origin unknown)",
+"id": "ICLAC-00144",
+"table": 1
+},
+{
+"name": "MEL-WEI",
+"actual": "MEL-HO, MEL-WEI (synonymous cell lines, donor origin unknown)",
+"id": "ICLAC-00145",
+"table": 1
+},
+{
+"name": "MGC-803",
+"actual": "Hybrid, HeLa / unknown (Hybrid, cervical adenocarcinoma / unknown)",
+"id": "ICLAC-00588",
+"table": 1
+},
+{
+"name": "MGH-U1",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00080",
+"table": 1
+},
+{
+"name": "MGH-U2",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00081",
+"table": 1
+},
+{
+"name": "MHH-225",
+"actual": "JURKAT (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00238",
+"table": 1
+},
+{
+"name": "Minnesota EE",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00011",
+"table": 1
+},
+{
+"name": "MKB-1",
+"actual": "CCRF-CEM (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00146",
+"table": 1
+},
+{
+"name": "MKN28",
+"actual": "MKN74 (Gastric carcinoma)",
+"id": "ICLAC-00328",
+"table": 1
+},
+{
+"name": "MOBS-1",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00239",
+"table": 1
+},
+{
+"name": "MOC2-10",
+"actual": "MOC2 (Oral squamous cell carcinoma)",
+"id": "ICLAC-00594",
+"table": 1
+},
+{
+"name": "MOLT-15",
+"actual": "CTV-1 (Leukemia, acute myeloid, M5)",
+"id": "ICLAC-00147",
+"table": 1
+},
+{
+"name": "MPanc-96",
+"actual": "AsPC-1 (Pancreatic carcinoma)",
+"id": "ICLAC-00329",
+"table": 1
+},
+{
+"name": "MRO87-1",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00240",
+"table": 1
+},
+{
+"name": "MT-1 [Multiple cell lines with same name, see Cellosaurus]",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00148",
+"table": 1
+},
+{
+"name": "MT-3 [Multiple cell lines with same name, see Cellosaurus]",
+"actual": "LS-174T (LS-180 derivative) (Colon carcinoma)",
+"id": "ICLAC-00506",
+"table": 1
+},
+{
+"name": "MUM2C",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00501",
+"table": 1
+},
+{
+"name": "MUTZ-1",
+"actual": "Namalwa (Lymphoma, Burkitt)",
+"id": "ICLAC-00376",
+"table": 1
+},
+{
+"name": "MV522",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00409",
+"table": 1
+},
+{
+"name": "NC-37",
+"actual": "Raji (Lymphoma, Burkitt)",
+"id": "ICLAC-00330",
+"table": 1
+},
+{
+"name": "NCC16",
+"actual": "PHK16-0b (Skin, immortalized keratinocytes)",
+"id": "ICLAC-00331",
+"table": 1
+},
+{
+"name": "NCI-H1264",
+"actual": "NCI-H157, NCI-H1264 (synonymous cell lines, donor origin unknown) (Lung carcinoma)",
+"id": "ICLAC-00410",
+"table": 1
+},
+{
+"name": "NCI-H1304",
+"actual": "NCI-H1304, NCI-H1870 (synonymous cell lines, donor origin unknown) (Lung carcinoma, small cell)",
+"id": "ICLAC-00411",
+"table": 1
+},
+{
+"name": "NCI-H1514",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00242",
+"table": 1
+},
+{
+"name": "NCI-H157",
+"actual": "NCI-H157, NCI-H1264 (synonymous cell lines, donor origin unknown) (Lung carcinoma)",
+"id": "ICLAC-00412",
+"table": 1
+},
+{
+"name": "NCI-H1622",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00332",
+"table": 1
+},
+{
+"name": "NCI-H1870",
+"actual": "NCI-H1304, NCI-H1870 (synonymous cell lines, donor origin unknown) (Lung carcinoma, small cell)",
+"id": "ICLAC-00413",
+"table": 1
+},
+{
+"name": "NCI-H249",
+"actual": "NCI-H69 (Lung carcinoma, small cell)",
+"id": "ICLAC-00334",
+"table": 1
+},
+{
+"name": "NCI-H513",
+"actual": "NCI-H125 (Lung carcinoma)",
+"id": "ICLAC-00414",
+"table": 1
+},
+{
+"name": "NCI-H592",
+"actual": "NCI-H69 (Lung carcinoma, small cell)",
+"id": "ICLAC-00415",
+"table": 1
+},
+{
+"name": "NCI-H60",
+"actual": "NCI-N417 (Lung carcinoma, small cell)",
+"id": "ICLAC-00416",
+"table": 1
+},
+{
+"name": "NCI-H630",
+"actual": "Mixture",
+"id": "ICLAC-00417",
+"table": 1
+},
+{
+"name": "NCI-H738",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00335",
+"table": 1
+},
+{
+"name": "NCOL-1",
+"actual": "LoVo (Colon carcinoma)",
+"id": "ICLAC-00243",
+"table": 1
+},
+{
+"name": "NCTC 2544",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00012",
+"table": 1
+},
+{
+"name": "NCTC 3075",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00027",
+"table": 1
+},
+{
+"name": "ND-1",
+"actual": "DU-145 (Prostate carcinoma)",
+"id": "ICLAC-00244",
+"table": 1
+},
+{
+"name": "NM2C5",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00377",
+"table": 1
+},
+{
+"name": "NM2C5 GFP",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00564",
+"table": 1
+},
+{
+"name": "NOI-90",
+"actual": "REH (Leukemia, acute lymphoblastic, B cell precursor)",
+"id": "ICLAC-00245",
+"table": 1
+},
+{
+"name": "NOK-SI",
+"actual": "HaCaT (Skin, immortalized keratinocytes)",
+"id": "ICLAC-00589",
+"table": 1
+},
+{
+"name": "NOSE06",
+"actual": "DOV-13 (Ovarian carcinoma)",
+"id": "ICLAC-00464",
+"table": 1
+},
+{
+"name": "NOSE07",
+"actual": "DOV-13 (Ovarian carcinoma)",
+"id": "ICLAC-00465",
+"table": 1
+},
+{
+"name": "NPA'87",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00246",
+"table": 1
+},
+{
+"name": "NS-3",
+"actual": "COLO 201 (Colon carcinoma)",
+"id": "ICLAC-00336",
+"table": 1
+},
+{
+"name": "OC 314",
+"actual": "Unknown, possibly MDAH 2774 (Unknown, possibly ovarian carcinoma)",
+"id": "ICLAC-00637",
+"table": 1
+},
+{
+"name": "OC 315",
+"actual": "Unknown, possibly MDAH 2774 (Unknown, possibly ovarian carcinoma)",
+"id": "ICLAC-00638",
+"table": 1
+},
+{
+"name": "OC 316",
+"actual": "Unknown, possibly MDAH 2774 (Unknown, possibly ovarian carcinoma)",
+"id": "ICLAC-00639",
+"table": 1
+},
+{
+"name": "OCM-1",
+"actual": "M14 (Melanoma)",
+"id": "ICLAC-00502",
+"table": 1
+},
+{
+"name": "OCM-3",
+"actual": "SK-MEL-28 (Melanoma, primary skin)",
+"id": "ICLAC-00503",
+"table": 1
+},
+{
+"name": "OCM-8",
+"actual": "SK-MEL-28 (Melanoma, primary skin)",
+"id": "ICLAC-00504",
+"table": 1
+},
+{
+"name": "OCUM-6",
+"actual": "OCUM-11 (Gastric carcinoma)",
+"id": "ICLAC-00337",
+"table": 1
+},
+{
+"name": "OLGA-PH-J/92",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00378",
+"table": 1
+},
+{
+"name": "ONCO-DG-1",
+"actual": "OVCAR-3 (Ovarian carcinoma)",
+"id": "ICLAC-00338",
+"table": 1
+},
+{
+"name": "OS 187",
+"actual": "HCT-15 (Colon carcinoma)",
+"id": "ICLAC-00485",
+"table": 1
+},
+{
+"name": "OSA 1777",
+"actual": "SYO-1 (Synovial sarcoma)",
+"id": "ICLAC-00648",
+"table": 1
+},
+{
+"name": "OST",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00339",
+"table": 1
+},
+{
+"name": "OU-AML-1",
+"actual": "OCI/AML2 (Leukemia, acute myeloid, M4)",
+"id": "ICLAC-00247",
+"table": 1
+},
+{
+"name": "OU-AML-2",
+"actual": "OCI/AML2 (Leukemia, acute myeloid, M4)",
+"id": "ICLAC-00248",
+"table": 1
+},
+{
+"name": "OU-AML-3",
+"actual": "OCI/AML2 (Leukemia, acute myeloid, M4)",
+"id": "ICLAC-00249",
+"table": 1
+},
+{
+"name": "OU-AML-4",
+"actual": "OCI/AML2 (Leukemia, acute myeloid, M4)",
+"id": "ICLAC-00250",
+"table": 1
+},
+{
+"name": "OU-AML-5",
+"actual": "OCI/AML2 (Leukemia, acute myeloid, M4)",
+"id": "ICLAC-00251",
+"table": 1
+},
+{
+"name": "OU-AML-6",
+"actual": "OCI/AML2 (Leukemia, acute myeloid, M4)",
+"id": "ICLAC-00252",
+"table": 1
+},
+{
+"name": "OU-AML-7",
+"actual": "OCI/AML2 (Leukemia, acute myeloid, M4)",
+"id": "ICLAC-00253",
+"table": 1
+},
+{
+"name": "OU-AML-8",
+"actual": "OCI/AML2 (Leukemia, acute myeloid, M4)",
+"id": "ICLAC-00254",
+"table": 1
+},
+{
+"name": "OV2008",
+"actual": "ME-180 (Cervical carcinoma)",
+"id": "ICLAC-00466",
+"table": 1
+},
+{
+"name": "Ovary1847",
+"actual": "NIH:OVCAR-8 (Ovarian carcinoma)",
+"id": "ICLAC-00467",
+"table": 1
+},
+{
+"name": "OVMIU",
+"actual": "OVSAYO (Ovarian carcinoma)",
+"id": "ICLAC-00341",
+"table": 1
+},
+{
+"name": "P1-1A3",
+"actual": "SK-HEP-1 (Liver carcinoma)",
+"id": "ICLAC-00150",
+"table": 1
+},
+{
+"name": "P1-4D6",
+"actual": "SK-HEP-1 (Liver carcinoma)",
+"id": "ICLAC-00151",
+"table": 1
+},
+{
+"name": "P39/TSUGANE",
+"actual": "HL-60 (Leukemia, acute myeloid, M2)",
+"id": "ICLAC-00255",
+"table": 1
+},
+{
+"name": "Panc 01.28",
+"actual": "Panc 01.28, Panc 06.03 (synonymous cell lines, donor origin unknown) (Pancreatic adenocarcinoma)",
+"id": "ICLAC-00519",
+"table": 1
+},
+{
+"name": "Panc 06.03",
+"actual": "Panc 01.28, Panc 06.03 (synonymous cell lines, donor origin unknown) (Pancreatic adenocarcinoma)",
+"id": "ICLAC-00521",
+"table": 1
+},
+{
+"name": "PBEI",
+"actual": "NALM-6 (Leukemia, acute lymphoblastic, B cell precursor)",
+"id": "ICLAC-00152",
+"table": 1
+},
+{
+"name": "PC-93",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00256",
+"table": 1
+},
+{
+"name": "PCI-22A",
+"actual": "Unknown, does not match other cell line from same donor",
+"id": "ICLAC-00418",
+"table": 1
+},
+{
+"name": "PCI-22B",
+"actual": "Unknown, does not match other cell line from same donor",
+"id": "ICLAC-00419",
+"table": 1
+},
+{
+"name": "PCI-3",
+"actual": "PC-3 (Prostate carcinoma)",
+"id": "ICLAC-00420",
+"table": 1
+},
+{
+"name": "PC-MDS",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00379",
+"table": 1
+},
+{
+"name": "PEAZ-1",
+"actual": "HT-1080 (Sarcoma (fibrosarcoma))",
+"id": "ICLAC-00257",
+"table": 1
+},
+{
+"name": "PH [Multiple cell lines with same name, see Cellosaurus]",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00527",
+"table": 1
+},
+{
+"name": "PH61-N",
+"actual": "MIA PaCa-2 (Pancreatic carcinoma)",
+"id": "ICLAC-00342",
+"table": 1
+},
+{
+"name": "PLB-985",
+"actual": "HL-60 (Leukemia, acute myeloid, M2)",
+"id": "ICLAC-00258",
+"table": 1
+},
+{
+"name": "PMF-ko14",
+"actual": "KM12 (Colon carcinoma)",
+"id": "ICLAC-00629",
+"table": 1
+},
+{
+"name": "PPC-1",
+"actual": "PC-3 (Prostate carcinoma)",
+"id": "ICLAC-00153",
+"table": 1
+},
+{
+"name": "PSV811",
+"actual": "WI-38 (Lung, normal diploid fibroblasts)",
+"id": "ICLAC-00343",
+"table": 1
+},
+{
+"name": "QGY-7701",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00551",
+"table": 1
+},
+{
+"name": "QGY-7703",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00552",
+"table": 1
+},
+{
+"name": "QSG-7701",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00553",
+"table": 1
+},
+{
+"name": "RAMAK-1",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00154",
+"table": 1
+},
+{
+"name": "RBHF-1",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00155",
+"table": 1
+},
+{
+"name": "RC-2A",
+"actual": "CCRF-CEM (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00259",
+"table": 1
+},
+{
+"name": "RED-3",
+"actual": "HL-60 (Leukemia, acute myeloid, M2)",
+"id": "ICLAC-00260",
+"table": 1
+},
+{
+"name": "REH-6",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00261",
+"table": 1
+},
+{
+"name": "REPC",
+"actual": "Hep 3B (Liver, hepatocellular carcinoma)",
+"id": "ICLAC-00487",
+"table": 1
+},
+{
+"name": "RERF-LC-MA",
+"actual": "SK-MES-1 (Lung, squamous cell)",
+"id": "ICLAC-00386",
+"table": 1
+},
+{
+"name": "RERF-LC-OK",
+"actual": "Marcus (Astrocytoma)",
+"id": "ICLAC-00344",
+"table": 1
+},
+{
+"name": "RGC-5",
+"actual": "661W (Retina, photoreceptor cells)",
+"id": "ICLAC-00472",
+"table": 1
+},
+{
+"name": "RM-10",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00262",
+"table": 1
+},
+{
+"name": "RML-12",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00645",
+"table": 1
+},
+{
+"name": "RML-15 [RML-RSE]",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00583",
+"table": 1
+},
+{
+"name": "RMUG-L",
+"actual": "SNG-II (Endometrial carcinoma)",
+"id": "ICLAC-00421",
+"table": 1
+},
+{
+"name": "RO-D81-1",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00482",
+"table": 1
+},
+{
+"name": "RO-H85-1",
+"actual": "647-V (Bladder carcinoma)",
+"id": "ICLAC-00481",
+"table": 1
+},
+{
+"name": "RPMI-4788",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00387",
+"table": 1
+},
+{
+"name": "RPMI-6666",
+"actual": "Correct name, incorrect cell type (EBV+ B-lymphoblastoid cell line)",
+"id": "ICLAC-00263",
+"table": 1
+},
+{
+"name": "RPTC-1",
+"actual": "TPC-1 (Thyroid, papillary carcinoma)",
+"id": "ICLAC-00422",
+"table": 1
+},
+{
+"name": "RS-1",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00264",
+"table": 1
+},
+{
+"name": "RTSG",
+"actual": "SNG-II (Endometrial carcinoma)",
+"id": "ICLAC-00423",
+"table": 1
+},
+{
+"name": "RuGli",
+"actual": "Unknown, possibly C6",
+"id": "ICLAC-00646",
+"table": 1
+},
+{
+"name": "SA4",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00085",
+"table": 1
+},
+{
+"name": "SAM-1",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00265",
+"table": 1
+},
+{
+"name": "SAML-1",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00424",
+"table": 1
+},
+{
+"name": "SBC-2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00156",
+"table": 1
+},
+{
+"name": "SBC-7",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00157",
+"table": 1
+},
+{
+"name": "SCCTF",
+"actual": "SCCKN (Oral squamous cell carcinoma)",
+"id": "ICLAC-00266",
+"table": 1
+},
+{
+"name": "SCLC-16H",
+"actual": "SCLC-21/22H (Lung carcinoma, small cell)",
+"id": "ICLAC-00158",
+"table": 1
+},
+{
+"name": "SCLC-24H",
+"actual": "SCLC-21/22H (Lung carcinoma, small cell)",
+"id": "ICLAC-00159",
+"table": 1
+},
+{
+"name": "SEG-1",
+"actual": "NCI-H460 (Lung carcinoma, large cell)",
+"id": "ICLAC-00366",
+"table": 1
+},
+{
+"name": "SF767",
+"actual": "ME-180 (Cervical carcinoma)",
+"id": "ICLAC-00452",
+"table": 1
+},
+{
+"name": "SGC-7901",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00577",
+"table": 1
+},
+{
+"name": "SH-2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00086",
+"table": 1
+},
+{
+"name": "SH-3",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00087",
+"table": 1
+},
+{
+"name": "SJPL",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00367",
+"table": 1
+},
+{
+"name": "SK-GT-5",
+"actual": "SK-GT-2 (Gastric carcinoma (gastric fundus))",
+"id": "ICLAC-00368",
+"table": 1
+},
+{
+"name": "SK-MG-1",
+"actual": "Marcus (Astrocytoma)",
+"id": "ICLAC-00345",
+"table": 1
+},
+{
+"name": "SK-N-MC",
+"actual": "a different cell line than claimed (actual: Sarcoma (Ewing's))",
+"id": "ICLAC-00267",
+"table": 1
+},
+{
+"name": "SK-OV-4",
+"actual": "C-33A (Cervical carcinoma)",
+"id": "ICLAC-00469",
+"table": 1
+},
+{
+"name": "SK-OV-6",
+"actual": "C-33A (Cervical carcinoma)",
+"id": "ICLAC-00470",
+"table": 1
+},
+{
+"name": "SKW 6.4",
+"actual": "WIL2-A3 (WIL2 derivative) (Spleen, B-lymphoblastoid cells)",
+"id": "ICLAC-00617",
+"table": 1
+},
+{
+"name": "SKW-3",
+"actual": "KE-37 (Leukemia, acute lymphoblastic)",
+"id": "ICLAC-00346",
+"table": 1
+},
+{
+"name": "SLK",
+"actual": "Caki-1 (Renal cell carcinoma)",
+"id": "ICLAC-00477",
+"table": 1
+},
+{
+"name": "SLR20",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00573",
+"table": 1
+},
+{
+"name": "SLR24",
+"actual": "RCC4 (Kidney, clear cell carcinoma)",
+"id": "ICLAC-00574",
+"table": 1
+},
+{
+"name": "SMMC-7721",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00554",
+"table": 1
+},
+{
+"name": "SNB-19",
+"actual": "U-251 MG (Glioblastoma)",
+"id": "ICLAC-00268",
+"table": 1
+},
+{
+"name": "SNG-M",
+"actual": "SNG-M, HHUA (synonymous cell lines, donor origin unknown) (Endometrial carcinoma)",
+"id": "ICLAC-00632",
+"table": 1
+},
+{
+"name": "SNU-1958",
+"actual": "LS513 (Colon carcinoma (cecum))",
+"id": "ICLAC-00539",
+"table": 1
+},
+{
+"name": "SPC-A1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00608",
+"table": 1
+},
+{
+"name": "SPC-BM-36",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00584",
+"table": 1
+},
+{
+"name": "SPI-801",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00160",
+"table": 1
+},
+{
+"name": "SPI-802",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00161",
+"table": 1
+},
+{
+"name": "SpR",
+"actual": "OMK-210 (Kidney, normal renal cells)",
+"id": "ICLAC-00088",
+"table": 1
+},
+{
+"name": "SQ-5",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00269",
+"table": 1
+},
+{
+"name": "SR-91",
+"actual": "AML-193 (Leukemia, acute myeloid, M5)",
+"id": "ICLAC-00270",
+"table": 1
+},
+{
+"name": "SU-DHL-9",
+"actual": "SU-DHL-8 (Lymphoma, diffuse large B-cell (germinal center B-cell type))",
+"id": "ICLAC-00558",
+"table": 1
+},
+{
+"name": "SUNE1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00595",
+"table": 1
+},
+{
+"name": "SUNE2",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00598",
+"table": 1
+},
+{
+"name": "SW-527",
+"actual": "SW-480, SW-620 (Colon carcinoma)",
+"id": "ICLAC-00089",
+"table": 1
+},
+{
+"name": "SW-598",
+"actual": "SW-480, SW-620 (Colon carcinoma)",
+"id": "ICLAC-00090",
+"table": 1
+},
+{
+"name": "SW-608",
+"actual": "SW-480, SW-620 (Colon carcinoma)",
+"id": "ICLAC-00091",
+"table": 1
+},
+{
+"name": "SW-613",
+"actual": "SW-480, SW-620 (Colon carcinoma)",
+"id": "ICLAC-00092",
+"table": 1
+},
+{
+"name": "SW-732",
+"actual": "SW-480, SW-620 (Colon carcinoma)",
+"id": "ICLAC-00093",
+"table": 1
+},
+{
+"name": "SW-733",
+"actual": "SW-480, SW-620 (Colon carcinoma)",
+"id": "ICLAC-00094",
+"table": 1
+},
+{
+"name": "T-1",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00095",
+"table": 1
+},
+{
+"name": "T265",
+"actual": "ST88-14 (Peripheral nerve sheath tumor, malignant)",
+"id": "ICLAC-00649",
+"table": 1
+},
+{
+"name": "T-33",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00271",
+"table": 1
+},
+{
+"name": "T404",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00425",
+"table": 1
+},
+{
+"name": "T406 \n[Multiple cell lines with same name, see Cellosaurus]",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00426",
+"table": 1
+},
+{
+"name": "T409",
+"actual": "UM-SCC-1 (Oral squamous cell carcinoma (recurrence))",
+"id": "ICLAC-00427",
+"table": 1
+},
+{
+"name": "T-9",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00096",
+"table": 1
+},
+{
+"name": "Tca8113",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00578",
+"table": 1
+},
+{
+"name": "TCO-1",
+"actual": "TCS (Cervical carcinoma)",
+"id": "ICLAC-00272",
+"table": 1
+},
+{
+"name": "TDL-1",
+"actual": "P3JHR-1 (Lymphoma, Burkitt)",
+"id": "ICLAC-00097",
+"table": 1
+},
+{
+"name": "TDL-2",
+"actual": "P3JHR-1 (Lymphoma, Burkitt)",
+"id": "ICLAC-00098",
+"table": 1
+},
+{
+"name": "TDL-3",
+"actual": "RPMI 1788 (Lymphoblastoid cell line, normal donor)",
+"id": "ICLAC-00099",
+"table": 1
+},
+{
+"name": "TDL-4",
+"actual": "Raji (Lymphoma, Burkitt)",
+"id": "ICLAC-00100",
+"table": 1
+},
+{
+"name": "TE-12",
+"actual": "TE-2, TE-3, TE-7, TE-12, TE-13 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00273",
+"table": 1
+},
+{
+"name": "TE-13",
+"actual": "TE-2, TE-3, TE-7, TE-12, TE-13 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00274",
+"table": 1
+},
+{
+"name": "TE-2",
+"actual": "TE-2, TE-3, TE-7, TE-12, TE-13 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00275",
+"table": 1
+},
+{
+"name": "TE-3",
+"actual": "TE-2, TE-3, TE-7, TE-12, TE-13 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00276",
+"table": 1
+},
+{
+"name": "TE671",
+"actual": "RD (Sarcoma (rhabdomyosarcoma))",
+"id": "ICLAC-00101",
+"table": 1
+},
+{
+"name": "TE671 Subline No.2",
+"actual": "RD (Sarcoma (rhabdomyosarcoma))",
+"id": "ICLAC-00347",
+"table": 1
+},
+{
+"name": "TE-7",
+"actual": "TE-2, TE-3, TE-7, TE-12, TE-13 (synonymous cell lines, donor origin unknown) (Esophageal squamous cell carcinoma)",
+"id": "ICLAC-00277",
+"table": 1
+},
+{
+"name": "TEC61",
+"actual": "JEG3 (Choriocarcinoma)",
+"id": "ICLAC-00364",
+"table": 1
+},
+{
+"name": "TI-1",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00278",
+"table": 1
+},
+{
+"name": "TK-1",
+"actual": "U-251 MG (Glioblastoma)",
+"id": "ICLAC-00348",
+"table": 1
+},
+{
+"name": "TMH-1",
+"actual": "IHH-4 (Thyroid, papillary thyroid carcinoma)",
+"id": "ICLAC-00349",
+"table": 1
+},
+{
+"name": "TMM",
+"actual": "Correct name, incorrect cell type (EBV+ B-lymphoblastoid cell line)",
+"id": "ICLAC-00279",
+"table": 1
+},
+{
+"name": "TSCCa",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00579",
+"table": 1
+},
+{
+"name": "TSU-Pr1",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00280",
+"table": 1
+},
+{
+"name": "Tu-138",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00428",
+"table": 1
+},
+{
+"name": "Tu-158LN",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00429",
+"table": 1
+},
+{
+"name": "Tu-159",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00430",
+"table": 1
+},
+{
+"name": "Tu-167",
+"actual": "UM-SCC-1 (Oral squamous cell carcinoma (recurrence))",
+"id": "ICLAC-00431",
+"table": 1
+},
+{
+"name": "Tu-182",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00432",
+"table": 1
+},
+{
+"name": "Tu-212",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00433",
+"table": 1
+},
+{
+"name": "Tu-212LN",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00434",
+"table": 1
+},
+{
+"name": "TuWi",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00028",
+"table": 1
+},
+{
+"name": "U-118 MG",
+"actual": "U-138 MG (Glioblastoma)",
+"id": "ICLAC-00350",
+"table": 1
+},
+{
+"name": "UCDK9B1",
+"actual": "JURKAT (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00540",
+"table": 1
+},
+{
+"name": "UCDK9B2",
+"actual": "JURKAT (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00541",
+"table": 1
+},
+{
+"name": "UCDK9B3",
+"actual": "JURKAT (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00542",
+"table": 1
+},
+{
+"name": "UCDK9B4",
+"actual": "JURKAT (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00543",
+"table": 1
+},
+{
+"name": "UCDK9B5",
+"actual": "JURKAT (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00544",
+"table": 1
+},
+{
+"name": "UM-UC-2",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00281",
+"table": 1
+},
+{
+"name": "UM-UC-3-GFP",
+"actual": "Unknown, NOT UM-UC-3",
+"id": "ICLAC-00282",
+"table": 1
+},
+{
+"name": "UPES/C",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00388",
+"table": 1
+},
+{
+"name": "UPHHJA",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00389",
+"table": 1
+},
+{
+"name": "UTMB-460",
+"actual": "CCRF-CEM (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00283",
+"table": 1
+},
+{
+"name": "VC312R",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00390",
+"table": 1
+},
+{
+"name": "WiDr",
+"actual": "HT-29 (Colon carcinoma)",
+"id": "ICLAC-00103",
+"table": 1
+},
+{
+"name": "WISH",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00013",
+"table": 1
+},
+{
+"name": "Wong-Kilbourne derivative",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00030",
+"table": 1
+},
+{
+"name": "WRL 68",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00351",
+"table": 1
+},
+{
+"name": "WSU-ALCL",
+"actual": "CCRF-CEM (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00284",
+"table": 1
+},
+{
+"name": "WSU-AML",
+"actual": "M-07e (Leukemia, acute myeloid, M7)",
+"id": "ICLAC-00640",
+"table": 1
+},
+{
+"name": "WSU-CLL",
+"actual": "REH (Leukemia, acute lymphoblastic, B cell precursor)",
+"id": "ICLAC-00285",
+"table": 1
+},
+{
+"name": "YAA",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00286",
+"table": 1
+},
+{
+"name": "YAP",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00287",
+"table": 1
+},
+{
+"name": "YMB-1",
+"actual": "ZR-75-1 (Breast carcinoma)",
+"id": "ICLAC-00391",
+"table": 1
+},
+{
+"name": "YMB-1-E",
+"actual": "ZR-75-1 (Breast carcinoma)",
+"id": "ICLAC-00392",
+"table": 1
+},
+{
+"name": "Z-HL16C",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00609",
+"table": 1
+},
+{
+"name": "ZOSL-1",
+"actual": "HOS (Sarcoma (osteosarcoma))",
+"id": "ICLAC-00641",
+"table": 1
+},
+{
+"name": "1205Lu",
+"actual": "Unknown, probably from xenograft host",
+"id": "ICLAC-00483",
+"table": 2
+},
+{
+"name": "Amdur II",
+"actual": "LLC-PK1 (Kidney, normal renal cells)",
+"id": "ICLAC-00289",
+"table": 2
+},
+{
+"name": "BG-1",
+"actual": "MCF-7 (Breast carcinoma)",
+"id": "ICLAC-00456",
+"table": 2
+},
+{
+"name": "BJA-B",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00031",
+"table": 2
+},
+{
+"name": "BT-20",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00104",
+"table": 2
+},
+{
+"name": "Ca9-22",
+"actual": "MSK-922 (Laryngeal squamous cell carcinoma (recurrence))",
+"id": "ICLAC-00437",
+"table": 2
+},
+{
+"name": "CHP-100",
+"actual": "IMR-32 (Neuroblastoma)",
+"id": "ICLAC-00382",
+"table": 2
+},
+{
+"name": "CHP-100L",
+"actual": "IMR-32 (Neuroblastoma)",
+"id": "ICLAC-00610",
+"table": 2
+},
+{
+"name": "COLO 720E",
+"actual": "COLO 684 or COLO 685 (Uterine adenocarcinoma)",
+"id": "ICLAC-00438",
+"table": 2
+},
+{
+"name": "D-17",
+"actual": "Moresco (Sarcoma (osteosarcoma))",
+"id": "ICLAC-00439",
+"table": 2
+},
+{
+"name": "EB-3",
+"actual": "Daudi (Lymphoma, Burkitt)",
+"id": "ICLAC-00380",
+"table": 2
+},
+{
+"name": "Eca-109",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00634",
+"table": 2
+},
+{
+"name": "FU-RPNT-2",
+"actual": "FU-RPNT-1 (Kidney, renal primitive neuroectodermal tumor)",
+"id": "ICLAC-00352",
+"table": 2
+},
+{
+"name": "Grey",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00440",
+"table": 2
+},
+{
+"name": "HPB-ALL",
+"actual": "JURKAT (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00290",
+"table": 2
+},
+{
+"name": "J-82",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00105",
+"table": 2
+},
+{
+"name": "JHH-1",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00353",
+"table": 2
+},
+{
+"name": "KARPAS-45",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00163",
+"table": 2
+},
+{
+"name": "KBM-3",
+"actual": "HL-60 (Leukemia, acute myeloid, M2)",
+"id": "ICLAC-00291",
+"table": 2
+},
+{
+"name": "KE-37",
+"actual": "CCRF-CEM (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00164",
+"table": 2
+},
+{
+"name": "L-540",
+"actual": "CCRF-CEM (Leukemia, acute lymphoblastic, T cell)",
+"id": "ICLAC-00292",
+"table": 2
+},
+{
+"name": "MB-02",
+"actual": "HU-3 (Leukemia, acute myeloid, M7)",
+"id": "ICLAC-00165",
+"table": 2
+},
+{
+"name": "MDA1986LN",
+"actual": "UM-SCC-1 (Oral squamous cell carcinoma (recurrence))",
+"id": "ICLAC-00441",
+"table": 2
+},
+{
+"name": "MDA686LN",
+"actual": "UM-SCC-1 (Oral squamous cell carcinoma (recurrence))",
+"id": "ICLAC-00442",
+"table": 2
+},
+{
+"name": "MDA686TU",
+"actual": "T404, T406, Tu-138, Tu-158LN, Tu-159, Tu-182, Tu-212, Tu-212LN (synonymous cell lines, donor origin unknown) (Head and neck squamous cell carcinoma)",
+"id": "ICLAC-00443",
+"table": 2
+},
+{
+"name": "MKN-7",
+"actual": "a different cell line than claimed (actual: Lymphoblastoid cells)",
+"id": "ICLAC-00166",
+"table": 2
+},
+{
+"name": "NCI-H1339",
+"actual": "NCI-H157, NCI-H1264 (synonymous cell lines, donor origin unknown) (Lung carcinoma)",
+"id": "ICLAC-00534",
+"table": 2
+},
+{
+"name": "NCI-H929",
+"actual": "K-562 (Leukemia, chronic myeloid, blast crisis)",
+"id": "ICLAC-00478",
+"table": 2
+},
+{
+"name": "OCI-Ly3",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00517",
+"table": 2
+},
+{
+"name": "OV-1063",
+"actual": "DU-145 (Prostate carcinoma)",
+"id": "ICLAC-00340",
+"table": 2
+},
+{
+"name": "Panc 05.04",
+"actual": "OCUG-1 (Gallbladder carcinoma)",
+"id": "ICLAC-00614",
+"table": 2
+},
+{
+"name": "Parks",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00444",
+"table": 2
+},
+{
+"name": "RMG-II",
+"actual": "RMG-I (Ovarian carcinoma)",
+"id": "ICLAC-00354",
+"table": 2
+},
+{
+"name": "RPMI-8402",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00167",
+"table": 2
+},
+{
+"name": "RT4",
+"actual": "HeLa (Cervical adenocarcinoma)",
+"id": "ICLAC-00106",
+"table": 2
+},
+{
+"name": "SU-DHL-7",
+"actual": "SU-DHL-8 (Lymphoma, diffuse large B-cell (germinal center B-cell type))",
+"id": "ICLAC-00557",
+"table": 2
+},
+{
+"name": "SUM229PE",
+"actual": "SUM149PT (Breast carcinoma)",
+"id": "ICLAC-00548",
+"table": 2
+},
+{
+"name": "T3M-12",
+"actual": "T3M-1 (Oral carcinoma)",
+"id": "ICLAC-00355",
+"table": 2
+},
+{
+"name": "U-373 MG",
+"actual": "U-251 MG (Glioblastoma)",
+"id": "ICLAC-00295",
+"table": 2
+},
+{
+"name": "U-87 MG",
+"actual": "Unknown, referred to as U-87 MG ATCC (Unknown, believed to be glioblastoma)",
+"id": "ICLAC-00535",
+"table": 2
+},
+{
+"name": "U-937",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00168",
+"table": 2
+},
+{
+"name": "UROtsa",
+"actual": "T-24 (Bladder carcinoma)",
+"id": "ICLAC-00484",
+"table": 2
+},
+{
+"name": "UT-7",
+"actual": "U-937 (Lymphoma, histiocytic)",
+"id": "ICLAC-00293",
+"table": 2
+},
+{
+"name": "VM-CUB-III",
+"actual": "VM-CUB-I (Bladder carcinoma)",
+"id": "ICLAC-00102",
+"table": 2
+},
+{
+"name": "Yamada",
+"actual": "a different cell line than claimed (actual: Unknown)",
+"id": "ICLAC-00445",
+"table": 2
+}
+]

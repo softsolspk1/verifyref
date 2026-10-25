@@ -88,6 +88,16 @@ const CELL_LINES = [
   ['KAT-4', 'HT-29 (colon adenocarcinoma)']
 ].map(([name, actual]) => ({ name, actual }));
 
+// Full ICLAC Register of Misidentified Cell Lines, version 14 (iclac.org; Tables 1 and 2), generated into iclac.json
+const iclac = require('./iclac.json').map(c => ({ name: c.name, actual: c.actual.replace('a different cell line than claimed (actual: Unknown)', 'a different, unidentified cell line'), id: c.id }));
+// Names that match no real cell line (almost always misspellings of BGC-823, MGC-803, SGC-7901 ...): Oste et al. 2024,
+// Int J Cancer, doi:10.1002/ijc.34995, as flagged by the Problematic Paper Screener
+const NON_VERIFIABLE = ['BGC-803', 'BSG-803', 'BSG-823', 'GSE-1', 'HGC-7901', 'HGC-803', 'MGC-823'].map(name => ({ name, nonVerifiable: true, actual: 'not a verifiable cell line (probably a misspelling of BGC-823, MGC-803 or SGC-7901)' }));
+{
+  const have = new Set(CELL_LINES.map(c => c.name.toLowerCase()));
+  for (const c of [...iclac, ...NON_VERIFIABLE]) if (!have.has(c.name.toLowerCase())) { have.add(c.name.toLowerCase()); CELL_LINES.push(c); }
+}
+
 const FREE_MAIL = /@(?:gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|aol|icloud|me|mail|gmx|yandex|protonmail|proton|zoho|rediffmail|163|126|qq|sina|sohu|yeah|foxmail|aliyun|139)\.[a-z.]{2,6}\b/i;
 
 module.exports = { TORTURED, AI_LEFTOVERS, TEMPLATES, CELL_LINES, FREE_MAIL };

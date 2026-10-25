@@ -156,6 +156,8 @@ function interpretLists(hits) {
   for (const [t, label] of [['wos_scie', 'SCIE'], ['wos_ssci', 'SSCI'], ['wos_ahci', 'AHCI'], ['wos_esci', 'ESCI']]) {
     if (hits[t]) wos.push({ index: label, categories: pick(hits[t].data, [/categor/i]), matchedBy: hits[t].matchedBy });
   }
+  // SCImago's WoS filter confirms Core Collection coverage but not which index; only used when no MJL list matched
+  if (!wos.length && hits.wos_sjr) wos.push({ index: 'Web of Science (index not specified)', categories: pick(hits.wos_sjr.data, [/categor/i]), matchedBy: hits.wos_sjr.matchedBy });
   if (wos.length) out.wos = wos;
   if (hits.jcr) {
     const d = hits.jcr.data;

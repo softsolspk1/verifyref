@@ -159,6 +159,7 @@ async function predatoryMatches({ journal, publisher, homepage }) {
 const LIST_TYPES = {
   sjr: 'SCImago Journal Rank (Scopus quartiles) — CSV export from scimagojr.com',
   scopus: 'Scopus Source List — CSV saved from Elsevier\'s source list workbook',
+  wos_sjr: 'Web of Science-indexed journals — SCImago export with the "Only WoS Journals" filter (no index split)',
   wos_scie: 'Web of Science — Science Citation Index Expanded (SCIE) — MJL CSV',
   wos_ssci: 'Web of Science — Social Sciences Citation Index (SSCI) — MJL CSV',
   wos_ahci: 'Web of Science — Arts & Humanities Citation Index (AHCI) — MJL CSV',

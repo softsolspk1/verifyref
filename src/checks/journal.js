@@ -147,7 +147,9 @@ function interpretLists(hits) {
     out.scopus = {
       active: pick(d, [/active/i, /status/i]),
       coverage: pick(d, [/coverage/i]),
-      discontinued: /discontinu|inactive/i.test(JSON.stringify(d)),
+      // Elsevier's list: "Active or Inactive" and "Titles Discontinued by Scopus" (the latter is set only for quality-related removals)
+      discontinued: /discontinued by scopus/i.test(pick(d, [/discontinued by scopus/i]) || ''),
+      inactive: /^inactive$/i.test(String(pick(d, [/^active or inactive$/i]) || '').trim()),
       citeScore: pick(d, [/citescore/i]),
       matchedBy: hits.scopus.matchedBy
     };
@@ -223,7 +225,8 @@ async function checkJournal(input) {
   }
   if (lists.hecBlacklist) flag('high', 'Listed on the uploaded HEC / institutional blacklist');
   if (lists.doajRemoved) flag('medium', `Removed from DOAJ${lists.doajRemoved.reason ? `: ${lists.doajRemoved.reason}` : ''}`);
-  if (lists.scopus?.discontinued) flag('high', 'Coverage discontinued in Scopus');
+  if (lists.scopus?.discontinued) flag('high', 'Coverage discontinued by Scopus');
+  else if (lists.scopus?.inactive) flag('low', 'Marked inactive in the Scopus source list (no longer receiving new content)');
   if (issns.length && issns.some(i => !issnChecksumValid(i))) flag('high', 'ISSN has an invalid check digit');
   if (portal.registered === false) flag('high', 'ISSN not found in the official ISSN registry');
   if (!resolved && !offline) flag('medium', 'Journal not found in OpenAlex, NLM Catalog or Crossref');

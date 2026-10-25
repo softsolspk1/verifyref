@@ -1,5 +1,5 @@
 // views/report.js - renders a check result: References, Citations, Journals, Citation pattern, Editor report
-import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, issueOptions, state, runJob, hasModule } from '../core.js';
+import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, issueOptions, state, runJob, hasModule, datasetBanner } from '../core.js';
 import { decisionCard } from './decision.js';
 
 export async function renderSavedReport(view, id) {
@@ -68,14 +68,15 @@ export function renderReport(el, result, { kind } = {}) {
           <div style="position:relative">
             <button class="btn btn-sm" id="export-btn">${ICONS.download} Export ▾</button>
             <div id="export-menu" class="card" hidden style="position:absolute;right:0;top:36px;z-index:20;padding:6px;min-width:230px">
-              ${result.screening ? [['editor', 'Screening report — editor version (Word)'], ...(hasModule('reports') ? [['author', 'Screening report — author version (Word)']] : [])].map(([v, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-screen="${v}">${l}</button>`).join('') : ''}
-              ${[['csv', 'Audit report (CSV)'], ['docx', 'Reference report (Word)'], ['corrected', 'Corrected reference list, PJPS style (.txt)'], ['bibtex', 'BibTeX (.bib)'], ['ris', 'RIS (.ris)']].map(([f, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-export="${f}">${l}</button>`).join('')}
+              ${result.screening ? [['editor', 'Screening report — editor version (Word)'], ['editor&format=pdf', 'Screening report — editor version (PDF)'], ...(hasModule('reports') ? [['author', 'Screening report — author version (Word)']] : [])].map(([v, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-screen="${v}">${l}</button>`).join('') : ''}
+              ${[['csv', 'Audit report (CSV)'], ['docx', 'Reference report (Word)'], ['pdf', 'Reference report (PDF)'], ['corrected', 'Corrected reference list, PJPS style (.txt)'], ['bibtex', 'BibTeX (.bib)'], ['ris', 'RIS (.ris)']].map(([f, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-export="${f}">${l}</button>`).join('')}
             </div>
           </div>` : ''}
         ${id && ['references', 'manuscript'].includes(kind) ? `<button class="btn btn-sm" id="recheck" title="Run the same reference list again and show only what changed">↻ Re-check</button>` : ''}
         <button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>
       </div>
     </div>
+    ${datasetBanner(result)}
     ${result.changes ? changesBanner(result.changes) : ''}
     ${kind !== 'citations' ? kpis(s) : ''}
     ${s.suspicious || s.retracted ? `<div class="alert alert-bad"><b>Publication integrity alert:</b> ${s.suspicious ? `${s.suspicious} reference(s) could not be found in any of the 12 databases (possibly fabricated)` : ''}${s.suspicious && s.retracted ? '; ' : ''}${s.retracted ? `${s.retracted} retracted work(s) cited` : ''}.</div>` : ''}

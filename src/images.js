@@ -94,7 +94,7 @@ async function compareChartsWithEarlier(charts, { excludeCode = null, excludeChe
 async function saveImageCheck(userId, input, { save = true } = {}) {
   const meta = { title: String(input.meta?.title || '').slice(0, 300), manuscriptCode: String(input.meta?.manuscriptCode || '').slice(0, 60), filename: String(input.meta?.filename || '').slice(0, 200) };
   const panels = (input.panels || []).slice(0, 400).map(p => ({
-    id: String(p.id), label: String(p.label || '').slice(0, 120), imageId: String(p.imageId || ''), type: String(p.type || ''), blank: !!p.blank,
+    id: String(p.id), label: String(p.label || '').slice(0, 120), letter: /^[A-Z]$/.test(String(p.letter || '')) ? String(p.letter) : null, imageId: String(p.imageId || ''), type: String(p.type || ''), blank: !!p.blank,
     hashes: (p.hashes || []).filter(isHex).slice(0, 8), thumb: cap(p.thumb, 40000), w: p.w | 0, h: p.h | 0
   }));
   const findings = (input.findings || []).slice(0, 80).map((f, i) => ({

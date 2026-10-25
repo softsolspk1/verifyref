@@ -247,6 +247,8 @@ CREATE TABLE IF NOT EXISTS community_conferences (
 
 -- PJPS v4: authors of retracted papers (Module 4 author signals)
 ALTER TABLE retractions ADD COLUMN IF NOT EXISTS authors TEXT;
+ALTER TABLE retractions ADD COLUMN IF NOT EXISTS institution TEXT;
+ALTER TABLE retractions ADD COLUMN IF NOT EXISTS country TEXT;
 
 -- PJPS v4: fingerprints of every screened manuscript (duplicate submissions, re-used figures)
 CREATE TABLE IF NOT EXISTS fingerprints (

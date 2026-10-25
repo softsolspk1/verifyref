@@ -22,8 +22,9 @@ async function setAgeRule(rule) {
 }
 
 const isHomeJournal = (r, home = cfg.HOME_JOURNAL) => {
-  const name = r.record?.journal || r.parsed?.journal || '';
-  const issns = (r.record?.issn || []).map(cleanIssn);
+  const ok = !!r.record && (['verified', 'retracted'].includes(r.status) || (r.status === 'miscited' && (r.confidence || 0) >= 85));
+  const name = (ok && r.record?.journal) || r.parsed?.journal || r.record?.journal || '';
+  const issns = (ok ? r.record?.issn || [] : []).map(cleanIssn);
   return issns.some(i => (home.issn || []).map(cleanIssn).includes(i)) || normalizeJournal(name) === normalizeJournal(home.name)
     || /pak(istan)?\.?\s*j(ournal)?\.?\s*(of\s*)?pharm(aceutical)?\.?\s*sci/i.test(name);
 };
@@ -46,7 +47,13 @@ function duplicates(results) {
       }
     }
   }
-  return out;
+  // Group the pairs by work: three copies of one reference are one group, not three pairs
+  const groups = [];
+  for (const p of out) {
+    const g = groups.find(x => x.indexes.some(i => p.indexes.includes(i)));
+    if (g) { for (const i of p.indexes) if (!g.indexes.includes(i)) g.indexes.push(i); if (!g.by.includes(p.by)) g.by += ' / ' + p.by; } else groups.push({ ...p, indexes: [...p.indexes] });
+  }
+  return groups.map(g => ({ ...g, indexes: g.indexes.sort((x, y) => x - y) }));
 }
 
 /**

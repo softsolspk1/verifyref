@@ -8,7 +8,14 @@ The PJPS Editor wants five modules:
    2. Reference Style Check & PJPS Converter
    3. Citations
    4. Paper Mill Detection
-   5. Image Integrity Detection (added 24 Oct 2026)
+   5. Image Integrity Detection 
+Detect image integrity module includes: 
+a) Alteration and manipulation detection 
+b) Duplication and reuse detection
+c) AI-Generated image detection
+d) Graph & chart duplication
+
+Audit complete portal and make sure all features are fully developed. The Paper Mill detection should be 100% Authentic and Image integrity Detection also 100% Authentic. All features are fully developed for Pakistan Journal of Pharmaceutical Sciences
 
 
 =====================================================================
@@ -452,10 +459,109 @@ BUILD STATUS (25 Oct 2026) - web portal only
    Module 4        phase 1 + phase 2 (template wording, cell lines,
                    duplicate submissions, authorship changes,
                    reviewers)                                  DONE
-                   phase 3 (primers, statistics)               OPEN
+                   phase 3 (statistics recalculation, primer
+                   sanity + NCBI BLAST gene check, institutions
+                   far apart)                                  DONE (26 Oct)
    Module 5        5.1-5.4, 5.6 (PJPS fingerprint store),
                    5.8 output, decision record                 DONE
-                   5.1 panel-letter OCR, 5.5 blot lane checks,
-                   5.6 Europe PMC author figures               OPEN
+                   5.1 panel letters (A, B, C) read from corners,
+                   5.5 blot lane-by-lane comparison,
+                   5.6 Europe PMC author figures (background job) DONE (26 Oct)
                    5.7 vendor API (needs contract + API docs)  OPEN
+   Audit fixes     D1-D20 fixed, S1 reuse upload, S2 .doc/.odt/.rtf,
+                   S5 server PDF, dataset-status banner        DONE (26 Oct)
    Full Screening  summary, recommendation, editor/author Word DONE
+
+
+
+
+
+
+   1. Check Bibliography
+   2. Reference Style Check & PJPS Converter
+   3. Citations
+   4. Paper Mill Detection
+   5. Image Integrity Detection 
+Detect image integrity module includes: 
+a) Alteration and manipulation detection 
+b) Duplication and reuse detection
+c) AI-Generated image detection
+d) Graph & chart duplication
+
+Audit complete portal and make sure all features are fully developed. The Paper Mill detection should be 100% Authentic and Image integrity Detection also 100% Authentic. All features are fully developed for Pakistan Journal of Pharmaceutical Sciences
+ALso check with reference websites for features and used for PJPS Journal.
+
+
+
+
+Download CSV File from Scopus, Web of Science, JCR and HEC HJRS and add in this portal
+
+I LoggedIn in https://mjl.clarivate.com/ and you can also try ScImago and Web of Science routes too
+
+
+
+Web of Science lists (SCIE, SSCI, AHCI, ESCI)
+
+The university or HEC not gave me Web of Science access. Give an alternate solution.
+
+
+Yes do 1,2,3,4 and 5 all steps
+
+Run the import script against vercel database
+
+
+Add these 2:
+Journals removed from DOAJ — CSV
+Journal Citation Reports (JIF quartiles) — CSV export
+
+
+I created a scopus account and loggedin, now download it
+
+
+
+
+In Decision Hub of an Article /admin/articles/cmv80o6or003nr9shegy7azdl page: Show assigned Reviewers Box  along with Manuscript ID showing all assigned reviewer's names. And upon click show the respective Reviewers status of that particular Manuscript and also allow to send an Email to any Reviewer of that manuscript. Apply to all.
+
+Add the following:
+Web of Science — Science Citation Index Expanded (SCIE) — MJL CSV
+Web of Science — Social Sciences Citation Index (SSCI) — MJL CSV
+Web of Science — Arts & Humanities Citation Index (AHCI) — MJL CSV
+Web of Science — Emerging Sources Citation Index (ESCI) — MJL CSV
+Journal Citation Reports (JIF quartiles) — CSV export
+How to get these data? 
+
+In /app#/admin/data page: Add a view button every List name along with Upload CSV button to click to view already uploaded list. I need to view already existing as written under Rows column that 32193 for SCImago Journal Rank (Scopus quartiles). 
+
+
+How authentic is Image Integrity checker and Paper Mill Detection? What resources are used? 
+
+Build the benchmark first
+
+
+
+1) Use Rayyan Profie and Write 500 words Essay for University of Cincinnati's Supplemental Essay
+What motivated you to choose your first-choice academic program? In your response, please share personal insights, interests, goals, or experiences—especially those not already included in your application.
+2) Use Rayyan Profile and Write 250 Words Essay for WashU's Writing Supplemental. Please tell us what you are interested in studying at college and why.
+Undecided about your academic interest(s)? Don’t worry—tell us what excites you about the academic division you selected. Remember that all of our first-year students enter officially “undeclared” and work closely with their team of academic advisors to discover their academic passions. You can explore all of our majors and programs on our website.
+Make separate word file for both Essays. Both Essays will submit on Common App for Undergraduate Computer Science Program. Both Essays will be Admission Winning Essays
+
+
+Search for open datasets for the image benchmark
+
+
+
+Create Power Point Presentation for the following 3 Topics:
+1.Physiological Factors affecting oral drug absorption
+2.Physicochemical factors affecting oral drug absorption 
+3.Formulation factors affecting oral drug absorption
+These Presentations will use to teach PhD Students of Pharmaceutics. So, use Top books for Pharmaceutics to create these presentations. Use proper Images, Graphs and Tables and Statistics data to explain.
+Each Presentation will be about 80 to 100 slides to explain topic in details
+
+Yes, download Biofors and build image benchmark
+Commit and push the benchmank to trigger vercel
+
+
+Act as Project Manager and Audit complete platform and test all 5 modules (with all features) and give me audit report in Word Document. I want to know the completeness of Project as per shared requirements and also the accuracy of testing
+
+
+Create Presentations for use to teach PhD Students of PharmaceuticsBioavailability and Bioequivalence detail slides with example using statistical test. Presentation will be about 80 to 100 slides to explain topic in details

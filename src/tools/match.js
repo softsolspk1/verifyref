@@ -127,13 +127,14 @@ function bestPassages(claim, passages, n = 3) {
 
 /** Verdict for a claim given its best passage and whether full text was available */
 function verdictOf(best, { fullText }) {
-  if (!best) return { verdict: 'could-not-verify', reason: 'The source text (full text or abstract) is not available' };
+  if (!best) return { verdict: 'could-not-verify', reason: 'The source text (full text or abstract) is not available', notes: ['The source text (full text or abstract) is not available — upload the PDF of the cited work to check this claim'] };
   const notes = [];
   if (best.numbers?.claim?.length && best.numbers.found.length < best.numbers.claim.length) notes.push(`Figures not found in the source: ${best.numbers.claim.filter(x => !best.numbers.found.includes(x)).join(', ')}`);
   if (best.conflict) notes.push('The source appears to state the opposite direction or a negative finding');
   if (!fullText) notes.push('Compared with the abstract only');
   let verdict;
   if (best.score >= 0.58 && !best.conflict && !(best.numbers?.claim?.length && !best.numbers.found.length)) verdict = 'full';
+  else if (best.conflict && best.score >= 0.45) { verdict = 'unsupported'; notes.push('The source contradicts the claim: it reports the opposite direction or a negative finding'); }
   else if (best.score >= 0.33) verdict = 'partial';
   else verdict = fullText ? 'unsupported' : 'unsupported';
   if (verdict === 'unsupported' && !fullText) notes.push('Unsupported by the abstract — the full text may still support it; upload the PDF to check');

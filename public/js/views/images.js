@@ -1,6 +1,6 @@
 // views/images.js - Module 5 Image Integrity Detection. Figures are extracted and analysed in the browser (nothing large
 // is uploaded); the result, small thumbnails and figure fingerprints are saved to the PJPS server.
-import { api, esc, $, $$, toast, badge, download, fmtDate, ICONS, state } from '../core.js';
+import { api, esc, $, $$, toast, badge, download, fmtDate, ICONS, state, runJob } from '../core.js';
 import { extractFigures, imageDataOf } from '../images/extract.js';
 import { openViewer } from '../images/viewer.js';
 import { decisionCard } from './decision.js';
@@ -27,6 +27,7 @@ export function renderImages(view) {
           <div class="field"><label for="m-code">Manuscript ID</label><input id="m-code" type="text" placeholder="e.g. PJPS-2026-0412"></div>
           <div class="field"><label for="m-title">Title <span class="muted">(optional)</span></label><input id="m-title" type="text"></div>
         </div>
+        <div class="field"><label for="m-authors">Authors <span class="muted">(optional — one per line, ORCID iD after the name if known)</span></label><textarea id="m-authors" rows="3" placeholder="Muhammad Ali Khan 0000-0002-1825-0097&#10;Ayesha Siddiqui"></textarea><div class="hint">With the authors, the figures of their open-access papers (Europe PMC) are compared with this manuscript to find re-used figures.</div></div>
         <div class="row"><button class="btn btn-primary" id="run" disabled>Analyse figures</button><span class="muted">Editor only · results are confidential</span></div>
       </div>
       <div id="vendor"></div>
@@ -73,8 +74,11 @@ export function renderImages(view) {
       prog.innerHTML = '';
       const result = saved.result;
       result.id = saved.id;
+      result.authorLines = $('#m-authors', view).value.split('\n').map(s => s.trim()).filter(Boolean);
       renderImagesResult($('#result', view), result, { live: new Map(images.map(im => [im.id, im])) });
       toast(result.summary.findings ? `${result.summary.findings} finding(s) to check` : 'No image problems found');
+      // authors given: compare with their open-access papers right away (background job)
+      if (result.authorLines.length && result.id) { const tab = $('.tab[data-tab=authors]', $('#result', view)); tab?.click(); setTimeout(() => $('#af-run', $('#result', view))?.click(), 50); }
     } catch (e) {
       prog.innerHTML = '';
       $('#form-area', view).hidden = false;
@@ -162,13 +166,14 @@ function vendorCard(v) {
 export function renderImagesResult(el, result, { live = null } = {}) {
   const s = result.summary;
   const marks = new Map((result.findingMarks || []).map(m => [m.id, m.mark]));
+  let catFilter = null;
   const panelById = new Map((result.panels || []).map(p => [p.id, p]));
   el.innerHTML = `
     <div class="page-head">
       <div><h1>${esc(result.meta?.title || result.meta?.filename || 'Image Integrity')}</h1>
         <p>${result.meta?.manuscriptCode ? `<b>${esc(result.meta.manuscriptCode)}</b> · ` : ''}${fmtDate(result.createdAt)} · <span class="badge b-bad">Confidential — editor only</span></p></div>
       <div class="row no-print">
-        ${result.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button>` : ''}
+        ${result.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button><button class="btn btn-sm" id="export-pdf">${ICONS.download} PDF</button>` : ''}
         <button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>
       </div>
     </div>
@@ -183,7 +188,7 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     </div>
     <div class="cat-strip">${CATS.map(([k, l, name]) => { const n = (result.findings || []).filter(f => (f.category || 'duplication') === k).length; const st = (result.coverage || {})[k]; return `<button class="cat ${catFilter === k ? 'active' : ''} ${n ? 'has' : ''}" data-cat="${k}"><span class="cat-l">${l})</span><b>${name}</b><span class="cat-n">${n ? n + ' finding' + (n > 1 ? 's' : '') : 'none found'}</span><small>${esc(st?.note || '')}</small></button>`; }).join('')}</div>
     <div class="alert alert-info">${esc(result.disclaimer)}</div>
-    <div class="tabs"><button class="tab active" data-tab="findings">Findings<span class="count">${s.findings}</span></button><button class="tab" data-tab="earlier">Earlier PJPS manuscripts<span class="count">${(s.earlier || 0) + (s.earlierCharts || 0)}</span></button><button class="tab" data-tab="panels">All panels<span class="count">${s.panels}</span></button><button class="tab" data-tab="method">Method &amp; coverage</button></div>
+    <div class="tabs"><button class="tab active" data-tab="findings">Findings<span class="count">${s.findings}</span></button><button class="tab" data-tab="earlier">Earlier PJPS manuscripts<span class="count">${(s.earlier || 0) + (s.earlierCharts || 0)}</span></button><button class="tab" data-tab="authors">Authors' published figures<span class="count">${result.authorFigures ? result.authorFigures.matches.length : '—'}</span></button><button class="tab" data-tab="panels">All panels<span class="count">${s.panels}</span></button><button class="tab" data-tab="method">Method &amp; coverage</button></div>
     <div id="tab-body"></div>
     <div id="decision" class="no-print"></div>`;
 
@@ -197,6 +202,7 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     $$('.tab', el).forEach(t => t.classList.toggle('active', t.dataset.tab === k));
     if (k === 'findings') findingsTab();
     else if (k === 'earlier') earlierTab();
+    else if (k === 'authors') authorsTab();
     else if (k === 'panels') panelsTab();
     else methodTab();
   };
@@ -258,6 +264,39 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       : (ec.length ? '' : '<div class="alert alert-good">No figure or chart matches an earlier PJPS manuscript screened in this system.</div>');
     body.innerHTML += chartsTable;
   };
+  // 5.6 - figures from the authors' open-access papers (Europe PMC)
+  const authorsTab = () => {
+    const af = result.authorFigures;
+    const form = `<div class="card no-print"><h3>${af ? 'Run the check again' : 'Compare with the authors\' earlier open-access papers'}</h3>
+      <p class="muted">Searches Europe PMC for open-access papers of the authors, takes their figures and looks for panels that also appear in this manuscript (also rotated or mirrored). It takes about a minute.</p>
+      <div class="field"><label for="af-authors">Authors (one per line, ORCID iD after the name if known)</label><textarea id="af-authors" rows="3">${esc((result.authorLines || []).join('\n'))}</textarea></div>
+      <div class="row"><button class="btn btn-sm btn-primary" id="af-run" ${result.id ? '' : 'disabled'}>Search and compare</button>${result.id ? '' : '<span class="muted">Save the report first.</span>'}</div><div id="af-progress"></div></div>`;
+    if (!af) { body.innerHTML = form; wire(); return; }
+    const c = af.checked;
+    body.innerHTML = `<div class="card"><h3>Result</h3><p class="muted">${c.authors} author(s) searched · ${c.articles} open-access paper(s) · ${c.figures} figure(s) and ${c.panels} panel(s) compared${c.noFullText ? ` · ${c.noFullText} paper(s) without readable figures` : ''}${af.checkedAt ? ' · ' + fmtDate(af.checkedAt) : ''}</p>
+      ${af.note ? `<div class="alert alert-info">${esc(af.note)}</div>` : ''}
+      ${af.matches.length ? `<div class="table-wrap"><table class="t"><tr><th>This manuscript</th><th>Earlier paper by the authors</th><th>Figure</th><th class="num">Distance</th></tr>${af.matches.map(m => { const p = panelById.get(m.panel); return `<tr><td>${p?.thumb ? `<img src="${p.thumb}" class="mini">` : ''} ${esc(m.panelLabel || '')}</td><td><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.article || m.pmcid)}</a><div class="muted">${esc(m.journal || '')} ${esc(m.year || '')} · ${esc(m.author || '')}</div></td><td>${esc(m.figure)}<div class="muted">${esc(m.caption || '')}</div></td><td class="num">${m.distance}</td></tr>`; }).join('')}</table></div>` : (c.articles ? '<div class="alert alert-good">No panel of this manuscript matches a figure in the authors\' open-access papers that could be read.</div>' : '')}
+      <p class="muted">Closed-access papers cannot be compared. A re-used figure is not always wrong (permitted re-use with permission, or the authors\' own earlier work) - check the earlier paper and ask the authors if the source is not cited.</p></div>` + form;
+    wire();
+    function wire() {
+      const run = $('#af-run', body);
+      if (!run) return;
+      run.onclick = async () => {
+        const authors = $('#af-authors', body).value.split('\n').map(s => s.trim()).filter(Boolean).map(name => ({ name }));
+        if (!authors.length) return toast('Enter at least one author.', 'error');
+        run.disabled = true;
+        try {
+          const { jobId } = await api('/api/images/author-figures', { body: { authors, checkId: result.id } });
+          const out = await runJob(jobId, $('#af-progress', body), 'Comparing with the authors\' open-access papers');
+          result.authorFigures = out;
+          result.authorLines = authors.map(a => a.name);
+          $('.tab[data-tab=authors] .count', el).textContent = out.matches.length;
+          authorsTab();
+          toast(out.matches.length ? `${out.matches.length} matching figure(s) found` : 'No matches with the authors\' earlier figures');
+        } catch (e) { toast(e.message, 'error'); run.disabled = false; }
+      };
+    }
+  };
   const panelsTab = () => {
     body.innerHTML = `<div class="panel-grid">${(result.panels || []).map(p => `<figure class="panel-cell" data-panel="${esc(p.id)}">${p.thumb ? `<img src="${p.thumb}" alt="">` : ''}<figcaption>${esc(p.label)}<br><span class="muted">${esc(TYPE[p.type] || p.type)}${p.blank ? ' · blank/skipped' : ''}</span></figcaption></figure>`).join('')}</div>`;
     $$('.panel-cell', body).forEach(c => (c.onclick = () => { const s = srcOf(c.dataset.panel); const p = panelById.get(c.dataset.panel); if (s.src) openViewer({ title: p.label, a: { src: s.src, box: s.box, label: p.label } }); }));
@@ -268,10 +307,12 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       ${(result.skipped || []).length ? `<h3>Not analysed</h3><ul>${result.skipped.map(x => `<li><b>${esc(x.name)}</b> — ${esc(x.reason)}</li>`).join('')}</ul>` : ''}
       <h3>Not covered</h3><p class="muted">${esc(result.vendor?.note || '')}</p></div>`;
   };
-  $('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
+  $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
   $$('.cat', el).forEach(b => (b.onclick = () => { catFilter = catFilter === b.dataset.cat ? null : b.dataset.cat; $$('.cat', el).forEach(x => x.classList.toggle('active', x.dataset.cat === catFilter)); show('findings'); }));
   show('findings');
   const ex = $('#export', el);
   if (ex) ex.onclick = () => download(`/api/checks/${result.id}/confidential`).catch(e => toast(e.message, 'error'));
+  const exp = $('#export-pdf', el);
+  if (exp) exp.onclick = () => download(`/api/checks/${result.id}/confidential?format=pdf`).catch(e => toast(e.message, 'error'));
   decisionCard($('#decision', el), result, 'images', { getExtra: () => ({ findingMarks: result.findingMarks || [] }) });
 }

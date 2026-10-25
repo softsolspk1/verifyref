@@ -63,7 +63,7 @@ async function runCheck(input, update) {
   const { body, refs, truncated, totalFound } = prepare(input);
   if (!refs.length) throw new Error('No references were found. Paste the reference list or upload the full manuscript with a "References" heading.');
 
-  const result = { kind, meta, createdAt: new Date().toISOString(), truncated, totalFound };
+  const result = { kind, meta, createdAt: new Date().toISOString(), truncated, totalFound, datasets: await require('./datasets').datasetHealth() };
 
   if (kind === 'citations') {
     update('Matching in-text citations with the reference list', 30);

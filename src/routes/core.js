@@ -52,8 +52,15 @@ router.post('/extract', user, upload.single('file'), wrap(async (req, res) => {
 }));
 
 router.post('/parse', user, (req, res) => {
-  const { entries, strategy } = P.splitReferences(req.body.text || '', req.body.strategy || 'auto');
-  res.json({ success: true, strategy, references: entries.map((e, i) => P.parseReferenceEntry(e, i + 1)) });
+  let text = req.body.text || '';
+  let bodyText = '';
+  // a whole manuscript: take the list under the References heading
+  if (req.body.full) {
+    const sec = P.findReferenceSection(text);
+    if (sec.found) { text = sec.references; bodyText = sec.body; }
+  }
+  const { entries, strategy } = P.splitReferences(text, req.body.strategy || 'auto');
+  res.json({ success: true, strategy, bodyText, references: entries.map((e, i) => P.parseReferenceEntry(e, i + 1)) });
 });
 
 // ------------------------------------------------------------------ checks (Reference / Citation / full manuscript)
@@ -216,7 +223,10 @@ router.get('/checks/:id/export', user, wrap(async (req, res) => {
   const records = results.map(r => r.record || { ...r.parsed, authors: r.parsed?.authors || [] });
   if (fmt === 'bibtex') return sendFile(res, Buffer.from(F.toBibtex(records), 'utf8'), `${base}.bib`, 'application/x-bibtex; charset=utf-8');
   if (fmt === 'ris') return sendFile(res, Buffer.from(F.toRis(records), 'utf8'), `${base}.ris`, 'application/x-research-info-systems; charset=utf-8');
-  if (fmt === 'docx') return sendFile(res, await W.buildDocx(W.referenceReportBlocks(c.result)), `${base}.docx`, DOCX);
+  const blocksOf = r => (c.row.kind === 'citations' ? W.citationsBlocks(r) : c.row.kind === 'papermill' ? W.papermillBlocks(r) : c.row.kind === 'images' ? W.imagesBlocks(r)
+    : c.row.kind === 'screening' ? W.screeningBlocks(r, 'editor') : W.referenceReportBlocks(r));
+  if (fmt === 'docx') return sendFile(res, await W.buildDocx(blocksOf(c.result)), `${base}.docx`, DOCX);
+  if (fmt === 'pdf') return sendFile(res, await require('../pdf').buildPdf(blocksOf(c.result)), `${base}.pdf`, 'application/pdf');
   if (fmt === 'corrected') {
     const style = req.query.style || c.result.references.style || 'pjps';
     const txt = results.map((r, i) => `${i + 1}. ${r.record && !['suspicious', 'pending'].includes(r.status) ? F.formatReference(r.record, style) : r.raw.replace(/^\s*(\[\d+\]|\d+[.)])\s*/, '')}`).join('\n');

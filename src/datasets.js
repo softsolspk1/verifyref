@@ -58,16 +58,16 @@ async function loadRetractionWatch() {
     const prev = byDoi.get(doi);
     if (prev && /retraction/i.test(prev[3]) && !/retraction/i.test(row.RetractionNature || '')) continue;
     byDoi.set(doi, [doi, cleanDoi(row.RetractionDOI) || '', (row.RetractionDate || '').split(' ')[0], row.RetractionNature || '',
-      (row.Reason || '').replace(/;$/, '').replace(/^\+/, ''), row.Title || '', row.Journal || '', normalizeJournal(row.Journal || ''), (row.Author || '').slice(0, 2000)]);
+      (row.Reason || '').replace(/;$/, '').replace(/^\+/, ''), row.Title || '', row.Journal || '', normalizeJournal(row.Journal || ''), (row.Author || '').slice(0, 2000), (row.Institution || '').slice(0, 1200), (row.Country || '').slice(0, 300)]);
   }
   const data = [...byDoi.values()];
   await transaction(async client => {
     await client.query('TRUNCATE retractions');
-    await bulkInsert(client, 'retractions', ['doi', 'retraction_doi', 'retraction_date', 'nature', 'reason', 'title', 'journal', 'journal_norm', 'authors'].map(name => ({ name, type: 'text' })), data);
+    await bulkInsert(client, 'retractions', ['doi', 'retraction_doi', 'retraction_date', 'nature', 'reason', 'title', 'journal', 'journal_norm', 'authors', 'institution', 'country'].map(name => ({ name, type: 'text' })), data);
   });
   await setMeta('rw_loaded_at', new Date().toISOString());
   await setMeta('rw_count', data.length);
-  await setMeta('rw_authors', '1');
+  await setMeta('rw_authors', '2');
   return data.length;
 }
 
@@ -87,7 +87,7 @@ async function retractionsFor(dois) {
 /** Retracted papers listing an author with this surname (candidates; exact matching is done by the caller) */
 async function retractionsByAuthor(family) {
   if (!family || family.length < 3) return [];
-  return db.all("SELECT doi, retraction_date, nature, reason, title, journal, authors FROM retractions WHERE authors ILIKE $1 AND nature ILIKE '%retraction%' LIMIT 200", [`%${family}%`]);
+  return db.all("SELECT doi, retraction_date, nature, reason, title, journal, authors, institution, country FROM retractions WHERE authors ILIKE $1 AND nature ILIKE '%retraction%' LIMIT 200", [`%${family}%`]);
 }
 
 async function journalRetractionCounts(journalName) {
@@ -296,6 +296,22 @@ async function listStatus() {
   };
 }
 
+/** D20: state of the reference datasets, written into every report so an empty list never passes silently */
+async function datasetHealth() {
+  const rw = parseInt((await getMeta('rw_count')) || '0', 10);
+  const beall = parseInt((await getMeta('beall_count')) || '0', 10);
+  const pps = parseInt((await getMeta('pps_count')) || '0', 10);
+  const missing = [];
+  if (!rw) missing.push('Retraction Watch (retracted papers are not being detected)');
+  if (!beall) missing.push("Beall's predatory/hijacked list (predatory journals are not being detected)");
+  if (!pps) missing.push('Problematic Paper Screener (tortured phrases are not being detected)');
+  return {
+    retractionWatch: { count: rw, loadedAt: await getMeta('rw_loaded_at') }, beall: { count: beall, loadedAt: await getMeta('beall_loaded_at') }, screener: { count: pps, loadedAt: await getMeta('pps_loaded_at') },
+    complete: !missing.length,
+    warning: missing.length ? 'Reference datasets are still loading or failed to load: ' + missing.join('; ') + '. Results that depend on them may be incomplete - run the check again after the datasets have loaded (Admin > Data).' : null
+  };
+}
+
 /** Load/refresh downloadable datasets when missing or older than maxAgeDays */
 async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log } = {}) {
   const stale = async key => {
@@ -304,7 +320,7 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
   };
   const results = {};
   // v4 added author names: reload once if the stored copy predates that column
-  const noAuthors = !force && (await getMeta('rw_authors')) !== '1';
+  const noAuthors = !force && (await getMeta('rw_authors')) !== '2';
   if (noAuthors || await stale('rw_loaded_at')) {
     try { results.retractionWatch = await loadRetractionWatch(); log(`Retraction Watch: ${results.retractionWatch} records loaded`); }
     catch (e) { results.retractionWatchError = e.message; log(`Retraction Watch load failed: ${e.message}`); }
@@ -322,5 +338,5 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
 
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
-  importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, LIST_TYPES, domainOf
+  importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf
 };

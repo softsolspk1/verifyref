@@ -99,6 +99,8 @@ export const downloadJobFile = jobId => download(`/api/jobs/${jobId}/file`);
 export const badge = (text, tone = 'neutral') => `<span class="badge b-${tone}">${esc(text)}</span>`;
 export const sevTone = s => ({ high: 'bad', medium: 'warn', low: 'neutral', info: 'info' }[s] || 'neutral');
 export const fmtDate = d => (d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '');
+/** Warning shown on a report when a reference dataset (Retraction Watch, Beall, Problematic Paper Screener) was empty when it was made */
+export const datasetBanner = r => (r?.datasets?.warning ? `<div class="alert alert-warn no-print"><b>Reference datasets incomplete.</b> ${esc(r.datasets.warning)}</div>` : '');
 export const pct = (n, d) => (d ? Math.round(n / d * 100) : 0);
 
 export async function loadIssues() {
@@ -109,6 +111,41 @@ export async function loadIssues() {
 
 export function issueOptions(selected) {
   return `<option value="">— No issue —</option>${state.issues.map(i => `<option value="${i.id}" ${String(i.id) === String(selected) ? 'selected' : ''}>${esc(i.label)}</option>`).join('')}`;
+}
+
+/**
+ * S1 - upload once, reuse in every module. The manuscript chosen in any module is remembered for the session; every other
+ * module page offers it with one click (it is put into that page's own file input, so each module handles it as usual).
+ */
+export function shareManuscript(view) {
+  const input = $('#file', view);
+  const zone = $('#dz', view);
+  if (!input || !zone) return;
+  const remember = f => { if (f && /\.(docx?|pdf|odt|rtf|txt)$/i.test(f.name)) { state.sharedFile = f; paint(); } };
+  view.addEventListener('change', e => { if (e.target === input && input.files[0]) remember(input.files[0]); }, true);
+  view.addEventListener('drop', e => { if (zone.contains(e.target) && e.dataTransfer?.files[0]) remember(e.dataTransfer.files[0]); }, true);
+  let bar = null;
+  function paint() {
+    if (bar) bar.remove();
+    bar = null;
+  }
+  const f = state.sharedFile;
+  if (!f || !new RegExp('\\.(' + (input.accept || '').replace(/\./g, '').split(',').join('|') + ')$', 'i').test(f.name)) return;
+  bar = document.createElement('div');
+  bar.className = 'alert alert-info shared-bar';
+  bar.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px';
+  bar.innerHTML = `<span>Manuscript already uploaded in this session: <b>${esc(f.name)}</b></span><button class="btn btn-sm btn-primary" type="button">Use it here</button><button class="btn btn-sm btn-ghost" type="button">Forget</button>`;
+  const [use, forget] = bar.querySelectorAll('button');
+  use.onclick = () => {
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    bar.remove();
+  };
+  forget.onclick = () => { state.sharedFile = null; bar.remove(); };
+  const card = zone.closest('.card') || zone;
+  card.parentNode.insertBefore(bar, card);
 }
 
 /** Wire a dropzone + hidden file input; calls onFile(file) */

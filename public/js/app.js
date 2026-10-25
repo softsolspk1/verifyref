@@ -1,5 +1,5 @@
 // app.js - router and navigation for the workspace (web and desktop)
-import { api, state, $, esc, ICONS, toast, loadIssues, hasModule } from './core.js';
+import { api, state, $, esc, ICONS, toast, loadIssues, hasModule, shareManuscript } from './core.js';
 import { renderCheckForm } from './views/check.js';
 import { renderSavedReport } from './views/report.js';
 import { renderJournalCheck } from './views/journal.js';
@@ -142,7 +142,7 @@ async function route() {
   for (const [re, fn] of ROUTES) {
     const m = path.match(re);
     if (m) {
-      try { await fn(view, m); } catch (e) { view.innerHTML = `<div class="alert alert-bad">${esc(e.message)}</div>`; }
+      try { await fn(view, m); if (/^\/(manuscript|references|restyle|citations|papermill|images)$/.test(path)) shareManuscript(view); } catch (e) { view.innerHTML = `<div class="alert alert-bad">${esc(e.message)}</div>`; }
       return;
     }
   }

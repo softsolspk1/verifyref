@@ -1,5 +1,5 @@
 // views/papermill.js - Module 4 Paper Mill Detection (editor only): input form and the confidential risk report
-import { api, esc, $, $$, toast, runJob, badge, download, fmtDate, ICONS } from '../core.js';
+import { api, esc, $, $$, toast, runJob, badge, download, fmtDate, ICONS, datasetBanner } from '../core.js';
 import { decisionCard } from './decision.js';
 
 const GROUPS = { text: 'Text signals', references: 'Reference signals', authors: 'Author & submission signals', data: 'Data signals' };
@@ -13,7 +13,7 @@ export function renderPaperMill(view) {
     <div id="form-area">
       <div class="card">
         <div class="dropzone" id="dz">
-          <input type="file" id="file" accept=".docx,.pdf,.txt,.odt,.rtf" hidden>
+          <input type="file" id="file" accept=".docx,.doc,.pdf,.txt,.odt,.rtf" hidden>
           <div><strong>Upload the full manuscript</strong> (title page with authors, e-mails and ORCID iDs, text and references) — drag &amp; drop or click</div>
           <div class="muted" style="margin-top:4px">Word (.docx) or PDF</div>
         </div>
@@ -76,8 +76,9 @@ export function renderPaperMillResult(el, r) {
     <div class="page-head">
       <div><h1>${esc(r.meta?.title || 'Paper Mill Detection')}</h1>
         <p>${r.meta?.manuscriptCode ? `<b>${esc(r.meta.manuscriptCode)}</b> · ` : ''}${fmtDate(r.createdAt)} · <span class="badge b-bad">Confidential — editor only</span></p></div>
-      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button>` : ''}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button></div>
+      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button><button class="btn btn-sm" id="export-pdf">${ICONS.download} PDF</button>` : ''}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button></div>
     </div>
+    ${datasetBanner(r)}
     <div class="risk-banner risk-${r.risk.level.toLowerCase()}"><div class="risk-level">${esc(r.risk.level)}</div><div><b>Paper mill risk</b> · score ${r.risk.score} · ${r.risk.highSignals} strong signal(s)<div class="muted">${esc(r.disclaimer)}</div></div></div>
     <div class="kpis">${groups.map(x => `<div class="kpi ${x.list.some(s => s.severity === 'high') ? 'bad' : x.list.length ? 'warn' : 'good'}"><div class="n">${x.list.length}</div><div class="l">${esc(x.label)}</div></div>`).join('')}</div>
     ${groups.map(x => `<div class="card"><div class="card-head"><h3>${esc(x.label)}</h3>${badge(x.list.length ? `${x.list.length} signal(s)` : 'None', x.list.length ? 'warn' : 'good')}</div>
@@ -90,6 +91,8 @@ export function renderPaperMillResult(el, r) {
       <li>${c.references ? '✓' : '—'} References (${r.details?.references?.total || 0}: ${r.details?.references?.fabricated || 0} not found, ${r.details?.references?.retracted || 0} retracted)</li>
       <li>${c.authors ? '✓' : '—'} Authors against Retraction Watch${c.authors ? '' : ' (no author names found — enter them above)'}</li>
       <li>${c.orcid ? '✓' : '—'} ORCID iDs (${(r.details?.orcids || []).length})</li>
+      <li>${c.statistics ? '✓' : '—'} Statistics recalculated (${c.statistics || 0} p-values and percentages found, ${(r.details?.statistics?.findings || []).length} inconsistent)</li>
+      <li>${c.primers ? '✓' : '—'} Primer sequences (${c.primers || 0} found${c.primersBlasted ? `, ${c.primersBlasted} checked against NCBI BLAST` : c.primers ? ', NCBI BLAST not run' : ''})</li>
       <li>${(r.details?.emails || []).length ? '✓' : '—'} E-mail addresses (${(r.details?.emails || []).length})</li>
       <li>${c.reviewers ? '✓' : '—'} Suggested reviewers</li>
       <li>${c.previousVersion ? '✓ Compared with the earlier version' : '— No earlier version with this manuscript ID'}</li>
@@ -100,6 +103,8 @@ export function renderPaperMillResult(el, r) {
     <div id="decision" class="no-print"></div>`;
   const ex = $('#export', el);
   if (ex) ex.onclick = () => download(`/api/checks/${r.id}/confidential`).catch(e => toast(e.message, 'error'));
+  const exp = $('#export-pdf', el);
+  if (exp) exp.onclick = () => download(`/api/checks/${r.id}/confidential?format=pdf`).catch(e => toast(e.message, 'error'));
   decisionCard($('#decision', el), r, 'papermill');
   void $$;
 }

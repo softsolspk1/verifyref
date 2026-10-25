@@ -234,9 +234,10 @@ function citationsBlocks(r) {
     { kv: [['Manuscript', r.meta?.title || '—'], ['References', String(s.references)], ['In-text citations', String(s.citations)], ['Missing from the list', String(s.missing)], ['Never cited', String(s.uncited)], ['Year mismatches', String(s.yearMismatch)], ['“et al.” problems', String(s.etAl)], ['Citation blocks', String(s.blocks)], ['Claims checked', String(s.claims)], ['Unsupported claims', String(s.unsupported)], ['Partially supported', String(s.partial)]] },
     { h2: 'A. Citations and reference list' },
     { table: { headers: ['Problem', 'Citation / reference', 'Detail'], rows: [
-      ...rows(c.missing, m => ['Missing from list', m.citation, `${m.reason}${m.context ? ` — …${m.context}…` : ''}`]),
+      ...rows(c.missing, m => ['Missing from list', m.citation, `${m.reason}${m.para ? ` (paragraph ${m.para})` : ''}${m.context ? ` — …${m.context}…` : ''}`]),
       ...rows(c.uncited, u => ['Never cited', `[${u.index}]`, u.raw]),
       ...rows(c.yearMismatch, y => ['Year mismatch', y.citation, y.message]),
+      ...rows(c.spelling, y => ['Name spelling', y.citation, y.message]),
       ...rows(c.ambiguous, a => ['Ambiguous', a.citation, a.message]),
       ...rows(c.etAlIssues, e => ['“et al.”', e.citation, e.message]),
       ...rows(c.blocks, b => ['Citation block', b.citation, b.message]),

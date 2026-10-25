@@ -2,10 +2,15 @@
 const { nameMatch, relevanceScores, normalizeJournal, cleanIssn, splitName, surnameKey, initials } = require('../text');
 const cfg = require('../config');
 
+/** A matched record is trusted only when the reference was verified (or is the same work, miscited with a high match); otherwise the nearest neighbour may be a different paper */
+const trusted = r => !!r.record && (['verified', 'retracted'].includes(r.status) || (r.status === 'miscited' && (r.confidence || 0) >= 85));
+
 function refAuthors(r) {
+  const written = r.parsed?.authors || [];
+  if (!trusted(r)) return written;
   if (r.openalex?.authors?.length) return r.openalex.authors.map(a => ({ ...splitName(a.name), orcid: a.orcid, id: a.id }));
   if (r.record?.authors?.length) return r.record.authors;
-  return r.parsed?.authors || [];
+  return written;
 }
 
 function refDoc(r) {
@@ -102,9 +107,9 @@ function analyzeCitationPattern(meta, results, opts = {}) {
   const thisYear = new Date().getFullYear();
   const homeRefs = [];
   for (const r of results) {
-    const name = r.record?.journal || r.parsed?.journal;
+    const name = (trusted(r) && r.record?.journal) || r.parsed?.journal || r.record?.journal;
     if (!name) continue;
-    const issns = (r.record?.issn || []).map(cleanIssn);
+    const issns = (trusted(r) ? r.record?.issn || [] : []).map(cleanIssn);
     const isHome = issns.some(i => homeIssns.includes(i)) || normalizeJournal(name) === homeNorm || /pak(istan)?\.?\s*j(ournal)?\.?\s*(of\s*)?pharm(aceutical)?\.?\s*sci/i.test(name);
     const k = isHome ? 'HOME' : issns[0] || normalizeJournal(name);
     if (!journalCounts.has(k)) journalCounts.set(k, { journal: isHome ? home.name : name, isHome, refs: [] });

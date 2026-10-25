@@ -29,6 +29,8 @@ function mergeRecord(rec, ref) {
   const corrected = [];
   if (ref.year && rec.year && Number(ref.year) !== Number(rec.year)) corrected.push('year');
   if (ref.pages && rec.pages && String(ref.pages).split(/[-–]/)[0] !== String(rec.pages).split(/[-–]/)[0]) corrected.push('pages');
+  // Never change the author list silently: report it when the registered record has a different number of authors
+  if (ref.authors?.length && rec.authors?.length && ref.authors.length !== rec.authors.length && !/\bet al/i.test(ref.raw || '')) corrected.push(`author list (${ref.authors.length} as written, ${rec.authors.length} in the record)`);
   return {
     record: {
       authors: rec.authors?.length ? rec.authors : ref.authors, title: rec.title || ref.title, journal: rec.journal || ref.journal, journalAbbrev: rec.journalAbbrev,

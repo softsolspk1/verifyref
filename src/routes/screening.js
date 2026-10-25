@@ -100,6 +100,42 @@ router.post('/images/compare', mod('images'), wrap(async (req, res) => {
   res.json({ success: true, matches: await IMG.compareWithEarlier(panels, { excludeCode: req.body?.manuscriptCode || null }) });
 }));
 
+/** 5.6 - the authors' own open-access figures (Europe PMC) compared with this manuscript's panels; runs as a background job */
+const AF = require('../authorFigures');
+const { splitName } = require('../text');
+defineJob('author-figures', async (input, { userId, update }) => {
+  const authors = (input.authors || []).slice(0, 8).map(a => {
+    const name = String(a.name || '').replace(/\(?\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)?/g, '').trim();
+    const orcid = String(a.orcid || a.name || '').match(/\d{4}-\d{4}-\d{4}-\d{3}[\dX]/)?.[0] || null;
+    return { ...splitName(name), orcid };
+  });
+  const out = await AF.checkAuthorFigures({ authors, panels: input.panels }, update);
+  out.checkedAt = new Date().toISOString();
+  if (input.checkId) {
+    const c = await loadCheck(userId, input.checkId);
+    if (c?.result && c.row.kind === 'images') {
+      c.result.authorFigures = out;
+      delete c.result.id; delete c.result.createdAt; delete c.result.issueId;
+      c.result.summary = { ...c.result.summary, authorFigureMatches: out.matches.length };
+      await db.query('UPDATE checks SET result = $1 WHERE id = $2 AND user_id = $3', [JSON.stringify(c.result), c.row.id, userId]);
+    }
+  }
+  return out;
+});
+
+router.post('/images/author-figures', mod('images'), wrap(async (req, res) => {
+  const b = req.body || {};
+  const authors = (Array.isArray(b.authors) ? b.authors : lines(b.authors).map(name => ({ name }))).slice(0, 8);
+  if (!authors.length) return res.status(400).json({ success: false, message: 'Enter the authors (one per line, optionally with an ORCID iD).' });
+  let panels = Array.isArray(b.panels) ? b.panels : [];
+  if (b.checkId && !panels.length) {
+    const c = await loadCheck(req.user.id, b.checkId);
+    panels = (c?.result?.panels || []).map(p => ({ id: p.id, label: p.label, hashes: p.hashes || [] }));
+  }
+  const job = await createJob(req.user.id, 'author-figures', { authors, panels: panels.slice(0, 300), checkId: b.checkId || null });
+  res.json({ success: true, jobId: job.id });
+}));
+
 router.get('/images/vendor', mod('images'), wrap(async (req, res) => res.json({ success: true, ...(await IMG.vendorStatus()) })));
 
 // ------------------------------------------------------------------ editor decision record (Modules 4, 5, Full Screening Report)
@@ -133,6 +169,7 @@ router.get('/checks/:id/confidential', auth.requireUser, wrap(async (req, res) =
   const kind = c.row.kind;
   const blocks = kind === 'papermill' ? W.papermillBlocks(c.result) : kind === 'images' ? W.imagesBlocks(c.result) : null;
   if (!blocks) return res.status(400).json({ success: false, message: 'No confidential export for this report.' });
+  if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(blocks), `${kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.pdf`, 'application/pdf');
   sendFile(res, await W.buildDocx(blocks), `${kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.docx`, DOCX);
 }));
 
@@ -142,6 +179,7 @@ router.get('/checks/:id/screening', auth.requireUser, wrap(async (req, res) => {
   if (!c?.result?.screening) return res.status(404).json({ success: false, message: 'Full Screening Report not found.' });
   const version = req.query.version === 'author' ? 'author' : 'editor';
   if (version === 'author' && !require('../modules').permissionsOf(req.user).includes('reports')) return res.status(403).json({ success: false, message: 'Only editors can prepare the author version.' });
+  if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(W.screeningBlocks(c.result, version)), `screening-${version}-${c.row.manuscript_code || c.row.id}.pdf`, 'application/pdf');
   sendFile(res, await W.buildDocx(W.screeningBlocks(c.result, version)), `screening-${version}-${c.row.manuscript_code || c.row.id}.docx`, DOCX);
 }));
 

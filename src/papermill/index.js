@@ -9,6 +9,8 @@ const D = require('../datasets');
 const { getJson } = require('../http');
 const { nameMatch, splitName, titleSimilarity, normalizeJournal } = require('../text');
 const { TORTURED, AI_LEFTOVERS, TEMPLATES, CELL_LINES, FREE_MAIL } = require('./lists');
+const DC = require('./dataChecks');
+const { isOnline } = require('../http');
 
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ctx = (text, i, len) => text.slice(Math.max(0, i - 70), i + len + 70).replace(/\s+/g, ' ').trim();
@@ -172,15 +174,32 @@ function emailsOf(text) {
   return [...new Set((text.slice(0, 12000).match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) || []).map(e => e.toLowerCase().replace(/[.,;]+$/, '')))];
 }
 
-async function authorRetractions(authors) {
+const AFF_STOP = new Set(['university', 'universit', 'department', 'faculty', 'college', 'institute', 'school', 'hospital', 'centre', 'center', 'pakistan', 'the', 'and', 'of', 'for', 'sciences', 'science', 'medical', 'pharmacy', 'pharmaceutical', 'research', 'national']);
+const affTokens = s => new Set(String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z]+/).filter(t => t.length > 3 && !AFF_STOP.has(t)));
+
+/**
+ * Retraction Watch lists authors by name only, so a name match can be another person. Each hit carries a confidence:
+ *   high   - first name agrees (not only the initial) and the retracted paper's institution/country matches an affiliation
+ *   medium - first name agrees in full
+ *   low    - surname + initial only (common names such as "Wei Zhang" or "Muhammad Ali" land here)
+ */
+async function authorRetractions(authors, affiliations = []) {
   const out = [];
+  const myAff = affTokens((affiliations || []).join(' '));
+  const myPk = /pakistan|\bpk\b/i.test((affiliations || []).join(' '));
   for (const a of authors.slice(0, 15)) {
     if (!a.family || a.family.length < 3) continue;
     const rows = await D.retractionsByAuthor(a.family).catch(() => []);
     for (const r of rows) {
       const names = String(r.authors || '').split(/\s*;\s*/).map(n => splitName(n.trim())).filter(n => n.family);
       if (!names.some(n => nameMatch(n, a) === 'exact' || (nameMatch(n, a) === 'likely' && n.given && a.given && n.given[0] === a.given[0]))) continue;
-      out.push({ author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: /paper mill|fake peer review|peer review manipul|randomly generated|computer-aided content/i.test(r.reason || '') });
+      const theirName = names.find(n => nameMatch(n, a) === 'exact' || nameMatch(n, a) === 'likely');
+      const fullFirst = !!(theirName?.given && a.given && theirName.given.replace(/[.\s]/g, '').length > 1 && a.given.replace(/[.\s]/g, '').length > 1 && theirName.given.toLowerCase().split(/\s+/)[0].replace(/\./g, '') === a.given.toLowerCase().split(/\s+/)[0].replace(/\./g, ''));
+      const theirAff = affTokens(r.institution);
+      const sharedAff = [...myAff].filter(t => theirAff.has(t));
+      const sameCountry = myPk && /pakistan/i.test(r.country || '');
+      const confidence = fullFirst && (sharedAff.length >= 1 || (sameCountry && !r.institution)) ? 'high' : fullFirst ? 'medium' : 'low';
+      out.push({ confidence, institutionMatch: sharedAff.slice(0, 3), sameCountry, institution: (r.institution || '').slice(0, 160), author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: /paper mill|fake peer review|peer review manipul|randomly generated|computer-aided content/i.test(r.reason || '') });
     }
   }
   return out;
@@ -275,7 +294,19 @@ async function textSignals(text, body = text, custom = []) {
 
   const cells = cellLines(body);
   if (cells.length) sig('data', 'cell-lines', `${cells.length} misidentified or contaminated cell line(s) named`, 'medium', Math.min(4, 2 * cells.length), cells.map(c => ({ text: c.nonVerifiable ? `${c.name}: ${c.actual}` : `${c.name} is actually ${c.actual} (ICLAC register)`, quote: c.example })), 'Results attributed to the named tissue may be invalid; ask for authentication (STR profile).');
-  signals.details = { tortured, ai, tmpl, methods, hid, cells };
+  // ---- phase 3: statistics that do not add up, primer sanity
+  const stats = DC.statisticsCheck(text);
+  const gross = stats.findings.filter(f => f.gross);
+  const impossible = stats.findings.filter(f => f.kind === 'impossible');
+  if (gross.length >= 2 || impossible.length) sig('data', 'statistics', `Reported statistics do not add up (${stats.findings.length}; ${gross.length} change the conclusion)`, gross.length >= 3 || impossible.length ? 'medium' : 'low', gross.length >= 3 || impossible.length ? 3 : 1.5,
+    stats.findings.slice(0, 8).map(f => ({ text: `${f.reported} - recalculated: ${f.recalculated}${f.gross ? ' (changes the conclusion)' : ''}`, quote: f.quote })), 'p-values are recalculated from the reported t, F, chi-square, r or z statistic, and percentages from their counts. Honest rounding or typing errors exist in many papers; look at the pattern, not one value.');
+  else if (gross.length === 1) sig('data', 'statistics', 'One reported statistic does not add up', 'low', 1, [{ text: `${gross[0].reported} - recalculated: ${gross[0].recalculated}`, quote: gross[0].quote }], 'A single inconsistent value is often a typing error; check the original data.');
+  else if (stats.findings.length >= 4) sig('data', 'statistics-minor', `Several small rounding inconsistencies in reported statistics (${stats.findings.length})`, 'low', 0.5, stats.findings.slice(0, 6).map(f => ({ text: `${f.reported} - recalculated: ${f.recalculated}`, quote: f.quote })));
+  const primers = DC.findPrimers(text);
+  const primerIssues = DC.primerSanity(primers);
+  if (primerIssues.length) sig('data', 'primers', `Primer / sequence problems (${primerIssues.length})`, primerIssues.some(i => /identical|different genes|reverse complement/.test(i.message)) ? 'medium' : 'low', primerIssues.some(i => /identical|different genes|reverse complement/.test(i.message)) ? 2 : 1,
+    primerIssues.slice(0, 8).map(i => ({ text: `${i.primer.gene || 'primer'} ${i.primer.direction} 5'-${i.primer.sequence}-3': ${i.message}`, quote: i.primer.quote })), 'Primer sequences were read from the text and checked for sense (length, GC content, forward = reverse, one primer for two genes).');
+  signals.details = { tortured, ai, tmpl, methods, hid, cells, stats, primers, primerIssues };
   return signals;
 }
 
@@ -294,7 +325,22 @@ async function detectPaperMill(input, update = () => {}) {
   update('Searching for tortured phrases and AI-text leftovers', 2);
   const textSigs = await textSignals(text, body, await customPhrases());
   signals.push(...textSigs);
-  const { tortured, ai, tmpl, methods, hid, cells } = textSigs.details;
+  const { tortured, ai, tmpl, methods, hid, cells, stats, primers, primerIssues } = textSigs.details;
+
+  // Seek & Blastn: does each primer match the gene it is claimed to amplify? (NCBI BLAST, online only)
+  let blast = [];
+  if (primers.length && input.blast !== false && isOnline()) {
+    update('Checking primers against NCBI (Seek & Blastn)', 8);
+    blast = await DC.seekAndBlast(primers, { limit: 4, update: s => update(s, 9) }).catch(() => []);
+    const wrong = blast.filter(b => b.checked && !b.matches);
+    if (wrong.length) signals.push({ group: 'data', code: 'primer-gene', title: `${wrong.length} primer(s) do not match the gene they are said to amplify`, severity: wrong.length >= 2 ? 'high' : 'medium', weight: wrong.length >= 2 ? 4 : 3,
+      evidence: wrong.map(b => ({ text: `${b.primer.gene} ${b.primer.direction} 5'-${b.primer.sequence}-3' - top NCBI hits: ${b.hits.slice(0, 3).join(' | ') || 'none'}`, quote: b.primer.quote })), note: 'The primer was searched in NCBI BLAST (RefSeq RNA). A primer that hits other genes, or nothing, points to a wrong or invented sequence (Seek & Blastn method). Check the full BLAST result before drawing a conclusion.' });
+  }
+
+  // Institutions far apart
+  const spread = DC.affiliationSpread(meta.affiliations || [], (meta.authors || []).length);
+  if (spread.far) signals.push({ group: 'authors', code: 'institutions-far', title: `Authors' institutions are in ${spread.countries.length} countries (${spread.countries.join(', ')})`, severity: 'low', weight: spread.countries.length >= 3 && (meta.authors || []).length <= 4 ? 2 : 1,
+      evidence: Object.entries(spread.byCountry).map(([c, a]) => ({ text: `${c}: ${a[0]}` })), note: 'Many countries on a short author list with no stated collaboration is a paper-mill pattern (authorship for sale). International teams are common; ask the corresponding author how the group worked together if it is not clear.' });
 
   update('Checking whether the paper is already published', 15);
   const pub = await publishedElsewhere(meta.title).catch(() => []);
@@ -324,10 +370,14 @@ async function detectPaperMill(input, update = () => {}) {
 
   update('Checking authors (retractions, ORCID, e-mail addresses)', 40);
   const authors = (meta.authors || []).filter(a => a.family);
-  const retr = await authorRetractions(authors);
-  const millRetr = retr.filter(r => r.mill);
-  if (millRetr.length) sig('authors', 'author-mill-retraction', `Author(s) with earlier retractions for paper-mill or fake-peer-review reasons (${millRetr.length})`, 'high', 5, millRetr.map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date})`, note: r.reason?.split(';').slice(0, 3).join('; '), link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Matched by name in Retraction Watch — confirm it is the same person (affiliation, ORCID).');
-  else if (retr.length) sig('authors', 'author-retraction', `Author(s) with earlier retractions (${retr.length})`, 'medium', 2, retr.map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date})`, note: r.reason?.split(';').slice(0, 2).join('; '), link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Matched by name in Retraction Watch — confirm it is the same person.');
+  const retr = await authorRetractions(authors, meta.affiliations);
+  const sure = r => r.confidence !== 'low';
+  const millRetr = retr.filter(r => r.mill && sure(r));
+  const confNote = r => `${r.confidence} confidence${r.institutionMatch?.length ? ` (institution matches: ${r.institutionMatch.join(', ')})` : r.confidence === 'low' ? ' - surname and initial only, may be a different person' : ''}`;
+  if (millRetr.length) sig('authors', 'author-mill-retraction', `Author(s) with earlier retractions for paper-mill or fake-peer-review reasons (${millRetr.length})`, 'high', 5, millRetr.map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, note: r.reason?.split(';').slice(0, 3).join('; '), link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Matched by name in Retraction Watch — confirm it is the same person (affiliation, ORCID).');
+  else if (retr.some(sure)) sig('authors', 'author-retraction', `Author(s) with earlier retractions (${retr.filter(sure).length})`, 'medium', 2, retr.filter(sure).map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, note: r.reason?.split(';').slice(0, 2).join('; '), link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Matched by name in Retraction Watch — confirm it is the same person.');
+  const unsure = retr.filter(r => !sure(r));
+  if (unsure.length) sig('authors', 'author-retraction-name', `Possible earlier retraction(s) under a similar name (${unsure.length}) - probably other people`, 'low', 0.5, unsure.slice(0, 6).map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Retraction Watch gives author names only. These hits match the surname and first initial only; for common names they are usually different people. Check ORCID and affiliation before drawing any conclusion.');
 
   const emails = emailsOf(text);
   const free = emails.filter(e => FREE_MAIL.test(e));
@@ -395,15 +445,16 @@ async function detectPaperMill(input, update = () => {}) {
     module: 4,
     meta: { ...meta, authors: authors.map(a => ({ name: a.name || `${a.given} ${a.family}`.trim(), given: a.given, family: a.family })) },
     createdAt: new Date().toISOString(),
+    datasets: await require('../datasets').datasetHealth(),
     risk,
     signals: signals.sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group) || b.weight - a.weight),
     details: {
-      tortured, aiLeftovers: ai, templates: tmpl, methods, cellLines: cells, emails, freeMail: free, orcids: orcidResults,
+      tortured, aiLeftovers: ai, templates: tmpl, methods, cellLines: cells, statistics: { findings: stats.findings.slice(0, 30), checked: stats.checked }, primers: { found: primers.length, issues: primerIssues.length, blast: blast.map(b => ({ gene: b.primer.gene, direction: b.primer.direction, sequence: b.primer.sequence, checked: b.checked, matches: b.matches ?? null, hits: b.hits || [], error: b.error || null })) }, affiliationSpread: spread, emails, freeMail: free, orcids: orcidResults,
       authorRetractions: retr, duplicates: { compared: dup.compared, matches: dup.matches }, publishedElsewhere: pub, hiddenText: hid,
       references: { total: refs.length, fabricated: fake.length, retracted: refs.filter(r => r.status === 'retracted').length, millRetracted: millRetracted.length, riskyJournals: risky }
     },
     checked: {
-      text: true, references: refs.length > 0, authors: authors.length > 0, orcid: orcids.length > 0, reviewers: !!revText.trim(),
+      text: true, statistics: stats.checked.pTests + stats.checked.percentages, primers: primers.length, primersBlasted: blast.filter(b => b.checked).length, references: refs.length > 0, authors: authors.length > 0, orcid: orcids.length > 0, reviewers: !!revText.trim(),
       previousVersion: !!prev, images: !!input.images, earlierSubmissions: dup.compared
     },
     disclaimer: 'Screening aid only. The risk level shows where to look closer; it is not proof of misconduct and never rejects a paper by itself. The editor decides. Confidential — not for authors or reviewers.',

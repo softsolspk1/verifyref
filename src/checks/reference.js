@@ -25,15 +25,36 @@ function lastPage(p) {
   return m[2].length < m[1].length ? m[1].slice(0, m[1].length - m[2].length) + m[2] : m[2];
 }
 
+const TITLE_STOP = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'on', 'for', 'to', 'with', 'by', 'at', 'from', 'as', 'is', 'are', 'its', 'their']);
+/** Words of the cited title missing from the registered title; subtitles (after : or a dash) are not counted as invented */
+function extraTitleWords(ref, rec) {
+  const cited = String(ref.title || '');
+  if (!cited || !rec?.title) return { invented: 0 };
+  const tok = s => normalize(s).split(' ').filter(t => t && !TITLE_STOP.has(t));
+  const reg = new Set(tok(rec.title));
+  const sub = cited.search(/\s[:\u2013\u2014-]\s|:\s/);
+  const main = sub > 0 ? cited.slice(0, sub) : cited;
+  const extras = tok(main).filter(t => !reg.has(t));
+  const regTok = tok(rec.title);
+  const covered = regTok.filter(t => new Set(tok(cited)).has(t)).length;
+  // only when the registered title is (almost) fully contained: the cited one then has words added to a real title
+  return { invented: regTok.length && covered / regTok.length >= 0.9 ? extras.length : 0, extras };
+}
+
 /** Score how well a database record matches the cited reference (0-100) */
 function scoreCandidate(ref, rec) {
   if (!rec || !rec.title) return { score: 0 };
-  const tSim = Math.max(
+  let tSim = Math.max(
     titleSimilarity(ref.title || ref.raw, rec.title),
+    // D7: a title with an inner full stop is cut early and the rest lands in the journal field - join them again
+    ref.title && ref.journal ? titleSimilarity(`${ref.title}. ${ref.journal}`, rec.title) : 0,
     rec.shortTitle ? titleSimilarity(ref.title, rec.shortTitle) : 0,
     ref.title ? titleContains(ref.title, rec.title) * 0.95 : 0,
     ref.title ? 0 : titleContains(ref.raw, rec.title) * 0.9
   );
+  // D10: words in the cited title that the registered title does not have (invented words) lower the match
+  const extra = extraTitleWords(ref, rec);
+  if (extra.invented >= 4) tSim = Math.min(tSim, 0.78);
   let authorScore = null;
   if (ref.authors?.length && rec.authors?.length) {
     const first = ref.authors[0];
@@ -49,6 +70,12 @@ function scoreCandidate(ref, rec) {
   }
   let journalScore = null;
   if (ref.journal && rec.journal && !ref.looksLikeBook) journalScore = journalSimilarity(ref.journal, rec.journal);
+  // the "journal" is really the second half of the title (subtitle after a full stop)
+  if (journalScore !== null && journalScore < 0.5 && ref.journal.includes('. ')) {
+    const parts = ref.journal.split('. ');
+    const head = normalize(parts.slice(0, -1).join(' '));
+    if (head.length > 8 && normalize(rec.title).includes(head)) journalScore = Math.max(journalSimilarity(parts[parts.length - 1], rec.journal), rec.journalAbbrev ? journalSimilarity(parts[parts.length - 1], rec.journalAbbrev) : 0);
+  }
   if (journalScore !== null && rec.journalAbbrev) journalScore = Math.max(journalScore, journalSimilarity(ref.journal, rec.journalAbbrev));
 
   const parts = [[tSim, 0.6], [authorScore, 0.2], [yearScore, 0.12], [journalScore, 0.08]].filter(([v]) => v !== null);
@@ -66,7 +93,9 @@ function compare(ref, rec, s) {
   const issues = [];
   const add = (code, severity, message, cited, registered) => issues.push({ code, severity, message, cited, registered });
 
-  if (s.tSim < 0.85 && ref.title) add('title', s.tSim < 0.65 ? 'medium' : 'low', 'Title differs from the registered record', ref.title, rec.title);
+  const extra = extraTitleWords(ref, rec);
+  if (extra.invented >= 4) add('title-extra', 'medium', `The cited title has words that are not in the registered title (“${extra.extras.slice(0, 8).join(' ')}”)`, ref.title, rec.title);
+  else if (s.tSim < 0.85 && ref.title) add('title', s.tSim < 0.65 ? 'medium' : 'low', 'Title differs from the registered record', ref.title, rec.title);
   if (s.authorScore === 0) add('author', 'medium', 'First author does not appear in the registered author list', ref.authors.map(a => a.family).join(', '), rec.authors.slice(0, 6).map(a => a.family).join(', '));
   else if (s.authorScore !== null && s.authorScore < 1) add('author-order', 'low', 'Author order differs from the registered record', ref.authors[0]?.family, rec.authors[0]?.family);
   if (ref.year && rec.year && ref.year !== rec.year) {
@@ -286,19 +315,28 @@ async function classify(v, retraction) {
     let journal = null;
     if (!grey && ref.journal) journal = await journalProfile(ref.journal);
     const wellIndexed = journal && journal.works > 300 && (!ref.year || (ref.year >= (journal.first || 0) && ref.year <= (journal.last || 9999)));
+    const regional = REGIONAL.test(ref.journal || '') && !idFailed;
     if (idFailed) { status = 'suspicious'; reason = 'Identifier does not exist and no matching record was found'; }
-    else if (!wellIndexed && REGIONAL.test(ref.journal || '')) { status = 'unverified'; reason = `Not indexed — ${ref.journal} is a regional journal that the scholarly databases do not cover fully; check manually (not a sign of fabrication)`; v.notIndexed = true; }
+    else if (regional) { status = 'unverified'; reason = `Not indexed — ${ref.journal} is a regional journal that the scholarly databases do not cover fully; check manually (not a sign of fabrication)`; v.notIndexed = true; }
     else if (wellIndexed) { status = 'suspicious'; reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles)`; }
     else if (errors >= 4) { status = 'unverified'; reason = 'Verification could not be completed (several databases did not respond)'; }
     else if (grey) { status = 'unverified'; reason = 'Book, report or web source — not found in scholarly databases; check manually'; }
     else { status = 'suspicious'; reason = 'No match in any of the 12 scholarly databases'; }
     v.journalProfile = journal;
+  } else if (high.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code)) && v.confidence < 85) {
+    status = 'suspicious';
+    reason = 'The identifier does not exist and no record matches this reference with confidence - it may be fabricated';
   } else if (high.length || medium.length) {
     status = v.confidence >= 65 ? 'miscited' : 'unverified';
     reason = (high[0] || medium[0]).message;
   } else if (v.confidence >= 75) {
     status = 'verified';
-    reason = 'A record was found and the title, authors and year match';
+    const minor = issues.filter(i => ['year', 'last-page', 'issue', 'author-order'].includes(i.code)).map(i => i.message.toLowerCase());
+    reason = minor.length ? `A record was found and the title and authors match; note: ${minor.join('; ')}` : 'A record was found and the title, authors and year match';
+  } else if (REGIONAL.test(ref.journal || '')) {
+    status = 'unverified';
+    reason = `Not indexed — ${ref.journal} is a regional journal that the scholarly databases do not cover fully; the closest record is not a certain match, check manually (not a sign of fabrication)`;
+    v.notIndexed = true;
   } else {
     status = 'unverified';
     reason = 'A similar record exists but the match is not certain — review manually';
@@ -350,7 +388,7 @@ async function checkReferences(refs, opts = {}) {
       raw: v.ref.raw,
       parsed: { authors: v.ref.authors, title: v.ref.title, journal: v.ref.journal, year: v.ref.year, volume: v.ref.volume, issue: v.ref.issue, pages: v.ref.pages, doi: v.ref.doi, pmid: v.ref.pmid, arxiv: v.ref.arxiv, urls: v.ref.urls, yearSuffix: v.ref.yearSuffix },
       status,
-      statusLabel: STATUS[status].label,
+      statusLabel: v.notIndexed ? 'Not indexed' : STATUS[status].label,
       tone: STATUS[status].tone,
       reason,
       confidence: v.record ? Math.min(100, v.confidence) : Math.min(v.topScore || 0, 40),

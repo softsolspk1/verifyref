@@ -1,6 +1,6 @@
 // views/citations.js - Module 3 Citations: A. in-text citations <-> reference list, B. claim <-> source support,
 // C. citation pattern flags, and the author letter (English / Urdu) the editor previews before sending.
-import { api, esc, $, $$, toast, startJob, download, badge, ICONS, copyText, hasModule, fmtDate } from '../core.js';
+import { api, esc, $, $$, toast, startJob, download, badge, ICONS, copyText, hasModule, fmtDate, datasetBanner } from '../core.js';
 import { renderVerifyResult } from './verify.js';
 
 export function renderCitations(view) {
@@ -11,7 +11,7 @@ export function renderCitations(view) {
     <div id="form-area">
       <div class="card">
         <h3>1. Manuscript</h3>
-        <div class="dropzone" id="dz"><input type="file" id="file" accept=".pdf,.docx,.txt,.odt,.rtf" hidden>
+        <div class="dropzone" id="dz"><input type="file" id="file" accept=".pdf,.docx,.doc,.txt,.odt,.rtf" hidden>
           <div><strong>Upload the manuscript</strong> (text and reference list) — Word, PDF, ODT, RTF or text</div></div>
         <div id="file-info" class="alert alert-info" hidden style="margin-top:12px"></div>
         <div class="field" style="margin-top:12px"><label for="paste">Or paste the full text including the References section</label><textarea id="paste" rows="6" class="mono"></textarea></div>
@@ -71,7 +71,7 @@ function consistencyTab(body, c, refs) {
   if (!c || c.error) { body.innerHTML = `<div class="alert alert-warn">${esc(c?.error || 'Not checked.')}</div>`; return; }
   const s = c.summary;
   const refText = i => esc((refs.find(r => r.index === i)?.raw || '').slice(0, 200));
-  const ctx = x => (x ? `<div class="muted">…${esc(x)}…</div>` : '');
+  const ctx = (x, para) => (x ? `<div class="muted">${para ? `<b>Paragraph ${para}</b> · ` : ''}…${esc(x)}…</div>` : '');
   body.innerHTML = `
     <div class="kpis">
       <div class="kpi"><div class="n">${s.system === 'numeric' ? 'Numbered' : 'Author–year'}</div><div class="l">Citation style</div></div>
@@ -81,9 +81,10 @@ function consistencyTab(body, c, refs) {
       <div class="kpi ${s.uncited ? 'warn' : ''}"><div class="n">${s.uncited}</div><div class="l">Never cited</div></div>
       <div class="kpi ${s.etAlIssues ? 'warn' : ''}"><div class="n">${s.etAlIssues || 0}</div><div class="l">“et al.” problems</div></div>
     </div>
-    ${sec('Cited in the text but missing from the reference list', c.missing, items => `<table class="t">${items.map(m => `<tr><td><b>${esc(m.citation)}</b>${m.count > 1 ? ` <span class="muted">×${m.count}</span>` : ''}</td><td>${esc(m.reason)}${ctx(m.context)}</td></tr>`).join('')}</table>`, 'bad')}
+    ${sec('Cited in the text but missing from the reference list', c.missing, items => `<table class="t">${items.map(m => `<tr><td><b>${esc(m.citation)}</b>${m.count > 1 ? ` <span class="muted">×${m.count}</span>` : ''}</td><td>${esc(m.reason)}${ctx(m.context, m.para)}</td></tr>`).join('')}</table>`, 'bad')}
     ${sec('In the reference list but never cited', c.uncited, items => `<table class="t">${items.map(u => `<tr><td class="num">${u.index}</td><td>${esc(u.raw)}</td></tr>`).join('')}</table>`)}
-    ${c.yearMismatch ? sec('Year differs between the text and the list', c.yearMismatch, items => `<table class="t">${items.map(y => `<tr><td><b>${esc(y.citation)}</b></td><td>${esc(y.message)}${ctx(y.context)}</td></tr>`).join('')}</table>`) : ''}
+    ${c.yearMismatch ? sec('Year differs between the text and the list', c.yearMismatch, items => `<table class="t">${items.map(y => `<tr><td><b>${esc(y.citation)}</b></td><td>${esc(y.message)}${ctx(y.context, y.para)}</td></tr>`).join('')}</table>`) : ''}
+    ${c.spelling?.length ? sec('Author name spelled differently in the text and the list', c.spelling, items => `<table class="t">${items.map(y => `<tr><td><b>${esc(y.citation)}</b></td><td>${esc(y.message)}${ctx(y.context, y.para)}</td></tr>`).join('')}</table>`, 'warn') : ''}
     ${sec('Ambiguous citations', c.ambiguous, items => `<table class="t">${items.map(a => `<tr><td><b>${esc(a.citation)}</b></td><td>${esc(a.message)}${a.candidates.map(i => `<div class="muted">[${i}] ${refText(i)}</div>`).join('')}</td></tr>`).join('')}</table>`)}
     ${sec('Wrong use of “et al.”', c.etAlIssues || [], items => `<table class="t">${items.map(e => `<tr><td><b>${esc(e.citation)}</b></td><td>${esc(e.message)}${ctx(e.context)}</td></tr>`).join('')}</table>`)}
     ${sec('Citation blocks (many references cited at once)', c.blocks || [], items => `<table class="t">${items.map(b => `<tr><td><b>${esc(b.citation)}</b></td><td>${esc(b.message)}${ctx(b.context)}</td></tr>`).join('')}</table>`)}
@@ -123,7 +124,8 @@ export function renderCitationsResult(el, r, { again } = {}) {
   const refs = r.references?.results || [];
   el.innerHTML = `
     <div class="page-head"><div><h1>${esc(r.meta?.title || 'Citations')}</h1><p>${r.meta?.manuscriptCode ? `<b>${esc(r.meta.manuscriptCode)}</b> · ` : ''}${fmtDate(r.createdAt)} · ${s.references} references · ${s.citations} in-text citations</p></div>
-      <div class="row no-print"><button class="btn btn-sm" id="docx">${ICONS.download} Word report</button><button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>${again ? '<button class="btn btn-sm btn-ghost" id="again">Check another</button>' : ''}</div></div>
+      <div class="row no-print"><button class="btn btn-sm" id="docx">${ICONS.download} Word report</button><button class="btn btn-sm" id="pdf">${ICONS.download} PDF report</button><button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>${again ? '<button class="btn btn-sm btn-ghost" id="again">Check another</button>' : ''}</div></div>
+    ${datasetBanner(r)}
     <div class="kpis">
       <div class="kpi ${s.missing ? 'bad' : 'good'}"><div class="n">${s.missing}</div><div class="l">Missing from list</div></div>
       <div class="kpi ${s.uncited ? 'warn' : 'good'}"><div class="n">${s.uncited}</div><div class="l">Never cited</div></div>
@@ -152,6 +154,7 @@ export function renderCitationsResult(el, r, { again } = {}) {
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
   show('a');
+  $('#pdf', el).onclick = () => download('/api/export/pdf', { kind: 'citations', data: r }).catch(e => toast(e.message, 'error'));
   $('#docx', el).onclick = () => download('/api/export/docx', { kind: 'citations', data: r }).catch(e => toast(e.message, 'error'));
   if (again) $('#again', el).onclick = again;
 }

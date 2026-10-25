@@ -42,6 +42,7 @@ async function runCitationsModule(input, files = [], update = () => {}) {
     module: 3,
     meta,
     createdAt: new Date().toISOString(),
+    datasets: await require('../datasets').datasetHealth(),
     consistency,
     claims,
     pattern,
@@ -52,6 +53,7 @@ async function runCitationsModule(input, files = [], update = () => {}) {
       missing: cs.missing || 0,
       uncited: cs.uncited || 0,
       yearMismatch: cs.yearMismatch || 0,
+      spelling: cs.spelling || 0,
       ambiguous: cs.ambiguous || 0,
       etAl: cs.etAlIssues || 0,
       blocks: cs.blocks || 0,
@@ -72,7 +74,7 @@ function citationProblems(r) {
   const s = r.summary;
   return [
     s.missing && `${s.missing} citation(s) missing from the list`, s.uncited && `${s.uncited} reference(s) never cited`,
-    s.yearMismatch && `${s.yearMismatch} year mismatch(es)`, s.etAl && `${s.etAl} “et al.” problem(s)`,
+    s.yearMismatch && `${s.yearMismatch} year mismatch(es)`, s.spelling && `${s.spelling} author name spelled differently`, s.spelling && `${s.spelling} author name spelled differently`, s.spelling && `${s.spelling} author name spelled differently`, s.etAl && `${s.etAl} “et al.” problem(s)`,
     s.unsupported && `${s.unsupported} unsupported claim(s)`, s.retractedEvidence && `${s.retractedEvidence} claim(s) resting on retracted work`,
     s.patternFlags && `${s.patternFlags} citation-pattern flag(s)`
   ].filter(Boolean);

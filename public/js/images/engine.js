@@ -393,7 +393,32 @@ function orientation(img, x, y) {
  * ORB keypoints + 256-bit rBRIEF descriptors on an image pyramid.
  * Returns { pts: [{x, y, angle, scale}], desc: Uint32Array(n*8) } in the coordinates of `img`.
  */
-export function orb(img, { max = 260, threshold = 18 } = {}) {
+export function orb(img, opts = {}) {
+  // Thin strips (blot / gel lanes are often 50-90 px high) have no pyramid levels at 64 px: enlarge them first (bilinear),
+  // find the keypoints on the larger copy and report them in the coordinates of the original.
+  const small = Math.min(img.w, img.h);
+  if (small >= 96) return orbCore(img, opts);
+  const k = Math.min(4, 96 / Math.max(8, small));
+  const up = upscaleGray(img, k);
+  const r = orbCore(up, opts);
+  return { pts: r.pts.map(p => ({ ...p, x: p.x / k, y: p.y / k })), desc: r.desc };
+}
+
+function upscaleGray(src, k) {
+  const nw = Math.round(src.w * k), nh = Math.round(src.h * k);
+  const out = new Float32Array(nw * nh);
+  for (let y = 0; y < nh; y++) {
+    const fy = Math.min(src.h - 1, Math.max(0, (y + 0.5) / k - 0.5)), y0 = Math.floor(fy), y1 = Math.min(src.h - 1, y0 + 1), ty = fy - y0;
+    for (let x = 0; x < nw; x++) {
+      const fx = Math.min(src.w - 1, Math.max(0, (x + 0.5) / k - 0.5)), x0 = Math.floor(fx), x1 = Math.min(src.w - 1, x0 + 1), tx = fx - x0;
+      const a = src.g[y0 * src.w + x0] * (1 - tx) + src.g[y0 * src.w + x1] * tx, b = src.g[y1 * src.w + x0] * (1 - tx) + src.g[y1 * src.w + x1] * tx;
+      out[y * nw + x] = a * (1 - ty) + b * ty;
+    }
+  }
+  return { w: nw, h: nh, g: out };
+}
+
+function orbCore(img, { max = 260, threshold = 18 } = {}) {
   const levels = [];
   let cur = img, scale = 1;
   while (Math.min(cur.w, cur.h) >= 64 && levels.length < 5) {
@@ -515,7 +540,7 @@ const DCT8 = (() => { const c = new Float32Array(64); for (let u = 0; u < 8; u++
 const ZIG = [[0, 0], [0, 1], [1, 0], [2, 0], [1, 1], [0, 2], [0, 3], [1, 2], [2, 1], [3, 0]];
 
 /** Classic block-matching copy-move detection on a reduced grayscale panel */
-export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30 } = {}) {
+export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30, quant = 6, neigh = 4, minVar = 40, verify = false } = {}) {
   const { w, h, g } = img;
   const feats = [];
   const tmp = new Float32Array(64);
@@ -524,16 +549,16 @@ export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30 } 
       let s = 0, s2 = 0;
       for (let yy = 0; yy < 8; yy++) for (let xx = 0; xx < 8; xx++) { const v = g[(y + yy) * w + x + xx]; s += v; s2 += v * v; }
       const varc = s2 / 64 - (s / 64) ** 2;
-      if (varc < 40) continue; // flat block: background, would match everywhere
+      if (varc < minVar) continue; // flat block: background, would match everywhere
       for (let u = 0; u < 8; u++) for (let yy = 0; yy < 8; yy++) { let a = 0; for (let xx = 0; xx < 8; xx++) a += g[(y + yy) * w + x + xx] * DCT8[u * 8 + xx]; tmp[u * 8 + yy] = a; }
-      const f = ZIG.map(([u, v]) => { let a = 0; for (let yy = 0; yy < 8; yy++) a += tmp[u * 8 + yy] * DCT8[v * 8 + yy]; return Math.round(a / (u + v === 0 ? 16 : 6)); });
+      const f = ZIG.map(([u, v]) => { let a = 0; for (let yy = 0; yy < 8; yy++) a += tmp[u * 8 + yy] * DCT8[v * 8 + yy]; return Math.round(a / (u + v === 0 ? quant * 2.7 : quant)); });
       feats.push({ x, y, f, k: f.join(',') });
     }
   }
   feats.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
   const shifts = new Map();
   for (let i = 0; i < feats.length; i++) {
-    for (let j = i + 1; j < Math.min(feats.length, i + 4) && feats[j].k === feats[i].k; j++) {
+    for (let j = i + 1; j < Math.min(feats.length, i + neigh) && feats[j].k === feats[i].k; j++) {
       let dx = feats[j].x - feats[i].x, dy = feats[j].y - feats[i].y;
       if (Math.hypot(dx, dy) < minShift) continue;
       let src = feats[i], dst = feats[j];
@@ -547,9 +572,34 @@ export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30 } 
   for (const s of shifts.values()) {
     if (s.pairs.length < minBlocks) continue;
     const a = bbox(s.pairs.map(p => ({ x: p[0].x + 4, y: p[0].y + 4 }))), b = bbox(s.pairs.map(p => ({ x: p[1].x + 4, y: p[1].y + 4 })));
-    out.push({ blocks: s.pairs.length, dx: s.dx, dy: s.dy, a: { x: a.x - 4, y: a.y - 4, w: a.w + 8, h: a.h + 8 }, b: { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 } });
+    // Loose block matching proposes candidates; a real copy must also agree pixel by pixel (picture and noise residual)
+    let px = null;
+    if (verify) {
+      px = regionAgreement(img, a, b);
+      if (!px || px.lp < 0.9 || px.hp < 0.45) continue;
+    }
+    out.push({ pixel: px, blocks: s.pairs.length, dx: s.dx, dy: s.dy, a: { x: a.x - 4, y: a.y - 4, w: a.w + 8, h: a.h + 8 }, b: { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 } });
   }
   return out.sort((p, q) => q.blocks - p.blocks).slice(0, 3);
+}
+
+/** Correlation of the picture (lp) and of its noise residual (hp) between two same-size boxes of one image */
+function regionAgreement(img, a, b) {
+  const w = Math.round(Math.min(a.w, b.w)), h = Math.round(Math.min(a.h, b.h));
+  if (w < 12 || h < 12) return null;
+  const sm = img._sm || (img._sm = blur(img, 1.5));
+  const at = (src, x, y) => src[Math.min(img.h - 1, Math.max(0, y)) * img.w + Math.min(img.w - 1, Math.max(0, x))];
+  const stat = (x1, y1, x2, y2, hp) => {
+    let n = 0, sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let va = at(img.g, Math.round(x1) + x, Math.round(y1) + y), vb = at(img.g, Math.round(x2) + x, Math.round(y2) + y);
+      if (hp) { va -= at(sm.g, Math.round(x1) + x, Math.round(y1) + y); vb -= at(sm.g, Math.round(x2) + x, Math.round(y2) + y); }
+      n++; sa += va; sb += vb; saa += va * va; sbb += vb * vb; sab += va * vb;
+    }
+    const den = Math.sqrt(Math.max(1e-9, (n * saa - sa * sa) * (n * sbb - sb * sb)));
+    return (n * sab - sa * sb) / den;
+  };
+  return { lp: stat(a.x, a.y, b.x, b.y, false), hp: stat(a.x, a.y, b.x, b.y, true) };
 }
 
 // ------------------------------------------------------------------ analysis
@@ -587,6 +637,16 @@ export function preparePanel(img, box, meta, gray = null) {
   return { ...meta, box, type, blank, scale: s, work: { w: work.w, h: work.h }, workGray: work, hashes, sqNorm, features, flipped, hash: hashHex(hashes[0]) };
 }
 
+/** Light-weight fingerprint of a panel (8 orientations of the 64-bit hash) - used where the full analysis is not needed */
+export function hashPanel(img, box, gray = null) {
+  gray = gray || toGray(img);
+  const sq = resizeGray(gray, 32, 32, box);
+  const out = [];
+  for (const mirror of [false, true]) for (let k = 0; k < 4; k++) out.push(hashHex(phash32(orient(sq, k, mirror))));
+  const sq64 = resizeGray(gray, 64, 64, box), st = stats(sq64.g);
+  return { hashes: out, blank: st.std < 8 };
+}
+
 function pairDuplicate(A, B) {
   // Whole-panel duplicate in any of 8 orientations
   let bestK = -1, bestD = 99;
@@ -612,10 +672,128 @@ function pairPartial(A, B) {
     const ptsB = r.inliers.map(m => { const p = FB.pts[m.j]; return flip ? { x: B.work.w - 1 - p.x, y: p.y } : p; });
     const ba = bbox(ptsA), bb = bbox(ptsB);
     const areaA = (ba.w * ba.h) / (A.work.w * A.work.h), areaB = (bb.w * bb.h) / (B.work.w * B.work.h);
-    if (Math.min(areaA, areaB) < 0.05 || ba.w < 30 || ba.h < 20 || bb.w < 30 || bb.h < 20) continue; // labels, scale bars
+    // labels, scale bars: a small matching patch needs many agreeing points to count (and is only "to check", never "strong")
+    const strongPatch = r.inliers.length >= 15;
+    if (Math.min(areaA, areaB) < (strongPatch ? 0.02 : 0.05) || ba.w < (strongPatch ? 22 : 30) || ba.h < (strongPatch ? 14 : 20) || bb.w < (strongPatch ? 22 : 30) || bb.h < (strongPatch ? 14 : 20)) continue;
     if (!best || r.inliers.length > best.inliers) best = { kind: 'partial', inliers: r.inliers.length, matches: matches.length, regionA: ba, regionB: bb, coverage: Math.round(Math.max(areaA, areaB) * 100), transform: { rotation: flip ? -r.rotation : r.rotation, flip, scale: r.scale } };
   }
   return best;
+}
+
+// ------------------------------------------------------------------ dense registration (smooth panels: blots, gels, strips)
+// ORB finds too few keypoints on smooth blot strips. Here two panels of similar shape are laid on top of each other
+// (small shifts, mirrored / rotated 180°) and compared pixel by pixel. Two different blots that merely look alike
+// (a band at the same height) agree on the smooth picture but not on the noise, so the noise residual must agree too.
+
+const REG = 120;
+function regData(P) {
+  if (P._reg) return P._reg;
+  const s = Math.min(1, REG / Math.max(P.work.w, P.work.h));
+  const lp = resizeGray(P.workGray, P.work.w * s, P.work.h * s);
+  const sm = blur(lp, 1.5);
+  const hp = { w: lp.w, h: lp.h, g: lp.g.map((v, i) => v - sm.g[i]) };
+  let m = 0;
+  for (const v of lp.g) m += v;
+  m /= lp.g.length;
+  let sd = 0;
+  for (const v of lp.g) sd += (v - m) * (v - m);
+  // background = the most common grey level; content = pixels clearly away from it (cells on a black field, bands on a white membrane)
+  const hist = new Uint32Array(64);
+  for (const v of lp.g) hist[Math.min(63, Math.max(0, v >> 2))]++;
+  let mode = 0;
+  for (let i = 1; i < 64; i++) if (hist[i] > hist[mode]) mode = i;
+  const bg = mode * 4 + 2;
+  const dev = Float32Array.from(lp.g, v => Math.abs(v - bg)).sort();
+  const top = dev[Math.min(dev.length - 1, Math.floor(dev.length * 0.98))];
+  P._reg = { lp, hp, sd: Math.sqrt(sd / lp.g.length), bg, top };
+  return P._reg;
+}
+
+const contentMask = (src, bg, top) => { const m = new Uint8Array(src.g.length); for (let i = 0; i < m.length; i++) m[i] = Math.abs(src.g[i] - bg) > 0.25 * top ? 1 : 0; return m; };
+const flipMask = (m, w, h, fh, fv) => { const o = new Uint8Array(m.length); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) o[y * w + x] = m[(fv ? h - 1 - y : y) * w + (fh ? w - 1 - x : x)]; return o; };
+
+/** NCC over content pixels only: union of both masks for the picture, intersection for the noise residual */
+function nccMaskedAt(a, b, ma, mb, w, h, dx, dy, mode) {
+  const x0 = Math.max(0, dx), x1 = Math.min(w, w + dx), y0 = Math.max(0, dy), y1 = Math.min(h, h + dy);
+  let n = 0, sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const ia = y * w + x, ib = (y - dy) * w + (x - dx);
+    const ina = ma[ia], inb = mb[ib];
+    if (mode === 'union' ? !(ina || inb) : !(ina && inb)) continue;
+    const va = a[ia], vb = b[ib];
+    n++; sa += va; sb += vb; saa += va * va; sbb += vb * vb; sab += va * vb;
+  }
+  if (n < 60) return null;
+  return { c: (n * sab - sa * sb) / Math.sqrt(Math.max(1e-9, (n * saa - sa * sa) * (n * sbb - sb * sb))), n };
+}
+
+const flipV = src => { const { w, h, g } = src; const out = new Float32Array(w * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out[y * w + x] = g[(h - 1 - y) * w + x]; return { w, h, g: out }; };
+const sameSize = (src, w, h) => (src.w === w && src.h === h ? src : resizeGray(src, w, h));
+
+function nccAt(a, b, w, h, dx, dy) {
+  const x0 = Math.max(0, dx), x1 = Math.min(w, w + dx), y0 = Math.max(0, dy), y1 = Math.min(h, h + dy);
+  if (x1 - x0 < 8 || y1 - y0 < 8) return null;
+  let n = 0, sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+  for (let y = y0; y < y1; y++) {
+    let ia = y * w + x0, ib = (y - dy) * w + (x0 - dx);
+    for (let x = x0; x < x1; x++, ia++, ib++) { const va = a[ia], vb = b[ib]; n++; sa += va; sb += vb; saa += va * va; sbb += vb * vb; sab += va * vb; }
+  }
+  const den = Math.sqrt(Math.max(1e-9, (n * saa - sa * sa) * (n * sbb - sb * sb)));
+  return { c: (n * sab - sa * sb) / den, overlap: n / (w * h), x0, x1, y0, y1 };
+}
+
+function pairRegistered(A, B) {
+  if (!A.workGray || !B.workGray || A.type === 'chart' || B.type === 'chart') return null;
+  const ra = A.box.w / A.box.h, rb = B.box.w / B.box.h;
+  if (Math.abs(Math.log(ra / rb)) > 0.2) return null;                       // different shape
+  const a = regData(A), b0 = regData(B);
+  if (a.sd < 6 || b0.sd < 6) return null;                                   // flat
+  // a cheap gate on the 32 x 32 hash keeps this off almost all unrelated pairs
+  let hd = 99;
+  for (let k = 0; k < 8; k++) hd = Math.min(hd, hamming64(A.hashes[0], B.hashes[k]));
+  if (hd > 26) return null;
+  const { w, h } = a.lp;
+  const variants = [
+    { name: 'same', lp: sameSize(b0.lp, w, h), hp: sameSize(b0.hp, w, h), flip: false, rot: 0 },
+    { name: 'mirror', lp: flipH(sameSize(b0.lp, w, h)), hp: flipH(sameSize(b0.hp, w, h)), flip: true, rot: 0 },
+    { name: 'flipV', lp: flipV(sameSize(b0.lp, w, h)), hp: flipV(sameSize(b0.hp, w, h)), flip: true, rot: Math.PI },
+    { name: 'rot180', lp: flipV(flipH(sameSize(b0.lp, w, h))), hp: flipV(flipH(sameSize(b0.hp, w, h))), flip: false, rot: Math.PI }
+  ];
+  const S = Math.max(3, Math.round(0.08 * Math.min(w, h)));
+  let best = null;
+  for (const v of variants) {
+    // coarse search every 2 px, then refine
+    let loc = null;
+    for (let dy = -S; dy <= S; dy += 2) for (let dx = -S * 2; dx <= S * 2; dx += 2) {
+      const r = nccAt(a.lp.g, v.lp.g, w, h, dx, dy);
+      if (r && r.overlap >= 0.45 && (!loc || r.c > loc.c)) loc = { ...r, dx, dy };
+    }
+    if (!loc) continue;
+    for (let dy = loc.dy - 1; dy <= loc.dy + 1; dy++) for (let dx = loc.dx - 1; dx <= loc.dx + 1; dx++) {
+      const r = nccAt(a.lp.g, v.lp.g, w, h, dx, dy);
+      if (r && r.overlap >= 0.45 && r.c > loc.c) loc = { ...r, dx, dy };
+    }
+    if (!best || loc.c > best.c) best = { ...loc, v };
+  }
+  if (!best || best.c < 0.9) return null;
+  // the match must hold on the content itself, not on a shared empty background
+  const mA = contentMask(a.lp, a.bg, a.top);
+  const mB0 = contentMask(sameSize(b0.lp, w, h), b0.bg, b0.top);
+  const mB = flipMask(mB0, w, h, best.v.name === 'mirror' || best.v.name === 'rot180', best.v.name === 'flipV' || best.v.name === 'rot180');
+  let contentPx = 0;
+  for (const v of mA) contentPx += v;
+  if (a.top < 20 || b0.top < 20 || contentPx < 0.03 * w * h) return null;
+  const lpc = nccMaskedAt(a.lp.g, best.v.lp.g, mA, mB, w, h, best.dx, best.dy, 'union');
+  if (!lpc || lpc.c < 0.88) return null;
+  const hpr = nccMaskedAt(a.hp.g, best.v.hp.g, mA, mB, w, h, best.dx, best.dy, 'both');
+  if (!hpr || hpr.c < 0.5) return null;                                     // same look, different noise: different image
+  const sx = A.work.w / w, sy = A.work.h / h;
+  const regionA = { x: best.x0 * sx, y: best.y0 * sy, w: (best.x1 - best.x0) * sx, h: (best.y1 - best.y0) * sy };
+  const bx0 = best.x0 - best.dx, bx1 = best.x1 - best.dx, by0 = best.y0 - best.dy, by1 = best.y1 - best.dy;
+  const tx = B.work.w / w, ty = B.work.h / h;
+  const regionB = { x: bx0 * tx, y: by0 * ty, w: (bx1 - bx0) * tx, h: (by1 - by0) * ty };
+  return { kind: best.overlap >= 0.85 && Math.abs(best.dx) + Math.abs(best.dy) <= 4 ? 'duplicate' : 'partial', correlation: Math.round(best.c * 100) / 100, noise: Math.round(hpr.c * 100) / 100, overlap: best.overlap, regionA, regionB,
+    transform: { rotation: best.v.rot, flip: best.v.flip, scale: Math.sqrt((B.box.w * B.box.h) / (A.box.w * A.box.h)) } };
 }
 
 function selfClone(P) {
@@ -632,9 +810,10 @@ function selfClone(P) {
     }
   }
   if (!P.blank && P.type !== 'chart') {
-    for (const c of copyMoveBlocks(P.workGray)) {
+    // tolerant block matching (survives JPEG recompression), every candidate verified pixel by pixel
+    for (const c of copyMoveBlocks(P.workGray, { quant: 20, neigh: 12, minBlocks: 15, minVar: 15, verify: true })) {
       if (out.some(o => Math.abs(o.regionA.x - c.a.x) < 20 && Math.abs(o.regionA.y - c.a.y) < 20)) continue;
-      out.push({ kind: 'clone', method: 'blocks', blocks: c.blocks, regionA: c.a, regionB: c.b, transform: { rotation: 0, flip: false, scale: 1 } });
+      out.push({ kind: 'clone', method: 'blocks', blocks: c.blocks, pixel: c.pixel, regionA: c.a, regionB: c.b, transform: { rotation: 0, flip: false, scale: 1 } });
     }
   }
   return out;
@@ -663,6 +842,12 @@ export function findIssues(panels, progress = () => {}) {
           description: `The same image appears twice (${describeTransform(dup.transform)}; correlation ${dup.correlation})` });
         continue;
       }
+      const reg = pairRegistered(A, B);
+      if (reg) {
+        findings.push({ kind: reg.kind, level: reg.noise >= 0.6 && Math.abs(Math.log(reg.transform.scale)) < 0.1 ? 'high' : 'medium', a: { panel: A.id, box: reg.kind === 'duplicate' ? A.box : toImage(A, reg.regionA) }, b: { panel: B.id, box: reg.kind === 'duplicate' ? B.box : toImage(B, reg.regionB) }, transform: reg.transform, score: reg.correlation,
+          description: `${reg.kind === 'duplicate' ? 'The same image appears twice' : 'Overlapping image content'} (pixel match ${reg.correlation}, noise pattern ${reg.noise}; ${describeTransform(reg.transform)})` });
+        continue;
+      }
       const part = pairPartial(A, B);
       if (part) {
         findings.push({ kind: 'partial', level: part.inliers >= 25 ? 'high' : 'medium', a: { panel: A.id, box: toImage(A, part.regionA) }, b: { panel: B.id, box: toImage(B, part.regionB) }, transform: part.transform, score: part.inliers,
@@ -672,9 +857,9 @@ export function findIssues(panels, progress = () => {}) {
   }
   usable.forEach(P => {
     for (const c of selfClone(P)) {
-      const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.blocks >= 80;
+      const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.6;
       findings.push({ kind: 'clone', level: strong ? 'high' : 'medium', a: { panel: P.id, box: toImage(P, c.regionA) }, b: { panel: P.id, box: toImage(P, c.regionB) }, transform: c.transform, score: c.inliers || c.blocks,
-        description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)})` : `Possible cloned area inside one panel (${c.blocks} identical blocks)` });
+        description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)})` : `Possible cloned area inside one panel (${c.blocks} matching blocks${c.pixel ? `, pixel match ${c.pixel.lp.toFixed(2)}, noise pattern ${c.pixel.hp.toFixed(2)}` : ''})` });
     }
   });
   return findings.sort((a, b) => (a.level === b.level ? b.score - a.score : a.level === 'high' ? -1 : 1));

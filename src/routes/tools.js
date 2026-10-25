@@ -292,6 +292,13 @@ router.post('/export/docx', auth.requireUser, wrap(async (req, res) => {
   sendFile(res, await W.buildDocx(builders[kind](data)), `${kind}-report.docx`, DOCX);
 }));
 
+router.post('/export/pdf', auth.requireUser, wrap(async (req, res) => {
+  const { kind, data } = req.body || {};
+  const builders = { citations: W.citationsBlocks, papermill: W.papermillBlocks, verify: W.verifyBlocks, evidence: W.evidenceBlocks, assistant: W.assistantBlocks, 'journal-finder': W.journalFinderBlocks, conferences: W.conferenceBlocks, restyle: W.restyleBlocks, format: W.formatBlocks, authors: W.authorBlocks, references: W.referenceReportBlocks, images: W.imagesBlocks, screening: d => W.screeningBlocks(d, 'editor') };
+  if (!builders[kind] || !data) return res.status(400).json({ success: false, message: 'Nothing to export.' });
+  sendFile(res, await require('../pdf').buildPdf(builders[kind](data)), `${kind}-report.pdf`, 'application/pdf');
+}));
+
 router.post('/export/csv', auth.requireUser, wrap(async (req, res) => {
   const { kind, data } = req.body || {};
   if (kind === 'verify') {

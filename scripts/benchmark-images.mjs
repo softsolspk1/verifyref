@@ -132,7 +132,7 @@ if (TASK === 'all' || TASK === 'neg') {
     for (const x of shuffle(byCat[c])) { if (seen.has(x.d)) continue; seen.add(x.d); pick.push(x); if (pick.length >= 160) break; }
     const panels = pick.map(x => panel(x.d, x.n)).filter(Boolean);
     const fnd = E.findIssues(panels).filter(f => f.kind === 'duplicate' || f.kind === 'partial');
-    out[c] = { panels: panels.length, pairs: panels.length * (panels.length - 1) / 2, reports: fnd.length, high: fnd.filter(f => f.level === 'high').length, examples: fnd.slice(0, 3).map(f => `${f.kind}: ${f.a.panel} ~ ${f.b.panel}`) };
+    out[c] = { panels: panels.length, pairs: panels.length * (panels.length - 1) / 2, reports: fnd.length, high: fnd.filter(f => f.level === 'high').length, examples: fnd.slice(0, 8).map(f => `${f.kind}/${f.level}: ${f.a.panel} ~ ${f.b.panel} - ${f.description}`) };
   }
   report.neg = out;
 }

@@ -37,13 +37,26 @@ async function extractDocument(buffer, filename, mimetype) {
   const ext = (filename.match(/\.[^.]+$/) || [''])[0].toLowerCase();
   if (ext === '.pdf' || mimetype === 'application/pdf') {
     const pdfParse = require('pdf-parse');
-    const data = await pdfParse(buffer);
+    let data;
+    try { data = await pdfParse(buffer); } catch (e) { throw new Error('This PDF could not be read (it may be damaged, password-protected or a scan). Save it again as PDF or upload the Word file instead.'); }
+    if (!(data.text || '').trim()) throw new Error('No text could be read from this PDF - it looks like a scanned image. Upload the Word file, or a PDF with selectable text.');
     return { text: repairText(data.text || ''), format: 'pdf' };
   }
   if (ext === '.docx' || /wordprocessingml/.test(mimetype || '')) {
     const mammoth = require('mammoth');
     // Use HTML so superscript citation numbers survive as [n]
-    const { value: html } = await mammoth.convertToHtml({ buffer });
+    const { value: rawHtml } = await mammoth.convertToHtml({ buffer });
+    // Footnotes: mammoth lists them after the body. Put each note's text where it is called, so citations inside footnotes
+    // count as citations and the note text is not mistaken for a reference-list entry.
+    let html = rawHtml;
+    const notes = new Map();
+    html = html.replace(/<ol>\s*(<li id="(?:footnote|endnote)-\d+">[\s\S]*?)<\/ol>\s*$/, (m, items) => {
+      for (const li of items.matchAll(/<li id="((?:footnote|endnote)-\d+)">([\s\S]*?)<\/li>/g)) notes.set(li[1], li[2].replace(/<a href="#(?:footnote|endnote)-ref-\d+">[^<]*<\/a>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+      return '';
+    });
+    if (notes.size) {
+      html = html.replace(/<sup>\s*<a href="#((?:footnote|endnote)-\d+)"[^>]*>[^<]*<\/a>\s*<\/sup>/g, (m, id) => ` Footnote: ${notes.get(id) || ''} `);
+    }
     const text = html
       .replace(/<sup>\s*([\d,\s–\-]+)\s*<\/sup>/g, (m, n) => `[${n.replace(/\s+/g, '')}]`)
       .replace(/<\/(p|h\d|li|tr)>/g, '\n')
@@ -53,10 +66,53 @@ async function extractDocument(buffer, filename, mimetype) {
       .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
     return { text: repairText(text), format: 'docx' };
   }
+  if (ext === '.odt' || /opendocument\.text/.test(mimetype || '')) {
+    const JSZip = require('jszip');
+    let xml;
+    try { xml = await (await JSZip.loadAsync(buffer)).file('content.xml').async('string'); } catch (e) { throw new Error('This OpenDocument (.odt) file could not be read. Save it as .docx and upload that.'); }
+    const text = xml
+      .replace(/<text:(?:tab)\/>/g, '\t').replace(/<text:line-break\/>/g, '\n')
+      .replace(/<\/text:(?:p|h|list-item)>/g, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+    return { text: repairText(text), format: 'odt' };
+  }
+  if (ext === '.doc' || (/msword/.test(mimetype || '') && ext !== '.docx')) {
+    try {
+      const WordExtractor = require('word-extractor');
+      const d = await new WordExtractor().extract(buffer);
+      return { text: repairText([d.getBody(), d.getFootnotes ? d.getFootnotes() : ''].filter(Boolean).join('\n')), format: 'doc' };
+    } catch (e) { throw new Error('This old Word (.doc) file could not be read. Open it in Word, save as .docx and upload that.'); }
+  }
   const raw = buffer.toString('utf8');
+  if (ext === '.rtf' || /^\{\\rtf/.test(raw.slice(0, 10))) return { text: repairText(rtfToText(raw)), format: 'rtf' };
   if (ext === '.bib' || /@\w+\s*\{/.test(raw.slice(0, 2000))) return { text: raw, format: 'bibtex', entries: parseBibtex(raw) };
   if (ext === '.ris' || /^TY\s{2}-/m.test(raw.slice(0, 2000))) return { text: raw, format: 'ris', entries: parseRis(raw) };
   return { text: repairText(raw), format: 'text' };
+}
+
+/** Plain text of an RTF document (control words, groups and hex escapes removed) */
+function rtfToText(rtf) {
+  let out = '';
+  const stack = [];
+  let skip = false;
+  for (let i = 0; i < rtf.length; i++) {
+    const c = rtf[i];
+    if (c === '{') { stack.push(skip); const nxt = rtf.slice(i + 1, i + 30); if (/^\\\*|^\\(?:fonttbl|colortbl|stylesheet|info|pict|header|footer|footnote)/.test(nxt)) skip = true; }
+    else if (c === '}') { skip = stack.pop() || false; }
+    else if (c === '\\') {
+      const m = rtf.slice(i + 1).match(/^([a-zA-Z]+)(-?\d+)? ?/);
+      if (m) {
+        i += m[0].length;
+        if (!skip) { if (m[1] === 'par' || m[1] === 'line') out += '\n'; else if (m[1] === 'tab') out += '\t'; else if (m[1] === 'u') { out += String.fromCharCode(parseInt(m[2], 10) < 0 ? parseInt(m[2], 10) + 65536 : parseInt(m[2], 10)); i++; } }
+      } else {
+        const n = rtf[i + 1];
+        if (n === "'") { if (!skip) out += String.fromCharCode(parseInt(rtf.slice(i + 2, i + 4), 16)); i += 3; }
+        else { if (!skip && (n === '\\' || n === '{' || n === '}')) out += n; i++; }
+      }
+    } else if (!skip && c !== '\r' && c !== '\n') out += c;
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ BibTeX / RIS
@@ -168,7 +224,7 @@ function splitContinuation(lines) {
   const entries = [];
   let cur = '';
   const startsEntry = l => /^[\p{Lu}][\p{L}'’\-]+(?:\s+[\p{Lu}][\p{L}'’\-]+)?,?\s+(?:[\p{Lu}]\.?\s*){1,3}[,.&(]/u.test(l) ||
-    /^[\p{Lu}][\p{L}'’\-]+,\s+[\p{Lu}]/u.test(l);
+    /^[\p{Lu}][\p{L}'’\-]+,\s+[\p{Lu}]/u.test(l) || /^(?:[\p{Lu}]\.\s?){1,3}[\p{Lu}][\p{L}'’\-]+,/u.test(l);
   for (const line of lines) {
     const curDone = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /[.)\d]$/.test(cur);
     const strongEnd = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /(?:\d[.)]?|10\.\S+)$/.test(cur);
@@ -255,10 +311,12 @@ function parseReferenceEntry(raw, index) {
 
   // Volume(issue):pages patterns
   const vip =
-    core.match(/(?:vol\.?\s*)?(\d{1,4})\s*\(\s*([\w\-–\/ ]{1,12})\s*\)\s*[:,]?\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)/i) ||
+    core.match(/(?:vol\.?\s*)?(\d{1,4})\s*\(\s*([\w\-–\/ ]{1,12})\s*\)\s*[:,]?\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,9}(?:\s*[-–—]\s*[A-Za-z]?\d{1,9})?)/i) ||
     core.match(/vol\.?\s*(\d{1,4}),?\s*(?:no\.?|issue)\s*([\w\-–]{1,8}),?\s*(?:pp?\.?\s*)([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)/i) ||
     core.match(/;\s*(\d{1,4})\s*:\s*()([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)/) ||
-    core.match(/,\s*(?:vol\.?\s*)?(\d{1,4})\s*()[,:]\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,6}\s*[-–—]\s*[A-Za-z]?\d{1,6}|e\d{3,8}|\d{4,8})\b/i);
+    core.match(/,\s*(?:vol\.?\s*)?(\d{1,4})\s*()[,:]\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,6}\s*[-–—]\s*[A-Za-z]?\d{1,6}|e\d{3,8}|\d{4,8})\b/i) ||
+    // article-number locators: "372: n71"
+    core.match(/\b(\d{1,4})\s*()\s*:\s*([enE][A-Za-z]?\d{1,9})\b/);
   if (vip) {
     ref.volume = vip[1];
     ref.issue = (vip[2] || '').trim();
@@ -271,7 +329,18 @@ function parseReferenceEntry(raw, index) {
   // Title in quotes (IEEE / Harvard / MLA)
   const quoted = core.match(/[“"‘']([^“”"]{12,400}?)[,.]?[”"’'](?=[\s,.]|$)/);
 
-  if (yParen && core.indexOf(yParen[0]) > 3) {
+  // Nature / Science: Surname, I., Surname, I. & Surname, I. Title. Journal Vol, pages (Year).
+  const nature = !yParen || core.indexOf(yParen[0]) > core.length - 12
+    ? core.match(/^((?:[\p{Lu}][\p{L}'’\-]+(?:\s[\p{Lu}][\p{L}'’\-]+)?,\s*(?:[\p{Lu}]\.\s?){1,3}(?:,\s*|\s*&\s*|\s+and\s+)?)+)\s+(.{12,300}?)\.\s+([^.]*?(?:\.[^.]*?)*?)\s+(\d{1,4}),\s*([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)\s*\(\s*((?:1[6-9]|20)\d{2})\s*\)\.?$/u)
+    : null;
+  if (nature && !quoted) {
+    ref.authors = parseAuthors(nature[1]);
+    ref.title = nature[2];
+    ref.journal = nature[3].replace(/\.$/, '');
+    ref.volume = nature[4];
+    ref.pages = nature[5].replace(/\s+/g, '').replace(/[–—]/g, '-');
+    ref.year = parseInt(nature[6], 10);
+  } else if (yParen && core.indexOf(yParen[0]) > 3) {
     // APA / Harvard / PJPS: Authors (Year). Title. Journal, vol(issue), pages.
     const yi = core.indexOf(yParen[0]);
     ref.authors = parseAuthors(core.slice(0, yi));
@@ -287,7 +356,7 @@ function parseReferenceEntry(raw, index) {
   } else if (quoted) {
     // IEEE: A. Author, B. Author, "Title," Journal, vol. ..., year.
     const qi = core.indexOf(quoted[0]);
-    ref.authors = parseAuthors(core.slice(0, qi));
+    ref.authors = parseAuthors(core.slice(0, qi).replace(/[.,]?\s*(?:1[6-9]\d{2}|20\d{2})[a-z]?\s*[.,]?\s*$/, '')); // Chicago: the year sits before the title
     ref.title = quoted[1];
     ref.journal = journalFrom(core.slice(qi + quoted[0].length));
   } else {
@@ -441,7 +510,7 @@ function extractNumericCitations(body, maxRef) {
   const cites = [];
   const push = (m, nums, style) => {
     const ctxStart = Math.max(0, m.index - 80);
-    cites.push({ nums, text: m[0], index: m.index, style, context: body.slice(ctxStart, m.index + m[0].length + 40).replace(/\s+/g, ' ') });
+    cites.push({ nums, text: m[0], index: m.index, style, para: paraNo(body, m.index), context: body.slice(ctxStart, m.index + m[0].length + 40).replace(/\s+/g, ' ') });
   };
   for (const m of body.matchAll(/\[(\s*\d{1,4}(?:\s*[-–—,]\s*\d{1,4})*\s*)\]/g)) push(m, expandRange(m[1]), 'bracket');
   if (cites.length < 3) {
@@ -451,6 +520,11 @@ function extractNumericCitations(body, maxRef) {
     }
   }
   return cites;
+}
+
+/** Paragraph number (counting non-empty lines) of a position in the manuscript text */
+function paraNo(body, index) {
+  return (body.slice(0, index).match(/[^\n]+/g) || []).length + 1;
 }
 
 const NAME_TOKEN = "[\\p{Lu}][\\p{L}'’\\-]+(?:\\s(?:van|von|de|der|da|del|di|al|el|ul|ur)\\s[\\p{Lu}][\\p{L}'’\\-]+)?";
@@ -482,7 +556,7 @@ function addAuthorYear(cites, authorStr, years, m, body) {
     if (!ym) continue;
     cites.push({
       authors: names, etAl, year: parseInt(ym[1], 10), suffix: ym[2] || '',
-      text: m[0].slice(0, 160), index: m.index,
+      text: m[0].slice(0, 160), index: m.index, para: paraNo(body, m.index),
       context: body.slice(Math.max(0, m.index - 80), m.index + m[0].length + 40).replace(/\s+/g, ' ')
     });
   }

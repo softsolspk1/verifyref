@@ -4,6 +4,21 @@ const { surnameKey, stripDiacritics } = require('../text');
 
 const key = s => surnameKey(stripDiacritics(s || ''));
 
+function editDistance(a, b) {
+  if (a === b) return 0;
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
 function refAuthorKeys(ref) {
   return (ref.authors || []).map(a => key(a.family)).filter(Boolean);
 }
@@ -36,7 +51,7 @@ function checkNumeric(body, refs) {
   const firstAppearance = [];
   for (const c of cites) {
     for (const n of c.nums) {
-      if (!byNum.has(n)) missing.push({ citation: `[${n}]`, context: c.context, reason: n > max ? `Reference ${n} does not exist (list has ${refs.length})` : `No reference numbered ${n}` });
+      if (!byNum.has(n)) missing.push({ citation: `[${n}]`, context: c.context, para: c.para, para: c.para, reason: n > max ? `Reference ${n} does not exist (list has ${refs.length})` : `No reference numbered ${n}` });
       else {
         if (!citedCount.has(n)) firstAppearance.push(n);
         citedCount.set(n, (citedCount.get(n) || 0) + 1);
@@ -98,6 +113,8 @@ function checkAuthorYear(body, refs) {
   const missing = [];
   const ambiguous = [];
   const yearMismatch = [];
+  const spelling = [];
+  let spell;
 
   for (const c of cites) {
     const first = key(c.authors[0]);
@@ -131,10 +148,15 @@ function checkAuthorYear(body, refs) {
     } else {
       const near = sameAuthor.filter(k => k.year && Math.abs(k.year - c.year) <= 2);
       if (near.length) {
-        yearMismatch.push({ citation: label, context: c.context, candidates: near.map(k => ({ index: k.ref.index, year: k.year })), message: `Cited as ${c.year} but the reference list has ${near.map(k => k.year + (k.suffix || '')).join(', ')}` });
+        yearMismatch.push({ citation: label, context: c.context, para: c.para, para: c.para, candidates: near.map(k => ({ index: k.ref.index, year: k.year })), message: `Cited as ${c.year} but the reference list has ${near.map(k => k.year + (k.suffix || '')).join(', ')}` });
         for (const k of near) citedCount.set(k.ref.index, (citedCount.get(k.ref.index) || 0) + 0.5);
+      } else if (sameAuthor.length === 0 && first.length >= 4 && (spell = refKeys.filter(k => k.year === c.year && k.authors[0] && editDistance(k.authors[0], first) <= (first.length >= 7 ? 2 : 1))).length === 1) {
+        // The author is in the list with the same year but the name is spelled differently
+        const k = spell[0];
+        spelling.push({ citation: label, context: c.context, para: c.para, index: k.ref.index, message: `Spelled “${c.authors[0]}” in the text but “${k.ref.authors[0].family}” in the reference list` });
+        citedCount.set(k.ref.index, (citedCount.get(k.ref.index) || 0) + 1);
       } else {
-        missing.push({ citation: label, context: c.context, reason: sameAuthor.length ? `Author is in the list but not with year ${c.year}` : 'No matching entry in the reference list' });
+        missing.push({ citation: label, context: c.context, para: c.para, reason: sameAuthor.length ? `Author is in the list but not with year ${c.year}` : 'No matching entry in the reference list' });
       }
     }
   }
@@ -180,6 +202,7 @@ function checkAuthorYear(body, refs) {
     uncited,
     ambiguous: dedupe(ambiguous, a => a.citation + a.candidates.join(',')),
     yearMismatch: dedupe(yearMismatch, m => m.citation),
+    spelling: dedupe(spelling, m => m.citation),
     orderIssues: orderIssues.length > refs.length * 0.3 ? [] : orderIssues.slice(0, 30),
     numberingIssues: []
   };
@@ -212,6 +235,7 @@ function checkCitations(body, refs, { system } = {}) {
     uncited: res.uncited.length,
     ambiguous: res.ambiguous.length,
     yearMismatch: (res.yearMismatch || []).length,
+    spelling: (res.spelling || []).length,
     orderIssues: res.orderIssues.length,
     numberingIssues: res.numberingIssues.length,
     etAlIssues: (res.etAlIssues || []).length,

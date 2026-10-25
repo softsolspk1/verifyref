@@ -1,5 +1,5 @@
 // views/check.js - input forms for the Full Screening Report and Module 1 (Check Bibliography)
-import { api, esc, $, toast, runJob, dropzone, issueOptions, fmtDate } from '../core.js';
+import { api, esc, $, toast, runJob, dropzone, issueOptions, fmtDate, modal } from '../core.js';
 import { renderReport } from './report.js';
 
 const MODES = {
@@ -22,14 +22,14 @@ const MODES = {
 
 export function renderCheckForm(view, kind) {
   const m = MODES[kind];
-  const doc = { referencesText: '', bodyText: '', structured: null, filename: '' };
+  const doc = { referencesText: '', bodyText: '', structured: null, filename: '', edited: null };
 
   view.innerHTML = `
     <div class="page-head"><div><h1>${esc(m.title)}</h1><p>${esc(m.intro)}</p></div></div>
     <div id="form-area">
       <div class="card">
         <div class="dropzone" id="dz">
-          <input type="file" id="file" accept=".pdf,.docx,.txt,.bib,.ris,.rtf,.odt" hidden>
+          <input type="file" id="file" accept=".pdf,.docx,.doc,.txt,.bib,.ris,.rtf,.odt" hidden>
           <div><strong>Upload ${m.needsBody ? 'the manuscript' : 'a manuscript or reference file'}</strong> — drag &amp; drop or click</div>
           <div class="muted" style="margin-top:4px">Word (.docx), PDF, plain text${m.needsBody ? '' : ', BibTeX (.bib) or RIS (.ris)'} · up to 25 MB</div>
         </div>
@@ -82,6 +82,7 @@ export function renderCheckForm(view, kind) {
         <div class="row">
           <button class="btn btn-primary" id="run">Run ${esc(m.title)}</button>
           <button class="btn btn-ghost" id="clear">Clear</button>
+          <button class="btn" id="review" title="See how the reference list was split; correct, split, merge or delete entries before checking">Review detected references</button>
           <span class="muted" id="ref-count"></span>
         </div>
       </div>
@@ -106,7 +107,7 @@ export function renderCheckForm(view, kind) {
       const fd = new FormData();
       fd.append('file', file);
       const d = await api('/api/extract', { form: fd });
-      Object.assign(doc, { referencesText: d.referencesText, bodyText: d.bodyText, structured: d.structured || null, filename: d.filename });
+      Object.assign(doc, { referencesText: d.referencesText, bodyText: d.bodyText, structured: d.structured || null, filename: d.filename, edited: null });
       paste.value = '';
       paste.placeholder = `Using ${d.filename}`;
       const warn = m.needsBody && !d.fullManuscript ? ' — no manuscript body detected; in-text citations cannot be checked.' : '';
@@ -128,7 +129,25 @@ export function renderCheckForm(view, kind) {
     }
   });
 
-  paste.addEventListener('input', () => { if (paste.value.trim()) Object.assign(doc, { referencesText: '', bodyText: '', structured: null, filename: '' }); });
+  paste.addEventListener('input', () => { if (paste.value.trim()) Object.assign(doc, { referencesText: '', bodyText: '', structured: null, filename: '', edited: null }); });
+
+  // Module 1.1 - edit / split / merge the detected reference list before it is checked
+  $('#review', view).onclick = async () => {
+    const text = paste.value.trim();
+    if (!text && !doc.referencesText && !doc.structured) return toast('Upload a file or paste the text first.', 'error');
+    let items = doc.edited;
+    if (!items) {
+      try {
+        const d = await api('/api/parse', { body: doc.structured ? { text: doc.structured.map(e => e.raw).join('\n'), strategy: 'one-per-line' } : { text: text || doc.referencesText, full: !!text && m.needsBody } });
+        items = d.references.map(r => r.raw);
+        if (text && d.bodyText) doc.pastedBody = d.bodyText;
+      } catch (e) { return toast(e.message, 'error'); }
+    }
+    openReferenceEditor(items, list => {
+      doc.edited = list;
+      $('#ref-count', view).textContent = `${list.length} references (edited list will be used)`;
+    });
+  };
 
   $('#clear', view).onclick = () => renderCheckForm(view, kind);
 
@@ -150,7 +169,10 @@ export function renderCheckForm(view, kind) {
       suggestedReviewers: $('#m-rev', view)?.value || '',
       imagesCheckId: $('#m-img', view)?.value || null
     };
-    if (text) {
+    if (doc.edited) {
+      body.entries = doc.edited;
+      body.bodyText = text ? (doc.pastedBody || '') : doc.bodyText;
+    } else if (text) {
       if (kind === 'references') body.referencesText = text;
       else body.text = text;
     } else if (doc.structured) {
@@ -177,4 +199,49 @@ export function renderCheckForm(view, kind) {
       btn.disabled = false;
     }
   };
+}
+
+/** Editable list of the detected references: correct the text, split one entry in two at the cursor, merge with the previous, delete or add */
+function openReferenceEditor(initial, onApply) {
+  const items = initial.map(s => String(s));
+  modal(`<div class="card-head"><h2>Detected references <span class="muted" id="re-count"></span></h2><button class="btn btn-ghost btn-sm" data-close>✕</button></div>
+    <p class="muted">Check how the list was split. Put the cursor inside an entry and press <b>Split here</b> if two references were joined; use <b>Merge up</b> if one reference was cut in two.</p>
+    <div id="re-list" style="max-height:55vh;overflow:auto;display:grid;gap:8px"></div>
+    <div class="row" style="margin-top:12px"><button class="btn" id="re-add">+ Add an entry</button><span style="flex:1"></span><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" id="re-ok">Use this list</button></div>`, {
+    onMount: (el, close) => {
+      const list = el.querySelector('#re-list');
+      const sync = () => { el.querySelector('#re-count').textContent = `(${items.filter(s => s.trim()).length})`; };
+      const paint = () => {
+        list.innerHTML = '';
+        items.forEach((text, i) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:grid;grid-template-columns:34px 1fr;gap:8px;align-items:start';
+          row.innerHTML = `<div class="muted" style="text-align:right;padding-top:6px">${i + 1}</div><div><textarea class="mono" rows="2" style="width:100%"></textarea>
+            <div class="row" style="gap:6px;margin-top:2px"><button class="btn btn-sm" data-a="split">Split here</button>${i ? '<button class="btn btn-sm" data-a="merge">Merge up</button>' : ''}<button class="btn btn-sm" data-a="del">Delete</button></div></div>`;
+          const ta = row.querySelector('textarea');
+          ta.value = text;
+          ta.oninput = () => { items[i] = ta.value; sync(); };
+          row.querySelector('[data-a=split]').onclick = () => {
+            const at = ta.selectionStart;
+            if (!at || at >= ta.value.length) return toast('Click inside the entry, at the place where the second reference starts.', 'error');
+            items.splice(i, 1, ta.value.slice(0, at).trim(), ta.value.slice(at).trim());
+            paint();
+          };
+          const merge = row.querySelector('[data-a=merge]');
+          if (merge) merge.onclick = () => { items.splice(i - 1, 2, `${items[i - 1].trim()} ${items[i].trim()}`); paint(); };
+          row.querySelector('[data-a=del]').onclick = () => { items.splice(i, 1); paint(); };
+          list.appendChild(row);
+        });
+        sync();
+      };
+      paint();
+      el.querySelector('#re-add').onclick = () => { items.push(''); paint(); list.lastChild?.querySelector('textarea').focus(); };
+      el.querySelector('#re-ok').onclick = () => {
+        const out = items.map(s => s.replace(/\s+/g, ' ').trim()).filter(s => s.length > 5);
+        if (!out.length) return toast('The list is empty.', 'error');
+        onApply(out);
+        close();
+      };
+    }
+  });
 }

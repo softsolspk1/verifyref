@@ -103,6 +103,7 @@ function names(authors, o) {
 
 // ------------------------------------------------------------------ field helpers
 
+const { pjpsJournal } = require('./abbrev');
 const clean = s => String(s || '').replace(/\s+/g, ' ').trim();
 const title = r => clean(r.title).replace(/[.]+$/, '').replace(/^(retracted|withdrawn)\s*:\s*/i, '');
 const pg = (p, dash = '–') => clean(p).replace(/\s*[-–—]+\s*/g, dash);
@@ -279,7 +280,7 @@ S.apsa = {
 S.pjps = {
   label: 'PJPS house style', kind: 'author-date', cite: { and: ' and ', etalFrom: 3, yearSep: ', ' },
   article: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ', max: 6, keep: 6, etal: ' et al.' }), ` (${yr(r)}). `, title(r), '. ',
-    r.journal ? [jn(r, true), r.volume ? `, ${r.volume}` : '', r.issue ? `(${r.issue})` : '', r.pages ? `: ${pg(r.pages, '-')}` : '', '. '] : '', doiUrl(r)],
+    r.journal ? [pjpsJournal(jn(r, true)), r.volume ? `, ${r.volume}` : '', r.issue ? `(${r.issue})` : '', r.pages ? `: ${pg(r.pages, '-')}` : '', '. '] : '', doiUrl(r)],
   book: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, title(r), '. ', r.publisher ? `${r.publisher}${r.place ? ', ' + r.place : ''}.` : '']
 };
 
@@ -306,8 +307,12 @@ const firstFamily = r => (r.authors?.[0]?.family || r.authors?.[0]?.name || titl
  * Order references for the bibliography and assign letters (2020a/2020b) for author-date styles.
  * items: [{ record, firstCited }] — returns the same objects ordered, with .yearSuffix set where needed.
  */
-function orderBibliography(items, style) {
+function orderBibliography(allItems, style) {
   const st = getStyle(style);
+  // Entries that could not be parsed (web pages, guidelines, odd formats) keep their text and go last, flagged for the editor
+  const items = allItems.filter(it => it.record);
+  const unparsed = allItems.filter(it => !it.record);
+  if (unparsed.length) return [...orderBibliography(items, style), ...unparsed];
   if (st.kind === 'numeric') return [...items].sort((a, b) => (a.firstCited ?? 1e9) - (b.firstCited ?? 1e9));
   const key = it => `${firstFamily(it.record).toLowerCase()}|${(it.record.authors || []).length > 2 ? 'zz' : (it.record.authors || []).map(a => a.family).join(' ').toLowerCase()}`;
   const sorted = [...items].sort((a, b) => key(a).localeCompare(key(b)) || String(a.record.year || '').localeCompare(String(b.record.year || '')) || title(a.record).localeCompare(title(b.record)));

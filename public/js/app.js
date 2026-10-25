@@ -24,6 +24,7 @@ import { renderHome } from './views/home.js';
 import { renderCitations } from './views/citations.js';
 import { renderPaperMill } from './views/papermill.js';
 import { renderImages } from './views/images.js';
+import { renderDemo } from './views/demo.js';
 
 // PJPS v4: the five modules and the Full Screening Report. The earlier tools stay in the code (routes below) but are
 // switched off in src/modules.js, so they are not shown and their routes refuse access.
@@ -36,6 +37,7 @@ const NAV = [
   { path: '/citations', label: '3 · Citations', icon: 'cite', module: 'citations' },
   { path: '/papermill', label: '4 · Paper Mill Detection', icon: 'papermill', module: 'papermill' },
   { path: '/images', label: '5 · Image Integrity', icon: 'image', module: 'images' },
+  { path: '/demo', label: 'Demo data', icon: 'manuscript' },
   { group: 'Earlier tools' },
   { path: '/verify', label: 'Verify Citations', icon: 'verify', module: 'verify', hidden: true },
   { path: '/evidence', label: 'Find Evidence', icon: 'evidence', module: 'evidence' },
@@ -65,6 +67,7 @@ const ROUTES = [
   [/^\/manuscript$/, guard('manuscript', v => renderCheckForm(v, 'manuscript'))],
   [/^\/references$/, guard('references', v => renderCheckForm(v, 'references'))],
   [/^\/home$/, renderHome],
+  [/^\/demo$/, renderDemo],
   [/^\/citations$/, guard('citations', renderCitations)],
   [/^\/papermill$/, guard('papermill', renderPaperMill)],
   [/^\/images$/, guard('images', renderImages)],

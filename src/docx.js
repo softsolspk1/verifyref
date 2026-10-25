@@ -270,11 +270,12 @@ function imagesBlocks(r) {
   return [
     { h1: 'CONFIDENTIAL — Module 5 Image Integrity Report' },
     { p: r.disclaimer, italics: true },
-    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || r.meta?.filename || '—'}`], ['Image risk', s.level], ['Images / panels analysed', `${s.images} / ${s.panels}`], ['Findings', `${s.findings} (${s.byLevel.high || 0} strong, ${s.byLevel.medium || 0} to check)`], ['Earlier PJPS manuscripts sharing a figure', String((r.earlier || []).length)], ['Published-figure database / AI-image check', r.vendor?.connected ? 'Checked by vendor' : 'Not checked (vendor not connected)']] },
+    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || r.meta?.filename || '—'}`], ['Image risk', s.level], ['Images / panels analysed', `${s.images} / ${s.panels}`], ['Findings', `${s.findings} (${s.byLevel.high || 0} strong, ${s.byLevel.medium || 0} to check)`], ['Earlier PJPS manuscripts sharing a figure', String((r.earlier || []).length)], ['(a) Duplication & reuse', String((r.findings || []).filter(f => (f.category || 'duplication') === 'duplication').length)], ['(b) Alteration & manipulation', String((r.findings || []).filter(f => f.category === 'manipulation').length)], ['(c) AI-generated image indicators', String((r.findings || []).filter(f => f.category === 'ai').length)], ['(d) Graph & chart duplication', String((r.findings || []).filter(f => f.category === 'chart').length) + ((r.earlierCharts || []).length ? ` (+${r.earlierCharts.length} matching earlier manuscripts)` : '')], ['Comparison with published-figure databases', r.vendor?.connected ? 'Checked by vendor' : 'Not checked (vendor not connected)']] },
     { p: r.method, italics: true },
     ...r.findings.flatMap((f, i) => [
-      { h2: `Finding ${i + 1}: ${f.a.label}${f.a.panel !== f.b.panel ? ` ↔ ${f.b.label}` : ''}` },
+      { h2: `Finding ${i + 1} [${({ duplication: "Duplication", manipulation: "Manipulation", ai: "AI-generated", chart: "Chart" })[f.category || "duplication"]}]: ${f.a.label}${f.a.panel !== f.b.panel ? ` ↔ ${f.b.label}` : ''}` },
       { p: `${f.level === 'high' ? 'Strong' : 'Check'} — ${f.description}${marks.get(f.id) ? ` · ${label[marks.get(f.id)] || marks.get(f.id)}` : ''}` },
+      ...((f.details || []).length ? [{ bullets: f.details }] : []),
       { images: [{ src: f.thumbA, width: f.thumbAW, height: f.thumbAH }, ...(f.thumbB && f.b.panel !== f.a.panel ? [{ src: f.thumbB, width: f.thumbBW, height: f.thumbBH }] : [])], caption: 'Matched areas are outlined.' }
     ]),
     ...((r.earlier || []).length ? [{ h2: 'Figures matching earlier PJPS manuscripts' }, { table: { headers: ['This manuscript', 'Earlier manuscript', 'Earlier figure', 'Distance'], rows: r.earlier.map(e => [e.panelLabel, `${e.manuscriptCode || 'check #' + e.checkId}: ${e.title || ''}`, e.label || '', String(e.distance)]) } }] : []),

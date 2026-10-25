@@ -69,7 +69,7 @@ async function runPaperMill(input, { userId, update }) {
   let images = null;
   if (input.imagesCheckId) {
     const c = await loadCheck(userId, input.imagesCheckId);
-    if (c?.result?.summary) images = { findings: c.result.summary.byLevel || {}, level: c.result.summary.level };
+    if (c?.result?.summary) images = { findings: c.result.summary.byLevel || {}, categories: c.result.summary.byCategory || {}, level: c.result.summary.level };
   }
   const result = await detectPaperMill({ text: input.text, body: input.bodyText, meta: input.meta, references, pattern, suggestedReviewers: input.suggestedReviewers, images },
     (s, p) => update(s, 55 + (p || 0) * 0.43));

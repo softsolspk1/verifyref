@@ -87,6 +87,26 @@ function cellLines(text) {
   return out;
 }
 
+/** Zero-width characters and look-alike letters from other alphabets: used to slip past plagiarism software */
+function hiddenText(text) {
+  const zero = (text.match(/[​-‍⁠﻿­]/g) || []).length;
+  const mixed = [];
+  for (const m of text.matchAll(/\p{L}{3,}/gu)) {
+    const w = m[0];
+    if (/\p{Script=Latin}/u.test(w) && /[\p{Script=Cyrillic}\p{Script=Greek}]/u.test(w)) { mixed.push(w); if (mixed.length >= 8) break; }
+  }
+  return { zero, mixed };
+}
+
+/** A paper with the same title is already published (duplicate / redundant publication) - Crossref */
+async function publishedElsewhere(title) {
+  if (!title || title.length < 25) return [];
+  const r = await getJson('https://api.crossref.org/works?rows=4&select=DOI,title,container-title,issued&query.bibliographic=' + encodeURIComponent(title), { ttl: 7 * 86400, timeout: 12000, retries: 1 });
+  if (!r.ok) return [];
+  return (r.data?.message?.items || []).map(it => ({ title: (it.title || [])[0] || '', journal: (it['container-title'] || [])[0] || '', year: it.issued?.['date-parts']?.[0]?.[0] || null, doi: it.DOI, sim: titleSimilarity(title, (it.title || [])[0] || '') }))
+    .filter(x => x.sim >= 0.92);
+}
+
 // ------------------------------------------------------------------ author signals
 
 const ORCID_RE = /\b(\d{4}-\d{4}-\d{4}-\d{3}[\dX])\b/g;
@@ -211,6 +231,18 @@ async function detectPaperMill(input, update = () => {}) {
   const methods = methodsGaps(body);
   if (methods.gaps.length) sig('text', 'methods', `Methods too vague to repeat (${methods.gaps.length})`, methods.gaps.some(g => g.code === 'ethics') ? 'medium' : 'low', Math.min(3, methods.gaps.length), methods.gaps.map(g => ({ text: g.message })));
 
+  const hid = hiddenText(text);
+  if (hid.zero >= 5 || hid.mixed.length) {
+    const strongHid = hid.mixed.length >= 2 || hid.zero >= 20;
+    sig('text', 'hidden-text', `Hidden characters or mixed-alphabet words (${hid.zero} invisible characters, ${hid.mixed.length} mixed-alphabet words)`, strongHid ? 'high' : 'medium', strongHid ? 4 : 2,
+      [...(hid.zero ? [{ text: `${hid.zero} zero-width / soft-hyphen characters` }] : []), ...hid.mixed.map(w => ({ text: `Word mixing Latin and Cyrillic/Greek letters: “${w}”` }))], 'Used to defeat plagiarism-detection software; normal text contains neither.');
+  }
+
+  update('Checking whether the paper is already published', 15);
+  const pub = await publishedElsewhere(meta.title).catch(() => []);
+  if (pub.length) sig('data', 'published', `A paper with the same title is already published (${pub.length})`, 'medium', 3,
+    pub.map(p => ({ text: `“${p.title}” — ${p.journal || 'journal unknown'}${p.year ? ', ' + p.year : ''}`, link: `https://doi.org/${p.doi}` })), "Possible duplicate publication or resubmission; it may also be the authors' own preprint or thesis - check before concluding.");
+
   update('Checking reference signals', 25);
   const fake = refs.filter(r => r.status === 'suspicious');
   if (fake.length) sig('references', 'fabricated', `${fake.length} reference(s) not found in any database (possibly fabricated)`, fake.length >= 3 ? 'high' : 'medium', fake.length >= 3 ? 4 : 2, fake.slice(0, 10).map(r => ({ text: `[${r.index}] ${r.raw.slice(0, 160)}`, note: r.reason })));
@@ -294,7 +326,9 @@ async function detectPaperMill(input, update = () => {}) {
 
   if (input.images?.findings) {
     const f = input.images.findings;
-    if (f.high) sig('data', 'images', `Image Integrity (Module 5): ${f.high} strong finding(s) of duplicated or edited figures`, 'high', 5);
+    const cat = input.images.categories || {};
+    const catText = Object.entries({ duplication: 'duplicated', manipulation: 'manipulated', ai: 'AI-generated', chart: 'duplicated-chart' }).filter(([k]) => cat[k]).map(([k, l]) => `${cat[k]} ${l}`).join(', ');
+    if (f.high) sig('data', 'images', `Image Integrity (Module 5): ${f.high} strong finding(s)${catText ? ` (${catText})` : ' of duplicated or edited figures'}`, 'high', 5);
     else if (f.medium) sig('data', 'images', `Image Integrity (Module 5): ${f.medium} finding(s) to check`, 'medium', 2);
   }
 
@@ -309,7 +343,7 @@ async function detectPaperMill(input, update = () => {}) {
     signals: signals.sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group) || b.weight - a.weight),
     details: {
       tortured, aiLeftovers: ai, templates: tmpl, methods, cellLines: cells, emails, freeMail: free, orcids: orcidResults,
-      authorRetractions: retr, duplicates: { compared: dup.compared, matches: dup.matches },
+      authorRetractions: retr, duplicates: { compared: dup.compared, matches: dup.matches }, publishedElsewhere: pub, hiddenText: hid,
       references: { total: refs.length, fabricated: fake.length, retracted: refs.filter(r => r.status === 'retracted').length, millRetracted: millRetracted.length, riskyJournals: risky }
     },
     checked: {

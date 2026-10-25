@@ -123,6 +123,18 @@ const assert = require('assert');
   assert.strictEqual(resp.status, 200, 'image report Word export with images');
   console.log('  ✓ Module 5: saved, earlier-manuscript match, confidential export');
 
+  // Module 5 (b)-(d): alteration, AI-image and chart findings; chart data compared with earlier manuscripts
+  const bars = (code, label, v) => ({ label, kind: 'bars', v, spread: 0.7 });
+  const mk = (code, charts, findings) => ({ result: { meta: { manuscriptCode: code }, summary: { images: 1 }, panels: [panel(code + 'p', 'aaaa5555aaaa5555')], charts, provenance: 1, findings } });
+  const aiFinding = { id: 'f1', kind: 'ai', category: 'ai', level: 'high', description: 'marker', details: ['IPTC digital source type: AI-generated'], a: { panel: 'x', label: 'Fig. 4' }, b: { panel: 'x', label: 'Fig. 4' } };
+  const altFinding = { id: 'f2', kind: 'alteration', category: 'manipulation', level: 'medium', description: 'smooth patch', details: [], a: { panel: 'x', label: 'Fig. 5', box: { x: 1, y: 1, w: 5, h: 5 } }, b: { panel: 'x', label: 'Fig. 5', box: { x: 1, y: 1, w: 5, h: 5 } } };
+  r = await call('admin', 'POST', '/api/images', mk('PJPS-CH-1', [bars(0, 'Fig. 3 left', [62, 118, 87, 154, 121, 176])], [aiFinding, altFinding]));
+  assert.ok(r.data.result.summary.byCategory.ai === 1 && r.data.result.summary.byCategory.manipulation === 1 && r.data.result.coverage.chart.done, 'categories counted');
+  r = await call('admin', 'POST', '/api/images', mk('PJPS-CH-2', [bars(0, 'Fig. 2 right', [70, 133, 97, 172, 136, 197])], []));
+  assert.ok(r.data.result.earlierCharts.length === 1 && r.data.result.earlierCharts[0].manuscriptCode === 'PJPS-CH-1', 'same chart data in an earlier manuscript');
+  assert.ok(r.data.result.summary.level === 'HIGH', 'chart reuse raises the image risk');
+  console.log('  ✓ Module 5: alteration / AI / chart findings and chart reuse across manuscripts');
+
   // Module 1 settings
   r = await call('admin', 'PUT', '/api/settings/age-rule', { years: 5, minShare: 40 });
   assert.ok(r.data.success && r.data.rule.minShare === 40);

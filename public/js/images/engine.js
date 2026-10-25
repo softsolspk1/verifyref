@@ -124,6 +124,9 @@ function background(img) {
   for (let y = 0; y < h; y++) { add(0, y); add(w - 1, y); }
   const [best] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
   const [r, g, b] = best[0].split(',').map(v => (parseInt(v, 10) << 4) + 8);
+  // A mid-grey border is the picture itself (blots and photos reaching the edge), not a margin
+  const lum = (r + g + b) / 3;
+  if (lum > 30 && lum < 232) return { r: 255, g: 255, b: 255 };
   return { r, g, b };
 }
 
@@ -136,6 +139,22 @@ function bgMask(img, bg) {
     m[i] = white || near ? 1 : 0;
   }
   return m;
+}
+
+/** Spans along the cut axis covered by a long straight ink line across them (a chart axis, the edge of a photo): never cut inside */
+function protectedSpans(mask, w, box, horizontal) {
+  const along = horizontal ? box.h : box.w, across = horizontal ? box.w : box.h;
+  const minRun = Math.max(60, Math.round(along * 0.2));
+  const spans = [];
+  for (let k = 0; k < across; k++) {
+    let run = 0, start = 0;
+    for (let i = 0; i <= along; i++) {
+      const x = horizontal ? box.x + k : box.x + i, y = horizontal ? box.y + i : box.y + k;
+      const ink = i < along && !mask[y * w + x];
+      if (ink) { if (!run) start = i; run++; } else { if (run >= minRun) spans.push([start + 2, start + run - 2]); run = 0; }
+    }
+  }
+  return spans;
 }
 
 function gutters(mask, w, box, horizontal) {
@@ -154,10 +173,12 @@ function gutters(mask, w, box, horizontal) {
   const runs = [];
   let start = -1;
   const minRun = Math.max(2, Math.round(len * 0.008));
+  const spans = protectedSpans(mask, w, box, horizontal);
+  const covered = (a, b) => spans.some(([s0, s1]) => a >= s0 && b <= s1);
   for (let i = 0; i <= len; i++) {
     const g = i < len && prof[i] >= 0.985;
     if (g && start < 0) start = i;
-    if (!g && start >= 0) { if (i - start >= minRun) runs.push([start, i]); start = -1; }
+    if (!g && start >= 0) { if (i - start >= minRun && !covered(start, i)) runs.push([start, i]); start = -1; }
   }
   // Cut positions between content blocks (ignore margins)
   const cuts = [];
@@ -174,6 +195,15 @@ function contentFraction(mask, w, box) {
   let c = 0;
   for (let y = box.y; y < box.y + box.h; y++) for (let x = box.x; x < box.x + box.w; x++) c += 1 - mask[y * w + x];
   return c / (box.w * box.h);
+}
+
+/** A chart: mostly background with a long horizontal and a long vertical line (axes) - its bars must not be cut apart */
+function isChart(mask, w, box) {
+  if (box.w < 90 || box.h < 70 || contentFraction(mask, w, box) > 0.45) return false;
+  let hAxis = false, vAxis = false;
+  for (let y = box.y; y < box.y + box.h && !hAxis; y++) { let c = 0; for (let x = box.x; x < box.x + box.w; x++) c += 1 - mask[y * w + x]; if (c >= box.w * 0.6) hAxis = true; }
+  for (let x = box.x; x < box.x + box.w && !vAxis; x++) { let c = 0; for (let y = box.y; y < box.y + box.h; y++) c += 1 - mask[y * w + x]; if (c >= box.h * 0.6) vAxis = true; }
+  return hAxis && vAxis;
 }
 
 function trim(mask, w, box) {
@@ -200,7 +230,7 @@ export function splitPanels(img, { maxDim = 900, minSize = 40 } = {}) {
   (function cut(box, horizontal, depth) {
     box = trim(mask, w, box);
     if (box.w < min || box.h < min) return;
-    if (depth > 0) {
+    if (depth > 0 && !isChart(mask, w, box)) {
       const parts = gutters(mask, w, box, horizontal);
       if (parts.length > 1) {
         for (const [a, b] of parts) cut(horizontal ? { x: box.x, y: box.y + a, w: box.w, h: b - a } : { x: box.x + a, y: box.y, w: b - a, h: box.h }, !horizontal, depth - 1);
@@ -212,7 +242,9 @@ export function splitPanels(img, { maxDim = 900, minSize = 40 } = {}) {
         return;
       }
     }
-    if (contentFraction(mask, w, box) < 0.12) return; // text label or empty area
+    const cf = contentFraction(mask, w, box);
+    // text labels and empty areas are dropped; a large box with thin content is a chart (axes, bars, lines)
+    if (cf < 0.12 && !(cf >= 0.012 && box.w >= 90 * s && box.h >= 70 * s)) return;
     out.push(box);
   })({ x: 0, y: 0, w, h }, true, 6);
   const panels = out.map(b => ({ x: Math.floor(b.x / s), y: Math.floor(b.y / s), w: Math.ceil(b.w / s), h: Math.ceil(b.h / s) }))

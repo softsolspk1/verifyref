@@ -1,6 +1,7 @@
 // images/extract.js - figures out of a manuscript, in the browser: Word (.docx) media in document order with their
 // "Figure n" captions, images embedded in PDF pages (pdf.js), or separate image files. Returns canvases scaled to
 // at most MAX px on the longest side, plus a list of what could not be read.
+import { scanProvenance } from './forensics.js';
 const MAX = 1600;
 const MIN = 80; // smaller images are icons, logos or equation bitmaps
 
@@ -80,10 +81,12 @@ async function fromDocx(file, onStep) {
     if (/\.(emf|wmf|svg)$/i.test(path)) { skipped.push({ name: `${label} (${path.split('/').pop()})`, reason: 'Vector drawing (EMF/WMF/SVG) — not a photograph, not analysed' }); continue; }
     if (/\.tiff?$/i.test(path)) { skipped.push({ name: `${label} (${path.split('/').pop()})`, reason: 'TIFF cannot be read by the browser — convert the figure to PNG or JPEG' }); continue; }
     try {
-      const bmp = await createImageBitmap(await f.async('blob'));
+      const blob = await f.async('blob');
+      const provenance = scanProvenance(new Uint8Array(await blob.arrayBuffer()));
+      const bmp = await createImageBitmap(blob);
       if (bmp.width < MIN || bmp.height < MIN) continue;
       const { canvas, scale } = toCanvas(bmp, bmp.width, bmp.height);
-      const im = { id: `img${n}`, label, source: 'docx', width: bmp.width, height: bmp.height, canvas, scale };
+      const im = { id: `img${n}`, label, source: 'docx', width: bmp.width, height: bmp.height, canvas, scale, provenance };
       seen.set(path, im);
       images.push(im);
     } catch (e) {
@@ -156,9 +159,10 @@ async function fromPdf(file, onStep) {
 // ------------------------------------------------------------------ image files
 
 async function fromImage(file, n) {
+  const provenance = scanProvenance(new Uint8Array(await file.arrayBuffer()));
   const bmp = await createImageBitmap(file);
   const { canvas, scale } = toCanvas(bmp, bmp.width, bmp.height);
-  return { id: `file${n}`, label: file.name.replace(/\.[a-z]+$/i, ''), source: 'file', width: bmp.width, height: bmp.height, canvas, scale };
+  return { id: `file${n}`, label: file.name.replace(/\.[a-z]+$/i, ''), source: 'file', width: bmp.width, height: bmp.height, canvas, scale, provenance };
 }
 
 /** files: File[] (one manuscript, or several figure files) */

@@ -7,10 +7,11 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test/smoke-web.js && node test/images-engine.mjs",
+    "test": "node test/smoke-web.js && node test/images-engine.mjs && node test/forensics.mjs && node test/demo-check.mjs",
     "desktop": "cd desktop && npm start",
     "desktop:dist": "cd desktop && npm run dist",
-    "proposal": "node docs/build-proposal.js"
+    "proposal": "node docs/build-proposal.js",
+    "demo": "node demo/build-demo.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

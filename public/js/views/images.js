@@ -5,7 +5,9 @@ import { extractFigures, imageDataOf } from '../images/extract.js';
 import { openViewer } from '../images/viewer.js';
 import { decisionCard } from './decision.js';
 
-const KIND = { duplicate: 'Duplicated image', partial: 'Overlapping / re-used part', clone: 'Cloned area inside one panel' };
+const KIND = { duplicate: 'Duplicated image', partial: 'Overlapping / re-used part', clone: 'Cloned area inside one panel', alteration: 'Possible alteration / manipulation', ai: 'Possible AI-generated image', chart: 'Graph / chart data duplicated' };
+const CATS = [['duplication', 'a', 'Duplication & reuse'], ['manipulation', 'b', 'Alteration & manipulation'], ['ai', 'c', 'AI-generated images'], ['chart', 'd', 'Graph & chart duplication']];
+const single = f => f.a.panel === f.b.panel;
 const TYPE = { blot: 'Blot / gel', fluorescence: 'Fluorescence', histology: 'Histology', chart: 'Chart / graph', grayscale: 'Grayscale', photo: 'Photo / microscopy' };
 const levelTone = l => ({ HIGH: 'bad', MEDIUM: 'warn', LOW: 'good', high: 'bad', medium: 'warn' }[l] || 'neutral');
 
@@ -91,7 +93,7 @@ function analyse(images, set) {
       else if (m.type === 'error') { worker.terminate(); reject(new Error(m.message)); }
     };
     worker.onerror = e => { worker.terminate(); reject(new Error(e.message || 'The analysis failed in the browser.')); };
-    const payload = images.map(im => { const d = imageDataOf(im); return { id: im.id, label: im.label, width: d.width, height: d.height, data: d.data.buffer }; });
+    const payload = images.map(im => { const d = imageDataOf(im); return { id: im.id, label: im.label, width: d.width, height: d.height, data: d.data.buffer, provenance: im.provenance || [] }; });
     worker.postMessage({ images: payload }, payload.map(p => p.data));
   });
 }
@@ -145,7 +147,7 @@ function buildPayload(images, analysis, skipped, meta) {
   const perImage = new Map();
   for (const p of analysis.panels) perImage.set(p.imageId, (perImage.get(p.imageId) || 0) + 1);
   return {
-    meta, findings, panels, skipped,
+    meta, findings, panels, skipped, charts: analysis.charts || [], provenance: analysis.provenance || 0,
     images: images.map(im => ({ id: im.id, label: im.label, width: im.width, height: im.height, panels: perImage.get(im.id) || 0, source: im.source })),
     summary: { images: images.length }
   };
@@ -154,7 +156,7 @@ function buildPayload(images, analysis, skipped, meta) {
 // ------------------------------------------------------------------ result
 
 function vendorCard(v) {
-  return `<div class="card"><div class="card-head"><h3>Published-figure database &amp; AI-generated images</h3>${badge(v.connected ? 'Connected' : 'Not checked', v.connected ? 'good' : 'neutral')}</div><p class="muted" style="margin:0">${esc(v.note)}</p></div>`;
+  return `<div class="card"><div class="card-head"><h3>Comparison with published figures (external database)</h3>${badge(v.connected ? 'Connected' : 'Not checked', v.connected ? 'good' : 'neutral')}</div><p class="muted" style="margin:0">${esc(v.note)}</p></div>`;
 }
 
 export function renderImagesResult(el, result, { live = null } = {}) {
@@ -179,8 +181,9 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       <div class="kpi ${s.earlier ? 'warn' : ''}"><div class="n">${s.earlier || 0}</div><div class="l">Earlier PJPS matches</div></div>
       <div class="kpi"><div class="n">${s.skipped || 0}</div><div class="l">Not readable</div></div>
     </div>
+    <div class="cat-strip">${CATS.map(([k, l, name]) => { const n = (result.findings || []).filter(f => (f.category || 'duplication') === k).length; const st = (result.coverage || {})[k]; return `<button class="cat ${catFilter === k ? 'active' : ''} ${n ? 'has' : ''}" data-cat="${k}"><span class="cat-l">${l})</span><b>${name}</b><span class="cat-n">${n ? n + ' finding' + (n > 1 ? 's' : '') : 'none found'}</span><small>${esc(st?.note || '')}</small></button>`; }).join('')}</div>
     <div class="alert alert-info">${esc(result.disclaimer)}</div>
-    <div class="tabs"><button class="tab active" data-tab="findings">Findings<span class="count">${s.findings}</span></button><button class="tab" data-tab="earlier">Earlier PJPS manuscripts<span class="count">${s.earlier || 0}</span></button><button class="tab" data-tab="panels">All panels<span class="count">${s.panels}</span></button><button class="tab" data-tab="method">Method &amp; coverage</button></div>
+    <div class="tabs"><button class="tab active" data-tab="findings">Findings<span class="count">${s.findings}</span></button><button class="tab" data-tab="earlier">Earlier PJPS manuscripts<span class="count">${(s.earlier || 0) + (s.earlierCharts || 0)}</span></button><button class="tab" data-tab="panels">All panels<span class="count">${s.panels}</span></button><button class="tab" data-tab="method">Method &amp; coverage</button></div>
     <div id="tab-body"></div>
     <div id="decision" class="no-print"></div>`;
 
@@ -198,14 +201,15 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     else methodTab();
   };
   const findingsTab = () => {
-    if (!result.findings.length) { body.innerHTML = '<div class="alert alert-good">No duplicated, overlapping or cloned image content was found among the figures that could be read.</div>'; return; }
-    body.innerHTML = result.findings.map((f, i) => `
+    const list = result.findings.filter(f => !catFilter || (f.category || 'duplication') === catFilter);
+    if (!list.length) { body.innerHTML = '<div class="alert alert-good">' + (catFilter ? 'No findings in this category.' : 'No duplicated, altered, AI-generated or duplicated-chart content was found among the figures that could be read.') + '</div>'; return; }
+    body.innerHTML = list.map((f, i) => `
       <div class="card finding" data-id="${esc(f.id)}">
         <div class="card-head"><h3>${i + 1}. ${esc(KIND[f.kind] || f.kind)}</h3><div class="row">${badge(f.level === 'high' ? 'Strong' : 'Check', levelTone(f.level))}${marks.get(f.id) ? badge({ confirmed: 'Confirmed', false: 'False alarm', ask: 'Ask authors' }[marks.get(f.id)], marks.get(f.id) === 'false' ? 'neutral' : 'info') : ''}</div></div>
-        <p style="margin:0 0 8px">${esc(f.description)}</p>
+        <p style="margin:0 0 8px">${esc(f.description)}</p>${(f.details || []).length ? `<ul class="muted" style="margin:0 0 8px">${f.details.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
         <div class="pair">
           <figure>${f.thumbA ? `<img src="${f.thumbA}" alt="" data-view="a">` : '<div class="muted">no thumbnail</div>'}<figcaption>${esc(f.a.label)}</figcaption></figure>
-          ${f.kind !== 'clone' ? `<figure>${f.thumbB ? `<img src="${f.thumbB}" alt="" data-view="b">` : '<div class="muted">no thumbnail</div>'}<figcaption>${esc(f.b.label)}</figcaption></figure>` : ''}
+          ${!single(f) ? `<figure>${f.thumbB ? `<img src="${f.thumbB}" alt="" data-view="b">` : '<div class="muted">no thumbnail</div>'}<figcaption>${esc(f.b.label)}</figcaption></figure>` : ''}
         </div>
         <div class="row no-print" style="margin-top:8px">
           <button class="btn btn-sm" data-open>Open forensic viewer</button>
@@ -221,8 +225,8 @@ export function renderImagesResult(el, result, { live = null } = {}) {
         if (!A.src) return toast('No image available for this finding', 'error');
         const pa = panelById.get(f.a.panel), pb = panelById.get(f.b.panel);
         // Live: crop to the matched regions; saved: thumbnails only
-        const boxA = live && f.kind !== 'duplicate' ? f.a.box : A.box, boxB = live && f.kind !== 'duplicate' ? f.b.box : B.box;
-        openViewer({ title: `${KIND[f.kind]} — ${f.a.label}${f.kind !== 'clone' ? ' ↔ ' + f.b.label : ''}`, a: { src: A.src, box: boxA, label: f.a.label || pa?.label }, b: B.src ? { src: B.src, box: boxB, label: f.b.label || pb?.label } : null, transform: f.transform });
+        const boxA = live && f.kind !== 'duplicate' && f.kind !== 'chart' && f.kind !== 'ai' ? f.a.box : A.box, boxB = live && f.kind !== 'duplicate' && f.kind !== 'chart' && f.kind !== 'ai' ? f.b.box : B.box;
+        openViewer({ title: `${KIND[f.kind]} — ${f.a.label}${!single(f) ? ' ↔ ' + f.b.label : ''}`, a: { src: A.src, box: boxA, label: f.a.label || pa?.label }, b: B.src && !(single(f) && f.kind !== 'clone') ? { src: B.src, box: boxB, label: f.b.label || pb?.label } : null, transform: f.transform });
       };
       $('[data-open]', card).onclick = openIt;
       $$('img[data-view]', card).forEach(img => (img.onclick = openIt));
@@ -239,7 +243,7 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       const list = chosen.length ? chosen : result.findings.filter(f => f.level === 'high' && marks.get(f.id) !== 'false');
       const code = result.meta?.manuscriptCode ? `${result.meta.manuscriptCode}: ` : '';
       const text = [`Subject: Query about figures — ${code}${result.meta?.title || ''}`, '', 'Dear Author(s),', '', `During the editorial screening of your manuscript, the following figure panels appear to contain duplicated or overlapping image content. Please explain each case and send the original, uncropped image files (and the full raw blots/gels where applicable) within 14 days.`, '',
-        ...list.map((f, i) => `${i + 1}. ${f.kind === 'clone' ? f.a.label : `${f.a.label} and ${f.b.label}`}: ${KIND[f.kind].toLowerCase()} — ${f.description}`), '',
+        ...list.map((f, i) => `${i + 1}. ${single(f) ? f.a.label : `${f.a.label} and ${f.b.label}`}: ${KIND[f.kind].toLowerCase()} — ${f.description}`), '',
         'If an image was re-used intentionally (for example the same control in two figures), please state this in the figure legend.', '', 'Kind regards,', `Editorial Office, ${state.app?.homeJournal?.name || 'Pakistan Journal of Pharmaceutical Sciences'}`].join('\n');
       const pre = $('#letter-text', body);
       pre.hidden = false;
@@ -247,10 +251,12 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     };
   };
   const earlierTab = () => {
-    const e = result.earlier || [];
+    const e = result.earlier || [], ec = result.earlierCharts || [];
+    const chartsTable = ec.length ? `<div class="card"><h3>Graph / chart data matching earlier manuscripts</h3><div class="table-wrap"><table class="t"><tr><th>This manuscript</th><th>Earlier manuscript</th><th>Earlier chart</th><th class="num">Correlation</th></tr>${ec.map(x => `<tr><td>${esc(x.chart)}</td><td><a href="#/check/${x.checkId}">${esc(x.manuscriptCode || 'Report #' + x.checkId)}</a><div class="muted">${esc(x.title || '')} · ${fmtDate(x.date)}</div></td><td>${esc(x.label)}</td><td class="num">${x.correlation}</td></tr>`).join('')}</table></div></div>` : '';
     body.innerHTML = e.length ? `<div class="card"><p class="muted">Panels whose fingerprint matches a figure in an earlier PJPS manuscript (smaller distance = closer match; 0 = identical).</p><div class="table-wrap"><table class="t"><tr><th>This manuscript</th><th>Earlier manuscript</th><th>Earlier figure</th><th class="num">Distance</th></tr>
       ${e.map(x => { const p = panelById.get(x.panel); return `<tr><td>${p?.thumb ? `<img src="${p.thumb}" class="mini">` : ''} ${esc(x.panelLabel)}</td><td><a href="#/check/${x.checkId}">${esc(x.manuscriptCode || 'Report #' + x.checkId)}</a><div class="muted">${esc(x.title || '')} · ${fmtDate(x.date)}</div></td><td>${x.thumb ? `<img src="${x.thumb}" class="mini">` : ''} ${esc(x.label || '')}</td><td class="num">${x.distance}</td></tr>`; }).join('')}</table></div></div>`
-      : '<div class="alert alert-good">No figure matches an earlier PJPS manuscript screened in this system.</div>';
+      : (ec.length ? '' : '<div class="alert alert-good">No figure or chart matches an earlier PJPS manuscript screened in this system.</div>');
+    body.innerHTML += chartsTable;
   };
   const panelsTab = () => {
     body.innerHTML = `<div class="panel-grid">${(result.panels || []).map(p => `<figure class="panel-cell" data-panel="${esc(p.id)}">${p.thumb ? `<img src="${p.thumb}" alt="">` : ''}<figcaption>${esc(p.label)}<br><span class="muted">${esc(TYPE[p.type] || p.type)}${p.blank ? ' · blank/skipped' : ''}</span></figcaption></figure>`).join('')}</div>`;
@@ -262,7 +268,8 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       ${(result.skipped || []).length ? `<h3>Not analysed</h3><ul>${result.skipped.map(x => `<li><b>${esc(x.name)}</b> — ${esc(x.reason)}</li>`).join('')}</ul>` : ''}
       <h3>Not covered</h3><p class="muted">${esc(result.vendor?.note || '')}</p></div>`;
   };
-  $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
+  $('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
+  $$('.cat', el).forEach(b => (b.onclick = () => { catFilter = catFilter === b.dataset.cat ? null : b.dataset.cat; $$('.cat', el).forEach(x => x.classList.toggle('active', x.dataset.cat === catFilter)); show('findings'); }));
   show('findings');
   const ex = $('#export', el);
   if (ex) ex.onclick = () => download(`/api/checks/${result.id}/confidential`).catch(e => toast(e.message, 'error'));

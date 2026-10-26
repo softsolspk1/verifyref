@@ -260,6 +260,7 @@ function papermillBlocks(r) {
       const list = r.signals.filter(x => x.group === g);
       return [{ h2: label }, list.length ? { table: { headers: ['Signal', 'Weight', 'Evidence'], rows: list.map(x => [`${x.title}${x.note ? ` — ${x.note}` : ''}`, `${x.severity} (${x.weight})`, (x.evidence || []).slice(0, 12).map(e => `${e.text}${e.quote ? ` — “${e.quote}”` : ''}${e.note ? ` (${e.note})` : ''}`).join('\n')]) } } : { p: 'No signal found.' }];
     }),
+    ...(r.guidance?.available ? [{ h2: 'Suggested handling for this risk level' }, { kv: [['Before publication', r.guidance.decision.desk], ['After publication', r.guidance.decision.post]] }, { bullets: r.guidance.evidence }] : []),
     ...(r.decision ? [{ h2: 'Editor decision' }, { kv: [['Decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—'], ['By', `${r.decision.by}, ${r.decision.at.slice(0, 10)}`]] }] : [])
   ];
 }
@@ -277,6 +278,7 @@ function imagesBlocks(r) {
       { h2: `Finding ${i + 1} [${({ duplication: "Duplication", manipulation: "Manipulation", ai: "AI-generated", chart: "Chart" })[f.category || "duplication"]}]: ${f.a.label}${f.a.panel !== f.b.panel ? ` ↔ ${f.b.label}` : ''}` },
       { p: `${f.level === 'high' ? 'Strong' : 'Check'} — ${f.description}${marks.get(f.id) ? ` · ${label[marks.get(f.id)] || marks.get(f.id)}` : ''}` },
       ...((f.details || []).length ? [{ bullets: f.details }] : []),
+      ...(f.assessment ? [{ p: `Type: ${f.assessment.name} (${f.assessment.category}; usual risk ${f.assessment.risk}, false-alarm risk ${f.assessment.falsePositiveRisk}). Common harmless causes: ${f.assessment.falseAlarms.join('; ') || '—'}.`, italics: true }] : []),
       { images: [{ src: f.thumbA, width: f.thumbAW, height: f.thumbAH }, ...(f.thumbB && f.b.panel !== f.a.panel ? [{ src: f.thumbB, width: f.thumbBW, height: f.thumbBH }] : [])], caption: 'Matched areas are outlined.' }
     ]),
     ...((r.earlier || []).length ? [{ h2: 'Figures matching earlier PJPS manuscripts' }, { table: { headers: ['This manuscript', 'Earlier manuscript', 'Earlier figure', 'Distance'], rows: r.earlier.map(e => [e.panelLabel, `${e.manuscriptCode || 'check #' + e.checkId}: ${e.title || ''}`, e.label || '', String(e.distance)]) } }] : []),

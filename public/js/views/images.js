@@ -31,6 +31,7 @@ export function renderImages(view) {
         <div class="row"><button class="btn btn-primary" id="run" disabled>Analyse figures</button><span class="muted">Editor only · results are confidential</span></div>
       </div>
       <div id="vendor"></div>
+      <div id="public-data"></div>
     </div>
     <div id="progress"></div>
     <div id="result"></div>`;
@@ -54,6 +55,7 @@ export function renderImages(view) {
   zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('over'); take(e.dataTransfer.files); });
   input.addEventListener('change', () => { take(input.files); input.value = ''; });
 
+  renderPublicData($('#public-data', view));
   api('/api/images/vendor').then(v => { $('#vendor', view).innerHTML = vendorCard(v); }).catch(() => {});
 
   $('#run', view).onclick = async () => {
@@ -188,6 +190,7 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     </div>
     <div class="cat-strip">${CATS.map(([k, l, name]) => { const n = (result.findings || []).filter(f => (f.category || 'duplication') === k).length; const st = (result.coverage || {})[k]; return `<button class="cat ${catFilter === k ? 'active' : ''} ${n ? 'has' : ''}" data-cat="${k}"><span class="cat-l">${l})</span><b>${name}</b><span class="cat-n">${n ? n + ' finding' + (n > 1 ? 's' : '') : 'none found'}</span><small>${esc(st?.note || '')}</small></button>`; }).join('')}</div>
     <div class="alert alert-info">${esc(result.disclaimer)}</div>
+    ${result.guidance?.available ? `<div class="alert alert-${s.level === 'HIGH' ? 'bad' : s.level === 'MEDIUM' ? 'warn' : 'good'}"><b>Suggested handling — ${esc(result.guidance.decision.action)}.</b> ${esc(result.guidance.decision.desk)}</div>` : ''}
     <div class="tabs"><button class="tab active" data-tab="findings">Findings<span class="count">${s.findings}</span></button><button class="tab" data-tab="earlier">Earlier PJPS manuscripts<span class="count">${(s.earlier || 0) + (s.earlierCharts || 0)}</span></button><button class="tab" data-tab="authors">Authors' published figures<span class="count">${result.authorFigures ? result.authorFigures.matches.length : '—'}</span></button><button class="tab" data-tab="panels">All panels<span class="count">${s.panels}</span></button><button class="tab" data-tab="method">Method &amp; coverage</button></div>
     <div id="tab-body"></div>
     <div id="decision" class="no-print"></div>`;
@@ -212,7 +215,7 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     body.innerHTML = list.map((f, i) => `
       <div class="card finding" data-id="${esc(f.id)}">
         <div class="card-head"><h3>${i + 1}. ${esc(KIND[f.kind] || f.kind)}</h3><div class="row">${badge(f.level === 'high' ? 'Strong' : 'Check', levelTone(f.level))}${marks.get(f.id) ? badge({ confirmed: 'Confirmed', false: 'False alarm', ask: 'Ask authors' }[marks.get(f.id)], marks.get(f.id) === 'false' ? 'neutral' : 'info') : ''}</div></div>
-        <p style="margin:0 0 8px">${esc(f.description)}</p>${(f.details || []).length ? `<ul class="muted" style="margin:0 0 8px">${f.details.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+        <p style="margin:0 0 8px">${esc(f.description)}</p>${f.assessment ? `<div class="muted" style="margin:0 0 8px"><b>${esc(f.assessment.name)}</b> · usual risk ${esc(f.assessment.risk)} · false-alarm risk ${esc(f.assessment.falsePositiveRisk)}${f.assessment.falseAlarms.length ? `<br>Often harmless when: ${esc(f.assessment.falseAlarms.join('; '))}` : ''}</div>` : ''}${(f.details || []).length ? `<ul class="muted" style="margin:0 0 8px">${f.details.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
         <div class="pair">
           <figure>${f.thumbA ? `<img src="${f.thumbA}" alt="" data-view="a">` : '<div class="muted">no thumbnail</div>'}<figcaption>${esc(f.a.label)}</figcaption></figure>
           ${!single(f) ? `<figure>${f.thumbB ? `<img src="${f.thumbB}" alt="" data-view="b">` : '<div class="muted">no thumbnail</div>'}<figcaption>${esc(f.b.label)}</figcaption></figure>` : ''}
@@ -253,7 +256,19 @@ export function renderImagesResult(el, result, { live = null } = {}) {
         'If an image was re-used intentionally (for example the same control in two figures), please state this in the figure legend.', '', 'Kind regards,', `Editorial Office, ${state.app?.homeJournal?.name || 'Pakistan Journal of Pharmaceutical Sciences'}`].join('\n');
       const pre = $('#letter-text', body);
       pre.hidden = false;
-      pre.textContent = list.length ? text : 'No findings selected. Mark findings as “Ask the authors” first.';
+      if (!list.length) { pre.textContent = 'No findings selected. Mark findings as “Ask the authors” first.'; return; }
+      pre.textContent = text;
+      // PJPS query-letter template that fits the first finding (non-accusatory wording); [BRACKETS] are left for the editor
+      api('/api/images/letters').then(({ letters }) => {
+        const t = letters.find(l => l.id === (list[0].assessment?.letter || 5));
+        if (!t) return;
+        const f0 = list[0], figs = list.map(f => single(f) ? f.a.label : `${f.a.label} and ${f.b.label}`);
+        const fill = x => x.replace(/\[MANUSCRIPT_CODE\]/g, result.meta?.manuscriptCode || '[MANUSCRIPT_CODE]').replace(/\[MANUSCRIPT_TITLE\]/g, result.meta?.title || '[MANUSCRIPT_TITLE]')
+          .replace(/\[FIGURE_A_LABEL\]/g, f0.a.label).replace(/\[FIGURE_B_LABEL\]/g, single(f0) ? f0.a.label : f0.b.label).replace(/\[FIGURE_LABEL\]/g, f0.a.label)
+          .replace(/\[LIST_OF_FIGURES[^\]]*\]/g, figs.join(', ')).replace(/\[NUMBER[^\]]*\]/g, '14').replace(/\[JOURNAL_NAME\]/g, state.app?.homeJournal?.name || 'Pakistan Journal of Pharmaceutical Sciences');
+        const more = list.length > 1 ? `\n\nOther findings to include:\n${list.slice(1).map((f, i) => `${i + 2}. ${single(f) ? f.a.label : `${f.a.label} and ${f.b.label}`}: ${KIND[f.kind].toLowerCase()}`).join('\n')}` : '';
+        pre.textContent = `Subject: ${fill(t.subject)}\n\n${fill(t.text)}${more}`;
+      }).catch(() => {});
     };
   };
   const earlierTab = () => {
@@ -315,4 +330,36 @@ export function renderImagesResult(el, result, { live = null } = {}) {
   const exp = $('#export-pdf', el);
   if (exp) exp.onclick = () => download(`/api/checks/${result.id}/confidential?format=pdf`).catch(e => toast(e.message, 'error'));
   decisionCard($('#decision', el), result, 'images', { getExtra: () => ({ findingMarks: result.findingMarks || [] }) });
+}
+
+
+// ------------------------------------------------------------------ public reference data (datasets, retracted cases, benchmark)
+
+function renderPublicData(el) {
+  el.innerHTML = '<div class="card"><h3>Public reference data</h3><p class="muted">Loading…</p></div>';
+  api('/api/images/public').then(({ datasets, benchmark: b }) => {
+    const rows = (b ? Object.entries(b.near_duplicate).map(([k, v]) => [`Near-duplicate: ${k}`, v.found, v.tested]) : []);
+    if (b) rows.push(['Copy-move inside one image', b.copy_move.found, b.copy_move.tested]);
+    el.innerHTML = `<div class="card"><h3>Public reference data</h3>
+      <p class="muted">Open datasets used in image-integrity research and what is available in this portal. Links were checked in October 2026.</p>
+      <div class="table-wrap"><table class="t"><tr><th>Dataset</th><th>Licence · size</th><th>In this portal</th></tr>${datasets.map(d => `<tr><td><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.name)}</a><div class="muted">${esc(d.use)}</div></td><td>${esc(d.license)}<div class="muted">${esc(d.scale)}</div></td><td>${esc(d.status)}<div class="muted">${esc(d.access)}</div></td></tr>`).join('')}</table></div>
+      ${b ? `<h4 style="margin:14px 0 6px">Engine benchmark on ${b.images} pristine open-licence images (${esc(b.runAt.slice(0, 10))})</h4><p class="muted">Forgeries made from the RSIID pristine set, in the way RSIID and BINDER were built. Unrelated image pairs wrongly matched: ${b.negative.falseAlarms} of ${b.negative.tested}.</p>
+      <div class="table-wrap"><table class="t"><tr><th>Test</th><th class="num">Found</th><th class="num">Rate</th></tr>${rows.map(([n, f, t]) => `<tr><td>${esc(n)}</td><td class="num">${f}/${t}</td><td class="num">${Math.round(f / t * 100)}%</td></tr>`).join('')}</table></div>` : ''}
+      <h4 style="margin:14px 0 6px">Retracted papers with image problems</h4>
+      <div class="row"><input id="pc-q" type="text" placeholder="Search title, journal, DOI or country" style="flex:1"><label class="row" style="gap:4px"><input type="checkbox" id="pc-oa"> open access only</label><button class="btn btn-sm" id="pc-go">Search</button></div>
+      <div id="pc-out" style="margin-top:8px"></div></div>`;
+    let page = 1;
+    const load = () => api(`/api/images/public/cases?q=${encodeURIComponent($('#pc-q', el).value)}&oa=${$('#pc-oa', el).checked ? 1 : 0}&page=${page}`).then(r => {
+      $('#pc-out', el).innerHTML = r.total ? `<div class="muted">${r.total} paper(s)</div><div class="table-wrap"><table class="t"><tr><th>Paper</th><th>Reason</th><th>Notice</th></tr>${r.cases.map(c => `<tr><td><a href="https://doi.org/${esc(c.doi)}" target="_blank" rel="noopener">${esc(c.title)}</a><div class="muted">${esc(c.journal)} · ${esc(c.country || '')}</div>${c.pmcid ? `<button class="btn btn-sm" data-pmc="${esc(c.pmcid)}">Figure captions</button><div data-fig="${esc(c.pmcid)}"></div>` : ''}</td><td>${c.reasons.map(esc).join('<br>')}</td><td>${esc(c.nature)}<div class="muted">${esc(c.date)}</div></td></tr>`).join('')}</table></div>
+        <div class="row"><button class="btn btn-sm" id="pc-prev" ${page <= 1 ? 'disabled' : ''}>Previous</button><button class="btn btn-sm" id="pc-next" ${page * r.per >= r.total ? 'disabled' : ''}>Next</button></div>` : '<div class="muted">No matching papers.</div>';
+      $('#pc-prev', el) && ($('#pc-prev', el).onclick = () => { page--; load(); });
+      $('#pc-next', el) && ($('#pc-next', el).onclick = () => { page++; load(); });
+      $$('[data-pmc]', el).forEach(btn => (btn.onclick = () => api(`/api/images/public/figures/${btn.dataset.pmc}`).then(f => {
+        $(`[data-fig=${btn.dataset.pmc}]`, el).innerHTML = `<ul class="muted">${f.figures.map(g => `<li><b>${esc(g.label)}</b> ${esc(g.caption)}</li>`).join('')}</ul><a href="${esc(f.page)}" target="_blank" rel="noopener">Open the figures on PubMed Central</a>`;
+      }).catch(e => toast(e.message, 'error'))));
+    }).catch(e => toast(e.message, 'error'));
+    $('#pc-go', el).onclick = () => { page = 1; load(); };
+    $('#pc-q', el).onkeydown = e => { if (e.key === 'Enter') { page = 1; load(); } };
+    load();
+  }).catch(() => { el.innerHTML = ''; });
 }

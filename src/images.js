@@ -4,6 +4,7 @@
 // with all earlier PJPS manuscripts to find re-used figures.
 const db = require('./db');
 const { saveResult } = require('./pipeline');
+const KB = require('./imageKnowledge');
 
 const COVERAGE = {
   duplication: { done: true, note: 'Whole, partial, rotated, mirrored, resized copies - inside the manuscript and against earlier PJPS manuscripts' },
@@ -102,7 +103,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     a: { panel: String(f.a?.panel), label: String(f.a?.label || '').slice(0, 120), box: f.a?.box || null }, b: { panel: String(f.b?.panel), label: String(f.b?.label || '').slice(0, 120), box: f.b?.box || null },
     transform: f.transform || null, score: Number(f.score) || 0,
     thumbA: cap(f.thumbA, 160000), thumbB: cap(f.thumbB, 160000), thumbAW: f.thumbAW | 0, thumbAH: f.thumbAH | 0, thumbBW: f.thumbBW | 0, thumbBH: f.thumbBH | 0
-  }));
+  })).map(f => ({ ...f, assessment: KB.assess(f) }));
   const usable = panels.filter(p => !p.blank && p.type !== 'chart');
   const earlier = await compareWithEarlier(usable, { excludeCode: meta.manuscriptCode || null });
   const charts = cleanSeries(input.charts);
@@ -120,6 +121,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     panels, findings, earlier, earlierCharts, coverage: COVERAGE, provenanceChecked: Number(input.provenance) || 0,
     skipped: (input.skipped || []).slice(0, 100).map(s => ({ name: String(s.name || '').slice(0, 160), reason: String(s.reason || '').slice(0, 200) })),
     vendor: await vendorStatus(),
+    guidance: KB.guidance(level),
     method: METHOD,
     disclaimer: 'Screening aid only. Repeated textures (cells, tissue, gel background), legitimately re-used control images and heavily processed or denoised pictures can look like copies, edits or AI images; AI-image statistics are indicators only, and a missing marker does not prove an image is genuine; every finding must be checked by the editor, and original images requested where needed. Confidential — not for authors or reviewers.'
   };

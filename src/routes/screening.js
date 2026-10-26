@@ -136,6 +136,17 @@ router.post('/images/author-figures', mod('images'), wrap(async (req, res) => {
   res.json({ success: true, jobId: job.id });
 }));
 
+/** Author query-letter templates (from the ImageTwin / Proofig knowledge base in data/new) */
+router.get('/images/letters', mod('images'), wrap(async (req, res) => res.json({ success: true, letters: require('../imageKnowledge').letters() })));
+
+/** Public reference data: datasets, retracted papers with image problems, engine benchmark */
+const PUB = require('../publicImageData');
+router.get('/images/public', mod('images'), wrap(async (req, res) => res.json({ success: true, datasets: PUB.catalog(), benchmark: PUB.benchmark() })));
+router.get('/images/public/cases', mod('images'), wrap(async (req, res) => res.json({ success: true, ...PUB.cases({ q: req.query.q, oa: req.query.oa === '1', reason: req.query.reason, page: Math.max(1, parseInt(req.query.page, 10) || 1) }) })));
+router.get('/images/public/figures/:pmcid', mod('images'), wrap(async (req, res) => {
+  try { res.json({ success: true, ...(await PUB.figures(req.params.pmcid)) }); } catch (e) { res.status(404).json({ success: false, message: e.message }); }
+}));
+
 router.get('/images/vendor', mod('images'), wrap(async (req, res) => res.json({ success: true, ...(await IMG.vendorStatus()) })));
 
 // ------------------------------------------------------------------ editor decision record (Modules 4, 5, Full Screening Report)

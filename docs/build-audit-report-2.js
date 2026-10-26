@@ -60,8 +60,8 @@ const REQ = {
     ['1.9', 'Summary, filter, exports, Re-check', 'M', 'CSV, BibTeX, RIS, Word, corrected list returned; re-check ran.', 'M']
   ],
   'Module 2 — Reference Style Check & PJPS Converter': [
-    ['2.1', 'Rule-by-rule compliance incl. in-text, order, a/b suffix, score', 'M', '14/14 planted rule breaks found, 0 false alarms; 6/6 in-text rules; order and suffix rules.', 'M'],
-    ['2.2', 'Converter: any style → PJPS, in-text + list, re-sort, fill DOI, flag unmatched', 'P', '5 of 7 source styles give exactly the PJPS text (audit 1: 0 of 7); no crash; no lost author. Chicago keeps title case, Nature drops the issue. Filling missing fields from the matched record was not demonstrated (0 of 3 matched in the test).', 'P'],
+    ['2.1', 'Rule-by-rule compliance incl. in-text, order, a/b suffix, score', 'M', '14/14 planted rule breaks found, 0 false alarms; 6/6 in-text rules; order and suffix rules. Re-aligned with the official instructions after the audit (section 4A): all authors listed, chapter and website rules; still 14/14.', 'M'],
+    ['2.2', 'Converter: any style → PJPS, in-text + list, re-sort, fill DOI, flag unmatched', 'P', '5 of 7 source styles give exactly the PJPS text (audit 1: 0 of 7); no crash; no lost author. Chicago keeps title case, Nature drops the issue. Filling missing fields from the matched record was not demonstrated (0 of 3 matched in the test). Since then: PJPS output also has chapter and website formats, italic journal and bold volume (4A).', 'P'],
     ['2.3', 'Before/after view, Track Changes, download, change report', 'M', 'Track Changes verified in the file (7 insertions, 7 deletions; none when off); before/after view exists in the code. Converter takes .docx only.', 'M']
   ],
   'Module 3 — Citations': [
@@ -132,7 +132,8 @@ const NEW = [
   ['D22', 'Low', 'Module 4', 'Statistics checks miss some phrasings: "7 of 20 rats (45%)" (noun between), "t = 0.2, df = 18, p = 0.0001", and a percentage above 100%.', 'Widen the patterns; add an out-of-range percentage rule.'],
   ['D23', 'Medium', 'Module 5', 'Clone and splice checks flag about 10% of clean real images (clones 24 of 231, 5 of them high; splices 13 of 130). Editors will see many "check this" cases.', 'Keep the screening-aid wording; consider hiding low-confidence cases by default.'],
   ['D24', 'Low', 'Module 5', 'TIFF figure files are not accepted although the specification lists them.', 'Add a TIFF decoder or tell users to convert.'],
-  ['D25', 'Medium', 'Process', 'Three source files (reference.js, datasets.js, core.js) carry uncommitted changes that hold the fixes for D6/D7/D20 and a bad-file message. The audit ran on that working copy, not on the last commit. The browser screens still have no automated test.', 'Commit, then add one browser test per module screen.']
+  ['D25', 'Medium', 'Process', 'RESOLVED 26 Oct: three source files (reference.js, datasets.js, core.js) carried uncommitted fixes for D6/D7/D20 and a bad-file message while the audit ran; they were committed and pushed (549eb68). The browser screens still have no automated test.', 'Add one browser test per module screen.'],
+  ['D26', 'Medium', 'Module 2', 'RESOLVED 26 Oct (found by comparing with the official instructions at pjps.pk): the built-in PJPS style cut author lists at 6 with "et al." and flagged correct full lists, flagged "pp." on every reference, had no edited-book chapter or website format, and added a DOI link the guidelines do not ask for. Fixed in 3266728 and f73e8b2 and covered by test/pjps-style.js.', 'None: keep the style in step with the instructions page; re-check it when PJPS revises it.']
 ];
 
 // ------------------------------------------------------------------ content
@@ -146,7 +147,7 @@ kids.push(table([2600, 7866], ['Item', 'Detail'], [
   ['Audit date', '26 October 2026'],
   ['Purpose', 'Re-test the whole platform after the development team reported all 20 defects of the first audit fixed and the open features built. This is a separate report from "PJPS-Platform-Audit-Report.docx" (audit 1, 25 October).'],
   ['Scope', 'Web portal: Modules 1–5 and the Full Screening Report. Desktop app excluded (project decision).'],
-  ['Baseline', 'Requirements: docs/PJPS-Final-4-Modules.txt (rev. 2). Code: commit 46734a3 plus three uncommitted source changes (see D25), branch main.'],
+  ['Baseline', 'Requirements: docs/PJPS-Final-4-Modules.txt (rev. 2). Code: commit 46734a3 plus three uncommitted source changes at the time of testing (D25, committed afterwards), then the PJPS-guidelines alignment (commits 3266728 and f73e8b2, section 4A). Branch main. Official style source: pjps.pk/instructions/instructions-for-authors, read 26 Oct 2026.'],
   ['Environment', 'Local server, Node 24, embedded database, live internet to the reference databases and NCBI. Vercel deployment not tested.'],
   ['Classification', 'Confidential, internal']
 ]));
@@ -165,14 +166,15 @@ kids.push(table([3000, 1450, 1450, 4566], ['Measure', 'Audit 1', 'Audit 2', 'Wha
   ['Module 3 accuracy', '83%', { text: '83% claims; all consistency cases', bold: true }, '5/6 claim verdicts right; every planted consistency problem found, including the footnote citation.'],
   ['Module 4 accuracy', '10/10', { text: '10/10 signals; 36/40 phrases', bold: true }, 'Clean paper LOW; mill paper HIGH. Developer benchmark on real mill papers (not re-run): 4.7% caught by text signals.'],
   ['Module 5 on real figures (duplicates / clones / splices)', '39% / 9% / 14%', { text: '53% / 30% / 12%', bold: true }, 'Expert-annotated BioFors images. False alarms on clean images about 10% for clones and splices.'],
-  ['Audit-1 defects (20)', '20 open', { text: `${cnt('F')} fixed, ${cnt('P')} partly, ${cnt('O')} open`, bold: true }, `${cnt('U')} not re-tested. Five new findings (D21–D25): none high, 3 medium, 2 low.`],
+  ['Audit-1 defects (20)', '20 open', { text: `${cnt('F')} fixed, ${cnt('P')} partly, ${cnt('O')} open`, bold: true }, `${cnt('U')} not re-tested. Six new findings (D21–D26): none high, 4 medium, 2 low; D25 and D26 already resolved.`],
   ['Developer test suite (npm test)', 'All pass', { text: 'All pass', bold: true }, 'Passes in 27 s. Still no browser test of the module screens.']
 ]));
 kids.push(h2('What the sponsor should know'));
 kids.push(bt('Good: ', 'every blocking defect is fixed and was re-tested the same way it failed. Module 5 now shows its results; the converter does not crash or lose authors; fabricated and retracted citations no longer break claim checking; all exports work, including server-side PDF; one upload now serves all modules.'));
 kids.push(bt('Honest limits: ', 'Module 5 finds about half of real duplicated pairs, under a third of cloned areas and one in eight spliced areas. "No findings" must never be read as "clean". Module 4 text signals catch about 1 in 20 real paper-mill papers.'));
 kids.push(bt('Still open: ', 'the ImageTwin/Proofig connection (needs a contract), the "Not indexed" label for regional journals, and two miscitation types that pass as Verified.'));
-kids.push(bt('Process: ', 'part of the fixes sits in uncommitted files, so a deployment from the last commit would lack them. Commit before any release.'));
+kids.push(bt('PJPS style: ', 'the built-in PJPS reference style was compared with the official Instructions for Authors and corrected (all authors listed, chapter and website formats, no DOI, italic journal, bold volume). The three official examples now pass as a test. See section 4A.'));
+kids.push(bt('Process: ', 'the fixes that were uncommitted during testing (D25) have since been committed and pushed, so the deployed code now includes them.'));
 kids.push(h2('Recommendation'));
 kids.push(p('Approve a two-week pilot with 2–3 editors on real submissions, after committing the pending changes and fixing D21 and D6 (about 2–3 working days). Position Module 5 as a screening aid in all training and wording. Decide on the vendor connection only after the pilot shows how many findings editors actually act on.'));
 
@@ -190,7 +192,7 @@ kids.push(h2('Limits of this audit (read before relying on the numbers)'));
 kids.push(bullet('The test sets are small and written by me; one reference moves Module 1 by 3.7 points. Percentages are indicative, not statistical estimates.'));
 kids.push(bullet('Only Module 5 and general navigation were driven through the browser; Modules 1–4 were tested at API level. The project has no automated browser test.'));
 kids.push(bullet('Genuine .doc and .odt files were not available; only invalid stand-ins were tried. Large uploads, load, e-mail alerts and the Vercel deployment were not tested.'));
-kids.push(bullet('The audit ran on the working copy, which includes three uncommitted source edits (D25).'));
+kids.push(bullet('The audit tests ran on the working copy, which included three uncommitted source edits (D25, since committed). The numbers in section 4 were measured before the PJPS-style alignment of section 4A; only the Module 2 audit and npm test were re-run afterwards, not the whole audit.'));
 kids.push(bullet('The Module 4 real-paper benchmark (4.7% / 1.6%) is the developer\'s and was not re-run. The Module 5 benchmark was re-run and matched the developer\'s stored file for duplicates; the clone and splice clean-image samples are larger here (231 and 130 images against the developer\'s stored 81 and 42), so their false-alarm rates differ.'));
 kids.push(bullet('The Module 3 PDF test needed a real PDF; the arXiv paper was downloaded for it.'));
 kids.push(bullet('A "pass" on planted examples does not predict real-world performance, which is why real-figure and real-reference results are reported separately.'));
@@ -269,6 +271,22 @@ kids.push(bullet('Demonstration manuscript: 31 seconds (audit 1: 97 s). Front pa
 kids.push(bullet('Word exports: editor version, author version, decision summary, letter, reference report, CSV, BibTeX, RIS, corrected list and server PDF all produced. The author version contains no paper-mill or image text.'));
 kids.push(bullet('Administration: editor created with default module permissions, duplicate e-mail refused (409), age rule and tortured-phrase list editable, audit log and statistics available, revision comparison works.'));
 
+kids.push(h2('4A. Alignment with the official PJPS Instructions for Authors'));
+kids.push(p('After the main audit, the reference rules on the journal\'s own page (pjps.pk/instructions/instructions-for-authors, section "References") were compared with the app\'s built-in PJPS style, and the differences were fixed the same day. This answers the specification\'s own caveat, "confirm with the current PJPS author guidelines".'));
+kids.push(table([2300, 3000, 2300, 2866], ['Rule', 'Official instruction', 'App before', 'App now'], [
+  ['In-text citations', 'Surname and year; (Robinson and Jeong, 2001); et al. for more than two; a/b for same year; semicolons', { text: 'Matched', fill: C.met }, { text: 'Unchanged, matched', fill: C.met }],
+  ['Reference list order', 'Alphabetical', { text: 'Matched', fill: C.met }, { text: 'Unchanged, matched', fill: C.met }],
+  ['Number of authors', '"Names and initials of all authors"', { text: 'Cut at 6 with et al.; full lists of 7+ flagged', fill: C.miss }, { text: 'All authors kept; "et al." in the list is flagged', fill: C.met }],
+  ['Journal / volume formatting', 'Abbreviated journal in italics, volume in bold', { text: 'Italic only in some styles', fill: C.part }, { text: 'Italic journal, bold volume (tested)', fill: C.met }],
+  ['Journal example', 'Yoneto K, … (1996). … J. Pharm. Sci., 85(5): 511-517.', { text: 'Matched', fill: C.met }, { text: 'Exact match (tested)', fill: C.met }],
+  ['Edited-book chapter', 'In: Editors (eds.), Book, 7th ed., Publisher, Place, pp. 446-472', { text: 'No format; "pp." flagged', fill: C.miss }, { text: 'Read, written and checked; exact match (tested)', fill: C.met }],
+  ['Website', 'Available at: URL (Accessed 15 June 2020)', { text: 'No format', fill: C.miss }, { text: 'Read, written and checked; matches except one space (tested)', fill: C.met }],
+  ['DOI', 'Not mentioned', { text: 'Added to every article', fill: C.part }, { text: 'Not added; no DOI rule', fill: C.met }],
+  ['Other types (thesis, report, conference, software)', 'No example given', { text: 'Book format', fill: C.na }, { text: 'Book format; to confirm with the editor', fill: C.na }]
+]));
+kids.push(p('Result: npm test passes including the new test/pjps-style.js (3 official examples, an 8-author list, italic and bold, and two deviations that must be flagged); the Module 2 audit again finds 14 of 14 planted rule breaks. One audit test case was changed on purpose: a correctly written 8-author reference was expected to be flagged under the old 6-author rule and is now correctly accepted.', { after: 80 }));
+kids.push(p('Not re-run after this change: Modules 1, 3, 4, 5 and the Full Screening Report. The change touched only the style engine, the reference parser (chapters, websites) and the compliance check, so a regression in Module 1 matching is possible but unlikely; re-run the audit scripts once on the final code (Phase A).', { italics: true, color: C.muted }));
+
 kids.push(h1('5. Defect register'));
 kids.push(h2('5.1 Defects from audit 1: status now'));
 kids.push(table([620, 900, 3800, 1200, 3946], ['ID', 'Severity', 'Defect', 'Status', 'Evidence in this audit'], D1.map(d => [d[0], SEV[d[1]], d[2], FIX[d[3]], d[4]])));
@@ -282,7 +300,7 @@ kids.push(h1('6. Project risks'));
 kids.push(table([3000, 1300, 6166], ['Risk', 'Level', 'Why and what to do'], [
   ['Overstated detection accuracy (images, paper mill)', { text: 'High', fill: C.hi }, 'Planted tests pass at 100%; real-figure rates are 12–53% and real mill papers are caught about 1 in 20 by text alone. Publish the real numbers; do not compare with ImageTwin or Proofig, which were not tested.'],
   ['No browser-level tests', { text: 'High', fill: C.hi }, 'D1 shipped once despite a passing suite. Add one browser test per module screen before further releases.'],
-  ['Fixes not committed', { text: 'Medium', fill: C.med }, 'D25: a deployment from the last commit would lose the fixes for D6, D7 and the dataset loader time-out.'],
+  ['Style drifting from the journal\'s instructions', { text: 'Low', fill: C.low }, 'The PJPS style is a copy of the rules on pjps.pk. If PJPS revises its instructions the app silently disagrees; re-read the page each release (D26).'],
   ['Dependence on third-party services', { text: 'Medium', fill: C.med }, 'Crossref, PubMed, OpenAlex, Retraction Watch and NCBI BLAST (33 s per primer). Free APIs may rate-limit under editor load. Datasets take about 100 s to load after a cold start.'],
   ['Regional journal coverage', { text: 'Medium', fill: C.med }, 'PJPS has sparse records in international databases; real PJPS references may be called Suspicious (D12).'],
   ['False alarms in image screening', { text: 'Medium', fill: C.med }, 'About 10% of clean images raise a clone or splice flag (D23). Editor time and trust are at stake.'],
@@ -294,7 +312,7 @@ kids.push(table([3000, 1300, 6166], ['Risk', 'Level', 'Why and what to do'], [
 kids.push(h1('7. Recommended plan'));
 kids.push(p('Effort figures are my estimates for one developer who knows the code; they are not commitments.'));
 kids.push(table([1500, 5766, 1500, 1700], ['Phase', 'Work', 'Items', 'Estimate'], [
-  ['A. Secure the fixes', 'Commit the pending changes; add one browser test per module screen; re-run the audit scripts.', 'D25', '1–2 days'],
+  ['A. Secure the fixes', 'Pending changes are committed (done). Remaining: add one browser test per module screen; re-run the complete audit scripts once on the final code.', 'D25', '1–2 days'],
   ['B. Close accuracy gaps', 'BMJ-style volume check and year-plus-pages rule (D6, D16); regional-journal handling (D12); primer gene name (D21); statistics phrasings (D22); converter title case and issue (D8); ORCID matching (D14).', 'Open defects', '4–6 days'],
   ['C. Image tuning', 'Reduce clone/splice false alarms (D23); improve splice recall on BioFors; TIFF input (D24).', 'D15, D23, D24', '1–2 weeks'],
   ['D. Pilot', 'Two weeks with 2–3 editors on real submissions; record each finding as confirmed / false alarm; compare with what editors found themselves.', 'Validation', '2 weeks'],
@@ -302,7 +320,7 @@ kids.push(table([1500, 5766, 1500, 1700], ['Phase', 'Work', 'Items', 'Estimate']
 ]));
 kids.push(h2('Decisions needed from the sponsor'));
 kids.push(bullet('Approve the pilot, conditional on Phase A.'));
-kids.push(bullet('Confirm the PJPS house style against the current author guidelines (the specification says so); it decides the journal-abbreviation form used by Modules 1–2.'));
+kids.push(bullet('House style: now checked against the official instructions page (done). Still to confirm with the editor: the instructions show only journal, edited-book and website examples, so theses, reports, conference papers and software are unspecified and fall back to the book format.'));
 kids.push(bullet('Confirm Module 5 is positioned as a screening aid, not a replacement for a commercial tool.'));
 kids.push(bullet('Agree a pilot success measure, for example no confirmed false accusation and at least one real finding the editor had not already seen.'));
 
@@ -313,6 +331,7 @@ kids.push(table([3600, 6866], ['Script', 'Purpose'], [
   ['node test/audit-m23.js', 'Module 2 compliance and converter; Module 3 consistency (incl. footnote).'],
   ['node test/audit-m3b.js, audit-m3c.js', 'Module 3 claim support. audit-m3c needs vaswani.pdf (arXiv 1706.03762) in the output folder.'],
   ['node test/audit-m4.js, audit-full.js', 'Module 4 planted signals, duplicates, tortured phrases, role blocking; Full Screening Report, exports, administration.'],
+  ['node test/pjps-style.js', 'The three official PJPS reference examples (journal, edited-book chapter, website) read and re-formatted exactly; all authors, italic journal, bold volume.'],
   ['node scripts/benchmark-images.mjs --docs 40', 'Module 5 on BioFors real figures (overwrites data/benchmark/images-results.json: copy it first).'],
   ['Environment variables AUDIT_DB, AUDIT_OUT', 'AUDIT_DB is a folder for a persistent test database so the large datasets load once (about 100 s); without it the first dataset-dependent checks run on empty data. AUDIT_OUT is where result files are written.']
 ]));

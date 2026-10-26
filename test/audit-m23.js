@@ -34,7 +34,7 @@ async function docxFrom(paras, { table, footnote } = {}) {
     ['Khan A, Ali B and Shah C (2019). Antibacterial activity of medicinal plants. Pak. J. Pharm. Sci., Vol. 32, No. 1, 1-5.', ['volume'], false],
     ['Khan A, Ali B and Shah C (2019). Antibacterial activity of medicinal plants. Pak. J. Pharm. Sci., 32(1): 1–5.', ['pages'], false],
     ['Khan A, Ali B and Shah C. Antibacterial activity of medicinal plants. Pak J Pharm Sci. 2019;32(1):1-5.', ['year'], false],
-    ['Khan A, Ali B, Shah C, Malik D, Raza E, Noor F, Butt G and Iqbal H (2019). Antibacterial activity of medicinal plants. Pak. J. Pharm. Sci., 32(1): 1-5.', ['authors'], false],
+    ['Khan A, Ali B, Shah C, Malik D, Raza E, Noor F, Butt G and Iqbal H (2019). Antibacterial activity of medicinal plants. Pak. J. Pharm. Sci., 32(1): 1-5.', [], true], // official PJPS rule: all authors are listed,
     ['Khan A et al. (2019). Antibacterial activity of medicinal plants. Pak. J. Pharm. Sci., 32(1): 1-5.', ['authors'], false],
     ['A. Khan, B. Ali and C. Shah (2019). Antibacterial activity of medicinal plants. Pak. J. Pharm. Sci., 32(1): 1-5.', ['authors'], false],
     ['Khan MA, Ali B and Shah C (2019). Antibacterial activity of medicinal plants. Pak. J. Pharm. Sci., 32(1): 1-5. doi:10.1234/abc.2019.1', [], true], // DOI link is "info" only

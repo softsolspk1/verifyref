@@ -3,11 +3,13 @@
 //   In text:  (Khan, 2019)  (Khan and Ali, 2019)  (Khan et al., 2019)  (Ali, 2018; Khan, 2019)
 //   List:     Khan A, Ali B and Shah C (2019). Title of article. Pak. J. Pharm. Sci., 32(1): 1-5.
 //   Book:     Khan A and Ali B (2019). Title. Publisher, Place.
+//   Chapter:  Rall TW and Schleifer LS (1985). Title. In: Gilman AG, Murad F (eds.), Book, 7th ed., Publisher, Place, pp. 446-472.
+//   Website:  World Health Organization (2020). Title. Available at: URL (Accessed 15 June 2020).
+//   All authors are listed (no et al. in the list); source: pjps.pk/instructions/instructions-for-authors
 //   Order:    alphabetical by first author, then year; 2019a / 2019b for the same author and year
 const ST = require('../styles');
 const { surnameKey, stripDiacritics } = require('../text');
 
-const MAX_AUTHORS = 6; // PJPS lists up to six authors, then "et al."
 
 const { ISO4, abbreviateJournal } = require('../abbrev');
 
@@ -42,23 +44,19 @@ function checkEntry(ref, record) {
   const dev = [];
   const add = (rule, message, found = null, expected = null, severity = 'medium') => dev.push({ rule, message, found, expected, severity });
   const book = ref.looksLikeBook || (record && ST.isBook(record));
+  const web = ref.type === 'webpage'; // organisation + URL: no journal, initials or volume rules
   const p = parts(text);
 
   // ---- authors
   const authorSeg = p ? p.authors : (text.split(/\(\d{4}|\.\s/)[0] || '');
-  if (/\bet\s+al\b/i.test(authorSeg)) {
-    const named = authorSeg.replace(/,?\s*et\s+al\.?/i, '').split(/\s*,\s*|\s+and\s+|\s*&\s*/).filter(Boolean).length;
-    if (named < MAX_AUTHORS) add('authors', `List up to ${MAX_AUTHORS} authors before “et al.” (${named} given)`, authorSeg);
-  } else {
-    const n = authorSeg.split(/\s*,\s*|\s+and\s+|\s*&\s*/).filter(Boolean).length;
-    if (n > MAX_AUTHORS && (record?.authors || ref.authors || []).length > MAX_AUTHORS) add('authors', `More than ${MAX_AUTHORS} authors: list the first ${MAX_AUTHORS} followed by “et al.”`, `${n} authors`);
-  }
+  // PJPS instructions: "names and initials of all authors" - the reference list is never shortened with et al.
+  if (/\bet\s+al\b/i.test(authorSeg)) add('authors', 'List all authors (names and initials); PJPS does not use “et al.” in the reference list', authorSeg);
   if (/&/.test(authorSeg)) add('authors', 'Use “and” before the last author, not “&”', '&', 'and', 'low');
   if (/,\s*and\s/.test(authorSeg)) add('authors', 'No comma before “and”', ', and', ' and', 'low');
   if (/\b[A-Z]\.\s?[A-Z]?\.?(?=,|\s+and\b|\s*$)/.test(authorSeg) || /\b[A-Z]\.[A-Z]\./.test(authorSeg)) add('authors', 'Initials without full stops (Khan MA, not Khan M.A.)', authorSeg.match(/\b[A-Z]\.(?:\s?[A-Z]\.)*/)?.[0] || null, null, 'low');
   if (/^[A-Z][\w'’-]+,\s+[A-Z]/.test(authorSeg)) add('authors', 'No comma between surname and initials (Khan A, not Khan, A)', authorSeg.split(/\s+/).slice(0, 2).join(' '), null, 'low');
   if (/^(?:[A-Z]\.\s*)+[A-Z][a-z]/.test(authorSeg)) add('authors', 'Surname first, then initials (Khan A, not A. Khan)', authorSeg.split(',')[0]);
-  if (/^[A-Z][a-z]+\s+[A-Z][a-z]{2,}\b/.test(authorSeg) && !/^(?:van|von|de|del|al|el)\b/i.test(authorSeg.split(/\s+/)[1] || '')) add('authors', 'Use initials for first names (Khan A, not Ahmed Khan / Khan Ahmed)', authorSeg.split(/[,]/)[0], null, 'low');
+  if (!web && /^[A-Z][a-z]+\s+[A-Z][a-z]{2,}\b/.test(authorSeg) && !/^(?:van|von|de|del|al|el)\b/i.test(authorSeg.split(/\s+/)[1] || '')) add('authors', 'Use initials for first names (Khan A, not Ahmed Khan / Khan Ahmed)', authorSeg.split(/[,]/)[0], null, 'low');
 
   // ---- year
   if (!p) {
@@ -76,7 +74,7 @@ function checkEntry(ref, record) {
 
   // ---- source (journal / publisher)
   const source = p?.source || '';
-  if (!book) {
+  if (!book && !web) {
     const jname = (source.split(/,|\s(?=\d)|\s(?=(?:vol|volume|no))/i)[0] || '').replace(/[,.\s]+$/, '').trim() || ref.journal || '';
     if (jname && UNABBREVIATED.test(jname) && jname.split(/\s+/).length > 1) {
       const exp = record?.journalAbbrev || abbreviateJournal(jname);
@@ -91,11 +89,20 @@ function checkEntry(ref, record) {
     if (!ref.pages && !record?.pages) add('missing', 'Page numbers (or article number) missing', null, record?.pages || null, 'medium');
     else if (!ref.pages && record?.pages) add('missing', 'Page numbers missing', null, record.pages, 'medium');
     if (!ref.issue && record?.issue) add('missing', 'Issue number missing', null, record.issue, 'low');
-  } else if (!/[A-Z][\w&.\s]+,\s*[A-Z]/.test(source) && !record?.publisher) {
+  } else if (!web && !/[A-Z][\w&.\s]+,\s*[A-Z]/.test(source) && !record?.publisher) {
     add('missing', 'Book: publisher and place (Publisher, Place.)', source || null, null, 'medium');
   }
   if (!ref.year) add('missing', 'Year missing', null, record?.year || null, 'high');
-  if (ref.doi && !/https:\/\/doi\.org\//i.test(text)) add('doi', 'Give the DOI as a link: https://doi.org/…', `doi ${ref.doi}`, `https://doi.org/${ref.doi}`, 'info');
+  // edited-book chapter: In: Editors (eds.), Book, ed., Publisher, Place, pp. x-y.
+  if (ref.type === 'book-chapter' || /\.\s+In:\s/.test(text)) {
+    if (!/\(\s*eds?\.?\s*\)/i.test(text)) add('chapter', 'Edited book: In: Editors (eds.), Book title, Publisher, Place, pp. x-y.', null, null, 'medium');
+    if (!/\bpp\.\s*\d/.test(text)) add('pages', 'Book chapter pages are written “pp. 446-472”', null, null, 'low');
+  }
+  // website: Organisation (Year). Title. Available at: URL (Accessed day month year).
+  if (ref.type === 'webpage') {
+    if (!/Available at:/i.test(text)) add('web', 'Website: end with “Available at: URL (Accessed 15 June 2020).”', null, null, 'medium');
+    else if (!/\(\s*Accessed\s+[^)]*\d{4}\s*\)/i.test(text)) add('web', 'Website: add the access date: (Accessed 15 June 2020)', null, null, 'medium');
+  }
 
   const expected = record ? ST.formatText(record, 'pjps') : null;
   const scored = dev.filter(d => d.severity !== 'info');

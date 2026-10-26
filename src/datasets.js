@@ -47,7 +47,7 @@ function csvToObjects(text) {
 const RW_URL = `https://api.labs.crossref.org/data/retractionwatch?mailto=${encodeURIComponent(cfg.CONTACT_EMAIL)}`;
 
 async function loadRetractionWatch() {
-  const r = await getText(RW_URL, { ttl: 0, timeout: 180000, retries: 1 });
+  const r = await getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 });
   if (!r.ok || !r.text) throw new Error(`Retraction Watch download failed (${r.status || r.error})`);
   const rows = csvToObjects(r.text);
   // One row per original DOI; a later notice (e.g. retraction after concern) wins

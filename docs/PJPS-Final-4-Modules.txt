@@ -561,7 +561,7 @@ Yes, download Biofors and build image benchmark
 Commit and push the benchmank to trigger vercel
 
 
-Act as Project Manager and Audit complete platform and test all 5 modules (with all features) and give me audit report in Word Document. I want to know the completeness of Project as per shared requirements and also the accuracy of testing
+Complete last task: Act as Project Manager and Audit complete platform and test all 5 modules (with all features) and give me audit report in Word Document. I want to know the completeness of Project as per shared requirements and also the accuracy of testing. Complete this previous task and give me a separate word file
 
 
 Create Presentations for use to teach PhD Students of PharmaceuticsBioavailability and Bioequivalence detail slides with example using statistical test. Presentation will be about 80 to 100 slides to explain topic in details

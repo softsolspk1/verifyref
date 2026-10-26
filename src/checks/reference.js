@@ -32,9 +32,12 @@ function extraTitleWords(ref, rec) {
   if (!cited || !rec?.title) return { invented: 0 };
   const tok = s => normalize(s).split(' ').filter(t => t && !TITLE_STOP.has(t));
   const reg = new Set(tok(rec.title));
-  const sub = cited.search(/\s[:\u2013\u2014-]\s|:\s/);
+  // a subtitle missing from the registered record is normal, unless the registered title already has its own subtitle
+  const sub = /[:\u2013\u2014]/.test(rec.title) ? -1 : cited.search(/\s[:\u2013\u2014-]\s|:\s/);
   const main = sub > 0 ? cited.slice(0, sub) : cited;
-  const extras = tok(main).filter(t => !reg.has(t));
+  // symbols written out (Delta Delta C(T), alpha, beta) and single letters are not invented words
+  const SYMBOL = new Set(['delta', 'alpha', 'beta', 'gamma', 'kappa', 'sigma', 'omega', 'mu', 'lambda']);
+  const extras = tok(main).filter(t => !reg.has(t) && t.length > 2 && !SYMBOL.has(t));
   const regTok = tok(rec.title);
   const covered = regTok.filter(t => new Set(tok(cited)).has(t)).length;
   // only when the registered title is (almost) fully contained: the cited one then has words added to a real title
@@ -73,8 +76,11 @@ function scoreCandidate(ref, rec) {
   // the "journal" is really the second half of the title (subtitle after a full stop)
   if (journalScore !== null && journalScore < 0.5 && ref.journal.includes('. ')) {
     const parts = ref.journal.split('. ');
-    const head = normalize(parts.slice(0, -1).join(' '));
-    if (head.length > 8 && normalize(rec.title).includes(head)) journalScore = Math.max(journalSimilarity(parts[parts.length - 1], rec.journal), rec.journalAbbrev ? journalSimilarity(parts[parts.length - 1], rec.journalAbbrev) : 0);
+    // the title continues up to some full stop; the journal is what follows it
+    for (let k = 1; k < parts.length; k++) {
+      const head = normalize(parts.slice(0, k).join(' ')), tail = parts.slice(k).join('. ');
+      if (head.length > 8 && normalize(rec.title).includes(head)) { journalScore = Math.max(journalSimilarity(tail, rec.journal), rec.journalAbbrev ? journalSimilarity(tail, rec.journalAbbrev) : 0); break; }
+    }
   }
   if (journalScore !== null && rec.journalAbbrev) journalScore = Math.max(journalScore, journalSimilarity(ref.journal, rec.journalAbbrev));
 

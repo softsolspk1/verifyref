@@ -37,7 +37,8 @@ function sendFile(res, buffer, filename, type) {
 /** Upload a manuscript / reference file: returns text, detected metadata, body & reference section */
 router.post('/extract', user, upload.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded.' });
-  const doc = await P.extractDocument(req.file.buffer, req.file.originalname, req.file.mimetype);
+  const doc = await P.extractDocument(req.file.buffer, req.file.originalname, req.file.mimetype).catch(e => { res.status(400).json({ success: false, message: e.message }); return null; });
+  if (!doc) return;
   if (doc.entries) {
     return res.json({ success: true, filename: req.file.originalname, format: doc.format, structured: doc.entries, referencesText: doc.entries.map(e => e.raw).join('\n'), bodyText: '', meta: {}, referenceCount: doc.entries.length });
   }

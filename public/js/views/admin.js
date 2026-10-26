@@ -17,6 +17,11 @@ export async function renderAdmin(view) {
       <div id="refresh-progress"></div>
     </div>
 
+    <div class="card" id="image-sources">
+      <div class="card-head"><h2>Image Integrity sources</h2><span class="muted">Used by Module 5</span></div>
+      <div class="muted">Loading…</div>
+    </div>
+
     <div class="card" id="pjps-rules">
       <div class="card-head"><h2>PJPS rules</h2><span class="muted">Used by Module 1 and Module 4</span></div>
       <div class="grid grid-2">
@@ -54,6 +59,16 @@ export async function renderAdmin(view) {
 
   api('/api/settings/age-rule').then(d => { $('#rule-share', view).value = d.rule.minShare; $('#rule-years', view).value = d.rule.years; }).catch(() => {});
   api('/api/settings/tortured').then(d => { $('#tp-list', view).value = d.list.map(x => `${x.phrase} = ${x.correct}`).join('\n'); $('#tp-builtin', view).textContent = d.builtIn; }).catch(() => {});
+  api('/api/admin/image-sources').then(({ datasets, knowledge, benchmark: b, cases }) => {
+    $('#image-sources', view).innerHTML = `<div class="card-head"><h2>Image Integrity sources</h2><span class="muted">Used by Module 5</span></div>
+      <table class="t">
+        <tr><td><b>ImageTwin &amp; Proofig knowledge base</b><div class="muted">${knowledge.sources.map(esc).join(' · ')} — finding types, risk and false-alarm guidance, decision matrix, author query letters</div></td><td class="num">${knowledge.files.toLocaleString()} files</td><td>${knowledge.updatedAt ? fmtDate(knowledge.updatedAt) : badge('not loaded', 'warn')}</td></tr>
+        <tr><td><b>Retracted papers with image problems</b><div class="muted">Retraction Watch (Crossref) + Europe PMC open-access flags</div></td><td class="num">${cases ? cases.total.toLocaleString() + ' papers' : '—'}</td><td>${cases ? fmtDate(cases.fetchedAt) : badge('not loaded', 'warn')}</td></tr>
+        <tr><td><b>Engine benchmark</b><div class="muted">Forgeries generated from the RSIID pristine images</div></td><td class="num">${b ? b.images + ' images' : '—'}</td><td>${b ? fmtDate(b.runAt) : badge('not run', 'warn')}</td></tr>
+        ${datasets.map(d => `<tr><td><a href="${esc(d.url)}" target="_blank" rel="noopener"><b>${esc(d.name)}</b></a><div class="muted">${esc(d.license)} · ${esc(d.scale)}</div></td><td colspan="2">${esc(d.status)}<div class="muted">${esc(d.access)}</div></td></tr>`).join('')}
+      </table>
+      <p class="muted" style="margin:10px 0 0">Loaded with <code>node scripts/fetch-public-image-data.js</code> and <code>node scripts/benchmark-public-images.mjs</code>; the knowledge base is read from <code>data/new</code>. On a server where these folders are missing the rows show “not loaded”.</p>`;
+  }).catch(() => { $('#image-sources', view).innerHTML = ''; });
   $('#rule-save', view).onclick = () => api('/api/settings/age-rule', { method: 'PUT', body: { minShare: $('#rule-share', view).value, years: $('#rule-years', view).value } }).then(() => toast('Rule saved')).catch(e => toast(e.message, 'error'));
   $('#tp-save', view).onclick = () => {
     const list = $('#tp-list', view).value.split('\n').map(l => l.split('=')).filter(p => p.length === 2).map(([a, b]) => ({ phrase: a.trim(), correct: b.trim() }));

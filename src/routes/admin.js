@@ -150,6 +150,12 @@ router.get('/admin/stats', wrap(async (req, res) => {
 
 router.get('/admin/datasets', wrap(async (req, res) => res.json({ success: true, ...(await D.listStatus()) })));
 
+/** Image Integrity (Module 5) sources: public datasets, ImageTwin / Proofig knowledge base, retracted image cases, benchmark */
+router.get('/admin/image-sources', wrap(async (req, res) => {
+  const PUB = require('../publicImageData');
+  res.json({ success: true, datasets: PUB.catalog(), knowledge: PUB.knowledgeStatus(), benchmark: PUB.benchmark(), cases: PUB.cases({ per: 1 }).summary });
+}));
+
 router.post('/admin/datasets/refresh', wrap(async (req, res) => {
   const job = await createJob(req.user.id, 'datasets', {});
   res.json({ success: true, jobId: job.id });

@@ -60,6 +60,15 @@ async function figures(pmcid) {
   return { pmcid, page: `https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`, figures: out };
 }
 
+/** ImageTwin / Proofig documentation and taxonomy in DATA_DIR/new (used for finding types, handling advice and query letters) */
+function knowledgeStatus() {
+  const dir = path.join(cfg.DATA_DIR, 'new');
+  let files = 0, newest = 0;
+  const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else { files++; newest = Math.max(newest, fs.statSync(f).mtimeMs); } } };
+  try { walk(dir); } catch { /* folder missing */ }
+  return { files, updatedAt: newest ? new Date(newest).toISOString() : null, sources: ['ImageTwin (imagetwin.ai)', 'Proofig (proofig.com)'] };
+}
+
 const benchmark = () => readJson(file('benchmark_results.json'));
 
-module.exports = { catalog, cases, figures, benchmark };
+module.exports = { catalog, cases, figures, benchmark, knowledgeStatus };

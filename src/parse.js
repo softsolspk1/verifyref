@@ -287,7 +287,8 @@ function parseReferenceEntry(raw, index) {
   if (arxiv) ref.arxiv = arxiv[1];
   const isbn = body.match(/ISBN(?:-1[03])?:?\s*([\d\-X ]{10,17})/i);
   if (isbn) ref.isbn = isbn[1].replace(/[\s-]/g, '');
-  ref.urls = [...body.matchAll(/https?:\/\/[^\s<>"]+[^\s<>".,;)]/gi)].map(m => m[0]);
+  ref.urls = [...body.matchAll(/https?:\/\/[^\s<>"]+[^\s<>".,;)]/gi)].map(m => m[0].replace(/\((?:Accessed|Retrieved)\b.*$/i, ''));
+  const accessed = body.match(/\(?\b(?:Accessed|Retrieved)(?:\s+on)?\s*:?\s*([^)\]]*?\d{4})\s*\)?/i);
 
   // Remove identifiers/URLs before field parsing
   let core = body
@@ -382,6 +383,17 @@ function parseReferenceEntry(raw, index) {
   ref.firstAuthorSurname = ref.authors[0]?.family || null;
   ref.looksLikeBook = !!ref.isbn || (/\b(?:press|publisher|publishing|edition|ed\.|eds\.|books?)\b/i.test(core) && !ref.volume);
   ref.looksLikeWeb = ref.urls.length > 0 && !ref.doi && !ref.volume;
+  if (ref.looksLikeWeb) { ref.type = 'webpage'; ref.url = ref.urls[0]; if (accessed) ref.accessed = accessed[1].trim(); }
+  // Edited-book chapter: "Title. In: Gilman AG, Goodman LS (eds.), Book title, 7th ed., Publisher, Place, pp. 446-472."
+  const ch = core.match(/\bIn:\s*(.+?)\s*\(\s*eds?\.?\s*\)\s*,?\s*(.+)$/i);
+  if (ch && !ref.volume) {
+    const bits = ch[2].replace(/\.\s*$/, '').split(/\s*,\s*/);
+    ref.type = 'book-chapter'; ref.editors = ch[1].trim(); ref.bookTitle = (bits.shift() || '').trim();
+    const rest = [];
+    for (const b of bits) { const ed = b.match(/^(\d+(?:st|nd|rd|th)?\s+ed\.?)$/i); if (ed) ref.edition = ed[1]; else if (/^pp?\.?\s*\d/i.test(b)) ref.pages = b.replace(/^pp?\.?\s*/i, '').replace(/[–—]/g, '-').replace(/\s+/g, ''); else rest.push(b); }
+    if (rest.length) { ref.publisher = rest[0]; if (rest[1]) ref.place = rest.slice(1).join(', '); }
+    ref.journal = ref.bookTitle; ref.looksLikeBook = true;
+  }
   return ref;
 }
 

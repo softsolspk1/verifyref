@@ -279,9 +279,15 @@ S.apsa = {
 /** PJPS house style: Surname A, Surname B and Surname C (Year). Title. Journal, Vol(Issue): pages. */
 S.pjps = {
   label: 'PJPS house style', kind: 'author-date', cite: { and: ' and ', etalFrom: 3, yearSep: ', ' },
-  article: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ', max: 6, keep: 6, etal: ' et al.' }), ` (${yr(r)}). `, title(r), '. ',
-    r.journal ? [pjpsJournal(jn(r, true)), r.volume ? `, ${r.volume}` : '', r.issue ? `(${r.issue})` : '', r.pages ? `: ${pg(r.pages, '-')}` : '', '. '] : '', doiUrl(r)],
-  book: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, title(r), '. ', r.publisher ? `${r.publisher}${r.place ? ', ' + r.place : ''}.` : '']
+  // Official PJPS instructions for authors: all authors are listed; journal abbreviated in italics, volume in bold; no DOI required
+  article: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, title(r), '. ',
+    r.journal ? [I(pjpsJournal(jn(r, true))), ', ', r.volume ? B(r.volume) : '', r.issue ? `(${r.issue})` : '', r.pages ? `: ${pg(r.pages, '-')}` : '', '.'] : ''],
+  book: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, title(r), '. ', r.publisher ? `${r.publisher}${r.place ? ', ' + r.place : ''}.` : ''],
+  // In: Gilman AG, Goodman LS (eds.), Pharmacol. Basis Ther., 7th ed., MacMillan Publishing Co., New York, pp. 446-472.
+  chapter: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, title(r), '. ',
+    r.bookTitle ? ['In: ', r.editors ? `${r.editors} (eds.), ` : '', r.bookTitle, r.edition ? `, ${r.edition}${/ed\.?$/i.test(r.edition) ? '' : ' ed.'}` : '', r.publisher ? `, ${r.publisher}` : '', r.place ? `, ${r.place}` : '', r.pages ? `, pp. ${pg(r.pages, '-')}` : '', '.'] : ''],
+  // World Health Organization (2020). Title. Available at: URL (Accessed 15 June 2020).
+  web: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, title(r), '. ', r.url ? `Available at: ${r.url}` : '', r.accessed ? ` (Accessed ${r.accessed}).` : '']
 };
 
 const STYLE_LIST = Object.entries(S).map(([key, s]) => ({ key, label: s.label, kind: s.kind }));
@@ -295,7 +301,8 @@ const styleKey = key => (S[ALIASES[key] || key] ? ALIASES[key] || key : 'pjps');
 function entry(record, style) {
   const st = getStyle(style);
   const r = { ...record, authors: (record.authors || []).filter(Boolean) };
-  return tidy([(isBook(r) && st.book ? st.book : st.article)(r)]);
+  const kind = /^(book-chapter|chapter|book-section)$/i.test(r.type || '') && st.chapter ? 'chapter' : /^(web|webpage|website|online)$/i.test(r.type || '') && st.web ? 'web' : isBook(r) && st.book ? 'book' : 'article';
+  return tidy([(kind === 'article' ? st.article : st[kind])(r)]);
 }
 
 function formatText(record, style) { return toText(entry(record, style)); }

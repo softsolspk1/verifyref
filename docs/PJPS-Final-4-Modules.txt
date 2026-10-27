@@ -565,3 +565,32 @@ Complete last task: Act as Project Manager and Audit complete platform and test 
 
 
 Create Presentations for use to teach PhD Students of PharmaceuticsBioavailability and Bioequivalence detail slides with example using statistical test. Presentation will be about 80 to 100 slides to explain topic in details
+
+
+
+
+Cetin D, Turker TG, Yilmaz N, Karakoy BA and Safadı M (2022). Comparative in Vitro Release Test Using Franz Diffusion Cell for Luliconazole% 1 Cream with Reference Drug Product. Microscopy,.
+
+
+I would like you to Scrap data used for Image Integrity in Research as of ImageTwin and Proofig to use for this software by PJPS
+
+
+I am building a platfom to Detect Image integrity. I would like you to Scrap data used for Image Integrity in Research as of ImageTwin and Proofig platform. Save all scrapted data in D:\Reference Checker\data\new folder
+
+
+--------------------------
+Following are the Publicly available Data for Detect Image integrity:
+1) PubMed Central Open Access Subset
+2) RSIID (RECOD Scientific Image Integrity Dataset)
+3) BINDER
+4) SciInt / related retracted-paper collections
+5) PubPeer-flagged cases
+6) Creative Commons scientific image repositories (BBBC, etc.)
+
+
+1) PubMed Central Open Access Subset: Full-text OA papers + figures: Primary public source both tools lean on; extract figures programmatically (PMC OA package or APIs).
+2) RSIID (RECOD Scientific Image Integrity Dataset): ~39k synthetically tampered figures from ~2.9k pristine CC images: Forgery types: copy-move, splicing, overlap, cleaning (inpainting), retouching. Train/test splits; CC-BY. Good for supervised detection benchmarks.
+3) BINDER: ~7.5k unique + manipulated patches: Near-duplicate biomedical images with controlled transforms (rotation, scale, contrast, etc.).
+4) SciInt / related retracted-paper collections: Hundreds of papers with image issues: Annotated retractions/corrections + clean controls from PMC; useful for real-world positive examples (contact authors for full image sets in some cases).
+5) PubPeer-flagged cases: Crowdsourced real integrity issues: Common external validation source for both commercial tools; not a ready downloadable image set.
+6) 

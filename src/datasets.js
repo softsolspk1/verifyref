@@ -1,7 +1,10 @@
-// datasets.js - local datasets: Retraction Watch, Beall's list (predatory + hijacked), uploaded journal lists
+// datasets.js - local datasets: Retraction Watch, Beall's list, FDA Orange Book, uploaded journal lists
+const fs = require('fs');
+const path = require('path');
+const JSZip = require('jszip');
 const db = require('./db');
 const { getMeta, setMeta, transaction, bulkInsert } = db;
-const { getText } = require('./http');
+const { getText, getBuffer } = require('./http');
 const { normalize, normalizeJournal, cleanIssn, cleanDoi } = require('./text');
 const cfg = require('./config');
 
@@ -283,13 +286,190 @@ async function listEntries(listType, { q = '', page = 1, size = 50 } = {}) {
   return { total, page, size, rows };
 }
 
+// ------------------------------------------------------------------ FDA Orange Book (Approved Drug Products)
+
+const FDA_ORANGE_BOOK_URL = 'https://www.fda.gov/media/76860/download?attachment';
+const LOCAL_ORANGE_BOOK = path.join(__dirname, '..', 'data', 'lists', 'orange_book.zip');
+
+async function loadFdaOrangeBook({ buffer, filepath, log = console.log } = {}) {
+  let zipBuf = buffer;
+  if (!zipBuf && filepath && fs.existsSync(filepath)) {
+    zipBuf = fs.readFileSync(filepath);
+  }
+  if (!zipBuf) {
+    log('Downloading FDA Orange Book dataset from FDA…');
+    const r = await getBuffer(FDA_ORANGE_BOOK_URL, { timeout: 120000 });
+    if (!r.ok || !r.buffer) throw new Error(`FDA Orange Book download failed (${r.status || r.error})`);
+    zipBuf = r.buffer;
+    try {
+      const dir = path.dirname(LOCAL_ORANGE_BOOK);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(LOCAL_ORANGE_BOOK, zipBuf);
+    } catch (e) { /* non-fatal local cache write */ }
+  }
+
+  const zip = await JSZip.loadAsync(zipBuf);
+  const pFile = zip.files['products.txt'] || zip.files['Products.txt'];
+  if (!pFile) throw new Error('products.txt not found in FDA Orange Book archive');
+  const text = await pFile.async('text');
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 100) throw new Error('FDA Orange Book products.txt has too few rows');
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split('~');
+    if (cols.length < 5) continue;
+    const [
+      ingredient = '',
+      dfRoute = '',
+      tradeName = '',
+      applicant = '',
+      strength = '',
+      applType = '',
+      applNo = '',
+      productNo = '',
+      teCode = '',
+      approvalDate = '',
+      rld = '',
+      rs = '',
+      type = '',
+      applicantFullName = ''
+    ] = cols;
+    const ing = ingredient.trim();
+    const trade = tradeName.trim();
+    if (!ing && !trade) continue;
+    rows.push([
+      ing,
+      normalize(ing),
+      dfRoute.trim(),
+      trade,
+      normalize(trade),
+      applicant.trim(),
+      strength.trim(),
+      applType.trim(),
+      applNo.trim(),
+      productNo.trim(),
+      teCode.trim(),
+      approvalDate.trim(),
+      rld.trim(),
+      rs.trim(),
+      type.trim(),
+      (applicantFullName || applicant).trim()
+    ]);
+  }
+
+  await transaction(async client => {
+    await client.query('TRUNCATE fda_orange_book');
+    await bulkInsert(client, 'fda_orange_book', [
+      { name: 'ingredient', type: 'text' },
+      { name: 'ingredient_norm', type: 'text' },
+      { name: 'dosage_form_route', type: 'text' },
+      { name: 'trade_name', type: 'text' },
+      { name: 'trade_name_norm', type: 'text' },
+      { name: 'applicant', type: 'text' },
+      { name: 'strength', type: 'text' },
+      { name: 'appl_type', type: 'text' },
+      { name: 'appl_no', type: 'text' },
+      { name: 'product_no', type: 'text' },
+      { name: 'te_code', type: 'text' },
+      { name: 'approval_date', type: 'text' },
+      { name: 'rld', type: 'text' },
+      { name: 'rs', type: 'text' },
+      { name: 'type', type: 'text' },
+      { name: 'applicant_full_name', type: 'text' }
+    ], rows, 2000);
+  });
+
+  await setMeta('fda_ob_loaded_at', new Date().toISOString());
+  await setMeta('fda_ob_count', rows.length);
+  return rows.length;
+}
+
+/** Search FDA Orange Book by ingredient, trade name, or application number */
+async function fdaDrugLookup(term, { limit = 25 } = {}) {
+  if (!term || typeof term !== 'string') return [];
+  const clean = term.trim();
+  if (clean.length < 2) return [];
+  const norm = normalize(clean);
+  const applMatch = clean.match(/\b(?:NDA|ANDA)?\s*(\d{5,7})\b/i);
+  const applNo = applMatch ? applMatch[1] : null;
+
+  const rows = await db.all(
+    `SELECT * FROM fda_orange_book
+     WHERE ingredient_norm = $1 OR trade_name_norm = $1
+        OR ingredient_norm LIKE $2 OR trade_name_norm LIKE $2
+        OR ($3::text IS NOT NULL AND appl_no = $3)
+     ORDER BY (trade_name_norm = $1 OR ingredient_norm = $1) DESC,
+              (trade_name_norm LIKE $4 OR ingredient_norm LIKE $4) DESC,
+              approval_date DESC
+     LIMIT $5`,
+    [norm, `%${norm}%`, applNo, `${norm}%`, Math.min(limit, 100)]
+  );
+  return rows;
+}
+
+/** Validate whether a cited drug or pharmaceutical product matches an approved FDA record */
+async function fdaValidateDrug({ name, ingredient, applNo }) {
+  const normName = name ? normalize(name) : null;
+  const normIng = ingredient ? normalize(ingredient) : null;
+  const cleanAppl = applNo ? String(applNo).replace(/\D/g, '') : null;
+
+  if (!normName && !normIng && !cleanAppl) return { verified: false, reason: 'No drug name, ingredient or application number provided' };
+
+  const matches = await db.all(
+    `SELECT * FROM fda_orange_book
+     WHERE ($1::text IS NOT NULL AND (trade_name_norm = $1 OR ingredient_norm = $1))
+        OR ($2::text IS NOT NULL AND (ingredient_norm = $2 OR trade_name_norm = $2))
+        OR ($3::text IS NOT NULL AND appl_no = $3)
+     LIMIT 10`,
+    [normName, normIng, cleanAppl]
+  );
+
+  if (!matches.length) {
+    return { verified: false, matches: [] };
+  }
+
+  const primary = matches[0];
+  return {
+    verified: true,
+    matchedBy: cleanAppl && primary.appl_no === cleanAppl ? 'application_number' : (normName && (primary.trade_name_norm === normName || primary.ingredient_norm === normName)) ? 'brand_or_ingredient_name' : 'active_ingredient',
+    product: {
+      tradeName: primary.trade_name,
+      ingredient: primary.ingredient,
+      dosageFormRoute: primary.dosage_form_route,
+      strength: primary.strength,
+      applicant: primary.applicant_full_name || primary.applicant,
+      applicationType: primary.appl_type === 'N' ? 'NDA (New Drug Application)' : 'ANDA (Abbreviated New Drug Application / Generic)',
+      applicationNo: `${primary.appl_type === 'N' ? 'NDA' : 'ANDA'} ${primary.appl_no}`,
+      approvalDate: primary.approval_date,
+      teCode: primary.te_code || 'N/A',
+      type: primary.type === 'RX' ? 'Prescription (Rx)' : primary.type === 'OTC' ? 'Over-the-Counter (OTC)' : primary.type,
+      referenceListedDrug: primary.rld === 'Yes',
+      referenceStandard: primary.rs === 'Yes'
+    },
+    totalMatches: matches.length,
+    matches: matches.map(m => ({
+      tradeName: m.trade_name,
+      ingredient: m.ingredient,
+      dosageFormRoute: m.dosage_form_route,
+      strength: m.strength,
+      applNo: `${m.appl_type} ${m.appl_no}`,
+      approvalDate: m.approval_date,
+      applicant: m.applicant
+    }))
+  };
+}
+
 async function listStatus() {
-  const uploaded = Object.fromEntries((await db.all('SELECT * FROM journal_lists WHERE list_type = ANY($1::text[])', [Object.keys(LIST_TYPES)])).map(r => [r.list_type, r]));
+  const allUploaded = await db.all('SELECT * FROM journal_lists');
+  const uploaded = Object.fromEntries(allUploaded.map(r => [r.list_type, r]));
   return {
     lists: Object.entries(LIST_TYPES).map(([type, label]) => ({ type, label, ...(uploaded[type] || {}) })),
     retractionWatch: { loadedAt: await getMeta('rw_loaded_at'), count: parseInt((await getMeta('rw_count')) || '0', 10) },
     beall: { loadedAt: await getMeta('beall_loaded_at'), count: parseInt((await getMeta('beall_count')) || '0', 10) },
-    screener: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('pps_count')) || '0', 10) }
+    screener: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('pps_count')) || '0', 10) },
+    fdaOrangeBook: { loadedAt: await getMeta('fda_ob_loaded_at'), count: parseInt((await getMeta('fda_ob_count')) || '0', 10) },
+    iclac: { loadedAt: null, count: 581, builtIn: true }
   };
 }
 
@@ -298,12 +478,16 @@ async function datasetHealth() {
   const rw = parseInt((await getMeta('rw_count')) || '0', 10);
   const beall = parseInt((await getMeta('beall_count')) || '0', 10);
   const pps = parseInt((await getMeta('pps_count')) || '0', 10);
+  const fda = parseInt((await getMeta('fda_ob_count')) || '0', 10);
   const missing = [];
   if (!rw) missing.push('Retraction Watch (retracted papers are not being detected)');
   if (!beall) missing.push("Beall's predatory/hijacked list (predatory journals are not being detected)");
   if (!pps) missing.push('Problematic Paper Screener (tortured phrases are not being detected)');
   return {
-    retractionWatch: { count: rw, loadedAt: await getMeta('rw_loaded_at') }, beall: { count: beall, loadedAt: await getMeta('beall_loaded_at') }, screener: { count: pps, loadedAt: await getMeta('pps_loaded_at') },
+    retractionWatch: { count: rw, loadedAt: await getMeta('rw_loaded_at') },
+    beall: { count: beall, loadedAt: await getMeta('beall_loaded_at') },
+    screener: { count: pps, loadedAt: await getMeta('pps_loaded_at') },
+    fdaOrangeBook: { count: fda, loadedAt: await getMeta('fda_ob_loaded_at') },
     complete: !missing.length,
     warning: missing.length ? 'Reference datasets are still loading or failed to load: ' + missing.join('; ') + '. Results that depend on them may be incomplete - run the check again after the datasets have loaded (Admin > Data).' : null
   };
@@ -330,10 +514,15 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
     try { results.beall = await loadBeall(); log(`Beall's list: ${results.beall} entries loaded`); }
     catch (e) { results.beallError = e.message; log(`Beall's list load failed: ${e.message}`); }
   }
+  if (await stale('fda_ob_loaded_at')) {
+    try { results.fdaOrangeBook = await loadFdaOrangeBook({ log }); log(`FDA Orange Book: ${results.fdaOrangeBook} records loaded`); }
+    catch (e) { results.fdaOrangeBookError = e.message; log(`FDA Orange Book load failed: ${e.message}`); }
+  }
   return results;
 }
 
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
+  loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug,
   importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf
 };

@@ -8,11 +8,83 @@ export async function renderAdmin(view) {
     <div class="page-head"><div><h1>Datasets, journal lists &amp; PJPS rules</h1><p>Integrity datasets used by every check, and the licensed journal index lists used by Journal Check and Find a Journal.${desk ? ' On the desktop these are copies synchronised from the web platform, which is what makes the offline checks possible.' : ' Desktop computers download copies of all of these at synchronisation for offline use.'}</p></div></div>
 
     <div class="card">
-      <div class="card-head"><h2>Integrity datasets</h2><div class="row"><button class="btn btn-sm" id="refresh">${desk ? 'Download from source now' : 'Refresh now'}</button>${desk ? '' : '<button class="btn btn-sm" id="alerts">Run alerts now</button>'}</div></div>
-      <table class="t">
-        <tr><td><b>Retraction Watch</b><div class="muted">Retractions, expressions of concern and corrections (via Crossref)</div></td><td class="num">${ds.retractionWatch.count.toLocaleString()} records</td><td>${ds.retractionWatch.loadedAt ? fmtDate(ds.retractionWatch.loadedAt) : badge('not loaded', 'warn')}</td></tr>
-        <tr><td><b>Beall's list</b><div class="muted">Potential predatory publishers, standalone journals and hijacked journals</div></td><td class="num">${ds.beall.count.toLocaleString()} entries</td><td>${ds.beall.loadedAt ? fmtDate(ds.beall.loadedAt) : badge('not loaded', 'warn')}</td></tr>
-      </table>
+      <div class="card-head">
+        <div>
+          <h2>All available datasets</h2>
+          <p class="muted" style="margin:4px 0 0">All integrity datasets and journal index lists with current row counts and uploaded dates.</p>
+        </div>
+        <div class="row">
+          <button class="btn btn-sm" id="refresh">${desk ? 'Download from source now' : 'Refresh now'}</button>
+          ${desk ? '' : '<button class="btn btn-sm" id="alerts">Run alerts now</button>'}
+        </div>
+      </div>
+      <div class="table-wrap"><table class="t">
+        <thead>
+          <tr>
+            <th>Dataset Name</th>
+            <th>Type</th>
+            <th class="num">Rows</th>
+            <th>Uploaded date</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Retraction Watch</b><div class="muted">Retractions, expressions of concern and corrections (via Crossref)</div></td>
+            <td>Integrity</td>
+            <td class="num">${ds.retractionWatch?.count ? Number(ds.retractionWatch.count).toLocaleString() : '0'}</td>
+            <td>${ds.retractionWatch?.loadedAt ? fmtDate(ds.retractionWatch.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${ds.retractionWatch?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+          </tr>
+          <tr>
+            <td><b>Beall's list</b><div class="muted">Potential predatory publishers, standalone journals and hijacked journals</div></td>
+            <td>Integrity</td>
+            <td class="num">${ds.beall?.count ? Number(ds.beall.count).toLocaleString() : '0'}</td>
+            <td>${ds.beall?.loadedAt ? fmtDate(ds.beall.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${ds.beall?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+          </tr>
+          <tr>
+            <td><b>Problematic Paper Screener</b><div class="muted">Tortured phrases and scientific fingerprint detection (Cabanac et al.)</div></td>
+            <td>Integrity</td>
+            <td class="num">${ds.screener?.count ? Number(ds.screener.count).toLocaleString() : '0'}</td>
+            <td>${ds.screener?.loadedAt ? fmtDate(ds.screener.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${ds.screener?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+          </tr>
+          <tr>
+            <td><b>FDA Orange Book</b><div class="muted">Approved Drug Products with Therapeutic Equivalence Evaluations (active ingredients, dosage forms, routes, NDA/ANDA numbers)</div></td>
+            <td>Integrity</td>
+            <td class="num">${(ds.fdaOrangeBook?.count || 0).toLocaleString()}</td>
+            <td>${ds.fdaOrangeBook?.loadedAt ? fmtDate(ds.fdaOrangeBook.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${ds.fdaOrangeBook?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+          </tr>
+          <tr>
+            <td><b>ICLAC Register of Misidentified Cell Lines</b><div class="muted">Cross-contaminated and misidentified human cell lines (ICLAC v14)</div></td>
+            <td>Integrity</td>
+            <td class="num">${(ds.iclac?.count || 581).toLocaleString()}</td>
+            <td>${badge('Built-in (v14)', 'good')}</td>
+            <td>${badge('active', 'good')}</td>
+          </tr>
+          <tr>
+            <td><b>PubChem &amp; ClinicalTrials.gov</b><div class="muted">Live chemical compound identity (CID, IUPAC, InChIKey) and clinical protocol verification</div></td>
+            <td>Integrity</td>
+            <td class="num">Live APIs + Cache</td>
+            <td>${badge('Live API', 'good')}</td>
+            <td>${badge('active', 'good')}</td>
+          </tr>
+          ${ds.lists.map(l => {
+            const parts = (l.label || '').split(' — ');
+            const title = parts[0];
+            const desc = l.filename ? l.filename : (parts[1] || '');
+            return `<tr>
+              <td><b>${esc(title)}</b>${desc ? `<div class="muted">${esc(desc)}</div>` : ''}</td>
+              <td>Journal list</td>
+              <td class="num">${l.row_count ? Number(l.row_count).toLocaleString() : '—'}</td>
+              <td>${l.uploaded_at ? fmtDate(l.uploaded_at) : badge('not uploaded', 'neutral')}</td>
+              <td>${l.row_count ? badge('loaded', 'good') : badge('not uploaded', 'neutral')}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
       <p class="muted" style="margin:10px 0 0">${desk ? 'Synchronised from the web platform; use “Sync & offline queue” to update.' : 'Both refresh automatically every 7 days. Alerts and retraction monitoring run daily.'}</p>
       <div id="refresh-progress"></div>
     </div>
@@ -37,9 +109,13 @@ export async function renderAdmin(view) {
     </div>
 
     <div class="card">
-      <h2>Journal index lists</h2>
-      ${desk ? '<p class="muted">Lists are uploaded by the Super Admin on the web platform.</p>' : `<p class="muted">Scopus, Web of Science, JCR, EBSCO and HEC HJRS lists are licensed or behind logins, so upload the current CSV files your journal has access to. Columns are detected automatically (title, ISSN, eISSN, quartile, category). Excel files: save as <b>CSV UTF-8</b> first.</p>
-      <ul class="muted" style="font-size:13px">
+      <div class="card-head">
+        <div>
+          <h2>Journal index lists management</h2>
+          ${desk ? '<p class="muted">Lists are uploaded by the Super Admin on the web platform.</p>' : `<p class="muted">Scopus, Web of Science, JCR, EBSCO and HEC HJRS lists are licensed or behind logins, so upload the current CSV files your journal has access to. Columns are detected automatically (title, ISSN, eISSN, quartile, category). Excel files: save as <b>CSV UTF-8</b> first.</p>`}
+        </div>
+      </div>
+      ${desk ? '' : `<ul class="muted" style="font-size:13px;margin:0 0 12px">
         <li><b>SJR</b>: scimagojr.com → Journal Rankings → Download data (gives Scopus quartiles).</li>
         <li><b>Scopus source list</b>: Elsevier “Scopus Sources” page → download the source list workbook → save as CSV (include the conference proceedings sheet for conference coverage).</li>
         <li><b>Web of Science</b>: scimagojr.com → Journal Rankings → “Only WoS Journals” → Download data.</li>
@@ -48,13 +124,27 @@ export async function renderAdmin(view) {
         <li><b>EBSCO</b>: ebsco.com/title-lists → download the title list of each database you need (Excel). To load several databases, paste them into one sheet and add a <b>Database</b> column, then save as CSV. A new upload replaces the previous EBSCO list.</li>
       </ul>`}
       <div class="table-wrap"><table class="t">
-        <tr><th>List</th><th class="num">Rows</th><th>Uploaded</th><th></th></tr>
-        ${ds.lists.map(l => `<tr>
-          <td>${esc(l.label)}${l.filename ? `<div class="muted">${esc(l.filename)}</div>` : ''}</td>
-          <td class="num">${l.row_count ? Number(l.row_count).toLocaleString() : '—'}</td>
-          <td>${l.uploaded_at ? fmtDate(l.uploaded_at) : badge('not uploaded', 'neutral')}</td>
-          <td class="row" style="flex-wrap:nowrap">${l.row_count ? `<button class="btn btn-sm" data-view="${l.type}">View</button>` : ''}${desk ? '' : `<label class="btn btn-sm" style="margin:0">Upload CSV<input type="file" accept=".csv,.txt" hidden data-list="${l.type}"></label>${l.row_count ? `<button class="btn btn-sm btn-ghost btn-danger" data-rm="${l.type}">✕</button>` : ''}`}</td>
-        </tr>`).join('')}
+        <thead>
+          <tr>
+            <th>Dataset Name</th>
+            <th class="num">Rows</th>
+            <th>Uploaded date</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+        ${ds.lists.map(l => {
+          const parts = (l.label || '').split(' — ');
+          const title = parts[0];
+          const desc = l.filename ? l.filename : (parts[1] || '');
+          return `<tr>
+            <td><b>${esc(title)}</b>${desc ? `<div class="muted">${esc(desc)}</div>` : ''}</td>
+            <td class="num">${l.row_count ? Number(l.row_count).toLocaleString() : '—'}</td>
+            <td>${l.uploaded_at ? fmtDate(l.uploaded_at) : badge('not uploaded', 'neutral')}</td>
+            <td class="row" style="flex-wrap:nowrap">${l.row_count ? `<button class="btn btn-sm" data-view="${l.type}">View</button>` : ''}${desk ? '' : `${l.type === 'ebsco' ? `<button class="btn btn-sm" id="dl-ebsco">Download from source</button>` : ''}<label class="btn btn-sm" style="margin:0">Upload CSV<input type="file" accept=".csv,.txt" hidden data-list="${l.type}"></label>${l.row_count ? `<button class="btn btn-sm btn-ghost btn-danger" data-rm="${l.type}">✕</button>` : ''}`}</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
       </table></div>
     </div>`;
 
@@ -88,6 +178,14 @@ export async function renderAdmin(view) {
       const { jobId } = await api('/api/admin/alerts/run', { body: {} });
       const r = await runJob(jobId, $('#refresh-progress', view), 'Running alerts and retraction monitoring');
       toast(`${r.follows} alert(s) checked, ${r.notices} notice(s), ${r.retractions} retraction notice(s)`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  if ($('#dl-ebsco', view)) $('#dl-ebsco', view).onclick = async () => {
+    try {
+      const { jobId } = await api('/api/admin/lists/ebsco/download', { body: {} });
+      await runJob(jobId, $('#refresh-progress', view), 'Downloading and compiling EBSCO title lists');
+      toast('EBSCO dataset updated');
+      renderAdmin(view);
     } catch (e) { toast(e.message, 'error'); }
   };
   $$('[data-list]', view).forEach(inp => (inp.onchange = async () => {

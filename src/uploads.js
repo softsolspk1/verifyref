@@ -52,6 +52,25 @@ async function getObject(key) {
   return Buffer.from(await r.arrayBuffer());
 }
 
+async function putObject(key, buffer, contentType = 'application/octet-stream') {
+  if (!enabled()) throw new Error('Cloudflare R2 is not configured.');
+  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  const url = presign('PUT', key, { headers: { 'content-length': String(buf.length), 'content-type': contentType } });
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'content-length': String(buf.length),
+      'content-type': contentType
+    },
+    body: buf
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`R2 upload failed (${res.status}): ${errText}`);
+  }
+  return { ok: true, key, size: buf.length };
+}
+
 async function deleteObject(key) {
   if (!enabled() || !key) return;
   await fetch(presign('DELETE', key), { method: 'DELETE' }).catch(() => {});
@@ -112,4 +131,4 @@ function fileRef(f) {
 const loadFile = ref => (ref.r2Key ? getObject(ref.r2Key) : Promise.resolve(Buffer.from(ref.base64, 'base64')));
 const dropFiles = refs => Promise.all([].concat(refs || []).filter(r => r?.r2Key).map(r => deleteObject(r.r2Key)));
 
-module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES };
+module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, getObject, deleteObject };

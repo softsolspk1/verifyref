@@ -23,7 +23,9 @@ const HOST_LIMITS = {
   'pub.orcid.org': 3,
   'query.wikidata.org': 2,
   'portal.issn.org': 2,
-  'archive.org': 2
+  'archive.org': 2,
+  'pubchem.ncbi.nlm.nih.gov': 4,
+  'clinicaltrials.gov': 4
 };
 const DEFAULT_LIMIT = 4;
 const active = new Map();
@@ -202,9 +204,34 @@ async function request(url, options = {}) {
 const getJson = (url, opts) => request(url, { ...opts, json: true });
 const getText = (url, opts) => request(url, { ...opts, json: false });
 
+async function getBuffer(url, options = {}) {
+  const { headers = {}, timeout = 60000 } = options;
+  const host = new URL(url).hostname;
+  await acquire(host);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+        ...headers
+      }
+    });
+    if (!res.ok) return { ok: false, status: res.status, error: `HTTP ${res.status}` };
+    const ab = await res.arrayBuffer();
+    return { ok: true, status: res.status, buffer: Buffer.from(ab) };
+  } catch (err) {
+    return { ok: false, status: 0, error: err.name === 'AbortError' ? 'timeout' : err.message };
+  } finally {
+    clearTimeout(timer);
+    release(host);
+  }
+}
+
 // Purge expired cache rows occasionally
 setInterval(() => {
   db.query('DELETE FROM cache WHERE expires_at < $1', [Date.now()]).catch(() => {});
 }, 6 * 3600 * 1000).unref();
 
-module.exports = { request, getJson, getText, USER_AGENT, sleep, isOnline, onConnectivity, probe };
+module.exports = { request, getJson, getText, getBuffer, USER_AGENT, sleep, isOnline, onConnectivity, probe };

@@ -114,6 +114,29 @@ CREATE TABLE IF NOT EXISTS predatory (
 CREATE INDEX IF NOT EXISTS idx_predatory_name ON predatory(name_norm);
 CREATE INDEX IF NOT EXISTS idx_predatory_domain ON predatory(domain);
 
+CREATE TABLE IF NOT EXISTS fda_orange_book (
+  id SERIAL PRIMARY KEY,
+  ingredient TEXT NOT NULL,
+  ingredient_norm TEXT NOT NULL,
+  dosage_form_route TEXT,
+  trade_name TEXT NOT NULL,
+  trade_name_norm TEXT NOT NULL,
+  applicant TEXT,
+  strength TEXT,
+  appl_type TEXT,
+  appl_no TEXT,
+  product_no TEXT,
+  te_code TEXT,
+  approval_date TEXT,
+  rld TEXT,
+  rs TEXT,
+  type TEXT,
+  applicant_full_name TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_fda_ob_ing_norm ON fda_orange_book(ingredient_norm);
+CREATE INDEX IF NOT EXISTS idx_fda_ob_trade_norm ON fda_orange_book(trade_name_norm);
+CREATE INDEX IF NOT EXISTS idx_fda_ob_appl_no ON fda_orange_book(appl_no);
+
 CREATE TABLE IF NOT EXISTS journal_lists (
   list_type TEXT PRIMARY KEY,
   filename TEXT,

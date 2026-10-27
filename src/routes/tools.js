@@ -326,4 +326,42 @@ router.post('/activity/save', auth.requireUser, wrap(async (req, res) => {
   res.json({ success: true, id });
 }));
 
+// ------------------------------------------------------------------ Pharmacology & Clinical Trial Integrity
+const pharma = require('../pharma');
+
+router.get('/pharma/drug', auth.requireUser, wrap(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.status(400).json({ success: false, message: 'Provide drug name or application number.' });
+  const products = await pharma.fdaDrugLookup(q, { limit: 25 });
+  res.json({ success: true, count: products.length, products });
+}));
+
+router.get('/pharma/compound', auth.requireUser, wrap(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.status(400).json({ success: false, message: 'Provide compound name or CID.' });
+  const comp = await pharma.pubchemCompound(q);
+  if (!comp) return res.status(404).json({ success: false, message: `Compound "${q}" not found in PubChem.` });
+  res.json({ success: true, compound: comp });
+}));
+
+router.get('/pharma/trial/:nctId', auth.requireUser, wrap(async (req, res) => {
+  const trial = await pharma.clinicalTrial(req.params.nctId);
+  if (!trial || trial.notFound) return res.status(404).json({ success: false, message: `Clinical trial ${req.params.nctId.toUpperCase()} not found in ClinicalTrials.gov.` });
+  if (trial.error) return res.status(502).json({ success: false, message: `ClinicalTrials.gov error: ${trial.error}` });
+  res.json({ success: true, trial: trial.record });
+}));
+
+router.post('/pharma/verify', auth.requireUser, wrap(async (req, res) => {
+  const b = req.body || {};
+  const result = await pharma.verifyPharmaIntegrity(b);
+  res.json({ success: true, result });
+}));
+
+router.post('/pharma/scan', auth.requireUser, wrap(async (req, res) => {
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ success: false, message: 'Provide text to scan.' });
+  const result = await pharma.scanManuscriptPharma(text);
+  res.json({ success: true, result });
+}));
+
 module.exports = router;

@@ -161,8 +161,33 @@ router.post('/admin/datasets/refresh', wrap(async (req, res) => {
 }));
 
 defineJob('datasets', async (input, { update }) => {
-  update('Downloading Retraction Watch and Beall\'s list', 10);
+  update('Refreshing Retraction Watch, Beall\'s list, Problematic Paper Screener and FDA Orange Book', 10);
   return D.ensureDatasets({ force: true });
+});
+
+router.post('/admin/orange-book/download', wrap(async (req, res) => {
+  const job = await createJob(req.user.id, 'orange-book', {});
+  res.json({ success: true, jobId: job.id });
+}));
+
+defineJob('orange-book', async (input, { update }) => {
+  update('Downloading FDA Orange Book from FDA and updating approved drug records', 15);
+  const count = await D.loadFdaOrangeBook();
+  return { count };
+});
+
+router.post('/admin/lists/ebsco/download', webOnly, wrap(async (req, res) => {
+  const job = await createJob(req.user.id, 'ebsco-download', {});
+  res.json({ success: true, jobId: job.id });
+}));
+
+defineJob('ebsco-download', async (input, { update }) => {
+  update('Downloading and compiling EBSCO title lists (CINAHL, Academic Search, Business Source)', 10);
+  const { downloadAndCompileEbsco } = require('../../scripts/download-ebsco');
+  const { csvContent } = await downloadAndCompileEbsco(msg => update(msg, 40));
+  update('Importing into database', 80);
+  const rows = await D.importJournalList('ebsco', 'ebsco.csv', csvContent);
+  return { rows };
 });
 
 router.get('/admin/lists/:type/entries', wrap(async (req, res) => {

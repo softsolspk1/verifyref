@@ -1,0 +1,63 @@
+HOW TO DOWNLOAD AND UPLOAD THE EBSCO DATABASE FILE
+==================================================
+
+EBSCO publishes a free title list for each of its databases. This is the file
+the portal expects. No login is needed.
+
+
+1. DOWNLOAD THE TITLE LIST
+--------------------------
+1. Go to ebsco.com/title-lists (EBSCO's site search for "title lists" also
+   finds it).
+2. Find the database you want, such as Academic Search Complete,
+   CINAHL Complete or Business Source Complete.
+3. Click its "Excel" link, not HTML. The HTML version is also at a fixed
+   address, for example:
+   ebsco.com/m/ee/Marketing/titleLists/c8h-coverage.htm
+4. Repeat for each database you subscribe to or want to check against.
+
+
+2. PREPARE THE CSV
+------------------
+1. Open the Excel file. If the first rows are a heading or logo, delete them
+   so the column names (Title, ISSN, Peer-Reviewed, Full Text Start, ...) are
+   in row 1.
+2. One database: go straight to step 4.
+3. Several databases: add a column named "Database" to each file, fill it
+   with that database's name, and paste all the rows into one sheet under one
+   header row. Each new upload replaces the previous EBSCO list, so everything
+   has to be in one file.
+4. Use File > Save As > CSV UTF-8 (comma delimited).
+
+
+3. UPLOAD IT
+------------
+Go to /app#/admin/data > Journal index lists > EBSCO database coverage >
+Upload CSV. Then click "View" to check that the rows loaded.
+
+
+WATCH THE FILE SIZE
+-------------------
+The site runs on Vercel, so uploads over about 4.5 MB will fail. Large lists
+like Academic Search Complete, especially when combined with other databases,
+can go over that. To shrink the file, delete columns the portal doesn't use
+before saving. Keep only:
+  - Title
+  - ISSN
+  - Database
+  - Peer-Reviewed
+  - Indexing and Abstracting Start / Stop
+  - Full Text Start / Stop
+  - Full Text Delay (Months)   (the embargo)
+
+
+SOURCES
+-------
+- EBSCO title lists (EBSCO support site):
+  https://ns019054.stacksplatform.com/title-lists
+- EBSCO title lists (DML support site):
+  https://dmlsupport.stacksplatform.com/title-lists
+- Example coverage list (c8h):
+  https://ebsco.com/m/ee/Marketing/titleLists/c8h-coverage.htm
+- EBSCO Knowledge Base publisher support (accepted formats):
+  https://about.ebsco.com/publishers-partnerships/publisher-support/knowledge-base.md

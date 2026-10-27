@@ -2,7 +2,6 @@
 // editor report (decision summary, letters, revision comparison), Journal Check, Reviewer Finder,
 // Reviewer report check and issue reports.
 const express = require('express');
-const multer = require('multer');
 const cfg = require('../config');
 const db = require('../db');
 const auth = require('../auth');
@@ -18,9 +17,10 @@ const F = require('../format');
 const W = require('../docx');
 const { isOnline } = require('../http');
 const { enqueue, registerQueued } = require('../queue');
+const { createUpload } = require('../uploads');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+const upload = require('../uploads').upload();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const user = auth.requireUser;
 const mod = auth.requireModule;
@@ -33,6 +33,11 @@ function sendFile(res, buffer, filename, type) {
 }
 
 // ------------------------------------------------------------------ document intake
+
+/** Presigned upload slot on Cloudflare R2 for a file too large to send through the server ({ enabled: false } when not configured) */
+router.post('/uploads', user, wrap(async (req, res) => {
+  res.json({ success: true, ...createUpload(req.user.id, req.body || {}) });
+}));
 
 /** Upload a manuscript / reference file: returns text, detected metadata, body & reference section */
 router.post('/extract', user, upload.single('file'), wrap(async (req, res) => {

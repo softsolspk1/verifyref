@@ -6,13 +6,52 @@ export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 export const state = { user: null, app: null, issues: [] };
 
+const MAX_UPLOAD_MB = 500;
+const DIRECT_MAX = 4 * 1024 * 1024; // Vercel refuses request bodies over 4.5 MB, so larger files go to R2
+
+/** Send large files in a form straight to Cloudflare R2; the form then carries "r2:<field>" references instead */
+async function viaStorage(form, onUpload) {
+  const big = [...form.entries()].filter(([, v]) => v instanceof File && v.size > DIRECT_MAX);
+  if (!big.length) return form;
+  for (const [, f] of big) if (f.size > MAX_UPLOAD_MB * 1024 * 1024) throw new Error(`${f.name} is too large (limit ${MAX_UPLOAD_MB} MB).`);
+  const total = big.reduce((a, [, f]) => a + f.size, 0);
+  let sent = 0;
+  const refs = new Map();
+  for (const [, f] of big) {
+    const slot = await api('/api/uploads', { body: { name: f.name, size: f.size, type: f.type } });
+    if (!slot.enabled) return form; // storage not configured: try the direct upload
+    await new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open('PUT', slot.url);
+      if (f.type) x.setRequestHeader('Content-Type', f.type);
+      x.upload.onprogress = e => onUpload?.(Math.round((sent + e.loaded) / total * 100), f.name);
+      x.onload = () => (x.status < 300 ? resolve() : reject(new Error(`Upload of ${f.name} failed (${x.status}).`)));
+      x.onerror = () => reject(new Error(`Upload of ${f.name} failed. Check your connection and try again.`));
+      x.send(f);
+    });
+    sent += f.size;
+    refs.set(f, JSON.stringify({ key: slot.key, name: f.name, type: f.type, size: f.size }));
+  }
+  const out = new FormData();
+  for (const [k, v] of form.entries()) refs.has(v) ? out.append(`r2:${k}`, refs.get(v)) : out.append(k, v);
+  return out;
+}
+
+let uploadToast = null;
+function showUpload(pct, name) {
+  if (!uploadToast) { uploadToast = document.createElement('div'); uploadToast.className = 'toast'; $('#toasts')?.appendChild(uploadToast); }
+  uploadToast.textContent = `Uploading ${name}… ${pct}%`;
+}
+
 export async function api(url, opts = {}) {
   const init = { method: opts.method || (opts.body || opts.form ? 'POST' : 'GET'), headers: {} };
-  if (opts.form) init.body = opts.form;
+  if (opts.form) {
+    try { init.body = await viaStorage(opts.form, showUpload); } finally { uploadToast?.remove(); uploadToast = null; }
+  }
   else if (opts.body !== undefined) { init.body = JSON.stringify(opts.body); init.headers['Content-Type'] = 'application/json'; }
   const r = await fetch(url, init);
   if (r.status === 401) { location.href = '/'; throw new Error('Signed out'); }
-  if (r.status === 413) throw new Error('File too large to upload (limit 100 MB). Paste the text instead, or save the document without images.');
+  if (r.status === 413) throw new Error(`File too large to upload (limit ${MAX_UPLOAD_MB} MB). Paste the text instead, or save the document without images.`);
   const data = await r.json().catch(() => ({ success: false, message: `Server error (${r.status})` }));
   if (!r.ok || data.success === false) throw new Error(data.message || `Request failed (${r.status})`);
   return data;

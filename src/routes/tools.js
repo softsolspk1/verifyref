@@ -2,7 +2,6 @@
 // Find & Check a Conference, Thesis/Paper Assistant and Find by Author. Long runs are background jobs; on the
 // desktop, online-only tools are queued while offline and run when the connection returns.
 const express = require('express');
-const multer = require('multer');
 const cfg = require('../config');
 const auth = require('../auth');
 const P = require('../parse');
@@ -21,10 +20,11 @@ const { findJournals } = require('../tools/journalFinder');
 const { findConferences, checkConference } = require('../tools/conferences');
 const { runAssistant } = require('../tools/assistant');
 const { searchAuthors, authorWorks } = require('../tools/authors');
+const { upload: uploader, fileRef, loadFile, dropFiles } = require('../uploads');
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024, files: 41 } });
+const upload = uploader({ files: 41 });
 const mod = auth.requireModule;
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -53,7 +53,8 @@ function tool(kind, fn) {
   registerQueued(kind, fn);
 }
 
-const fileOf = req => (req.file ? { name: req.file.originalname, base64: req.file.buffer.toString('base64') } : null);
+const fileOf = req => fileRef(req.file);
+const loadSources = refs => Promise.all((refs || []).map(async f => ({ name: f.name, buffer: await loadFile(f) })));
 const bool = (v, d = true) => (v === undefined || v === '' ? d : !(v === false || v === 'false' || v === '0'));
 
 // ------------------------------------------------------------------ Reference Style
@@ -70,12 +71,13 @@ tool('restyle', async (input, { userId, update }) => {
   const onProgress = (d, n) => update(`Matching references to registered records (${d}/${n})`, 5 + d / n * 80);
   let result, out = null;
   if (input.file) {
-    const r = await restyleDocx(Buffer.from(input.file.base64, 'base64'), input.style, { lookup: input.lookup, onProgress, track: input.track, trackAuthor: `${input.trackAuthor || 'Editor'} (PJPS Reference Checker)` });
+    const r = await restyleDocx(await loadFile(input.file), input.style, { lookup: input.lookup, onProgress, track: input.track, trackAuthor: `${input.trackAuthor || 'Editor'} (PJPS Reference Checker)` });
     result = r.result;
     out = { base64: r.buffer.toString('base64'), name: input.file.name.replace(/\.docx$/i, `-${result.style}.docx`) };
   } else {
     result = await restyleList(input.text, input.style, { lookup: input.lookup, onProgress });
   }
+  await dropFiles(input.file);
   result.kind = 'restyle';
   result.filename = input.file?.name || null;
   const cs = result.compliance?.summary;
@@ -94,7 +96,8 @@ router.post('/format', mod('format'), upload.single('file'), wrap(async (req, re
 
 tool('format', async (input, { userId, update }) => {
   update('Converting citations and references', 5);
-  const r = await formatManuscript(Buffer.from(input.file.base64, 'base64'), { ...input, style: input.style || undefined, onProgress: (d, n) => update(`Matching references (${d}/${n})`, 5 + d / n * 80) });
+  const r = await formatManuscript(await loadFile(input.file), { ...input, style: input.style || undefined, onProgress: (d, n) => update(`Matching references (${d}/${n})`, 5 + d / n * 80) });
+  await dropFiles(input.file);
   update('Applying the template', 92);
   const result = { kind: 'format', filename: input.file.name, ...r.result };
   if (input.save) await saveResult(userId, 'format', result, { title: `${result.templateLabel}: ${input.file.name}`, refTotal: result.restyle?.counts?.total || 0 });
@@ -118,13 +121,13 @@ router.post('/verify', mod('verify'), upload.fields([{ name: 'manuscript', maxCo
   } else {
     return res.status(400).json({ success: false, message: 'Upload the manuscript or paste its text including the reference list.' });
   }
-  input.files = (req.files?.sources || []).map(f => ({ name: f.originalname, base64: f.buffer.toString('base64') }));
+  input.files = (req.files?.sources || []).map(fileRef);
   await start(req, res, 'verify', input, { onlineOnly: input.files.length === 0, label: `Verify Citations: ${input.meta.title || 'manuscript'}` });
 }));
 
 tool('verify', async (input, { userId, update }) => {
-  const files = (input.files || []).map(f => ({ name: f.name, buffer: Buffer.from(f.base64, 'base64') }));
-  const result = await verifyCitations(input, files, update);
+  const result = await verifyCitations(input, await loadSources(input.files), update);
+  await dropFiles(input.files);
   if (input.save !== false) {
     const s = result.summary;
     await saveResult(userId, 'verify', result, {
@@ -161,13 +164,13 @@ router.post('/citations', mod('citations'), upload.fields([{ name: 'manuscript',
     return res.status(400).json({ success: false, message: 'Upload the manuscript or paste its text including the reference list.' });
   }
   input.meta = normalizeMeta(input.meta);
-  input.files = (req.files?.sources || []).map(f => ({ name: f.originalname, base64: f.buffer.toString('base64') }));
+  input.files = (req.files?.sources || []).map(fileRef);
   await start(req, res, 'citations-module', input, { label: `Citations: ${input.meta.title || 'manuscript'}` });
 }));
 
 tool('citations-module', async (input, { userId, update }) => {
-  const files = (input.files || []).map(f => ({ name: f.name, buffer: Buffer.from(f.base64, 'base64') }));
-  const result = await runCitationsModule(input, files, update);
+  const result = await runCitationsModule(input, await loadSources(input.files), update);
+  await dropFiles(input.files);
   if (input.save !== false) {
     const s = result.summary;
     await saveResult(userId, 'citations', result, {

@@ -106,7 +106,7 @@ app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'N
 app.use((err, req, res, next) => {
   console.error(err);
   if (res.headersSent) return next(err);
-  if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ success: false, message: 'The file is too large (limit 100 MB).' });
+  if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ success: false, message: `The file is too large (limit ${cfg.MAX_UPLOAD_MB} MB).` });
   res.status(err.status || 500).json({ success: false, message: err.message || 'Unexpected server error.' });
 });
 

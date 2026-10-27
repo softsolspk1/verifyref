@@ -2,7 +2,6 @@
 // access, password resets, desktop devices, audit log, usage statistics, integrity datasets and journal index lists.
 const express = require('express');
 const crypto = require('crypto');
-const multer = require('multer');
 const db = require('../db');
 const cfg = require('../config');
 const auth = require('../auth');
@@ -12,7 +11,7 @@ const { createJob, defineJob } = require('../jobs');
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+const upload = require('../uploads').upload();
 
 // User administration happens on the web platform only; the desktop edition mirrors accounts from it
 function webOnly(req, res, next) {

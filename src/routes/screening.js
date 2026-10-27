@@ -1,7 +1,6 @@
 // routes/screening.js - PJPS v4 editor modules: Module 4 Paper Mill Detection, Module 5 Image Integrity Detection,
 // the editor's decision record on a saved report, and the Module 1 reference-age rule.
 const express = require('express');
-const multer = require('multer');
 const db = require('../db');
 const auth = require('../auth');
 const P = require('../parse');
@@ -16,7 +15,7 @@ const { ageRule, setAgeRule } = require('../checks/indicators');
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+const upload = require('../uploads').upload();
 const mod = auth.requireModule;
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const lines = v => String(v || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);

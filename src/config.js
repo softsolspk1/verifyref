@@ -39,6 +39,9 @@ module.exports = {
   NCBI_API_KEY: env.NCBI_API_KEY || '',
   GOOGLE_BOOKS_API_KEY: env.GOOGLE_BOOKS_API_KEY || '',
   MAX_REFERENCES: parseInt(env.MAX_REFERENCES || '250', 10),
+  // Uploads: files larger than Vercel's 4.5 MB request limit go from the browser straight to Cloudflare R2
+  MAX_UPLOAD_MB: parseInt(env.MAX_UPLOAD_MB || '500', 10),
+  R2: { accountId: env.R2_ACCOUNT_ID || '', accessKeyId: env.R2_ACCESS_KEY_ID || '', secretAccessKey: env.R2_SECRET_ACCESS_KEY || '', bucket: env.R2_BUCKET || '' },
   SESSION_DAYS: parseInt(env.SESSION_DAYS || '14', 10),
   // E-mail notifications (alerts, retraction notices). Leave SMTP_HOST empty for in-app notifications only.
   SMTP: {

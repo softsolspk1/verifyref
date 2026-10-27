@@ -45,7 +45,7 @@ async function extractDocument(buffer, filename, mimetype) {
   if (ext === '.docx' || /wordprocessingml/.test(mimetype || '')) {
     const mammoth = require('mammoth');
     // Use HTML so superscript citation numbers survive as [n]
-    const { value: rawHtml } = await mammoth.convertToHtml({ buffer });
+    const { value: rawHtml } = await mammoth.convertToHtml({ buffer }, { convertImage: mammoth.images.imgElement(() => ({ src: '' })) });
     // Footnotes: mammoth lists them after the body. Put each note's text where it is called, so citations inside footnotes
     // count as citations and the note text is not mistaken for a reference-list entry.
     let html = rawHtml;

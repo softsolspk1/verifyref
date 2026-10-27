@@ -38,7 +38,8 @@ app.get('/api/app', wrap(async (req, res) => {
     name: cfg.APP_NAME, vendor: cfg.APP_VENDOR, version: cfg.APP_VERSION, desktop: cfg.DESKTOP, online: isOnline(),
     homeJournal: cfg.HOME_JOURNAL, user: auth.publicUser(req.user) || null,
     remoteUrl: cfg.DESKTOP ? await require('./src/desktop').remoteUrl() : null,
-    modules: MODULES, roles: ROLES, styles: STYLE_LIST, templates: TEMPLATE_LIST, articleTypes: ARTICLE_TYPE_LIST
+    modules: MODULES, roles: ROLES, styles: STYLE_LIST, templates: TEMPLATE_LIST, articleTypes: ARTICLE_TYPE_LIST,
+    uploads: { largeFiles: require('./src/uploads').enabled(), maxMb: cfg.MAX_UPLOAD_MB }
   });
 }));
 

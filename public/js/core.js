@@ -19,14 +19,14 @@ async function viaStorage(form, onUpload) {
   const refs = new Map();
   for (const [, f] of big) {
     const slot = await api('/api/uploads', { body: { name: f.name, size: f.size, type: f.type } });
-    if (!slot.enabled) return form; // storage not configured: try the direct upload
+    if (!slot.enabled) throw new Error(`${f.name} is ${(f.size / 1048576).toFixed(1)} MB. Files over 4 MB need large-file storage (Cloudflare R2), which is not configured on this server - ask the administrator to set the R2_* environment variables.`);
     await new Promise((resolve, reject) => {
       const x = new XMLHttpRequest();
       x.open('PUT', slot.url);
       if (f.type) x.setRequestHeader('Content-Type', f.type);
       x.upload.onprogress = e => onUpload?.(Math.round((sent + e.loaded) / total * 100), f.name);
       x.onload = () => (x.status < 300 ? resolve() : reject(new Error(`Upload of ${f.name} failed (${x.status}).`)));
-      x.onerror = () => reject(new Error(`Upload of ${f.name} failed. Check your connection and try again.`));
+      x.onerror = () => reject(new Error(`Upload of ${f.name} to storage failed. Check your connection; if it keeps failing, the storage bucket's CORS policy must allow ${location.origin}.`));
       x.send(f);
     });
     sent += f.size;

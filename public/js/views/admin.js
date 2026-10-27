@@ -38,13 +38,14 @@ export async function renderAdmin(view) {
 
     <div class="card">
       <h2>Journal index lists</h2>
-      ${desk ? '<p class="muted">Lists are uploaded by the Super Admin on the web platform.</p>' : `<p class="muted">Scopus, Web of Science, JCR and HEC HJRS lists are licensed or behind logins, so upload the current CSV files your journal has access to. Columns are detected automatically (title, ISSN, eISSN, quartile, category). Excel files: save as <b>CSV UTF-8</b> first.</p>
+      ${desk ? '<p class="muted">Lists are uploaded by the Super Admin on the web platform.</p>' : `<p class="muted">Scopus, Web of Science, JCR, EBSCO and HEC HJRS lists are licensed or behind logins, so upload the current CSV files your journal has access to. Columns are detected automatically (title, ISSN, eISSN, quartile, category). Excel files: save as <b>CSV UTF-8</b> first.</p>
       <ul class="muted" style="font-size:13px">
         <li><b>SJR</b>: scimagojr.com → Journal Rankings → Download data (gives Scopus quartiles).</li>
         <li><b>Scopus source list</b>: Elsevier “Scopus Sources” page → download the source list workbook → save as CSV (include the conference proceedings sheet for conference coverage).</li>
-        <li><b>Web of Science</b>: Master Journal List (mjl.clarivate.com) → each collection → Download (SCIE, SSCI, AHCI, ESCI separately).</li>
+        <li><b>Web of Science</b>: scimagojr.com → Journal Rankings → “Only WoS Journals” → Download data.</li>
         <li><b>JCR</b>: Journal Citation Reports export (needs a JCR subscription).</li>
         <li><b>HEC HJRS</b>: hjrs.hec.gov.pk → journal list export (Category W/X/Y).</li>
+        <li><b>EBSCO</b>: ebsco.com/title-lists → download the title list of each database you need (Excel). To load several databases, paste them into one sheet and add a <b>Database</b> column, then save as CSV. A new upload replaces the previous EBSCO list.</li>
       </ul>`}
       <div class="table-wrap"><table class="t">
         <tr><th>List</th><th class="num">Rows</th><th>Uploaded</th><th></th></tr>

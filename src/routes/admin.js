@@ -12,7 +12,7 @@ const { createJob, defineJob } = require('../jobs');
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 
 // User administration happens on the web platform only; the desktop edition mirrors accounts from it
 function webOnly(req, res, next) {

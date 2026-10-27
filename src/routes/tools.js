@@ -24,7 +24,7 @@ const { searchAuthors, authorWorks } = require('../tools/authors');
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 41 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024, files: 41 } });
 const mod = auth.requireModule;
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -209,9 +209,9 @@ tool('journal-finder', async (input, { userId, update }) => {
 
 router.post('/journal-finder/export', mod('journal-finder'), wrap(async (req, res) => {
   const list = req.body?.journals || [];
-  const csv = F.toCsv(['Journal', 'Publisher', 'ISSN', 'Similar papers (3 yrs)', 'Scope match', 'Scopus', 'SJR quartile', 'Web of Science', 'JCR quartile', 'HEC HJRS', 'MEDLINE', 'DOAJ', 'Open access', 'APC (USD)', 'Diamond OA', 'Weeks to publication', 'Articles last year', 'Risk signals', 'Example paper', 'Homepage'],
+  const csv = F.toCsv(['Journal', 'Publisher', 'ISSN', 'Similar papers (3 yrs)', 'Scope match', 'Scopus', 'SJR quartile', 'Web of Science', 'JCR quartile', 'HEC HJRS', 'EBSCO', 'MEDLINE', 'DOAJ', 'Open access', 'APC (USD)', 'Diamond OA', 'Weeks to publication', 'Articles last year', 'Risk signals', 'Example paper', 'Homepage'],
     list.map(j => [j.name, j.publisher || '', (j.issns || []).join(' '), j.similar, j.scopeMatch, j.indexing.scopus === null ? 'unknown' : j.indexing.scopus ? 'yes' : 'no', j.indexing.sjrQuartile ? `Q${j.indexing.sjrQuartile}` : '', (j.indexing.wos || []).join(' '),
-      j.indexing.jcrQuartile ? `Q${j.indexing.jcrQuartile}` : '', j.indexing.hjrs || '', j.indexing.medline === null ? '' : j.indexing.medline ? 'yes' : 'no', j.doaj ? 'yes' : 'no', j.oa ? 'yes' : 'no', j.apcUsd ?? '', j.diamond ? 'yes' : 'no',
+      j.indexing.jcrQuartile ? `Q${j.indexing.jcrQuartile}` : '', j.indexing.hjrs || '', j.indexing.ebsco ? 'yes' : 'no', j.indexing.medline === null ? '' : j.indexing.medline ? 'yes' : 'no', j.doaj ? 'yes' : 'no', j.oa ? 'yes' : 'no', j.apcUsd ?? '', j.diamond ? 'yes' : 'no',
       j.weeksToPublication || '', j.worksLastYear, (j.flags || []).map(f => f.message).join('; '), j.samples?.[0]?.title || '', j.homepage || '']));
   sendFile(res, Buffer.from(csv, 'utf8'), 'journal-suggestions.csv', 'text/csv; charset=utf-8');
 }));

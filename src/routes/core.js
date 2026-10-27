@@ -20,7 +20,7 @@ const { isOnline } = require('../http');
 const { enqueue, registerQueued } = require('../queue');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const user = auth.requireUser;
 const mod = auth.requireModule;

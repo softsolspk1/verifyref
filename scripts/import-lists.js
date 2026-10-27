@@ -1,6 +1,6 @@
 // import-lists.js - load journal index lists from data/lists into the database.
 // Usage: node scripts/import-lists.js
-// File names (without extension) map to list types, e.g. data/lists/jcr.csv, hjrs.csv, wos_scie.csv, sjr.csv
+// File names (without extension) map to list types, e.g. data/lists/jcr.csv, hjrs.csv, wos_sjr.csv, sjr.csv
 require('../src/config'); // loads .env
 const fs = require('fs');
 const path = require('path');

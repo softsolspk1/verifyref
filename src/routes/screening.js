@@ -16,7 +16,7 @@ const { ageRule, setAgeRule } = require('../checks/indicators');
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 const mod = auth.requireModule;
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const lines = v => String(v || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);

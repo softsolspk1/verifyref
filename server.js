@@ -15,7 +15,7 @@ const { isOnline, probe } = require('./src/http');
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '60mb' }));
+app.use(express.json({ limit: '100mb' }));
 
 // Schema + first Super Admin, once per instance (on Vercel there is no start-up hook)
 let ready = null;
@@ -106,7 +106,7 @@ app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'N
 app.use((err, req, res, next) => {
   console.error(err);
   if (res.headersSent) return next(err);
-  if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ success: false, message: 'The file is too large.' });
+  if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ success: false, message: 'The file is too large (limit 100 MB).' });
   res.status(err.status || 500).json({ success: false, message: err.message || 'Unexpected server error.' });
 });
 

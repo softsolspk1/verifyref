@@ -175,7 +175,7 @@ function journalFinderBlocks(r) {
   return [
     { h1: 'Journal Suggestions' },
     { kv: [['Paper', r.title], ['Similar papers screened', String(r.screened)], ['Period', `${r.since}–present`]] },
-    { table: { headers: ['Journal', 'Similar papers', 'Indexing', 'Quartile', 'Access / APC', 'Weeks', 'Signals'], rows: list.map(j => [`${j.name}${j.publisher ? ` (${j.publisher})` : ''}`, String(j.similar), [j.indexing.scopus ? 'Scopus' : null, ...(j.indexing.wos || []), j.indexing.medline ? 'MEDLINE' : null, j.doaj ? 'DOAJ' : null, j.indexing.hjrs ? `HJRS ${j.indexing.hjrs}` : null].filter(Boolean).join(', ') || '—', j.quartile ? `Q${j.quartile}` : '—', `${j.diamond ? 'Diamond OA' : j.oa ? 'Open access' : 'Subscription/hybrid'}${j.apcUsd ? ` · $${j.apcUsd}` : ''}`, j.weeksToPublication ? String(j.weeksToPublication) : '—', (j.flags || []).map(f => f.message).join('; ') || (j.scopeMatch === 'weak' ? 'Weak scope match' : '')]) } }
+    { table: { headers: ['Journal', 'Similar papers', 'Indexing', 'Quartile', 'Access / APC', 'Weeks', 'Signals'], rows: list.map(j => [`${j.name}${j.publisher ? ` (${j.publisher})` : ''}`, String(j.similar), [j.indexing.scopus ? 'Scopus' : null, ...(j.indexing.wos || []), j.indexing.medline ? 'MEDLINE' : null, j.doaj ? 'DOAJ' : null, j.indexing.ebsco ? 'EBSCO' : null, j.indexing.hjrs ? `HJRS ${j.indexing.hjrs}` : null].filter(Boolean).join(', ') || '—', j.quartile ? `Q${j.quartile}` : '—', `${j.diamond ? 'Diamond OA' : j.oa ? 'Open access' : 'Subscription/hybrid'}${j.apcUsd ? ` · $${j.apcUsd}` : ''}`, j.weeksToPublication ? String(j.weeksToPublication) : '—', (j.flags || []).map(f => f.message).join('; ') || (j.scopeMatch === 'weak' ? 'Weak scope match' : '')]) } }
   ];
 }
 

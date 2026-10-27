@@ -203,12 +203,9 @@ const LIST_TYPES = {
   sjr: 'SCImago Journal Rank (Scopus quartiles) — CSV export from scimagojr.com',
   scopus: 'Scopus Source List — CSV saved from Elsevier\'s source list workbook',
   wos_sjr: 'Web of Science-indexed journals — SCImago export with the "Only WoS Journals" filter (no index split)',
-  wos_scie: 'Web of Science — Science Citation Index Expanded (SCIE) — MJL CSV',
-  wos_ssci: 'Web of Science — Social Sciences Citation Index (SSCI) — MJL CSV',
-  wos_ahci: 'Web of Science — Arts & Humanities Citation Index (AHCI) — MJL CSV',
-  wos_esci: 'Web of Science — Emerging Sources Citation Index (ESCI) — MJL CSV',
   jcr: 'Journal Citation Reports (JIF quartiles) — CSV export',
   hjrs: 'HEC Journal Recognition System (HJRS) — W/X/Y categories CSV',
+  ebsco: 'EBSCO database coverage (title lists, e.g. Academic Search Complete, CINAHL, Business Source) — CSV; combine several databases in one file with a "Database" column',
   hec_blacklist: 'HEC / institutional list of predatory or blacklisted journals — CSV',
   doaj_removed: 'Journals removed from DOAJ — CSV (optional)'
 };
@@ -262,8 +259,8 @@ async function listLookupAll(issns = [], title = '') {
   const tn = title ? normalizeJournal(title) : null;
   if (!is.length && !tn) return {};
   const rows = await db.all(
-    `SELECT * FROM journal_list_entries WHERE issn = ANY($1::text[]) OR eissn = ANY($1::text[]) OR ($2::text IS NOT NULL AND title_norm = $2)`,
-    [is, tn]);
+    `SELECT * FROM journal_list_entries WHERE list_type = ANY($3::text[]) AND (issn = ANY($1::text[]) OR eissn = ANY($1::text[]) OR ($2::text IS NOT NULL AND title_norm = $2))`,
+    [is, tn, Object.keys(LIST_TYPES)]);
   const out = {};
   for (const r of rows) {
     const byIssn = is.includes(r.issn) || is.includes(r.eissn);
@@ -287,7 +284,7 @@ async function listEntries(listType, { q = '', page = 1, size = 50 } = {}) {
 }
 
 async function listStatus() {
-  const uploaded = Object.fromEntries((await db.all('SELECT * FROM journal_lists')).map(r => [r.list_type, r]));
+  const uploaded = Object.fromEntries((await db.all('SELECT * FROM journal_lists WHERE list_type = ANY($1::text[])', [Object.keys(LIST_TYPES)])).map(r => [r.list_type, r]));
   return {
     lists: Object.entries(LIST_TYPES).map(([type, label]) => ({ type, label, ...(uploaded[type] || {}) })),
     retractionWatch: { loadedAt: await getMeta('rw_loaded_at'), count: parseInt((await getMeta('rw_count')) || '0', 10) },

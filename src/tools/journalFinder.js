@@ -96,6 +96,7 @@ async function findJournals(input, update = () => {}) {
         sjrQuartile: sjrQ, citeScore: lists.scopus?.citeScore || null,
         wos: (lists.wos || []).map(w => w.index), jcrQuartile: jcrQ, jif: lists.jcr?.jif || null,
         hjrs: lists.hjrs?.category ? String(lists.hjrs.category).trim().toUpperCase().slice(0, 1) : null,
+        ebsco: !!lists.ebsco,
         medline: null
       },
       quartile: [sjrQ, jcrQ].filter(Boolean).sort()[0] || null,

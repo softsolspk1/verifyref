@@ -24,7 +24,7 @@ export function renderJournalFinder(view) {
 }
 
 const FILTERS = {
-  index: { label: 'Indexing', options: [['any', 'Any'], ['scopus', 'Scopus'], ['wos', 'Web of Science (any)'], ['scie', 'SCIE'], ['ssci', 'SSCI'], ['esci', 'ESCI'], ['medline', 'MEDLINE'], ['doaj', 'DOAJ'], ['hjrs', 'HEC HJRS (any)'], ['hjrs-wx', 'HJRS W or X'], ['hjrs-w', 'HJRS W']] },
+  index: { label: 'Indexing', options: [['any', 'Any'], ['scopus', 'Scopus'], ['wos', 'Web of Science'], ['medline', 'MEDLINE'], ['doaj', 'DOAJ'], ['ebsco', 'EBSCO'], ['hjrs', 'HEC HJRS (any)'], ['hjrs-wx', 'HJRS W or X'], ['hjrs-w', 'HJRS W']] },
   quartile: { label: 'Minimum quartile', options: [['any', 'Any'], ['1', 'Q1'], ['2', 'Q2 or better'], ['3', 'Q3 or better']] },
   access: { label: 'Access', options: [['any', 'Any'], ['oa', 'Open access'], ['diamond', 'Diamond OA (no fee)'], ['sub', 'Subscription / hybrid']] },
   apc: { label: 'Maximum APC', options: [['any', 'Any'], ['0', 'No fee'], ['500', '≤ $500'], ['1000', '≤ $1,000'], ['2000', '≤ $2,000'], ['3000', '≤ $3,000']] },
@@ -36,8 +36,8 @@ function reasons(j, f) {
   const out = [];
   const ix = j.indexing;
   const idx = {
-    scopus: [ix.scopus === true, 'not in the uploaded Scopus/SJR list'], wos: [ix.wos.length > 0, 'not in Web of Science lists'], scie: [ix.wos.includes('SCIE'), 'not SCIE'], ssci: [ix.wos.includes('SSCI'), 'not SSCI'], esci: [ix.wos.includes('ESCI'), 'not ESCI'],
-    medline: [ix.medline === true, 'not MEDLINE-indexed'], doaj: [j.doaj, 'not in DOAJ'], hjrs: [!!ix.hjrs, 'not in HEC HJRS'], 'hjrs-wx': [['W', 'X'].includes(ix.hjrs), `HJRS ${ix.hjrs || 'none'}`], 'hjrs-w': [ix.hjrs === 'W', `HJRS ${ix.hjrs || 'none'}`]
+    scopus: [ix.scopus === true, 'not in the uploaded Scopus/SJR list'], wos: [ix.wos.length > 0, 'not in Web of Science lists'],
+    medline: [ix.medline === true, 'not MEDLINE-indexed'], doaj: [j.doaj, 'not in DOAJ'], ebsco: [!!ix.ebsco, 'not in the EBSCO lists'], hjrs: [!!ix.hjrs, 'not in HEC HJRS'], 'hjrs-wx': [['W', 'X'].includes(ix.hjrs), `HJRS ${ix.hjrs || 'none'}`], 'hjrs-w': [ix.hjrs === 'W', `HJRS ${ix.hjrs || 'none'}`]
   };
   if (f.index !== 'any' && !idx[f.index][0]) out.push(idx[f.index][1]);
   if (f.quartile !== 'any' && !(j.quartile && j.quartile <= +f.quartile)) out.push(j.quartile ? `Q${j.quartile}` : 'no quartile');
@@ -51,7 +51,7 @@ function reasons(j, f) {
 
 function jRow(j, why) {
   const ix = j.indexing;
-  const tags = [ix.scopus ? badge('Scopus', 'good') : '', ...ix.wos.map(w => badge(w, 'good')), ix.medline ? badge('MEDLINE', 'good') : '', j.doaj ? badge('DOAJ', 'good') : '', ix.hjrs ? badge(`HJRS ${ix.hjrs}`, 'good') : '',
+  const tags = [ix.scopus ? badge('Scopus', 'good') : '', ...ix.wos.map(w => badge(w, 'good')), ix.medline ? badge('MEDLINE', 'good') : '', j.doaj ? badge('DOAJ', 'good') : '', ix.ebsco ? badge('EBSCO', 'good') : '', ix.hjrs ? badge(`HJRS ${ix.hjrs}`, 'good') : '',
     j.quartile ? badge(`Q${j.quartile}`, 'info') : '', j.diamond ? badge('Diamond OA', 'info') : j.oa ? badge('Open access', 'info') : '', j.apcUsd ? badge(`APC $${j.apcUsd.toLocaleString()}`, 'neutral') : j.apcUsd === 0 ? badge('No APC', 'good') : '',
     j.weeksToPublication ? badge(`~${j.weeksToPublication} weeks`, 'neutral') : ''].filter(Boolean).join(' ');
   return `<div class="jcard ${why ? 'excluded' : ''}">

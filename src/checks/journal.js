@@ -155,11 +155,8 @@ function interpretLists(hits) {
     };
   }
   const wos = [];
-  for (const [t, label] of [['wos_scie', 'SCIE'], ['wos_ssci', 'SSCI'], ['wos_ahci', 'AHCI'], ['wos_esci', 'ESCI']]) {
-    if (hits[t]) wos.push({ index: label, categories: pick(hits[t].data, [/categor/i]), matchedBy: hits[t].matchedBy });
-  }
-  // SCImago's WoS filter confirms Core Collection coverage but not which index; only used when no MJL list matched
-  if (!wos.length && hits.wos_sjr) wos.push({ index: 'Web of Science (index not specified)', categories: pick(hits.wos_sjr.data, [/categor/i]), matchedBy: hits.wos_sjr.matchedBy });
+  // SCImago's WoS filter confirms Core Collection coverage but not which index
+  if (hits.wos_sjr) wos.push({ index: 'Web of Science (index not specified)', categories: pick(hits.wos_sjr.data, [/categor/i]), matchedBy: hits.wos_sjr.matchedBy });
   if (wos.length) out.wos = wos;
   if (hits.jcr) {
     const d = hits.jcr.data;
@@ -168,6 +165,21 @@ function interpretLists(hits) {
   if (hits.hjrs) {
     const d = hits.hjrs.data;
     out.hjrs = { category: pick(d, [/^category$/i, /hjrs.*cat/i, /categor/i, /^cat/i]), subject: pick(d, [/subject|discipline|area/i]), matchedBy: hits.hjrs.matchedBy };
+  }
+  if (hits.ebsco) {
+    const d = hits.ebsco.data;
+    const yes = v => v == null ? null : /^(y|yes|true|1)$/i.test(String(v).trim());
+    out.ebsco = {
+      database: pick(d, [/^database/i, /^product/i, /^collection/i]),
+      peerReviewed: yes(pick(d, [/peer.?review/i])),
+      indexStart: pick(d, [/index.*start/i, /abstract.*start/i]),
+      indexStop: pick(d, [/index.*stop/i, /abstract.*stop/i]),
+      fullTextStart: pick(d, [/full.?text.*start/i]),
+      fullTextStop: pick(d, [/full.?text.*stop/i]),
+      embargoMonths: pick(d, [/delay|embargo/i]),
+      coverage: pick(d, [/coverage policy/i, /coverage/i]),
+      matchedBy: hits.ebsco.matchedBy
+    };
   }
   if (hits.hec_blacklist) out.hecBlacklist = { matchedBy: hits.hec_blacklist.matchedBy, data: hits.hec_blacklist.data };
   if (hits.doaj_removed) out.doajRemoved = { reason: pick(hits.doaj_removed.data, [/reason/i]), date: pick(hits.doaj_removed.data, [/date/i]) };
@@ -237,6 +249,7 @@ async function checkJournal(input) {
   if (medline) indexed.push('MEDLINE');
   if (doaj.inDoaj) indexed.push('DOAJ');
   if (lists.hjrs?.category) indexed.push(`HJRS ${lists.hjrs.category}`);
+  if (lists.ebsco) indexed.push('EBSCO');
 
   // Retractions relative to output — large journals naturally accumulate more in absolute terms
   const works = src?.works_count || 0;
@@ -283,7 +296,8 @@ async function checkJournal(input) {
       wos: { collections: lists.wos || [], listUploaded: null, jcrQuartile: lists.jcr?.quartile || null, jif: lists.jcr?.jif || null, jcrCategory: lists.jcr?.category || null },
       medline,
       doaj,
-      hjrs: lists.hjrs || null
+      hjrs: lists.hjrs || null,
+      ebsco: lists.ebsco || null
     },
     retractions: rw,
     predatory,

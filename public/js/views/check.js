@@ -31,7 +31,7 @@ export function renderCheckForm(view, kind) {
         <div class="dropzone" id="dz">
           <input type="file" id="file" accept=".pdf,.docx,.doc,.txt,.bib,.ris,.rtf,.odt" hidden>
           <div><strong>Upload ${m.needsBody ? 'the manuscript' : 'a manuscript or reference file'}</strong> — drag &amp; drop or click</div>
-          <div class="muted" style="margin-top:4px">Word (.docx), PDF, plain text${m.needsBody ? '' : ', BibTeX (.bib) or RIS (.ris)'} · up to 25 MB</div>
+          <div class="muted" style="margin-top:4px">Word (.docx), PDF, plain text${m.needsBody ? '' : ', BibTeX (.bib) or RIS (.ris)'} · up to 100 MB</div>
         </div>
         <div id="file-info" class="alert alert-info" hidden style="margin-top:12px"></div>
 

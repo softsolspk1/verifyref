@@ -15,6 +15,16 @@ async function openalexSourceByIssn(issn) {
 }
 
 async function nlmCatalog(name, issn) {
+  // Local NLM Catalog copy first: titles, abbreviations and ISSNs without two E-utilities calls per journal.
+  // The live record is still fetched when online because only it carries the current MEDLINE indexing status.
+  const local = await D.nlmJournal({ issns: issn ? [issn] : [], name }).catch(() => null);
+  if (local && !isOnline()) return { ...local, medline: null };
+  const live = await nlmCatalogLive(name, issn || local?.issns?.[0]).catch(() => null);
+  if (live) return { ...live, isoAbbrev: local?.isoAbbrev || '', pubmed: local?.pubmed ?? null };
+  return local ? { ...local, medline: null } : null;
+}
+
+async function nlmCatalogLive(name, issn) {
   const term = issn ? `${issn}[issn]` : `"${name.replace(/\./g, '')}"[ta]`;
   const s = await getJson(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=nlmcatalog&retmode=json&retmax=1&term=${enc(term)}`);
   const id = s.ok && s.data.esearchresult?.idlist?.[0];
@@ -88,6 +98,8 @@ async function wikidataScopus(issns) {
 }
 
 async function doajLookup(issns) {
+  const local = await D.doajLocal(issns).catch(() => null);
+  if (local) return local;
   for (const i of issns) {
     const r = await getJson(`https://doaj.org/api/search/journals/issn%3A${enc(i)}`, { ttl: 7 * 86400 });
     const j = r.ok && r.data.results?.[0];
@@ -202,7 +214,7 @@ async function checkJournal(input) {
   const [listHits, wd, doaj, rw, predatory, portal] = await Promise.all([
     D.listLookupAll(issns, name),
     wikidataScopus(issns),
-    offline ? { inDoaj: null } : issns.length ? doajLookup(issns) : { inDoaj: !!src?.is_in_doaj },
+    issns.length ? (offline ? D.doajLocal(issns).then(r => r || { inDoaj: null }) : doajLookup(issns)) : { inDoaj: offline ? null : !!src?.is_in_doaj },
     name ? D.journalRetractionCounts(name) : { retractions: 0, concerns: 0, corrections: 0 },
     D.predatoryMatches({ journal: name, publisher: resolved?.publisher, homepage: src?.homepage_url }),
     issns[0] ? issnPortal(issns[0]) : { registered: null }

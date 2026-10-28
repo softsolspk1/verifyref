@@ -57,6 +57,16 @@ export async function renderAdmin(view) {
             <td>${ds.fdaOrangeBook?.loadedAt ? fmtDate(ds.fdaOrangeBook.loadedAt) : badge('not loaded', 'warn')}</td>
             <td>${ds.fdaOrangeBook?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
           </tr>
+          ${[
+            ['NLM Catalog journal list', 'NCBI list of journals in PubMed and the NCBI databases: full titles, NLM / ISO abbreviations and ISSNs (journal resolution, Module 2 abbreviation check)', ds.nlm],
+            ['DOAJ journal list', 'Directory of Open Access Journals: every DOAJ-listed journal with publisher, APC, licence and review process (Journal Check, predatory screening)', ds.doaj]
+          ].map(([name, desc, d]) => `<tr>
+            <td><b>${name}</b><div class="muted">${desc}</div></td>
+            <td>Journal index</td>
+            <td class="num">${d?.count ? Number(d.count).toLocaleString() : '0'}</td>
+            <td>${d?.loadedAt ? fmtDate(d.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${d?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+          </tr>`).join('')}
           <tr>
             <td><b>ICLAC Register of Misidentified Cell Lines</b><div class="muted">Cross-contaminated and misidentified human cell lines (ICLAC v14)</div></td>
             <td>Integrity</td>
@@ -85,7 +95,7 @@ export async function renderAdmin(view) {
           }).join('')}
         </tbody>
       </table></div>
-      <p class="muted" style="margin:10px 0 0">${desk ? 'Synchronised from the web platform; use “Sync & offline queue” to update.' : 'Both refresh automatically every 7 days. Alerts and retraction monitoring run daily.'}</p>
+      <p class="muted" style="margin:10px 0 0">${desk ? 'Synchronised from the web platform; use “Sync & offline queue” to update.' : 'Downloadable datasets refresh automatically every 7 days. Alerts and retraction monitoring run daily.'}</p>
       <div id="refresh-progress"></div>
     </div>
 

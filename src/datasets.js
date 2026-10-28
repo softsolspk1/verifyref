@@ -460,6 +460,119 @@ async function fdaValidateDrug({ name, ingredient, applNo }) {
   };
 }
 
+// ------------------------------------------------------------------ NLM Catalog journal list (NCBI)
+
+const NLM_ENTREZ_URL = 'https://ftp.ncbi.nlm.nih.gov/pubmed/J_Entrez.txt';
+const NLM_PUBMED_URL = 'https://ftp.ncbi.nlm.nih.gov/pubmed/J_Medline.txt';
+
+/** J_Entrez.txt / J_Medline.txt: "Field: value" records separated by dashed lines */
+function parseNlmJournals(text) {
+  const out = [];
+  for (const block of String(text).split(/^-{10,}\s*$/m)) {
+    const rec = {};
+    for (const m of block.matchAll(/^([A-Za-z() ]+):[ \t]*(.*)$/gm)) rec[m[1].trim()] = m[2].trim();
+    if (rec.NlmId && rec.JournalTitle) out.push(rec);
+  }
+  return out;
+}
+
+async function loadNlmCatalog() {
+  const [all, pm] = await Promise.all([NLM_ENTREZ_URL, NLM_PUBMED_URL].map(u => getText(u, { ttl: 0, timeout: 300000, retries: 2 })));
+  if (!all.ok || !all.text) throw new Error(`NLM Catalog download failed (${all.status || all.error})`);
+  const pubmed = new Set(pm.ok ? parseNlmJournals(pm.text).map(r => r.NlmId) : []);
+  const byId = new Map();
+  for (const r of parseNlmJournals(all.text)) {
+    const abbr = r.IsoAbbr || r.MedAbbr || '';
+    byId.set(r.NlmId, [r.NlmId, r.JournalTitle, normalizeJournal(r.JournalTitle), r.MedAbbr || '', r.IsoAbbr || '', abbr ? normalizeJournal(abbr) : '',
+      cleanIssn(r['ISSN (Print)']) || null, cleanIssn(r['ISSN (Online)']) || null, pubmed.has(r.NlmId)]);
+  }
+  const rows = [...byId.values()];
+  if (rows.length < 10000) throw new Error('NLM Catalog parse returned too few journals');
+  await transaction(async client => {
+    await client.query('TRUNCATE nlm_journals');
+    await bulkInsert(client, 'nlm_journals', [...['nlm_id', 'title', 'title_norm', 'med_abbr', 'iso_abbr', 'abbr_norm', 'issn', 'eissn'].map(name => ({ name, type: 'text' })), { name: 'pubmed', type: 'boolean' }], rows);
+  });
+  nlmCache.clear();
+  await setMeta('nlm_loaded_at', new Date().toISOString());
+  await setMeta('nlm_count', rows.length);
+  return rows.length;
+}
+
+/** ISO 4 abbreviation with full stops, as PJPS prints it: NLM's "Pak J Pharm Sci" + title -> "Pak. J. Pharm. Sci." */
+function dottedAbbrev(abbr, title) {
+  if (!abbr) return '';
+  const full = new Set(normalize(title).split(' '));
+  return abbr.split(/\s+/).map(w => /[.:,]$/.test(w) || full.has(normalize(w)) || !/^[A-Za-z]/.test(w) ? w : `${w}.`).join(' ');
+}
+
+const nlmCache = new Map();
+
+/** Local NLM Catalog record for a journal, by ISSN first, then full title or abbreviation. null when not found */
+async function nlmJournal({ issns = [], name = '' } = {}) {
+  const is = issns.map(cleanIssn).filter(Boolean);
+  const n = name ? normalizeJournal(name) : '';
+  if (!is.length && !n) return null;
+  const key = `${is.join(',')}|${n}`;
+  if (nlmCache.has(key)) return nlmCache.get(key);
+  let row = is.length ? await db.one('SELECT * FROM nlm_journals WHERE issn = ANY($1::text[]) OR eissn = ANY($1::text[]) LIMIT 1', [is]) : null;
+  if (!row && n) {
+    // several journals can share an abbreviation or title: only accept an unambiguous match
+    const rows = await db.all('SELECT * FROM nlm_journals WHERE title_norm = $1 OR abbr_norm = $1 LIMIT 3', [n]);
+    const exact = rows.filter(r => r.title_norm === n);
+    row = exact.length === 1 ? exact[0] : rows.length === 1 ? rows[0] : null;
+  }
+  const out = row ? {
+    id: row.nlm_id, title: row.title, abbrev: row.med_abbr, isoAbbrev: dottedAbbrev(row.iso_abbr || row.med_abbr, row.title),
+    issns: [row.issn, row.eissn].filter(Boolean), pubmed: row.pubmed, source: 'NLM Catalog (local copy)'
+  } : null;
+  if (nlmCache.size > 5000) nlmCache.delete(nlmCache.keys().next().value);
+  nlmCache.set(key, out);
+  return out;
+}
+
+// ------------------------------------------------------------------ DOAJ journal list
+
+const DOAJ_CSV_URL = 'https://doaj.org/csv';
+
+async function loadDoaj() {
+  const r = await getText(DOAJ_CSV_URL, { ttl: 0, timeout: 300000, retries: 2 });
+  if (!r.ok || !r.text) throw new Error(`DOAJ download failed (${r.status || r.error})`);
+  const rows = csvToObjects(r.text);
+  const col = (row, re) => { const k = Object.keys(row).find(h => re.test(h)); return k ? row[k] : ''; };
+  const data = [];
+  for (const row of rows) {
+    const title = col(row, /^journal title$/i);
+    const issn = cleanIssn(col(row, /issn \(print/i)) || null;
+    const eissn = cleanIssn(col(row, /eissn/i)) || null;
+    if (!title || (!issn && !eissn)) continue;
+    const apc = /^yes/i.test(col(row, /^apc$/i)) ? (col(row, /^apc amount$/i) || 'Yes') : 'No';
+    data.push([issn, eissn, title, normalizeJournal(title), col(row, /^publisher$/i), col(row, /^country of publisher$/i), col(row, /^journal url$/i),
+      apc, col(row, /^journal license$/i), col(row, /^review process$/i), parseInt(col(row, /average number of weeks/i), 10) || null, col(row, /^added on date$/i).slice(0, 10)]);
+  }
+  if (data.length < 5000) throw new Error('DOAJ parse returned too few journals');
+  await transaction(async client => {
+    await client.query('TRUNCATE doaj_journals');
+    await bulkInsert(client, 'doaj_journals', [...['issn', 'eissn', 'title', 'title_norm', 'publisher', 'country', 'url', 'apc', 'license', 'review'].map(name => ({ name, type: 'text' })),
+      { name: 'weeks', type: 'int' }, { name: 'added', type: 'text' }], data, 2000);
+  });
+  await setMeta('doaj_loaded_at', new Date().toISOString());
+  await setMeta('doaj_count', data.length);
+  return data.length;
+}
+
+/** Local DOAJ lookup by ISSN, same shape as journal.js doajLookup(); null when the local copy is not loaded */
+async function doajLocal(issns = []) {
+  if (!parseInt((await getMeta('doaj_count')) || '0', 10)) return null;
+  const is = issns.map(cleanIssn).filter(Boolean);
+  if (!is.length) return { inDoaj: false, source: 'DOAJ (local copy)' };
+  const j = await db.one('SELECT * FROM doaj_journals WHERE issn = ANY($1::text[]) OR eissn = ANY($1::text[]) LIMIT 1', [is]);
+  if (!j) return { inDoaj: false, source: 'DOAJ (local copy)' };
+  return {
+    inDoaj: true, title: j.title, publisher: j.publisher, country: j.country, apc: j.apc, review: j.review, weeksToPublication: j.weeks,
+    license: j.license, url: j.url || null, since: j.added || null, source: 'DOAJ (local copy)'
+  };
+}
+
 async function listStatus() {
   const allUploaded = await db.all('SELECT * FROM journal_lists');
   const uploaded = Object.fromEntries(allUploaded.map(r => [r.list_type, r]));
@@ -469,6 +582,8 @@ async function listStatus() {
     beall: { loadedAt: await getMeta('beall_loaded_at'), count: parseInt((await getMeta('beall_count')) || '0', 10) },
     screener: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('pps_count')) || '0', 10) },
     fdaOrangeBook: { loadedAt: await getMeta('fda_ob_loaded_at'), count: parseInt((await getMeta('fda_ob_count')) || '0', 10) },
+    nlm: { loadedAt: await getMeta('nlm_loaded_at'), count: parseInt((await getMeta('nlm_count')) || '0', 10) },
+    doaj: { loadedAt: await getMeta('doaj_loaded_at'), count: parseInt((await getMeta('doaj_count')) || '0', 10) },
     iclac: { loadedAt: null, count: 581, builtIn: true }
   };
 }
@@ -488,6 +603,8 @@ async function datasetHealth() {
     beall: { count: beall, loadedAt: await getMeta('beall_loaded_at') },
     screener: { count: pps, loadedAt: await getMeta('pps_loaded_at') },
     fdaOrangeBook: { count: fda, loadedAt: await getMeta('fda_ob_loaded_at') },
+    nlm: { count: parseInt((await getMeta('nlm_count')) || '0', 10), loadedAt: await getMeta('nlm_loaded_at') },
+    doaj: { count: parseInt((await getMeta('doaj_count')) || '0', 10), loadedAt: await getMeta('doaj_loaded_at') },
     complete: !missing.length,
     warning: missing.length ? 'Reference datasets are still loading or failed to load: ' + missing.join('; ') + '. Results that depend on them may be incomplete - run the check again after the datasets have loaded (Admin > Data).' : null
   };
@@ -518,11 +635,19 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
     try { results.fdaOrangeBook = await loadFdaOrangeBook({ log }); log(`FDA Orange Book: ${results.fdaOrangeBook} records loaded`); }
     catch (e) { results.fdaOrangeBookError = e.message; log(`FDA Orange Book load failed: ${e.message}`); }
   }
+  if (await stale('nlm_loaded_at')) {
+    try { results.nlm = await loadNlmCatalog(); log(`NLM Catalog: ${results.nlm} journals loaded`); }
+    catch (e) { results.nlmError = e.message; log(`NLM Catalog load failed: ${e.message}`); }
+  }
+  if (await stale('doaj_loaded_at')) {
+    try { results.doaj = await loadDoaj(); log(`DOAJ: ${results.doaj} journals loaded`); }
+    catch (e) { results.doajError = e.message; log(`DOAJ load failed: ${e.message}`); }
+  }
   return results;
 }
 
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
-  loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug,
+  loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf
 };

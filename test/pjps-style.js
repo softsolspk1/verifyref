@@ -27,4 +27,14 @@ assert(segs.some(s => s.b && s.t.trim() === '85'), 'volume not bold');
 // deviations that must be reported
 assert(checkEntry(P.parseReferenceEntry('Khan A et al. (2019). Antibacterial activity of medicinal plants. Pak. J. Pharm. Sci., 32(1): 1-5.', 1), null).deviations.some(d => /all authors/i.test(d.message)), 'et al. in the list not flagged');
 assert(checkEntry(P.parseReferenceEntry('World Health Organization (2020). Coronavirus disease (COVID-19) pandemic. Available at: https://www.who.int/emergencies/diseases/novel-coronavirus-2019', 1), null).deviations.some(d => d.rule === 'web'), 'missing access date not flagged');
-console.log('pjps style test passed (3 official examples, all authors, italic/bold)');
+// NLM Catalog: parse the NCBI journal file, PJPS-style dotted abbreviation, and the NLM-based abbreviation rule
+const { parseNlmJournals, dottedAbbrev } = require('../src/datasets');
+const nlmRecs = parseNlmJournals('--------------------------------------------------------\nJrId: 32507\nJournalTitle: Pakistan journal of pharmaceutical sciences\nMedAbbr: Pak J Pharm Sci\nISSN (Print): 1011-601X\nISSN (Online): \nIsoAbbr: Pak J Pharm Sci\nNlmId: 9426356\n--------------------------------------------------------\nJrId: 1\nJournalTitle: Nature\nMedAbbr: Nature\nIsoAbbr: Nature\nNlmId: 0410462\n');
+assert.strictEqual(nlmRecs.length, 2, 'NLM records not parsed');
+assert.strictEqual(nlmRecs[0]['ISSN (Print)'], '1011-601X');
+assert.strictEqual(dottedAbbrev('Pak J Pharm Sci', 'Pakistan journal of pharmaceutical sciences'), 'Pak. J. Pharm. Sci.');
+assert.strictEqual(dottedAbbrev('Nature', 'Nature'), 'Nature');
+const nlmPjps = { title: 'Pakistan journal of pharmaceutical sciences', isoAbbrev: 'Pak. J. Pharm. Sci.' };
+assert(checkEntry(P.parseReferenceEntry('Ali B (2018). Antibacterial activity of medicinal plants. Pakistan Journal of Pharmaceutical Sciences, 32(1): 1-5.', 1), null, nlmPjps).deviations.some(d => d.rule === 'journal' && d.expected === 'Pak. J. Pharm. Sci.'), 'full journal title not flagged with the NLM abbreviation');
+assert(!checkEntry(P.parseReferenceEntry(OFFICIAL.journal, 1), null, { title: 'Journal of pharmaceutical sciences', isoAbbrev: 'J. Pharm. Sci.' }).deviations.some(d => d.rule === 'journal'), 'abbreviated journal wrongly flagged');
+console.log('pjps style test passed (3 official examples, all authors, italic/bold, NLM abbreviations)');

@@ -8,7 +8,7 @@
 //   All authors are listed (no et al. in the list); source: pjps.pk/instructions/instructions-for-authors
 //   Order:    alphabetical by first author, then year; 2019a / 2019b for the same author and year
 const ST = require('../styles');
-const { surnameKey, stripDiacritics } = require('../text');
+const { surnameKey, stripDiacritics, normalizeJournal } = require('../text');
 
 
 const { ISO4, abbreviateJournal } = require('../abbrev');
@@ -39,7 +39,12 @@ function parts(text) {
  * Check one reference. ref: parsed entry; record: matched/merged record (optional) for the expected form.
  * Returns { index, original, expected, deviations: [{ rule, message, found, expected, severity }] }
  */
-function checkEntry(ref, record) {
+/** Journal name as written in the reference (PJPS layout first, then the general parser) */
+function journalNameOf(ref, p = parts(stripNumber(ref.raw))) {
+  return ((p?.source || '').split(/,|\s(?=\d)|\s(?=(?:vol|volume|no))/i)[0] || '').replace(/[,.\s]+$/, '').trim() || ref.journal || '';
+}
+
+function checkEntry(ref, record, nlm = null) {
   const text = stripNumber(ref.raw);
   const dev = [];
   const add = (rule, message, found = null, expected = null, severity = 'medium') => dev.push({ rule, message, found, expected, severity });
@@ -75,10 +80,12 @@ function checkEntry(ref, record) {
   // ---- source (journal / publisher)
   const source = p?.source || '';
   if (!book && !web) {
-    const jname = (source.split(/,|\s(?=\d)|\s(?=(?:vol|volume|no))/i)[0] || '').replace(/[,.\s]+$/, '').trim() || ref.journal || '';
-    if (jname && UNABBREVIATED.test(jname) && jname.split(/\s+/).length > 1) {
-      const exp = record?.journalAbbrev || abbreviateJournal(jname);
-      add('journal', 'Journal name abbreviated (ISO / NLM abbreviation)', jname, exp);
+    const jname = journalNameOf(ref, p);
+    // NLM Catalog abbreviation when the journal is in it (authoritative); otherwise the record's or the ISO 4 word table
+    const fullNlmTitle = nlm && normalizeJournal(jname) === normalizeJournal(nlm.title) && normalizeJournal(nlm.isoAbbrev) !== normalizeJournal(nlm.title);
+    if (jname && jname.split(/\s+/).length > 1 && (fullNlmTitle || UNABBREVIATED.test(jname))) {
+      const exp = nlm?.isoAbbrev || record?.journalAbbrev || abbreviateJournal(jname);
+      add('journal', `Journal name abbreviated (ISO / NLM abbreviation${nlm ? ', from the NLM Catalog' : ''})`, jname, exp);
     }
     if (/\bpp?\.\s*\d/i.test(source)) add('pages', 'No “pp.” before page numbers', 'pp.', null, 'low');
     if (/\b(?:vol|volume|no|issue)\.?\s*\d/i.test(source)) add('volume', 'Write volume and issue as 32(1), without “Vol.” or “No.”', source.match(/\b(?:vol|volume|no|issue)\.?\s*\d+/i)[0], null, 'low');
@@ -184,8 +191,19 @@ function dedupe(list) {
  * refs: parsed reference entries (original text); records: Map/array of matched records by position (optional);
  * body: manuscript text (optional) for the in-text rules.
  */
-function checkCompliance(refs, { records = [], body = '' } = {}) {
-  const entries = refs.map((r, i) => checkEntry(r, records[i] || null));
+/** NLM Catalog record of each reference's journal (local copy), for the abbreviation rule; null entries when unknown */
+async function nlmForRefs(refs, records = []) {
+  const D = require('../datasets');
+  return Promise.all(refs.map((r, i) => {
+    const rec = records[i];
+    const name = journalNameOf(r) || rec?.journal || '';
+    if (!name && !(rec?.issn || []).length) return null;
+    return D.nlmJournal({ issns: rec?.issn || [], name }).catch(() => null);
+  }));
+}
+
+function checkCompliance(refs, { records = [], body = '', nlm = [] } = {}) {
+  const entries = refs.map((r, i) => checkEntry(r, records[i] || null, nlm[i] || null));
   const list = listRules(refs);
   const inText = inTextRules(body, refs);
   for (const l of list) {
@@ -209,4 +227,4 @@ function checkCompliance(refs, { records = [], body = '' } = {}) {
   };
 }
 
-module.exports = { checkCompliance, checkEntry, abbreviateJournal, listRules, inTextRules };
+module.exports = { checkCompliance, nlmForRefs, checkEntry, abbreviateJournal, listRules, inTextRules };

@@ -107,10 +107,11 @@ async function runCheck(input, update) {
 
 /** Full Screening Report: add Module 2 compliance and Module 4 (+5) to a manuscript check, then the front page */
 async function screening(result, { input, body, refs, meta, update }) {
-  const { checkCompliance } = require('./checks/compliance');
+  const { checkCompliance, nlmForRefs } = require('./checks/compliance');
   update('Module 2: PJPS style compliance', 97);
   const recById = new Map(result.references.results.map(r => [r.index, r.record && r.status !== 'suspicious' ? r.record : null]));
-  result.compliance = checkCompliance(refs, { records: refs.map(r => recById.get(r.index) || null), body });
+  const records = refs.map(r => recById.get(r.index) || null);
+  result.compliance = checkCompliance(refs, { records, body, nlm: await nlmForRefs(refs, records) });
 
   update('Module 4: paper-mill signals', 98);
   const { detectPaperMill } = require('./papermill');

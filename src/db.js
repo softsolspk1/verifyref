@@ -137,6 +137,43 @@ CREATE INDEX IF NOT EXISTS idx_fda_ob_ing_norm ON fda_orange_book(ingredient_nor
 CREATE INDEX IF NOT EXISTS idx_fda_ob_trade_norm ON fda_orange_book(trade_name_norm);
 CREATE INDEX IF NOT EXISTS idx_fda_ob_appl_no ON fda_orange_book(appl_no);
 
+-- NLM Catalog journal list (NCBI J_Entrez.txt + J_Medline.txt): full titles, NLM/ISO abbreviations, ISSNs. Used for
+-- journal resolution (Module 1), the authoritative abbreviation check (Module 2) and cited-journal checks (Module 4)
+CREATE TABLE IF NOT EXISTS nlm_journals (
+  nlm_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  title_norm TEXT NOT NULL,
+  med_abbr TEXT,
+  iso_abbr TEXT,
+  abbr_norm TEXT,
+  issn TEXT,
+  eissn TEXT,
+  pubmed BOOLEAN NOT NULL DEFAULT false   -- listed in J_Medline.txt (journals cited in PubMed)
+);
+CREATE INDEX IF NOT EXISTS idx_nlm_title ON nlm_journals(title_norm);
+CREATE INDEX IF NOT EXISTS idx_nlm_abbr ON nlm_journals(abbr_norm);
+CREATE INDEX IF NOT EXISTS idx_nlm_issn ON nlm_journals(issn);
+CREATE INDEX IF NOT EXISTS idx_nlm_eissn ON nlm_journals(eissn);
+
+-- Directory of Open Access Journals (doaj.org/csv): full journal list, replaces one live API call per cited journal
+CREATE TABLE IF NOT EXISTS doaj_journals (
+  issn TEXT,
+  eissn TEXT,
+  title TEXT NOT NULL,
+  title_norm TEXT NOT NULL,
+  publisher TEXT,
+  country TEXT,
+  url TEXT,
+  apc TEXT,
+  license TEXT,
+  review TEXT,
+  weeks INTEGER,
+  added TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_doaj_issn ON doaj_journals(issn);
+CREATE INDEX IF NOT EXISTS idx_doaj_eissn ON doaj_journals(eissn);
+CREATE INDEX IF NOT EXISTS idx_doaj_title ON doaj_journals(title_norm);
+
 CREATE TABLE IF NOT EXISTS journal_lists (
   list_type TEXT PRIMARY KEY,
   filename TEXT,
@@ -414,6 +451,13 @@ function init() {
       if ((await rawQuery("SELECT value FROM meta WHERE key = 'schema_v3'")).rows.length === 0) {
         if (lite) await lite.exec(MIGRATE); else await pool.query(MIGRATE);
         await rawQuery("INSERT INTO meta(key, value) VALUES('schema_v3', now()::text) ON CONFLICT(key) DO NOTHING");
+      }
+      // Trigram index for the author-name search in Retraction Watch (ILIKE '%surname%' would otherwise scan every row).
+      // Optional: skipped where the pg_trgm extension is unavailable
+      if (!lite) {
+        await rawQuery('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+          .then(() => rawQuery('CREATE INDEX IF NOT EXISTS idx_retractions_authors_trgm ON retractions USING gin (authors gin_trgm_ops)'))
+          .catch(e => console.warn('pg_trgm not available, author retraction search stays unindexed:', e.message));
       }
       return true;
     })().catch(e => { ready = null; throw e; });

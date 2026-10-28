@@ -7,7 +7,7 @@ const { Docx } = require('../ooxml');
 const { verifyReference } = require('../checks/reference');
 const { isOnline } = require('../http');
 const { surnameKey, stripDiacritics } = require('../text');
-const { checkCompliance } = require('../checks/compliance');
+const { checkCompliance, nlmForRefs } = require('../checks/compliance');
 
 const REF_HEADING = /^\s*(?:\d+\.?\s*)?(references?|bibliography|literature cited|works cited|reference list|cited literature)\s*:?\s*$/i;
 const END_HEADING = /^\s*(?:appendix|appendices|tables?|figure legends|figure captions|supplementary (?:material|information)|author contributions|conflicts? of interest|acknowledge?ments?)\b/i;
@@ -108,12 +108,13 @@ async function restyleList(text, style, opts = {}) {
   const { items, lookedUp } = await resolveRecords(refs.slice(0, opts.max || 250), opts);
   items.forEach((it, i) => { it.firstCited = i; });
   const bib = buildBibliography(items, style);
-  return summary(bib, style, lookedUp, { citationsConverted: 0, compliance: complianceOf(refs.slice(0, items.length), items, opts.body || '') });
+  return summary(bib, style, lookedUp, { citationsConverted: 0, compliance: await complianceOf(refs.slice(0, items.length), items, opts.body || '') });
 }
 
 /** Module 2: PJPS compliance of the references as submitted (expected form from the matched record) */
-function complianceOf(refs, items, body) {
-  return checkCompliance(refs, { records: items.map(it => it.record), body });
+async function complianceOf(refs, items, body) {
+  const records = items.map(it => it.record);
+  return checkCompliance(refs, { records, body, nlm: await nlmForRefs(refs, records) });
 }
 
 function summary(bib, style, lookedUp, extra) {
@@ -307,7 +308,7 @@ async function restyleDocx(buffer, style, opts = {}) {
       citationSystem: system, citationsConverted: converted, unresolvedCitations: unresolved,
       uncited: items.filter((it, i) => firstCited[i] === null).map(it => it.ref.index),
       trackChanges: !!opts.track,
-      compliance: complianceOf(refs, items, bodyText)
+      compliance: await complianceOf(refs, items, bodyText)
     })
   };
 }

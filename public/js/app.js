@@ -25,6 +25,11 @@ import { renderCitations } from './views/citations.js';
 import { renderPaperMill } from './views/papermill.js';
 import { renderImages } from './views/images.js';
 import { renderDemo } from './views/demo.js';
+import { renderIntegrity } from './views/integrity.js';
+import { renderPeerReview } from './views/peerReview.js';
+import { renderMonitoring } from './views/monitoring.js';
+import { renderCases, renderCase } from './views/cases.js';
+import { renderApiKeys } from './views/apiKeys.js';
 
 // PJPS v4: the five modules and the Full Screening Report. The earlier tools stay in the code (routes below) but are
 // switched off in src/modules.js, so they are not shown and their routes refuse access.
@@ -38,6 +43,11 @@ const NAV = [
   { path: '/papermill', label: '4 · Paper Mill Detection', icon: 'papermill', module: 'papermill' },
   { path: '/images', label: '5 · Image Integrity', icon: 'image', module: 'images' },
   { path: '/demo', label: 'Demo data', icon: 'manuscript', hidden: true },
+  { group: 'Integrity Suite' },
+  { path: '/integrity', label: 'Integrity Screening', icon: 'integrity', module: 'integrity' },
+  { path: '/peer-review', label: 'Peer-Review Integrity', icon: 'peer', module: 'peer-review' },
+  { path: '/monitoring', label: 'Published Article Monitoring', icon: 'monitor', module: 'monitoring' },
+  { path: '/cases', label: 'Dashboard & Cases', icon: 'cases', module: 'cases' },
   { group: 'Earlier tools' },
   { path: '/verify', label: 'Verify Citations', icon: 'verify', module: 'verify', hidden: true },
   { path: '/evidence', label: 'Find Evidence', icon: 'evidence', module: 'evidence' },
@@ -57,7 +67,8 @@ const NAV = [
   { group: 'Administration', admin: true },
   { path: '/admin/users', label: 'Users', icon: 'users', admin: true },
   { path: '/admin/data', label: 'Datasets & journal lists', icon: 'data', admin: true },
-  { path: '/admin/audit', label: 'Audit log & usage', icon: 'audit', admin: true }
+  { path: '/admin/audit', label: 'Audit log & usage', icon: 'audit', admin: true },
+  { path: '/admin/api', label: 'Integrity API', icon: 'api', admin: true }
 ];
 
 const guard = (module, fn) => (v, m) => (hasModule(module) ? fn(v, m) : (v.innerHTML = '<div class="card empty">Your account does not have access to this tool. Ask the Super Admin to enable it.</div>'));
@@ -71,6 +82,11 @@ const ROUTES = [
   [/^\/citations$/, guard('citations', renderCitations)],
   [/^\/papermill$/, guard('papermill', renderPaperMill)],
   [/^\/images$/, guard('images', renderImages)],
+  [/^\/integrity$/, guard('integrity', renderIntegrity)],
+  [/^\/peer-review$/, guard('peer-review', renderPeerReview)],
+  [/^\/monitoring$/, guard('monitoring', renderMonitoring)],
+  [/^\/cases$/, guard('cases', renderCases)],
+  [/^\/cases\/(\d+)$/, guard('cases', (v, m) => renderCase(v, m[1]))],
   [/^\/restyle$/, guard('restyle', renderRestyle)],
   [/^\/verify$/, guard('verify', renderVerify)],
   [/^\/evidence$/, guard('evidence', renderEvidence)],
@@ -90,6 +106,7 @@ const ROUTES = [
   [/^\/admin\/users$/, adminOnly(renderUsers)],
   [/^\/admin\/data$/, adminOnly(renderAdmin)],
   [/^\/admin\/audit$/, adminOnly(renderAudit)],
+  [/^\/admin\/api$/, adminOnly(renderApiKeys)],
   [/^\/admin$/, adminOnly(renderUsers)],
   [/^\/account$/, renderAccount]
 ];
@@ -142,7 +159,7 @@ async function route() {
   for (const [re, fn] of ROUTES) {
     const m = path.match(re);
     if (m) {
-      try { await fn(view, m); if (/^\/(manuscript|references|restyle|citations|papermill|images)$/.test(path)) shareManuscript(view); } catch (e) { view.innerHTML = `<div class="alert alert-bad">${esc(e.message)}</div>`; }
+      try { await fn(view, m); if (/^\/(manuscript|references|restyle|citations|papermill|images|integrity)$/.test(path)) shareManuscript(view); } catch (e) { view.innerHTML = `<div class="alert alert-bad">${esc(e.message)}</div>`; }
       return;
     }
   }

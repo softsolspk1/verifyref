@@ -207,4 +207,18 @@ async function loadCheck(userId, id) {
   return { row, result };
 }
 
-module.exports = { runCheck, saveCheck, saveResult, loadCheck, prepare, normalizeMeta };
+/**
+ * Read-only access for integrity work: the owner, a Super Admin, or a user with case management for a report that is
+ * linked to an integrity case.
+ */
+async function loadShared(user, id) {
+  const own = await loadCheck(user.id, id);
+  if (own) return own;
+  const row = await db.one('SELECT user_id FROM checks WHERE id = $1', [id]);
+  if (!row) return null;
+  const { permissionsOf } = require('./modules');
+  const shared = user.role === 'super_admin' || (permissionsOf(user).includes('cases') && await db.one('SELECT 1 FROM cases WHERE check_ids @> $1::jsonb', [JSON.stringify([Number(id)])]));
+  return shared ? loadCheck(row.user_id, id) : null;
+}
+
+module.exports = { runCheck, saveCheck, saveResult, loadCheck, loadShared, prepare, normalizeMeta };

@@ -71,7 +71,7 @@ tool('restyle', async (input, { userId, update }) => {
   const onProgress = (d, n) => update(`Matching references to registered records (${d}/${n})`, 5 + d / n * 80);
   let result, out = null;
   if (input.file) {
-    const r = await restyleDocx(await loadFile(input.file), input.style, { lookup: input.lookup, onProgress, track: input.track, trackAuthor: `${input.trackAuthor || 'Editor'} (PJPS Reference Checker)` });
+    const r = await restyleDocx(await loadFile(input.file), input.style, { lookup: input.lookup, onProgress, track: input.track, trackAuthor: `${input.trackAuthor || 'Editor'} (PJPS Data Integration System)` });
     result = r.result;
     out = { base64: r.buffer.toString('base64'), name: input.file.name.replace(/\.docx$/i, `-${result.style}.docx`) };
   } else {

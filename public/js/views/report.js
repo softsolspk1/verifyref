@@ -34,7 +34,8 @@ const KIND_VIEWS = {
   restyle: ['./restyle.js', 'renderRestyleResult'], format: ['./format.js', 'renderFormatResult'], verify: ['./verify.js', 'renderVerifyResult'],
   evidence: ['./evidence.js', 'renderEvidenceResult'], 'journal-finder': ['./journalFinder.js', 'renderJournalFinderResult'],
   conferences: ['./conferences.js', 'renderConferenceResult'], assistant: ['./assistant.js', 'renderAssistantResult'], authors: ['./authors.js', 'renderAuthorWorks'],
-  papermill: ['./papermill.js', 'renderPaperMillResult'], images: ['./images.js', 'renderImagesResult']
+  papermill: ['./papermill.js', 'renderPaperMillResult'], images: ['./images.js', 'renderImagesResult'],
+  integrity: ['./integrity.js', 'renderIntegrityResult'], 'peer-review': ['./peerReview.js', 'renderPeerReviewResult']
 };
 
 const STATUS_ORDER = ['suspicious', 'retracted', 'miscited', 'pending', 'unverified', 'verified'];

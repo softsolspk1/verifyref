@@ -1,4 +1,4 @@
-# PJPS Reference Checker
+# PJPS Data Integration System
 
 **by Softsols Pakistan** — five-module manuscript screening portal for the *Pakistan Journal of Pharmaceutical Sciences* (web platform). The earlier Windows desktop edition is still in the repository but is not developed further for the v4 modules.
 
@@ -16,6 +16,31 @@ The portal is reduced to the five modules the PJPS Editor asked for, plus one Fu
 | **3 · Citations** | `#/citations` | A. citations ↔ list (missing, uncited, year, ambiguous, wrong “et al.”, numbering, citation blocks); B. claim support from uploaded PDFs / open access / abstracts; C. citation pattern; author letter EN/UR (`src/tools/citationsModule.js`). |
 | **4 · Paper Mill Detection** (editor) | `#/papermill` | Tortured phrases (Problematic Paper Screener list + editor additions), AI-text leftovers, template wording, vague methods, fabricated and mill-retracted references, predatory journals, citation stacking, author retractions (Retraction Watch by name), free-mail, ORCID checks, off-topic affiliations, authorship changes between versions, suggested reviewers, ICLAC misidentified cell lines, duplicate submissions (text fingerprints), hidden / look-alike characters used to defeat plagiarism software, a paper with the same title already published (Crossref), Module 5 findings by category. LOW / MEDIUM / HIGH with evidence; confidential Word export; decision record (`src/papermill/`). |
 | **5 · Image Integrity** (editor) | `#/images` | Runs **in the editor's browser** (no large upload — Vercel's 4.5 MB request limit). Four detection groups, as in ImageTwin / Proofig: **a) Duplication & reuse** — whole-panel duplicates in 8 orientations (perceptual hash + correlation), partial / resized / rotated / mirrored copies (ORB + RANSAC), comparison with all earlier PJPS manuscripts via stored fingerprints; **b) Alteration & manipulation** — cloned areas (keypoints + DCT blocks), pasted patches (noise-level and JPEG-grid inconsistency), erased / retouched areas, joined blot lanes (sharp background step), stretched contrast, saturated bands; **c) AI-generated images** — file markers (C2PA, IPTC *trainedAlgorithmicMedia*, generator names, Stable-Diffusion parameters) and statistical traces (spectral peaks, missing or uniform sensor noise); markers are strong evidence, statistics alone are only *indicators*; **d) Graph & chart duplication** — bar heights and curves are read from the chart pixels and compared across charts (re-coloured, re-scaled, reversed) and with earlier manuscripts. Forensic viewer, editor marks per finding, query letter, confidential Word report (`public/js/images/engine.js`, `forensics.js`, `src/images.js`). The 155–160 M published-figure search needs an ImageTwin / Proofig contract and is reported as “not checked”. |
+
+## Integrity Suite (v5)
+
+Sixteen research-integrity capabilities. Ten were already covered by the five modules; the rest are new (`src/integrity/`, `src/cases.js`, `src/routes/integrity.js`, `src/routes/apiV1.js`).
+
+| Capability | Where | Status |
+|---|---|---|
+| Plagiarism & text similarity | Integrity Screening → *Text similarity* (`similarity.js`) | **New**: sentence-level overlap with every earlier submission (only hashes stored), repeated text, tortured phrases / hidden characters, OpenAlex comparison for duplicate publication, salami slicing and copied abstracts. Full-text comparison with published literature needs a Crossref Similarity Check (iThenticate) account and is reported as *not checked*. |
+| AI-written content screening | *AI-written content* (`aiWriting.js`) | **New**: chatbot leftovers (definite) plus a 0-100 writing-pattern indicator (LLM-favoured vocabulary, sentence-length variation, stock transitions, per section). Indicators only. |
+| Scientific image forensics | Module 5 | Existing; linked into the score by manuscript ID. |
+| Research data integrity | *Research data* (`dataIntegrity.js`) | **Extended**: GRIM test, identical mean ± SD values, repeated SDs, duplicated table rows, terminal-digit test, on top of the Module 4 p-value / percentage / primer / cell-line checks. |
+| Reference & DOI verification | Module 1 | Existing; linked into the score (or run with *Verify every reference online*). |
+| Paper-mill pattern detection | Module 4 + *Submission network* (`network.js`) | **Extended**: shared e-mail addresses across author teams, reviewer rings, prolific authors with changing co-authors, templated titles, institution bursts, citation rings. |
+| Pharmaceutical research validation | *Pharmaceutical validation* (`pharmaValidation.js`) | **New UI + checks**: OECD dose limits, abstract vs methods doses, administration volumes, CAS check digits, formula vs molecular weight, group-size arithmetic, species consistency, impossible percentages, PubChem and FDA Orange Book. |
+| Research ethics verification | *Research ethics* (`ethics.js`) | **New**: ethics approval + number, consent, Helsinki / animal guidelines, trial registration in 16 registries (ClinicalTrials.gov existence, retrospective registration, mismatch), declarations. |
+| Author & affiliation verification | *Authors & affiliations* (`authors.js`) | **Extended**: ORCID owner name vs author list, CRediT statement naming every author, ROR affiliation matching, e-mail domains. |
+| Peer-review integrity | `#/peer-review` (`peerReview.js`) | **New**: reviewer identity (ORCID, free-mail), conflicts (same domain/institution, OpenAlex co-authorship, surname), generic / recycled / AI / coercive-citation reviews, fast returns, reviewer rings. |
+| Cross-paper & citation analysis | Similarity + network + Module 3 pattern | **Extended** as above. |
+| Published article monitoring | `#/monitoring` (`monitoring.js`) | **New**: DOIs added or imported by ISSN from Crossref; weekly checks of Crossref update notices and Retraction Watch; references rescreened for later retractions; notifications; *Rescreen the archive*. |
+| Integrity risk scoring engine | `scoring.js` | **New**: 11 dimensions, capped points, 0-100 score, LOW / MODERATE / HIGH / CRITICAL, escalation rules, every point explained. |
+| Editorial dashboard & case management | `#/cases` (`cases.js`) | **New**: dashboard, cases with status / priority / assignee / due date, linked reports, drafted author queries and logged responses, outcomes, full history. |
+| Automated integrity reports | `integrity/reports.js` | **New**: Word / PDF integrity, peer-review and case reports with evidence links and audit trail. |
+| Research Integrity API | `/api/v1` (`apiV1.js`), *Administration → Integrity API* | **New**: hashed API keys with scopes, screening and peer-review jobs, results, PDF reports, monitoring status, signed webhooks, rate limit. |
+
+New permissions (editor tools, granted to existing editors automatically): `integrity`, `peer-review`, `monitoring`, `cases`. `node test/integrity-suite.js` tests the whole suite end to end without external lookups.
 
 Tests: `npm test` runs the web smoke test (in-memory database; Modules 2, 4, 5, permissions), the image-engine test (planted duplicates, crops, mirrored copies, clones, false-alarm check), the forensics test (alterations, AI-image markers, chart duplication) and the demo check (every problem planted in the demonstration figures is found). `node test/demo-e2e.js` runs the demonstration manuscript through the Full Screening Report (needs internet).
 

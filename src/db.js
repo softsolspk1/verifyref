@@ -298,6 +298,98 @@ CREATE TABLE IF NOT EXISTS offline_queue (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   done_at TIMESTAMPTZ
 );
+
+-- Integrity Suite (v5): what each screened submission looked like, for cross-submission checks (no manuscript text is
+-- stored: sentences are kept as hashes only)
+CREATE TABLE IF NOT EXISTS integrity_records (
+  id SERIAL PRIMARY KEY,
+  check_id INTEGER REFERENCES checks(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  manuscript_code TEXT,
+  title TEXT,
+  authors JSONB,                         -- ["Given Family"]
+  emails JSONB,
+  affiliations JSONB,
+  reviewer_emails JSONB,
+  cited_dois JSONB,
+  sentence_hashes JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_integrity_records_created ON integrity_records(created_at);
+
+-- Peer-review integrity: hashed review texts and reviewer identities, to find recycled reviews and reviewer rings
+CREATE TABLE IF NOT EXISTS review_records (
+  id SERIAL PRIMARY KEY,
+  check_id INTEGER REFERENCES checks(id) ON DELETE CASCADE,
+  manuscript_code TEXT,
+  reviewer_name TEXT,
+  reviewer_email TEXT,
+  sentence_hashes JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Integrity cases: investigation workflow with a full event history (audit trail)
+CREATE TABLE IF NOT EXISTS cases (
+  id SERIAL PRIMARY KEY,
+  manuscript_code TEXT,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',   -- open | investigating | awaiting_author | committee | closed
+  priority TEXT NOT NULL DEFAULT 'normal', -- low | normal | high | urgent
+  risk_level TEXT,
+  category TEXT,
+  assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  outcome TEXT,
+  check_ids JSONB NOT NULL DEFAULT '[]',
+  due_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  closed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS case_events (
+  id SERIAL PRIMARY KEY,
+  case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,                    -- created | note | status | assign | query | response | decision | link | report
+  body TEXT,
+  data JSONB,
+  actor_id INTEGER,
+  actor_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_case_events_case ON case_events(case_id, created_at);
+
+-- Published article monitoring: retractions, corrections and concerns for PJPS articles, and archive rescreening
+CREATE TABLE IF NOT EXISTS monitored_articles (
+  id SERIAL PRIMARY KEY,
+  doi TEXT NOT NULL UNIQUE,
+  title TEXT,
+  journal TEXT,
+  year INTEGER,
+  authors TEXT,
+  manuscript_code TEXT,
+  status TEXT NOT NULL DEFAULT 'ok',     -- ok | corrected | concern | retracted | cites-retracted
+  events JSONB NOT NULL DEFAULT '[]',
+  cited_retracted JSONB NOT NULL DEFAULT '[]',
+  added_by INTEGER,
+  last_checked TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Research Integrity API: keys for PJPS submission software and external journals (only a hash is stored)
+CREATE TABLE IF NOT EXISTS api_keys (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  prefix TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scopes JSONB NOT NULL DEFAULT '[]',
+  webhook_url TEXT,
+  revoked BOOLEAN NOT NULL DEFAULT false,
+  last_used TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;
 
 // One-off data migrations from the editor-approval model (v2) to Super Admin management (v3)

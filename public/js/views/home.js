@@ -10,18 +10,27 @@ const CARDS = [
   { path: '/images', module: 'images', icon: 'image', title: '5 · Image Integrity Detection', text: 'Duplicated, rotated, mirrored, cropped or cloned figures and re-use of earlier PJPS figures, with a forensic viewer. Editor only.' }
 ];
 
-const KIND_LABEL = { manuscript: 'Full Screening', references: 'Bibliography', restyle: 'Style', citations: 'Citations', papermill: 'Paper mill', images: 'Images', verify: 'Claim support' };
+const SUITE = [
+  { path: '/integrity', module: 'integrity', icon: 'integrity', title: 'Integrity Screening', text: 'Text similarity and cross-paper overlap, AI-written content, research data, pharmaceutical validation, ethics, authors and affiliations, submission networks — one explained risk score.' },
+  { path: '/peer-review', module: 'peer-review', icon: 'peer', title: 'Peer-Review Integrity', text: 'Reviewer identity, conflicts of interest with the authors, generic, recycled or coercive reviews, review rings.' },
+  { path: '/monitoring', module: 'monitoring', icon: 'monitor', title: 'Published Article Monitoring', text: 'Retractions, expressions of concern and corrections of published PJPS articles; archive rescreening for retracted references.' },
+  { path: '/cases', module: 'cases', icon: 'cases', title: 'Dashboard & Cases', text: 'Integrity cases with investigation workflow, author queries and responses, decisions, and evidence-linked reports with audit trail.' }
+];
+
+const KIND_LABEL = { manuscript: 'Full Screening', references: 'Bibliography', restyle: 'Style', citations: 'Citations', papermill: 'Paper mill', images: 'Images', verify: 'Claim support', integrity: 'Integrity', 'peer-review': 'Peer review' };
 
 export async function renderHome(view) {
   const cards = CARDS.filter(c => hasModule(c.module));
+  const suite = SUITE.filter(c => hasModule(c.module));
   view.innerHTML = `
     <div class="page-head"><div><h1>${esc(state.app?.homeJournal?.name || 'PJPS')} — manuscript screening</h1>
       <p>Welcome, ${esc(state.user.name)}. Choose a module, or run the Full Screening Report to check a new submission with everything at once.</p></div></div>
     <div class="module-grid">${cards.map(c => `<a class="module-card ${c.wide ? 'wide' : ''}" href="#${c.path}"><div class="module-icon">${ICONS[c.icon]}</div><div><h3>${esc(c.title)}</h3><p>${esc(c.text)}</p></div></a>`).join('')}</div>
-    ${!cards.length ? '<div class="card empty">No modules are enabled for your account. Ask the Super Admin.</div>' : ''}
+    ${suite.length ? `<h2 style="margin:6px 0 12px">Integrity Suite</h2><div class="module-grid">${suite.map(c => `<a class="module-card" href="#${c.path}"><div class="module-icon">${ICONS[c.icon]}</div><div><h3>${esc(c.title)}</h3><p>${esc(c.text)}</p></div></a>`).join('')}</div>` : ''}
+    ${!cards.length && !suite.length ? '<div class="card empty">No modules are enabled for your account. Ask the Super Admin.</div>' : ''}
     <div class="card"><div class="card-head"><h2>Recent reports</h2><a href="#/activity">All saved reports →</a></div><div id="recent" class="muted">Loading…</div></div>`;
   try {
-    const d = await api('/api/checks?kind=manuscript,references,restyle,citations,papermill,images');
+    const d = await api('/api/checks?kind=manuscript,references,restyle,citations,papermill,images,integrity,peer-review');
     const rows = d.checks.slice(0, 12);
     $('#recent', view).innerHTML = rows.length ? `<div class="table-wrap"><table class="t"><tr><th>Date</th><th>Module</th><th>Manuscript</th><th>Findings</th></tr>${rows.map(r => `<tr>
       <td>${fmtDate(r.created_at)}</td><td>${badge(KIND_LABEL[r.kind] || r.kind, 'info')}</td>

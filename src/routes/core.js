@@ -8,7 +8,7 @@ const auth = require('../auth');
 const { permissionsOf } = require('../modules');
 const { defineJob, createJob, getJob } = require('../jobs');
 const P = require('../parse');
-const { runCheck, saveCheck, loadCheck } = require('../pipeline');
+const { runCheck, saveCheck, loadCheck, loadShared } = require('../pipeline');
 const { checkJournal } = require('../checks/journal');
 const { findReviewers } = require('../editor/reviewers');
 const { checkReviewerReport } = require('../editor/reviewerReport');
@@ -158,8 +158,10 @@ async function checkOr404(req, res) {
 }
 
 router.get('/checks/:id', user, wrap(async (req, res) => {
-  const c = await checkOr404(req, res);
-  if (c) res.json({ success: true, kind: c.row.kind, result: c.result });
+  const c = await loadShared(req.user, req.params.id);
+  if (!c) return res.status(404).json({ success: false, message: 'Check not found.' });
+  if (!c.result) return res.status(410).json({ success: false, message: 'This check was saved as counts only; the full report is not stored.' });
+  res.json({ success: true, kind: c.row.kind, result: c.result, readOnly: c.row.user_id !== req.user.id });
 }));
 
 router.patch('/checks/:id', user, wrap(async (req, res) => {

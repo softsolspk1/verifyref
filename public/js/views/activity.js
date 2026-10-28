@@ -4,12 +4,17 @@ import { api, esc, $, $$, badge, toast, fmtDate, issueOptions, state } from '../
 export const KIND_LABEL = {
   manuscript: 'Full Screening Report', references: '1 · Check Bibliography', citations: '3 · Citations', 'reviewer-report': 'Reviewer report',
   restyle: '2 · Reference Style', papermill: '4 · Paper Mill', images: '5 · Image Integrity', format: 'Manuscript Format', verify: 'Verify Citations', evidence: 'Find Evidence', 'journal-finder': 'Find a Journal',
-  conferences: 'Conferences', assistant: 'Thesis/Paper Assistant', authors: 'Author publications'
+  conferences: 'Conferences', assistant: 'Thesis/Paper Assistant', authors: 'Author publications',
+  integrity: 'Integrity Screening', 'peer-review': 'Peer-Review Integrity'
 };
 const MS_KINDS = ['manuscript', 'references', 'citations'];
 const RISK = /(?:risk|Image risk) (LOW|MEDIUM|HIGH)/;
 
 function findings(c) {
+  if (c.kind === 'integrity' || c.kind === 'peer-review') {
+    const m = (c.problems || [])[0]?.match(/risk (LOW|MODERATE|HIGH|CRITICAL)/);
+    return `${m ? badge(`Risk ${m[1]}`, m[1] === 'LOW' ? 'good' : m[1] === 'MODERATE' ? 'warn' : 'bad') : ''} ${(c.problems || []).slice(1, 3).map(p => `<div class="muted">${esc(p)}</div>`).join('')}`;
+  }
   if (c.kind === 'papermill' || c.kind === 'images') {
     const m = (c.problems || []).map(p => p.match(RISK)).find(Boolean);
     const level = m ? m[1] : null;

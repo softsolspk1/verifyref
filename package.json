@@ -1,13 +1,13 @@
 {
   "name": "pjps-reference-checker",
   "version": "3.0.0",
-  "description": "PJPS Reference Checker by Softsols Pakistan — reference integrity and research tools for the web and Windows desktop (offline mode)",
+  "description": "PJPS Data Integration System by Softsols Pakistan — manuscript screening and research-integrity platform (five PJPS modules and the Integrity Suite)",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test/remediation.js && node test/smoke-web.js && node test/images-engine.mjs && node test/forensics.mjs && node test/demo-check.mjs && node test/pjps-style.js && node test/pharma-integrity.js",
+    "test": "node test/remediation.js && node test/smoke-web.js && node test/images-engine.mjs && node test/forensics.mjs && node test/demo-check.mjs && node test/pjps-style.js && node test/pharma-integrity.js && node test/integrity-suite.js",
     "desktop": "cd desktop && npm start",
     "desktop:dist": "cd desktop && npm run dist",
     "proposal": "node docs/build-proposal.js",

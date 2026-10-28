@@ -216,3 +216,4 @@ router.put('/settings/tortured', mod('papermill'), wrap(async (req, res) => {
 
 module.exports = router;
 module.exports.runPaperMill = runPaperMill;
+module.exports.manuscriptFrom = manuscriptFrom;

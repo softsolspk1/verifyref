@@ -466,4 +466,4 @@ function papermillProblems(r) {
   return [`Paper mill risk ${r.risk.level} (score ${r.risk.score})`, ...r.signals.filter(s => s.severity !== 'low').slice(0, 5).map(s => s.title)];
 }
 
-module.exports = { textSignals, methodsGaps, screenerMatches, detectPaperMill, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, methodsGaps, cellLines, orcidValid, shingles, riskLevel };
+module.exports = { textSignals, methodsGaps, screenerMatches, detectPaperMill, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv, riskLevel };

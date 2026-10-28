@@ -4,6 +4,8 @@ import { api, esc, $, toast, fmtDate } from '../core.js';
 const OPTIONS = {
   papermill: [['cleared', 'Cleared'], ['investigate', 'Needs investigation'], ['committee', 'Referred to the integrity committee']],
   images: [['cleared', 'Cleared'], ['investigate', 'Needs investigation (ask for original images)'], ['committee', 'Referred to the integrity committee']],
+  integrity: [['cleared', 'Cleared'], ['proceed', 'Proceed to peer review'], ['investigate', 'Needs investigation'], ['return', 'Return to the authors'], ['committee', 'Referred to the integrity committee']],
+  'peer-review': [['cleared', 'Reviewers cleared'], ['investigate', 'Verify reviewer identity / conflicts'], ['committee', 'Referred to the integrity committee']],
   manuscript: [['proceed', 'Proceed to peer review'], ['return', 'Return to the authors'], ['investigate', 'Investigate'], ['committee', 'Referred to the integrity committee']]
 };
 

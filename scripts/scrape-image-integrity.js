@@ -258,7 +258,7 @@ async function runScraper() {
 
   const manifest = {
     generatedAt: new Date().toISOString(),
-    purpose: 'Image Integrity in Research dataset and specifications extracted from ImageTwin and Proofig for PJPS Reference Checker / Image Screening Platform',
+    purpose: 'Image Integrity in Research dataset and specifications extracted from ImageTwin and Proofig for PJPS Data Integration System / Image Screening Platform',
     sourcePlatforms: {
       ImageTwin: {
         baseUrl: 'https://imagetwin.ai',

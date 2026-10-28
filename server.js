@@ -1,4 +1,4 @@
-// server.js - PJPS Reference Checker by Softsols Pakistan. One Express app serves the web platform (PostgreSQL,
+// server.js - PJPS Data Integration System by Softsols Pakistan. One Express app serves the web platform (PostgreSQL,
 // Vercel or a VPS) and the Windows desktop edition (embedded database on 127.0.0.1, see desktop/main.js).
 const express = require('express');
 const path = require('path');
@@ -56,6 +56,8 @@ app.use('/api', require('./src/routes/tools'));
 app.use('/api', require('./src/routes/activity'));
 app.use('/api', require('./src/routes/admin'));
 app.use('/api', require('./src/routes/screening'));
+app.use('/api', require('./src/routes/integrity'));
+app.use('/api', require('./src/routes/apiV1'));
 
 if (cfg.DESKTOP) {
   // ---------------------------------------------------------------- desktop edition (local only)
@@ -97,7 +99,8 @@ if (cfg.DESKTOP) {
     await purgeJobs();
     const datasets = await D.ensureDatasets();
     const alerts = await require('./src/alerts').runAlerts();
-    res.json({ success: true, datasets, alerts });
+    const monitoring = await require('./src/integrity/monitoring').runMonitor({ limit: 150 }).catch(e => ({ error: e.message }));
+    res.json({ success: true, datasets, alerts, monitoring });
   }));
 }
 
@@ -136,7 +139,8 @@ async function start({ port = cfg.PORT, host = cfg.DESKTOP ? '127.0.0.1' : undef
     // Keep Retraction Watch / Beall's list fresh (weekly) without blocking startup; alerts once a day
     D.ensureDatasets().catch(e => console.error('Dataset refresh failed:', e.message));
     const alerts = require('./src/alerts');
-    setInterval(() => { purgeJobs(); D.ensureDatasets().catch(() => {}); alerts.runAlerts().catch(e => console.error('Alerts failed:', e.message)); }, 24 * 3600 * 1000).unref();
+    const monitor = () => require('./src/integrity/monitoring').runMonitor({ limit: 150 }).catch(e => console.error('Article monitoring failed:', e.message));
+    setInterval(() => { purgeJobs(); D.ensureDatasets().catch(() => {}); alerts.runAlerts().catch(e => console.error('Alerts failed:', e.message)); monitor(); }, 24 * 3600 * 1000).unref();
     setTimeout(() => alerts.runAlerts().catch(() => {}), 60000).unref();
   }
   return actual;

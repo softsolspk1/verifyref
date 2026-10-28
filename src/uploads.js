@@ -17,7 +17,7 @@ const sha256 = s => crypto.createHash('sha256').update(s).digest('hex');
 const rfc3986 = s => encodeURIComponent(s).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 
 /** Presigned URL for one object. headers: extra headers to sign (lower-case name -> value) */
-function presign(method, key, { expires = 900, headers = {} } = {}) {
+function presign(method, key, { expires = 900, headers = {}, query: extra = {} } = {}) {
   const host = `${R2.accountId}.r2.cloudflarestorage.com`;
   const amzDate = new Date().toISOString().replace(/[-:]|\.\d{3}/g, '');
   const scope = `${amzDate.slice(0, 8)}/auto/s3/aws4_request`;
@@ -25,6 +25,7 @@ function presign(method, key, { expires = 900, headers = {} } = {}) {
   const names = Object.keys(all).sort();
   const path = `/${R2.bucket}/${key.split('/').map(rfc3986).join('/')}`;
   const query = Object.entries({
+    ...extra,   // e.g. multipart upload: uploads, partNumber, uploadId
     'X-Amz-Algorithm': 'AWS4-HMAC-SHA256', 'X-Amz-Credential': `${R2.accessKeyId}/${scope}`, 'X-Amz-Date': amzDate,
     'X-Amz-Expires': String(expires), 'X-Amz-SignedHeaders': names.join(';')
   }).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${rfc3986(k)}=${rfc3986(v)}`).join('&');
@@ -69,6 +70,49 @@ async function putObject(key, buffer, contentType = 'application/octet-stream') 
     throw new Error(`R2 upload failed (${res.status}): ${errText}`);
   }
   return { ok: true, key, size: buf.length };
+}
+
+/**
+ * Multipart upload of a large local file (S3 API): 64 MB parts read one at a time, each retried up to 4 times, so a
+ * dropped connection costs one part instead of the whole multi-gigabyte upload.
+ */
+async function putFileMultipart(key, file, size, contentType = 'application/octet-stream', { partSize = 64 << 20, onPart = () => {} } = {}) {
+  if (!enabled()) throw new Error('Cloudflare R2 is not configured.');
+  const fs = require('fs');
+  const init = await fetch(presign('POST', key, { query: { uploads: '' }, headers: { 'content-type': contentType } }), { method: 'POST', headers: { 'content-type': contentType } });
+  const initText = await init.text();
+  const uploadId = (initText.match(/<UploadId>([^<]+)<\/UploadId>/) || [])[1];
+  if (!init.ok || !uploadId) throw new Error(`R2 multipart start failed (${init.status}): ${initText.slice(0, 200)}`);
+  const parts = [];
+  const fd = fs.openSync(file, 'r');
+  try {
+    const n = Math.ceil(size / partSize);
+    for (let i = 0; i < n; i++) {
+      const len = Math.min(partSize, size - i * partSize);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, i * partSize);
+      let etag = null, lastErr = null;
+      for (let attempt = 1; attempt <= 4 && !etag; attempt++) {
+        try {
+          const url = presign('PUT', key, { expires: 3600, query: { partNumber: String(i + 1), uploadId }, headers: { 'content-length': String(len) } });
+          const r = await fetch(url, { method: 'PUT', headers: { 'content-length': String(len) }, body: buf });
+          if (!r.ok) throw new Error(`part ${i + 1}: HTTP ${r.status} ${(await r.text()).slice(0, 150)}`);
+          etag = r.headers.get('etag');
+        } catch (e) { lastErr = e; await new Promise(res => setTimeout(res, 2000 * attempt)); }
+      }
+      if (!etag) {
+        await fetch(presign('DELETE', key, { query: { uploadId } }), { method: 'DELETE' }).catch(() => {});
+        throw new Error(`R2 multipart upload failed: ${lastErr?.message}`);
+      }
+      parts.push(`<Part><PartNumber>${i + 1}</PartNumber><ETag>${etag}</ETag></Part>`);
+      onPart(i + 1, n);
+    }
+  } finally { fs.closeSync(fd); }
+  const body = `<CompleteMultipartUpload>${parts.join('')}</CompleteMultipartUpload>`;
+  const done = await fetch(presign('POST', key, { query: { uploadId } }), { method: 'POST', body });
+  const doneText = await done.text();
+  if (!done.ok || /<Error>/.test(doneText)) throw new Error(`R2 multipart completion failed (${done.status}): ${doneText.slice(0, 200)}`);
+  return { ok: true, key, size, parts: parts.length };
 }
 
 /** Upload a local file without loading it into memory (large dataset archives) */
@@ -148,4 +192,4 @@ function fileRef(f) {
 const loadFile = ref => (ref.r2Key ? getObject(ref.r2Key) : Promise.resolve(Buffer.from(ref.base64, 'base64')));
 const dropFiles = refs => Promise.all([].concat(refs || []).filter(r => r?.r2Key).map(r => deleteObject(r.r2Key)));
 
-module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, putFileStream, getObject, deleteObject };
+module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, putFileStream, putFileMultipart, getObject, deleteObject };

@@ -106,7 +106,9 @@ async function putFile(name, file, { source = null } = {}) {
   const sum = await hashFile(file);
   const prev = await db.one('SELECT sha256 FROM dataset_files WHERE name = $1', [name]);
   if (prev?.sha256 === sum) return { stored: false, unchanged: true, size };
-  await R2.putFileStream(PREFIX + name, file, size, typeOf(name));
+  // over 200 MB: multipart (a dropped connection retries one 64 MB part, not the whole archive)
+  if (size > 200e6) await R2.putFileMultipart(PREFIX + name, file, size, typeOf(name), { onPart: (i, n) => { if (i % 5 === 0 || i === n) console.log(`    ${name}: part ${i}/${n}`); } });
+  else await R2.putFileStream(PREFIX + name, file, size, typeOf(name));
   await db.query(`INSERT INTO dataset_files(name, size, sha256, content_type, source, updated_at) VALUES($1, $2, $3, $4, $5, now())
     ON CONFLICT(name) DO UPDATE SET size = EXCLUDED.size, sha256 = EXCLUDED.sha256, content_type = EXCLUDED.content_type, source = COALESCE(EXCLUDED.source, dataset_files.source), updated_at = now()`,
   [name, size, sum, typeOf(name), source]);

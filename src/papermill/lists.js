@@ -98,6 +98,11 @@ const NON_VERIFIABLE = ['BGC-803', 'BSG-803', 'BSG-823', 'GSE-1', 'HGC-7901', 'H
   for (const c of [...iclac, ...NON_VERIFIABLE]) if (!have.has(c.name.toLowerCase())) { have.add(c.name.toLowerCase()); CELL_LINES.push(c); }
 }
 
-const FREE_MAIL = /@(?:gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|aol|icloud|me|mail|gmx|yandex|protonmail|proton|zoho|rediffmail|163|126|qq|sina|sohu|yeah|foxmail|aliyun|139)\.[a-z.]{2,6}\b/i;
+const FREE_MAIL_RE = /@(?:gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|aol|icloud|me|mail|gmx|yandex|protonmail|proton|zoho|rediffmail|163|126|qq|sina|sohu|yeah|foxmail|aliyun|139)\.[a-z.]{2,6}\b/i;
 
-module.exports = { TORTURED, AI_LEFTOVERS, TEMPLATES, CELL_LINES, FREE_MAIL };
+// Free-mail test: the built-in pattern plus the downloaded free-mail / disposable domain lists (datasets.js, loaded into
+// memory by warmEmailDomains() at the start of each screening). Same .test() interface as the old regular expression.
+const FREE_MAIL = { test: s => FREE_MAIL_RE.test(String(s)) || !!require('../datasets').emailDomainKind(s) };
+const DISPOSABLE_MAIL = { test: s => require('../datasets').emailDomainKind(s) === 'disposable' };
+
+module.exports = { TORTURED, AI_LEFTOVERS, TEMPLATES, CELL_LINES, FREE_MAIL, DISPOSABLE_MAIL };

@@ -8,7 +8,7 @@ const db = require('../db');
 const D = require('../datasets');
 const { getJson } = require('../http');
 const { nameMatch, splitName, titleSimilarity, normalizeJournal } = require('../text');
-const { TORTURED, AI_LEFTOVERS, TEMPLATES, CELL_LINES, FREE_MAIL } = require('./lists');
+const { TORTURED, AI_LEFTOVERS, TEMPLATES, CELL_LINES, FREE_MAIL, DISPOSABLE_MAIL } = require('./lists');
 const DC = require('./dataChecks');
 const { isOnline } = require('../http');
 
@@ -120,6 +120,24 @@ function cellLines(text) {
   return out;
 }
 
+// Immune-cell and marker names that read like cell lines ("CD4 cells", "Th17 cells", "M1 cells")
+const NOT_CELL_LINE = /^(?:CD\d|Th\d|Tc\d|IL-?\d|M[12]$|B\d|T\d|NK\d|G[0-2]$|S$|ES$|iPS)/i;
+
+/** Cell-line names written as "X cells" / "X cell line" (must contain a digit), minus those already reported */
+function cellLineCandidates(text, skip = new Set()) {
+  const out = new Map();
+  for (const m of text.matchAll(/\b([A-Z][A-Za-z]{0,7}-?\d[A-Za-z0-9]{0,6}(?:-[A-Za-z0-9]{1,6})?)\s+(cell lines?|cells?)\b/g)) {
+    const name = m[1].trim();
+    const k = name.toLowerCase();
+    if (skip.has(k) || NOT_CELL_LINE.test(name) || /^\d/.test(name)) continue;
+    const prev = out.get(k);
+    const calledLine = /line/i.test(m[2]) || /\bcell lines?\b/i.test(text.slice(Math.max(0, m.index - 40), m.index));
+    if (!prev) out.set(k, { name, calledLine, example: ctx(text, m.index, m[0].length) });
+    else if (calledLine) prev.calledLine = true;
+  }
+  return [...out.values()];
+}
+
 /** Zero-width characters and look-alike letters from other alphabets: used to slip past plagiarism software */
 function hiddenText(text) {
   // zero-width characters only: soft hyphens are ordinary typesetting in publisher files and not a disguise
@@ -137,13 +155,29 @@ function hiddenText(text) {
   return { zero, mixed };
 }
 
-/** A paper with the same title is already published (duplicate / redundant publication) - Crossref */
+/**
+ * A paper with the same title is already published or posted (duplicate / redundant publication): Crossref (DOIs),
+ * OpenAlex (journals, preprints) and CORE (repositories, theses, preprint servers). Merged by DOI / title.
+ */
 async function publishedElsewhere(title) {
   if (!title || title.length < 25) return [];
-  const r = await getJson('https://api.crossref.org/works?rows=4&select=DOI,title,container-title,issued&query.bibliographic=' + encodeURIComponent(title), { ttl: 7 * 86400, timeout: 12000, retries: 1 });
-  if (!r.ok) return [];
-  return (r.data?.message?.items || []).map(it => ({ title: (it.title || [])[0] || '', journal: (it['container-title'] || [])[0] || '', year: it.issued?.['date-parts']?.[0]?.[0] || null, doi: it.DOI, sim: titleSimilarity(title, (it.title || [])[0] || '') }))
-    .filter(x => x.sim >= 0.92);
+  const S = require('../sources');
+  const [cr, oa, core] = await Promise.all([
+    getJson('https://api.crossref.org/works?rows=4&select=DOI,title,container-title,issued&query.bibliographic=' + encodeURIComponent(title), { ttl: 7 * 86400, timeout: 12000, retries: 1 })
+      .then(r => (r.ok ? (r.data?.message?.items || []).map(it => ({ title: (it.title || [])[0] || '', journal: (it['container-title'] || [])[0] || '', year: it.issued?.['date-parts']?.[0]?.[0] || null, doi: it.DOI, source: 'Crossref' })) : [])).catch(() => []),
+    S.openalexSearch({ title }).then(r => (r.records || []).map(x => ({ title: x.title, journal: x.journal, year: x.year, doi: x.doi, url: x.url, source: 'OpenAlex' }))).catch(() => []),
+    S.coreSearch({ title }).then(r => (r.records || []).map(x => ({ title: x.title, journal: x.journal || x.publisher, year: x.year, doi: x.doi, url: x.url, source: 'CORE' }))).catch(() => [])
+  ]);
+  const out = new Map();
+  for (const x of [...cr, ...oa, ...core]) {
+    const sim = titleSimilarity(title, x.title || '');
+    if (sim < 0.92) continue;
+    const key = x.doi ? String(x.doi).toLowerCase() : String(x.title).toLowerCase().replace(/\W+/g, '');
+    const prev = out.get(key);
+    if (prev) { if (!prev.sources.includes(x.source)) prev.sources.push(x.source); continue; }
+    out.set(key, { ...x, sim, sources: [x.source] });
+  }
+  return [...out.values()];
 }
 
 // ------------------------------------------------------------------ author signals
@@ -322,6 +356,7 @@ async function detectPaperMill(input, update = () => {}) {
   const signals = [];
   const sig = (group, code, title, severity, weight, evidence = [], note = '') => signals.push({ group, code, title, severity, weight, evidence, note });
 
+  await D.warmEmailDomains();
   update('Searching for tortured phrases and AI-text leftovers', 2);
   const textSigs = await textSignals(text, body, await customPhrases());
   signals.push(...textSigs);
@@ -337,6 +372,29 @@ async function detectPaperMill(input, update = () => {}) {
       evidence: wrong.map(b => ({ text: `${b.primer.gene} ${b.primer.direction} 5'-${b.primer.sequence}-3' - top NCBI hits: ${b.hits.slice(0, 3).join(' | ') || 'none'}`, quote: b.primer.quote })), note: 'The primer was searched in NCBI BLAST (RefSeq RNA). A primer that hits other genes, or nothing, points to a wrong or invented sequence (Seek & Blastn method). Check the full BLAST result before drawing a conclusion.' });
   }
 
+  // Cellosaurus (SIB / ExPASy): every named cell line that the built-in ICLAC list did not already report is looked up
+  // for a "Problematic cell line" note (contaminated, misidentified) and, when called a cell line, for its existence
+  if (input.cellosaurus !== false && isOnline()) {
+    const names = cellLineCandidates(body, new Set(cells.map(c => c.name.toLowerCase()))).slice(0, 12);
+    if (names.length) {
+      update('Checking named cell lines in Cellosaurus', 10);
+      const found = await Promise.all(names.map(async c => ({ ...c, rec: await D.cellosaurusLookup(c.name).catch(() => null) })));
+      const flagged = found.filter(c => c.rec?.found && c.rec.problematic);
+      // "Misclassified" (e.g. HepG2: hepatoblastoma, long described as hepatocellular carcinoma) is a labelling note;
+      // contamination and misidentification mean the cells are not what the paper says
+      const problematic = flagged.filter(c => !/^Misclassified/i.test(c.rec.problematic));
+      const misclassified = flagged.filter(c => /^Misclassified/i.test(c.rec.problematic));
+      const ev = c => ({ text: `${c.rec.name} (${c.rec.accession}): ${c.rec.problematic}`, quote: c.example, link: c.rec.accession ? `https://www.cellosaurus.org/${c.rec.accession}` : null });
+      const unknown = found.filter(c => c.rec && !c.rec.found && c.calledLine);
+      if (problematic.length) sig('data', 'cellosaurus-problematic', `${problematic.length} contaminated or misidentified cell line(s) in Cellosaurus`, 'medium', Math.min(4, 2 * problematic.length),
+        problematic.map(ev), 'Cellosaurus records contamination and misidentification reported in the literature. Ask the authors for an STR authentication profile.');
+      if (misclassified.length) sig('data', 'cellosaurus-misclassified', `${misclassified.length} cell line(s) with a Cellosaurus misclassification note`, 'low', 0.5,
+        misclassified.map(ev), 'Check that the paper describes the cell line\'s tissue of origin correctly; not a sign of misconduct by itself.');
+      if (unknown.length) sig('data', 'cellosaurus-unknown', `${unknown.length} named cell line(s) not found in Cellosaurus`, 'low', 1,
+        unknown.map(c => ({ text: `${c.name} - no Cellosaurus entry under this name or its synonyms`, quote: c.example })), 'Often a spelling variant; an invented cell line name is a known paper-mill sign. Ask for the supplier and catalogue number.');
+    }
+  }
+
   // Institutions far apart
   const spread = DC.affiliationSpread(meta.affiliations || [], (meta.authors || []).length);
   if (spread.far) signals.push({ group: 'authors', code: 'institutions-far', title: `Authors' institutions are in ${spread.countries.length} countries (${spread.countries.join(', ')})`, severity: 'low', weight: spread.countries.length >= 3 && (meta.authors || []).length <= 4 ? 2 : 1,
@@ -345,7 +403,7 @@ async function detectPaperMill(input, update = () => {}) {
   update('Checking whether the paper is already published', 15);
   const pub = await publishedElsewhere(meta.title).catch(() => []);
   if (pub.length) sig('data', 'published', `A paper with the same title is already published (${pub.length})`, 'medium', 3,
-    pub.map(p => ({ text: `“${p.title}” — ${p.journal || 'journal unknown'}${p.year ? ', ' + p.year : ''}`, link: `https://doi.org/${p.doi}` })), "Possible duplicate publication or resubmission; it may also be the authors' own preprint or thesis - check before concluding.");
+    pub.map(p => ({ text: `“${p.title}” — ${p.journal || 'journal unknown'}${p.year ? ', ' + p.year : ''} (found in ${p.sources.join(', ')})`, link: p.doi ? `https://doi.org/${p.doi}` : p.url })), "Possible duplicate publication or resubmission; it may also be the authors' own preprint or thesis - check before concluding.");
 
   update('Checking reference signals', 25);
   const fake = refs.filter(r => r.status === 'suspicious');
@@ -380,6 +438,8 @@ async function detectPaperMill(input, update = () => {}) {
   if (unsure.length) sig('authors', 'author-retraction-name', `Possible earlier retraction(s) under a similar name (${unsure.length}) - probably other people`, 'low', 0.5, unsure.slice(0, 6).map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Retraction Watch gives author names only. These hits match the surname and first initial only; for common names they are usually different people. Check ORCID and affiliation before drawing any conclusion.');
 
   const emails = emailsOf(text);
+  const disposable = emails.filter(e => DISPOSABLE_MAIL.test(e));
+  if (disposable.length) sig('authors', 'disposable-mail', `Disposable (throw-away) e-mail address(es) given for authors (${disposable.length})`, 'medium', 2, disposable.map(e => ({ text: e })), 'Throw-away mailboxes expire after minutes or days, so the author cannot be reached later. Domain listed in the disposable-email-domains register.');
   const free = emails.filter(e => FREE_MAIL.test(e));
   if (emails.length && free.length === emails.length) sig('authors', 'free-mail', `All author e-mail addresses are free-mail accounts (${free.length})`, 'low', 1, free.map(e => ({ text: e })), 'Common and often legitimate in Pakistan; counts only together with other signals.');
 
@@ -416,7 +476,8 @@ async function detectPaperMill(input, update = () => {}) {
     const authorDomains = new Set(emails.map(e => e.split('@')[1]).filter(d => !FREE_MAIL.test('@' + d)));
     const issues = [];
     for (const e of revEmails) {
-      if (FREE_MAIL.test(e)) issues.push({ text: `${e} — free-mail address for a suggested reviewer` });
+      if (DISPOSABLE_MAIL.test(e)) issues.push({ text: `${e} — disposable (throw-away) address for a suggested reviewer` });
+      else if (FREE_MAIL.test(e)) issues.push({ text: `${e} — free-mail address for a suggested reviewer` });
       else if (authorDomains.has(e.split('@')[1])) issues.push({ text: `${e} — same institution e-mail domain as an author` });
     }
     for (const a of authors) if (new RegExp(`\\b${esc(a.family)}\\b`, 'i').test(revText) && a.family.length > 3) issues.push({ text: `A suggested reviewer shares the surname “${a.family}” with an author` });
@@ -466,4 +527,4 @@ function papermillProblems(r) {
   return [`Paper mill risk ${r.risk.level} (score ${r.risk.score})`, ...r.signals.filter(s => s.severity !== 'low').slice(0, 5).map(s => s.title)];
 }
 
-module.exports = { textSignals, methodsGaps, screenerMatches, detectPaperMill, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv, riskLevel };
+module.exports = { textSignals, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv, riskLevel };

@@ -100,7 +100,9 @@ if (cfg.DESKTOP) {
     const datasets = await D.ensureDatasets();
     const alerts = await require('./src/alerts').runAlerts();
     const monitoring = await require('./src/integrity/monitoring').runMonitor({ limit: 150 }).catch(e => ({ error: e.message }));
-    res.json({ success: true, datasets, alerts, monitoring });
+    // Module 5: newly published PJPS papers into the image reference database (time-boxed; the rest follows tomorrow)
+    const pjpsFigures = await require('./src/imageRefs').indexPjps({ limit: 40, budgetMs: 120000 }).catch(e => ({ error: e.message }));
+    res.json({ success: true, datasets, alerts, monitoring, pjpsFigures });
   }));
 }
 
@@ -140,7 +142,8 @@ async function start({ port = cfg.PORT, host = cfg.DESKTOP ? '127.0.0.1' : undef
     D.ensureDatasets().catch(e => console.error('Dataset refresh failed:', e.message));
     const alerts = require('./src/alerts');
     const monitor = () => require('./src/integrity/monitoring').runMonitor({ limit: 150 }).catch(e => console.error('Article monitoring failed:', e.message));
-    setInterval(() => { purgeJobs(); D.ensureDatasets().catch(() => {}); alerts.runAlerts().catch(e => console.error('Alerts failed:', e.message)); monitor(); }, 24 * 3600 * 1000).unref();
+    const pjpsFigures = () => require('./src/imageRefs').indexPjps({ limit: 60 }).then(r => console.log(`PJPS figure database: ${r.articles} new article(s), ${r.panels} panel(s)`)).catch(e => console.error('PJPS figure indexing failed:', e.message));
+    setInterval(() => { purgeJobs(); D.ensureDatasets().catch(() => {}); alerts.runAlerts().catch(e => console.error('Alerts failed:', e.message)); monitor(); pjpsFigures(); }, 24 * 3600 * 1000).unref();
     setTimeout(() => alerts.runAlerts().catch(() => {}), 60000).unref();
   }
   return actual;

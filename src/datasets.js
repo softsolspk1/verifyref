@@ -7,6 +7,7 @@ const { getMeta, setMeta, transaction, bulkInsert } = db;
 const { getText, getBuffer } = require('./http');
 const { normalize, normalizeJournal, cleanIssn, cleanDoi } = require('./text');
 const cfg = require('./config');
+const store = require('./datasetStore');
 
 // ------------------------------------------------------------------ CSV
 
@@ -50,9 +51,7 @@ function csvToObjects(text) {
 const RW_URL = `https://api.labs.crossref.org/data/retractionwatch?mailto=${encodeURIComponent(cfg.CONTACT_EMAIL)}`;
 
 async function loadRetractionWatch() {
-  const r = await getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 });
-  if (!r.ok || !r.text) throw new Error(`Retraction Watch download failed (${r.status || r.error})`);
-  const rows = csvToObjects(r.text);
+  const rows = csvToObjects(await store.sourceText('retractionwatch.csv', () => getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 })));
   // One row per original DOI; a later notice (e.g. retraction after concern) wins
   const byDoi = new Map();
   for (const row of rows) {
@@ -119,9 +118,8 @@ function ppsTerms(expr) {
 async function loadProblematicScreener() {
   const rows = [];
   for (const kind of ['tortured', 'scigen', 'suspect']) {
-    const r = await getText(PPS_URL(kind), { ttl: 0, timeout: 120000, retries: 1 });
-    if (!r.ok || !r.text) throw new Error(`Problematic Paper Screener download failed (${kind}: ${r.status || r.error})`);
-    for (const row of parseCsv(r.text).slice(1)) {
+    const text = await store.sourceText(`pps-${kind}.csv`, () => getText(PPS_URL(kind), { ttl: 0, timeout: 120000, retries: 1 }));
+    for (const row of parseCsv(text).slice(1)) {
       const terms = ppsTerms(row[0]);
       if (!terms) continue;
       rows.push([kind, JSON.stringify(terms), kind === 'scigen' ? '' : (row[1] || ''), parseInt(String(row[kind === 'scigen' ? 1 : 2] || '0').replace(/,/g, ''), 10) || 0]);
@@ -163,16 +161,15 @@ const decode = s => String(s).replace(/&amp;/g, '&').replace(/&#8217;|&rsquo;/g,
 async function loadBeall() {
   const items = [];
   for (const page of BEALL_PAGES) {
-    const r = await getText(page.url, { ttl: 0, timeout: 60000 });
-    if (!r.ok) throw new Error(`Beall's list download failed: ${page.url}`);
-    const content = r.text.split(/<div class="entry-content/)[1] || r.text;
+    const text = await store.sourceText(`beall-${page.kind}.html`, () => getText(page.url, { ttl: 0, timeout: 60000 }));
+    const content = text.split(/<div class="entry-content/)[1] || text;
     for (const m of content.matchAll(/<li>\s*<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g)) {
       items.push({ kind: page.kind, name: decode(m[2]), url: m[1], genuine: null });
     }
   }
-  const h = await getText('https://beallslist.net/hijacked-journals/', { ttl: 0, timeout: 60000 });
-  if (h.ok) {
-    for (const m of h.text.matchAll(/<tr><td><a href="([^"]+)"[^>]*>([^<]+)<\/a><\/td><td>(?:<a href="([^"]+)"[^>]*>)?([^<]*)/g)) {
+  const hijacked = await store.sourceText('beall-hijacked.html', () => getText('https://beallslist.net/hijacked-journals/', { ttl: 0, timeout: 60000 })).catch(() => '');
+  if (hijacked) {
+    for (const m of hijacked.matchAll(/<tr><td><a href="([^"]+)"[^>]*>([^<]+)<\/a><\/td><td>(?:<a href="([^"]+)"[^>]*>)?([^<]*)/g)) {
       items.push({ kind: 'hijacked', name: decode(m[2]), url: m[1], genuine: m[3] || null, genuineName: decode(m[4] || '') });
     }
   }
@@ -241,6 +238,7 @@ async function importJournalList(listType, filename, csvText) {
     if (!title && !issns.length && !eissn) continue;
     data.push([listType, issns[0] || null, eissn, title, normalizeJournal(title), JSON.stringify(row)]);
   }
+  await store.put(`lists/${listType}.csv`, csvText, { source: `uploaded: ${filename}` }).catch(e => console.warn(`R2 copy of the ${listType} list failed: ${e.message}`));
   await transaction(async client => {
     await client.query('DELETE FROM journal_list_entries WHERE list_type = $1', [listType]);
     await bulkInsert(client, 'journal_list_entries', [
@@ -298,9 +296,7 @@ async function loadFdaOrangeBook({ buffer, filepath, log = console.log } = {}) {
   }
   if (!zipBuf) {
     log('Downloading FDA Orange Book dataset from FDA…');
-    const r = await getBuffer(FDA_ORANGE_BOOK_URL, { timeout: 120000 });
-    if (!r.ok || !r.buffer) throw new Error(`FDA Orange Book download failed (${r.status || r.error})`);
-    zipBuf = r.buffer;
+    zipBuf = await store.sourceBuffer('orange_book.zip', () => getBuffer(FDA_ORANGE_BOOK_URL, { timeout: 120000 }), { log });
     try {
       const dir = path.dirname(LOCAL_ORANGE_BOOK);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -477,11 +473,13 @@ function parseNlmJournals(text) {
 }
 
 async function loadNlmCatalog() {
-  const [all, pm] = await Promise.all([NLM_ENTREZ_URL, NLM_PUBMED_URL].map(u => getText(u, { ttl: 0, timeout: 300000, retries: 2 })));
-  if (!all.ok || !all.text) throw new Error(`NLM Catalog download failed (${all.status || all.error})`);
-  const pubmed = new Set(pm.ok ? parseNlmJournals(pm.text).map(r => r.NlmId) : []);
+  const [all, pm] = await Promise.all([
+    store.sourceText('nlm-J_Entrez.txt', () => getText(NLM_ENTREZ_URL, { ttl: 0, timeout: 300000, retries: 2 })),
+    store.sourceText('nlm-J_Medline.txt', () => getText(NLM_PUBMED_URL, { ttl: 0, timeout: 300000, retries: 2 })).catch(() => '')
+  ]);
+  const pubmed = new Set(pm ? parseNlmJournals(pm).map(r => r.NlmId) : []);
   const byId = new Map();
-  for (const r of parseNlmJournals(all.text)) {
+  for (const r of parseNlmJournals(all)) {
     const abbr = r.IsoAbbr || r.MedAbbr || '';
     byId.set(r.NlmId, [r.NlmId, r.JournalTitle, normalizeJournal(r.JournalTitle), r.MedAbbr || '', r.IsoAbbr || '', abbr ? normalizeJournal(abbr) : '',
       cleanIssn(r['ISSN (Print)']) || null, cleanIssn(r['ISSN (Online)']) || null, pubmed.has(r.NlmId)]);
@@ -535,9 +533,7 @@ async function nlmJournal({ issns = [], name = '' } = {}) {
 const DOAJ_CSV_URL = 'https://doaj.org/csv';
 
 async function loadDoaj() {
-  const r = await getText(DOAJ_CSV_URL, { ttl: 0, timeout: 300000, retries: 2 });
-  if (!r.ok || !r.text) throw new Error(`DOAJ download failed (${r.status || r.error})`);
-  const rows = csvToObjects(r.text);
+  const rows = csvToObjects(await store.sourceText('doaj.csv', () => getText(DOAJ_CSV_URL, { ttl: 0, timeout: 300000, retries: 2 })));
   const col = (row, re) => { const k = Object.keys(row).find(h => re.test(h)); return k ? row[k] : ''; };
   const data = [];
   for (const row of rows) {
@@ -573,6 +569,185 @@ async function doajLocal(issns = []) {
   };
 }
 
+// ------------------------------------------------------------------ ISSN LTWA (ISO 4 title word abbreviations)
+
+const LTWA_URL = 'https://www.issn.org/wp-content/uploads/2021/07/ltwa_20210702.csv';
+const LTWA_LANGS = /\b(eng|mul|lat|und)\b/;
+const plain = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+async function loadLtwa() {
+  const text = await store.sourceText('ltwa.csv', () => getText(LTWA_URL, { ttl: 0, timeout: 120000, retries: 2 }));
+  const rows = [];
+  for (const [word, abbr, langs = ''] of parseCsv(text, ';').slice(1)) {
+    if (!word || !LTWA_LANGS.test(langs)) continue;
+    const w = plain(word.trim().toLowerCase());
+    const prefix = w.endsWith('-');
+    rows.push([prefix ? w.slice(0, -1) : w, prefix, /^n\.\s*a\.?$/i.test(abbr.trim()) ? null : abbr.trim(), langs]);
+  }
+  if (rows.length < 5000) throw new Error('LTWA parse returned too few words');
+  await transaction(async client => {
+    await client.query('TRUNCATE ltwa_words');
+    await bulkInsert(client, 'ltwa_words', [{ name: 'word', type: 'text' }, { name: 'prefix', type: 'boolean' }, { name: 'abbrev', type: 'text' }, { name: 'langs', type: 'text' }], rows);
+  });
+  ltwaCache = null;
+  await setMeta('ltwa_loaded_at', new Date().toISOString());
+  await setMeta('ltwa_count', rows.length);
+  return rows.length;
+}
+
+let ltwaCache = null;
+async function ltwaTable() {
+  if (!ltwaCache) {
+    const rows = await db.all('SELECT word, prefix, abbrev, langs FROM ltwa_words');
+    const exact = new Map(), prefixes = new Map();
+    const better = (a, b) => !a || (/eng/.test(b.langs) && !/eng/.test(a.langs));
+    for (const r of rows) {
+      const m = r.prefix ? prefixes : exact;
+      if (better(m.get(r.word), r)) m.set(r.word, r);
+    }
+    ltwaCache = { exact, prefixes, size: rows.length };
+  }
+  return ltwaCache;
+}
+
+const LTWA_DROP = new Set(['of', 'the', 'and', '&', 'for', 'in', 'on', 'a', 'an', 'at', 'to', 'de', 'la', 'et', 'des', 'du', 'der', 'und']);
+
+/** ISO 4 abbreviation of a full journal title from the ISSN LTWA; null when the list is not loaded or nothing changes */
+async function ltwaAbbreviate(title) {
+  const words = String(title || '').replace(/[,:;]/g, ' ').split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.some(w => /\.$/.test(w))) return null;   // single words are not abbreviated; already abbreviated
+  const t = await ltwaTable();
+  if (!t.size) return null;
+  const out = [];
+  for (const w of words) {
+    const lw = plain(w.toLowerCase());
+    if (LTWA_DROP.has(lw)) continue;
+    let e = t.exact.get(lw);
+    if (!e) for (let n = lw.length; n >= 3 && !e; n--) e = t.prefixes.get(lw.slice(0, n));
+    let a = e?.abbrev || w;
+    if (e?.abbrev && plain(a) !== a && plain(w) === w) a = plain(a);   // English word, French abbreviation row (méd. -> med.)
+    out.push(a.charAt(0).toUpperCase() + a.slice(1));
+  }
+  const res = out.join(' ');
+  return normalizeJournal(res) === normalizeJournal(title) ? null : res;
+}
+
+// ------------------------------------------------------------------ Crossref journal title list
+
+const CROSSREF_TITLES_URL = 'http://ftp.crossref.org/titlelist/titleFile.csv';
+
+async function loadCrossrefJournals() {
+  const text = await store.sourceText('crossref-titleFile.csv', () => getText(CROSSREF_TITLES_URL, { ttl: 0, timeout: 600000, retries: 2 }));
+  const rows = [];
+  for (const o of csvToObjects(text)) {
+    const title = (o.JournalTitle || '').replace(/[‎‏]/g, '').trim();
+    if (!title) continue;
+    rows.push([o.JournalID || null, title, normalizeJournal(title), o.Publisher || null, cleanIssn(o.pissn) || null, cleanIssn(o.eissn) || null, o.doi || null]);
+  }
+  if (rows.length < 50000) throw new Error('Crossref title list parse returned too few journals');
+  await transaction(async client => {
+    await client.query('TRUNCATE crossref_journals');
+    await bulkInsert(client, 'crossref_journals', ['crossref_id', 'title', 'title_norm', 'publisher', 'issn', 'eissn', 'doi'].map(name => ({ name, type: 'text' })), rows);
+  });
+  await setMeta('crj_loaded_at', new Date().toISOString());
+  await setMeta('crj_count', rows.length);
+  return rows.length;
+}
+
+/** Crossref-registered journal by ISSN or exact (normalised) title; null when unknown or the list is not loaded */
+async function crossrefJournal({ issns = [], name = '' } = {}) {
+  const is = issns.map(cleanIssn).filter(Boolean);
+  const n = name ? normalizeJournal(name) : '';
+  if (!is.length && !n) return null;
+  if (is.length) {
+    const row = await db.one('SELECT * FROM crossref_journals WHERE issn = ANY($1::text[]) OR eissn = ANY($1::text[]) LIMIT 1', [is]);
+    if (row) return row;
+  }
+  if (!n) return null;
+  const rows = await db.all('SELECT * FROM crossref_journals WHERE title_norm = $1 LIMIT 2', [n]);
+  return rows.length === 1 ? rows[0] : null;
+}
+
+// ------------------------------------------------------------------ free-mail and disposable e-mail domains
+
+const FREEMAIL_URL = 'https://raw.githubusercontent.com/Kikobeats/free-email-domains/master/domains.json';
+const DISPOSABLE_URL = 'https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/main/disposable_email_blocklist.conf';
+// Never treat academic or government domains as free-mail, whatever a third-party list says
+const INSTITUTIONAL = /(?:^|\.)(?:edu|ac|gov|gob|govt|mil|nhs|res)(?:\.[a-z]{2})?$|\.edu\.[a-z]{2}$/;
+
+async function loadEmailDomains() {
+  const [f, d] = await Promise.all([
+    store.sourceText('email-freemail.json', () => getText(FREEMAIL_URL, { ttl: 0, timeout: 120000, retries: 2 })).catch(() => ''),
+    store.sourceText('email-disposable.conf', () => getText(DISPOSABLE_URL, { ttl: 0, timeout: 120000, retries: 2 })).catch(() => '')
+  ]);
+  if (!f && !d) throw new Error('E-mail domain lists download failed');
+  const kind = new Map();
+  if (f) { try { for (const x of JSON.parse(f)) kind.set(String(x).trim().toLowerCase(), 'freemail'); } catch (e) { /* fall through to the size check */ } }
+  if (d) for (const x of d.split(/\r?\n/)) { const dom = x.trim().toLowerCase(); if (dom && !dom.startsWith('#')) kind.set(dom, 'disposable'); }
+  const rows = [...kind].filter(([dom]) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(dom) && !INSTITUTIONAL.test(dom));
+  if (rows.length < 1000) throw new Error('E-mail domain lists parse returned too few domains');
+  await transaction(async client => {
+    await client.query('TRUNCATE email_domains');
+    await bulkInsert(client, 'email_domains', [{ name: 'domain', type: 'text' }, { name: 'kind', type: 'text' }], rows);
+  });
+  emailDomainCache = null;
+  await setMeta('maildom_loaded_at', new Date().toISOString());
+  await setMeta('maildom_count', rows.length);
+  return rows.length;
+}
+
+let emailDomainCache = null;
+/** Load the domain lists into memory so the synchronous checks (isFreeMail / isDisposableMail) can use them */
+async function warmEmailDomains() {
+  if (emailDomainCache && Date.now() - emailDomainCache.at < 3600000) return emailDomainCache;
+  try {
+    const rows = await db.all('SELECT domain, kind FROM email_domains');
+    emailDomainCache = { at: Date.now(), map: new Map(rows.map(r => [r.domain, r.kind])) };
+  } catch (e) { emailDomainCache = { at: Date.now(), map: new Map() }; }
+  return emailDomainCache;
+}
+/** 'freemail' | 'disposable' | null for an address or domain, from the loaded lists (call warmEmailDomains first) */
+function emailDomainKind(emailOrDomain) {
+  const dom = String(emailOrDomain || '').toLowerCase().split('@').pop().trim();
+  if (!dom || !emailDomainCache) return null;
+  return emailDomainCache.map.get(dom) || null;
+}
+
+// ------------------------------------------------------------------ Cellosaurus (live, cached)
+
+const CELLO_ROWS = 100;
+
+/**
+ * Cellosaurus record for a cell-line name: { found, accession, name, category, problematic }. found:false only when
+ * both searches returned every candidate and none is named exactly; null when offline or the answer is uncertain.
+ */
+async function cellosaurusLookup(name) {
+  const n = String(name || '').trim().replace(/"/g, '');
+  if (n.length < 2) return null;
+  // Derivatives list their parent as a synonym (dozens of "MCF-7 …" sublines) and spellings vary ("HepG2" is stored as
+  // "Hep-G2"), so search identifiers, then synonyms, and accept only a name equal apart from case, spaces and hyphens
+  const key = s => String(s || '').toLowerCase().replace(/[\s-]/g, '');
+  const names = c => (c['name-list'] || []);
+  let complete = true, c = null;
+  for (const [field, exact] of [['id', nm => nm.type === 'identifier'], ['sy', () => true]]) {
+    const r = await require('./http').getJson(`https://api.cellosaurus.org/search/cell-line?q=${encodeURIComponent(`${field}:"${n}"`)}&fields=id,sy,ac,ca,cc&format=json&rows=${CELLO_ROWS}`, { ttl: 30 * 86400, timeout: 20000, retries: 1 });
+    if (!r.ok) return null;
+    const list = r.data?.Cellosaurus?.['cell-line-list'] || [];
+    if (list.length >= CELLO_ROWS) complete = false;
+    c = list.find(x => names(x).some(nm => exact(nm) && key(nm.value) === key(n)));
+    if (c) break;
+  }
+  if (!c) return complete ? { found: false, name: n } : null;
+  const problem = (c['comment-list'] || []).find(x => x.category === 'Problematic cell line');
+  return {
+    found: true,
+    name: (c['name-list'] || []).find(x => x.type === 'identifier')?.value || n,
+    accession: (c['accession-list'] || []).find(x => x.type === 'primary')?.value || null,
+    category: c.category || null,
+    problematic: problem ? problem.value : null
+  };
+}
+
 async function listStatus() {
   const allUploaded = await db.all('SELECT * FROM journal_lists');
   const uploaded = Object.fromEntries(allUploaded.map(r => [r.list_type, r]));
@@ -584,6 +759,9 @@ async function listStatus() {
     fdaOrangeBook: { loadedAt: await getMeta('fda_ob_loaded_at'), count: parseInt((await getMeta('fda_ob_count')) || '0', 10) },
     nlm: { loadedAt: await getMeta('nlm_loaded_at'), count: parseInt((await getMeta('nlm_count')) || '0', 10) },
     doaj: { loadedAt: await getMeta('doaj_loaded_at'), count: parseInt((await getMeta('doaj_count')) || '0', 10) },
+    ltwa: { loadedAt: await getMeta('ltwa_loaded_at'), count: parseInt((await getMeta('ltwa_count')) || '0', 10) },
+    crossrefJournals: { loadedAt: await getMeta('crj_loaded_at'), count: parseInt((await getMeta('crj_count')) || '0', 10) },
+    emailDomains: { loadedAt: await getMeta('maildom_loaded_at'), count: parseInt((await getMeta('maildom_count')) || '0', 10) },
     iclac: { loadedAt: null, count: 581, builtIn: true }
   };
 }
@@ -605,6 +783,9 @@ async function datasetHealth() {
     fdaOrangeBook: { count: fda, loadedAt: await getMeta('fda_ob_loaded_at') },
     nlm: { count: parseInt((await getMeta('nlm_count')) || '0', 10), loadedAt: await getMeta('nlm_loaded_at') },
     doaj: { count: parseInt((await getMeta('doaj_count')) || '0', 10), loadedAt: await getMeta('doaj_loaded_at') },
+    ltwa: { count: parseInt((await getMeta('ltwa_count')) || '0', 10), loadedAt: await getMeta('ltwa_loaded_at') },
+    crossrefJournals: { count: parseInt((await getMeta('crj_count')) || '0', 10), loadedAt: await getMeta('crj_loaded_at') },
+    emailDomains: { count: parseInt((await getMeta('maildom_count')) || '0', 10), loadedAt: await getMeta('maildom_loaded_at') },
     complete: !missing.length,
     warning: missing.length ? 'Reference datasets are still loading or failed to load: ' + missing.join('; ') + '. Results that depend on them may be incomplete - run the check again after the datasets have loaded (Admin > Data).' : null
   };
@@ -643,11 +824,17 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log
     try { results.doaj = await loadDoaj(); log(`DOAJ: ${results.doaj} journals loaded`); }
     catch (e) { results.doajError = e.message; log(`DOAJ load failed: ${e.message}`); }
   }
+  for (const [key, label, fn] of [['ltwa', 'ISSN LTWA', loadLtwa], ['crj', 'Crossref journal list', loadCrossrefJournals], ['maildom', 'E-mail domain lists', loadEmailDomains]]) {
+    if (!(await stale(`${key}_loaded_at`))) continue;
+    try { results[key] = await fn(); log(`${label}: ${results[key]} rows loaded`); }
+    catch (e) { results[`${key}Error`] = e.message; log(`${label} load failed: ${e.message}`); }
+  }
   return results;
 }
 
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
+  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
   importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf
 };

@@ -112,10 +112,12 @@ const assert = require('assert');
   assert.ok((await resp.arrayBuffer()).byteLength > 3000);
 
   // Module 5: save a browser analysis, then a second manuscript sharing a figure is matched
-  const panel = (id, h) => ({ id, label: id, imageId: 'img1', type: 'photo', hashes: Array(8).fill(h), thumb: 'data:image/jpeg;base64,/9j/4AAQ' });
+  const panel = (id, h) => ({ id, label: id, imageId: 'img1', type: 'photo', box: { x: 0, y: 0, w: 120, h: 90 }, hashes: Array(8).fill(h), thumb: 'data:image/jpeg;base64,/9j/4AAQ' });
   const tiny = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   r = await call('admin', 'POST', '/api/images', { result: { meta: { manuscriptCode: 'PJPS-IMG-1', title: 'First' }, summary: { images: 1 }, panels: [panel('p1', '0f0f0f0f12345678'), panel('p2', 'ffff0000aaaa5555')], findings: [{ id: 'f1', kind: 'duplicate', level: 'high', description: 'test', a: { panel: 'p1', label: 'Fig. 1A' }, b: { panel: 'p2', label: 'Fig. 2B' }, thumbA: tiny, thumbAW: 1, thumbAH: 1, thumbB: tiny, thumbBW: 1, thumbBH: 1 }] } });
   assert.ok(r.data.success && r.data.result.summary.level === 'HIGH', 'Module 5 saved');
+  assert.deepStrictEqual(r.data.result.panels[0].box, { x: 0, y: 0, w: 120, h: 90 }, 'panel position kept (forensic viewer crops to it)');
+  assert.ok(Array.isArray(r.data.result.references) && r.data.result.referencesSearched, 'compared with the image reference databases');
   const imgId = r.data.id;
   r = await call('admin', 'POST', '/api/images', { result: { meta: { manuscriptCode: 'PJPS-IMG-2' }, summary: { images: 1 }, panels: [panel('q1', '0f0f0f0f12345679')], findings: [] } });
   assert.ok(r.data.earlier.length === 1 && r.data.earlier[0].manuscriptCode === 'PJPS-IMG-1', 'figure re-used from an earlier manuscript');

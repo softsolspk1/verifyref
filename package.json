@@ -7,13 +7,16 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test/remediation.js && node test/smoke-web.js && node test/images-engine.mjs && node test/forensics.mjs && node test/demo-check.mjs && node test/pjps-style.js && node test/pharma-integrity.js && node test/integrity-suite.js",
+    "test": "node test/remediation.js && node test/smoke-web.js && node test/images-engine.mjs && node test/forensics.mjs && node test/image-refs.mjs && node test/demo-check.mjs && node test/pjps-style.js && node test/datasets-parse.js && node test/pharma-integrity.js && node test/integrity-suite.js",
     "desktop": "cd desktop && npm start",
     "desktop:dist": "cd desktop && npm run dist",
     "proposal": "node docs/build-proposal.js",
     "demo": "node demo/build-demo.js",
     "download:orange-book": "node scripts/download-orange-book.js",
-    "download:ebsco": "node scripts/download-ebsco.js"
+    "download:ebsco": "node scripts/download-ebsco.js",
+    "datasets:push": "node scripts/sync-datasets-r2.js",
+    "datasets:pull": "node scripts/sync-datasets-r2.js --pull",
+    "images:index": "node scripts/index-image-refs.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",
@@ -29,13 +32,12 @@
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.20.2",
     "pg": "^8.23.1",
+    "pngjs": "^7.0.0",
+    "sharp": "^0.35.5",
     "word-extractor": "^1.0.4"
   },
   "author": "Softsols Pakistan",
   "engines": {
     "node": ">=18"
-  },
-  "devDependencies": {
-    "pngjs": "^7.0.0"
   }
 }

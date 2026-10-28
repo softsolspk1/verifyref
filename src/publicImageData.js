@@ -10,14 +10,15 @@ const { getText } = require('./http');
 
 const DIR = path.join(cfg.DATA_DIR, 'public-images');
 const file = (...p) => path.join(DIR, ...p);
-const size = f => { try { return fs.statSync(f).size; } catch { return 0; } };
+const sizeLocal = f => { try { return fs.statSync(f).size; } catch { return 0; } };
 const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 
 let casesCache = null;
-const loadCases = () => (casesCache ||= readJson(file('retracted_image_cases.json')) || { summary: null, cases: [] });
+const loadCases = () => casesCache || (casesCache = readJson(file('retracted_image_cases.json'))) || { summary: null, cases: [] };
 
-/** Verified sources (links checked October 2026). `local` = file that proves it has been downloaded here. */
-function catalog() {
+/** Verified sources (links checked October 2026). remote: { 'public-images/<path>': bytes } of the copies on Cloudflare R2 (the large archives are not copied to a web server) */
+function catalog(remote = {}) {
+  const size = f => sizeLocal(f) || remote[path.relative(cfg.DATA_DIR, f).split(path.sep).join('/')] || 0;
   const bench = readJson(file('benchmark_results.json'));
   const cases = loadCases();
   const rsiid = size(file('rsiid', 'artificial_forgery_src_data.zip'));
@@ -27,11 +28,11 @@ function catalog() {
       status: cases.summary ? `Connected through Europe PMC: ${cases.summary.openAccess} open-access papers with image problems listed` : 'Not downloaded', use: 'Source of figures to compare against and of real-world positive cases (below). Figure files must be fetched through the bulk archives or the API; the full corpus is terabytes and is not stored here.' },
     { id: 'rsiid', name: 'RSIID — Recod.ai Scientific Image Integrity Dataset', url: 'https://zenodo.org/records/15095089', license: 'CC-BY 4.0', scale: '39,423 tampered figures made from 2,923 pristine CC images (train 26,496 / test 12,927)',
       access: 'Zenodo (train 37 GB + test 20 GB as 7z; pristine sources 430 MB; templates 86 MB). Generator code: github.com/phillipecardenuto/rsiil',
-      status: rsiid ? `Pristine source images + templates downloaded (${Math.round((rsiid + size(file('rsiid', 'template.zip'))) / 1e6)} MB); the 57 GB tampered train/test sets are not stored` : 'Not downloaded', use: 'Pristine images are used to generate forgeries and measure the Module 5 engine (benchmark below).' },
+      status: rsiid ? `Pristine source images + templates stored (${Math.round((rsiid + size(file('rsiid', 'template.zip'))) / 1e6)} MB); the 57 GB tampered train/test sets are not stored` : 'Not downloaded', use: 'Pristine images are used to generate forgeries and measure the Module 5 engine (benchmark below).' },
     { id: 'binder', name: 'BINDER — Bio-Image Near-Duplicate Examples Repository', url: 'https://doi.org/10.7910/DVN/9YTD9Z', license: 'CC0 1.0', scale: '7,490 unique patches + 1,821 manipulated duplicates + 868 different-size pairs',
       access: 'Harvard Dataverse, 678 MB. Needs a guestbook form (name/e-mail) before download, so it cannot be fetched by script.', status: size(file('binder', 'BINDER_2020_7_9.zip')) > 1e6 ? 'Downloaded' : 'Manual download needed', use: 'Near-duplicate test set (rotation, translation, scale, perspective, contrast, compression). BINDER-style transforms are already tested in the benchmark below.' },
     { id: 'biofors', name: 'BioFors — biomedical image forensics', url: 'https://vimal.isi.edu/ekraam-2021-biofors', license: 'See authors (ICCV 2021)', scale: '47,805 panels from 1,031 papers: external duplication, internal duplication, cut/sharp transition',
-      access: 'Request via the authors (USC ISI); no direct download link published.', status: 'Not downloaded', use: 'Real-world benchmark with expert ground truth, once obtained.' },
+      access: 'Request via the authors (USC ISI); no direct download link published.', status: (() => { const n = sizeLocal(path.join(cfg.DATA_DIR, 'benchmark', 'biofors', 'biofors.tar')) || remote['benchmark/biofors/biofors.tar'] || 0; return n ? `Downloaded (${(n / 1e9).toFixed(1)} GB archive with expert annotations)` : 'Not downloaded'; })(), use: 'Real-world benchmark with expert ground truth (external / internal duplication, cut transitions).' },
     { id: 'retractions', name: 'Retracted papers with image problems (SciInt-type collections)', url: 'https://api.labs.crossref.org/data/retractionwatch', license: 'Retraction Watch data via Crossref (CC0)', scale: cases.summary ? `${cases.summary.total} retractions, corrections and concerns that name images` : '—',
       access: 'Crossref Labs Retraction Watch download + Europe PMC open-access flags', status: cases.summary ? `Loaded ${cases.summary.fetchedAt.slice(0, 10)}` : 'Not downloaded', use: 'Real positive examples: look up a case, see its reasons and read the figure captions on Europe PMC.' },
     { id: 'pubpeer', name: 'PubPeer', url: 'https://pubpeer.com', license: 'Comments are user content', scale: 'Crowdsourced post-publication reports', access: 'No bulk download. Check single papers by DOI at pubpeer.com.', status: 'External check only', use: 'Independent validation of flagged papers.' },

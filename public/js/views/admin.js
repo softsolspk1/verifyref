@@ -1,5 +1,6 @@
 // views/admin.js - Super Admin: integrity datasets, journal index lists, alert run; audit log and usage statistics
 import { api, esc, $, $$, badge, toast, fmtDate, runJob, modal, state } from '../core.js';
+import { renderImageDatabases, renderStorage } from './imageDatabases.js';
 
 export async function renderAdmin(view) {
   const ds = await api('/api/admin/datasets');
@@ -59,7 +60,10 @@ export async function renderAdmin(view) {
           </tr>
           ${[
             ['NLM Catalog journal list', 'NCBI list of journals in PubMed and the NCBI databases: full titles, NLM / ISO abbreviations and ISSNs (journal resolution, Module 2 abbreviation check)', ds.nlm],
-            ['DOAJ journal list', 'Directory of Open Access Journals: every DOAJ-listed journal with publisher, APC, licence and review process (Journal Check, predatory screening)', ds.doaj]
+            ['DOAJ journal list', 'Directory of Open Access Journals: every DOAJ-listed journal with publisher, APC, licence and review process (Journal Check, predatory screening)', ds.doaj],
+            ['Crossref journal title list', 'Every journal that registers DOIs with Crossref, with ISSNs and publisher (Module 1: is the cited journal real?)', ds.crossrefJournals],
+            ['ISSN List of Title Word Abbreviations (LTWA)', 'Official ISO 4 word abbreviations (Module 2: expected abbreviation for journals not in the NLM Catalog)', ds.ltwa],
+            ['Free-mail &amp; disposable e-mail domains', 'Public free-mail providers and throw-away mailbox domains (Module 4: author and suggested-reviewer addresses)', ds.emailDomains]
           ].map(([name, desc, d]) => `<tr>
             <td><b>${name}</b><div class="muted">${desc}</div></td>
             <td>Journal index</td>
@@ -75,7 +79,7 @@ export async function renderAdmin(view) {
             <td>${badge('active', 'good')}</td>
           </tr>
           <tr>
-            <td><b>PubChem &amp; ClinicalTrials.gov</b><div class="muted">Live chemical compound identity (CID, IUPAC, InChIKey) and clinical protocol verification</div></td>
+            <td><b>PubChem, ClinicalTrials.gov, Cellosaurus, Unpaywall &amp; ROR</b><div class="muted">Live look-ups: compound identity (CID, InChIKey), trial registration, cell-line identity and contamination (Module 4), legal open-access full text for claim checks (Module 3), institutions (Module 4)</div></td>
             <td>Integrity</td>
             <td class="num">Live APIs + Cache</td>
             <td>${badge('Live API', 'good')}</td>
@@ -103,6 +107,10 @@ export async function renderAdmin(view) {
       <div class="card-head"><h2>Image Integrity sources</h2><span class="muted">Used by Module 5</span></div>
       <div class="muted">Loading…</div>
     </div>
+
+    <div class="card" id="image-dbs"></div>
+
+    <div class="card" id="storage"></div>
 
     <div class="card" id="pjps-rules">
       <div class="card-head"><h2>PJPS rules</h2><span class="muted">Used by Module 1 and Module 4</span></div>
@@ -158,6 +166,8 @@ export async function renderAdmin(view) {
       </table></div>
     </div>`;
 
+  renderImageDatabases($('#image-dbs', view), { desk });
+  renderStorage($('#storage', view), { desk });
   api('/api/settings/age-rule').then(d => { $('#rule-share', view).value = d.rule.minShare; $('#rule-years', view).value = d.rule.years; }).catch(() => {});
   api('/api/settings/tortured').then(d => { $('#tp-list', view).value = d.list.map(x => `${x.phrase} = ${x.correct}`).join('\n'); $('#tp-builtin', view).textContent = d.builtIn; }).catch(() => {});
   api('/api/admin/image-sources').then(({ datasets, knowledge, benchmark: b, cases }) => {
@@ -168,7 +178,7 @@ export async function renderAdmin(view) {
         <tr><td><b>Engine benchmark</b><div class="muted">Forgeries generated from the RSIID pristine images</div></td><td class="num">${b ? b.images + ' images' : '—'}</td><td>${b ? fmtDate(b.runAt) : badge('not run', 'warn')}</td></tr>
         ${datasets.map(d => `<tr><td><a href="${esc(d.url)}" target="_blank" rel="noopener"><b>${esc(d.name)}</b></a><div class="muted">${esc(d.license)} · ${esc(d.scale)}</div></td><td colspan="2">${esc(d.status)}<div class="muted">${esc(d.access)}</div></td></tr>`).join('')}
       </table>
-      <p class="muted" style="margin:10px 0 0">Loaded with <code>node scripts/fetch-public-image-data.js</code> and <code>node scripts/benchmark-public-images.mjs</code>; the knowledge base is read from <code>data/new</code>. On a server where these folders are missing the rows show “not loaded”.</p>`;
+      <p class="muted" style="margin:10px 0 0">Loaded with <code>node scripts/fetch-public-image-data.js</code> and <code>node scripts/benchmark-public-images.mjs</code>; the knowledge base is read from <code>data/new</code>. The data folder is kept on Cloudflare R2 (below), and the web platform copies these files from there.</p>`;
   }).catch(() => { $('#image-sources', view).innerHTML = ''; });
   $('#rule-save', view).onclick = () => api('/api/settings/age-rule', { method: 'PUT', body: { minShare: $('#rule-share', view).value, years: $('#rule-years', view).value } }).then(() => toast('Rule saved')).catch(e => toast(e.message, 'error'));
   $('#tp-save', view).onclick = () => {

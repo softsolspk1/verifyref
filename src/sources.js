@@ -169,7 +169,11 @@ function fromOpenAlex(w) {
     abstract: invertedIndexToText(w.abstract_inverted_index),
     topics: (w.topics || []).map(t => t.display_name),
     keywords: (w.keywords || []).map(k => k.display_name),
-    citedBy: w.cited_by_count
+    citedBy: w.cited_by_count,
+    // legal open-access copies (publisher or repository PDFs) - used for full-text claim checks and figure comparison
+    isOa: !!w.open_access?.is_oa,
+    pdfUrls: [...new Set([w.best_oa_location?.pdf_url, ...(w.locations || []).map(l => l.pdf_url)].filter(Boolean))].slice(0, 5),
+    pmcid: /(\d{4,9})\/?$/.test(w.ids?.pmcid || '') ? `PMC${String(w.ids.pmcid).match(/(\d{4,9})\/?$/)[1]}` : null
   };
 }
 
@@ -482,9 +486,69 @@ async function ericSearch(ref) {
   };
 }
 
+// ---------------------------------------------------------------- 13. CORE (core.ac.uk) - open-access research outputs
+// 300+ million records from repositories and journals, with links to the open-access full text (PDF). Free; an API key
+// (core.ac.uk/services/api) raises the rate limit and unlocks the full-text field.
+
+const coreHeaders = () => (cfg.CORE_API_KEY ? { Authorization: `Bearer ${cfg.CORE_API_KEY}` } : {});
+const coreOpts = () => ({ headers: coreHeaders(), timeout: 20000, retries: cfg.CORE_API_KEY ? 2 : 0, ttl: 30 * 86400 });
+
+function fromCore(w) {
+  const j = (w.journals || [])[0] || {};
+  const issn = [...(j.identifiers || []), ...(w.identifiers || []).map(i => (i.type === 'issn' ? i.identifier : ''))]
+    .map(s => String(s).replace(/^issn:/i, '')).filter(s => /^\d{4}-?\d{3}[\dXx]$/.test(s));
+  return {
+    source: 'CORE',
+    sourceId: String(w.id),
+    coreId: w.id,
+    doi: cleanDoi(w.doi),
+    title: stripTags(w.title || ''),
+    authors: (w.authors || []).map(a => splitName(a.name || '')).filter(a => a.family),
+    year: w.yearPublished || (w.publishedDate ? parseInt(w.publishedDate, 10) : null),
+    journal: j.title || '',
+    publisher: w.publisher || '',
+    issn: [...new Set(issn)],
+    volume: '', issue: '', pages: '',
+    type: w.documentType === 'thesis' ? 'thesis' : 'article',
+    url: (w.links || []).find(l => l.type === 'display')?.url || (w.doi ? `https://doi.org/${w.doi}` : `https://core.ac.uk/works/${w.id}`),
+    pdfUrl: w.downloadUrl || (w.sourceFulltextUrls || [])[0] || null,
+    fullText: typeof w.fullText === 'string' && w.fullText.length > 500 && !/^Not available/i.test(w.fullText) ? w.fullText : null,
+    pmid: w.pubmedId || null,
+    abstract: stripTags(w.abstract || ''),
+    retracted: false, notices: []
+  };
+}
+
+let coreBlockedUntil = 0;   // after a 429 (10 requests / minute without a key), CORE is skipped until the window resets
+async function coreQuery(query, limit = 4) {
+  if (Date.now() < coreBlockedUntil) return { error: 'rate-limited' };
+  const r = await getJson(`https://api.core.ac.uk/v3/search/works/?q=${enc(query)}&limit=${limit}`, coreOpts());
+  if (r.status === 429) {
+    const at = Date.parse(r.headers?.['x-ratelimit-retry-after'] || '');
+    coreBlockedUntil = Number.isFinite(at) && at > Date.now() ? Math.min(at, Date.now() + 600000) : Date.now() + 60000;
+  }
+  if (!r.ok) return { error: r.error || r.status };
+  return { records: (r.data?.results || []).map(fromCore) };
+}
+
+async function coreDoi(doi) {
+  const r = await coreQuery(`doi:"${String(doi).replace(/"/g, '')}"`, 2);
+  if (r.error) return r;
+  const rec = r.records.find(x => x.doi === cleanDoi(doi));
+  return rec ? { record: rec } : { notFound: true };
+}
+
+async function coreSearch(ref) {
+  // an exact title phrase misses spelling variants ("antiinflammatory" / "Anti-Inflammatory"): require the title's six
+  // most distinctive words instead
+  const words = [...new Set(q(ref.title || ref.raw).toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 5))].sort((a, b) => b.length - a.length).slice(0, 6);
+  if (words.length < 2) return { records: [] };
+  return coreQuery(words.map(w => `title:"${w}"`).join(' AND '), 4);
+}
+
 const DATABASES = [
   'Crossref', 'DOI Foundation (Handle)', 'DataCite', 'OpenAlex', 'PubMed', 'Europe PMC',
-  'Semantic Scholar', 'arXiv', 'DBLP', 'Open Library', 'Google Books', 'ERIC'
+  'Semantic Scholar', 'arXiv', 'DBLP', 'Open Library', 'Google Books', 'ERIC', 'CORE'
 ];
 
 module.exports = {
@@ -492,5 +556,5 @@ module.exports = {
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,
   pubmedPmid, pubmedSearch, europepmcSearch, s2Doi, s2Search,
-  arxivId, arxivSearch, dblpSearch, openLibrarySearch, googleBooksSearch, ericSearch
+  arxivId, arxivSearch, dblpSearch, openLibrarySearch, googleBooksSearch, ericSearch, coreDoi, coreSearch, coreQuery, fromCore
 };

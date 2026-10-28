@@ -18,6 +18,17 @@ for (const [kind, text] of Object.entries(OFFICIAL)) {
   const bad = c.deviations.filter(d => d.severity !== 'info');
   assert.deepStrictEqual(bad.map(d => d.message), [], `${kind}: official example judged non-compliant`);
 }
+// PJPS editor's reference pattern (Oct 2026): name particles (da, de, dos), 13 authors, accented letters, article number
+const editorPattern = 'da Fonsêca DV, Rocha JS, da Silva PR, de Sa Novaes Pereira HN, dos Santos LVN, de Santana MAD, Alves AF, Pontes AHO, de Souza Gomes J, Felipe CFB, de Sousa DP, Scotti MT and Scotti L (2025). 4-Hydroxycoumarin exhibits antinociceptive and antiinflammatory effects through cytokine modulation: An integrated in-silico and in-vivo study. Int. J. Mol. Sci., 26(6): 2788.';
+const ep = P.parseReferenceEntry(editorPattern, 1);
+assert.strictEqual(ep.authors.length, 13, 'editor pattern: 13 authors');
+assert.deepStrictEqual([ep.authors[0].family, ep.authors[3].family, ep.authors[4].family], ['da Fonsêca', 'de Sa Novaes Pereira', 'dos Santos'], 'editor pattern: name particles');
+assert.strictEqual(ST.formatText(ep, 'pjps'), editorPattern, 'editor pattern: re-formatted text differs');
+assert.deepStrictEqual(checkEntry(ep, null, { title: 'International journal of molecular sciences', isoAbbrev: 'Int. J. Mol. Sci.' }).deviations.filter(d => d.severity !== 'info').map(d => d.message), [], 'editor pattern judged non-compliant');
+// the same paper as a database record (full given names, Title Case title, full journal title) converts to the pattern
+const fromDb = { type: 'journal', authors: ep.authors.map(a => ({ ...a, given: a.given.split('').join('. ') + '.' })), year: 2025, title: '4-Hydroxycoumarin Exhibits Antinociceptive and Antiinflammatory Effects Through Cytokine Modulation: An Integrated In-Silico and In-Vivo Study', journal: 'International Journal of Molecular Sciences', volume: '26', issue: '6', pages: '2788' };
+assert.strictEqual(ST.formatText(fromDb, 'pjps'), editorPattern, 'database record not converted to the PJPS pattern (sentence-case title, abbreviation)');
+assert(ST.formatText({ ...fromDb, title: 'Expression of NF-κB and mRNA Levels of COX-2 in Wistar Rats From Karachi, Pakistan' }, 'pjps').includes('(2025). Expression of NF-κB and mRNA levels of COX-2 in Wistar rats from Karachi, Pakistan. '), 'acronyms / places lost their capitals in sentence case');
 // all authors are kept (no "et al." in the list), journal italic, volume bold
 const eight = 'Ali A, Khan B, Shah C, Noor D, Raza E, Malik F, Zubair G and Qureshi H (2020). Antibacterial activity of plant extracts. Pak. J. Pharm. Sci., 33(2): 100-110.';
 assert.strictEqual(ST.formatText(P.parseReferenceEntry(eight, 1), 'pjps'), eight, '8 authors must all be listed');

@@ -32,8 +32,9 @@ function load() {
     const body = part.slice(m[0].length).replace(/\r/g, '').replace(/^---\s*$/gm, '').trim();
     letters.push({ id: Number(m[1]), title: m[2].trim(), subject: (body.match(/\*\*Subject\*\*:\s*(.+)/) || [])[1] || '', text: body.replace(/^\*\*Subject\*\*:.*\n+/, '').replace(/\*\*|\*(?=\S)|(?<=\S)\*/g, '').trim() });
   }
-  cache = { types, letters, available: types.size > 0 };
-  return cache;
+  const out = { types, letters, available: types.size > 0 };
+  if (out.available) cache = out;   // not cached while the files are still being copied from R2 (Vercel)
+  return out;
 }
 
 /** Taxonomy code of a finding (kind + description are written by public/js/images/*) */

@@ -49,7 +49,7 @@ function decisionSummary(result) {
     level = 'proceed';
     recommendation = 'References are in good order — proceed to peer review.';
   }
-  if (s.suspicious) reasons.push(`${s.suspicious} reference(s) were not found in any of the 12 databases.`);
+  if (s.suspicious) reasons.push(`${s.suspicious} reference(s) were not found in any of the 13 databases.`);
   if (s.retracted) reasons.push(`${s.retracted} retracted work(s) are cited.`);
   if (s.miscited) reasons.push(`${s.miscited} reference(s) contain wrong details (year, journal, volume, pages or DOI).`);
   if (c?.missing) reasons.push(`${c.missing} in-text citation(s) have no entry in the reference list.`);

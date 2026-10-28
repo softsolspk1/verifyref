@@ -71,16 +71,43 @@ async function figuresOf(pmcid) {
   return figs;
 }
 
-/** Download a figure and decode it to { width, height, data(RGBA) } */
+/** Download a figure and decode it to { width, height, data(RGBA) } (PNG, JPEG, and WebP as PMC now serves) */
 async function fetchImage(url) {
   const r = await download(url);
   if (!r.ok || !r.buffer || r.buffer.length < 2000) return null;
-  try {
-    const b = r.buffer;
-    if (b[0] === 0x89 && b[1] === 0x50) { const { PNG } = require('pngjs'); const p = PNG.sync.read(b); return { width: p.width, height: p.height, data: new Uint8ClampedArray(p.data), url }; }
-    if (b[0] === 0xFF && b[1] === 0xD8) { const jpeg = require('jpeg-js'); const p = jpeg.decode(b, { useTArray: true, maxMemoryUsageInMB: 256 }); return { width: p.width, height: p.height, data: new Uint8ClampedArray(p.data), url }; }
-  } catch (e) { return null; }
-  return null;
+  const img = await require('./figureFiles').decodeAny(r.buffer);
+  return img ? { ...img, url } : null;
+}
+
+/**
+ * Open-access works of an author in OpenAlex (by ORCID, else by name): papers outside PubMed Central are compared
+ * through their open-access PDF (publisher / repository copy, or CORE). [{ key, pmcid, pdfUrls, title, ... }]
+ */
+async function openalexArticlesOf(author) {
+  const S = require('./sources');
+  const orcid = String(author.orcid || '').match(/\d{4}-\d{4}-\d{4}-\d{3}[\dX]/)?.[0];
+  const name = `${author.given || ''} ${author.family || ''}`.trim();
+  if (!orcid && !author.family) return [];
+  const filter = orcid ? `authorships.author.orcid:${orcid}` : `raw_author_name.search:${name.replace(/[,|:]/g, ' ')}`;
+  const r = await S.openalex(`works?filter=${encodeURIComponent(filter)},open_access.is_oa:true&sort=publication_date:desc&per-page=${PER_AUTHOR}`, { ttl: 7 * 86400, timeout: 20000, retries: 1 });
+  if (!r.ok) return [];
+  return (r.data?.results || []).map(S.fromOpenAlex).map(w => ({ key: w.pmcid || w.doi || w.openalexId, pmcid: w.pmcid, pdfUrls: w.pdfUrls, title: w.title, year: w.year, doi: w.doi, journal: w.journal, author: name, url: w.url, via: 'OpenAlex' }));
+}
+
+/** Figures of a paper that is not in PMC, taken from its open-access PDF (OpenAlex locations, then CORE) */
+async function pdfFiguresOf(art) {
+  const urls = [...(art.pdfUrls || [])];
+  if (!urls.length && art.doi) {
+    const c = await require('./sources').coreDoi(art.doi).catch(() => null);
+    if (c?.record?.pdfUrl) { urls.push(c.record.pdfUrl); art.via = `${art.via} + CORE`; }
+  }
+  for (const url of urls.slice(0, 2)) {
+    const r = await download(url, 60000);
+    if (!r.ok || !r.buffer || r.buffer.length > 60e6 || r.buffer.slice(0, 5).toString() !== '%PDF-') continue;
+    const { images } = require('./figureFiles').pdfImages(r.buffer, { max: MAX_FIGS_PER_ARTICLE * 3 });
+    if (images.length) return images.slice(0, MAX_FIGS_PER_ARTICLE).map(im => ({ label: im.label, caption: '', img: { ...im, url } }));
+  }
+  return [];
 }
 
 /**
@@ -96,26 +123,27 @@ async function checkAuthorFigures(input, update = () => {}) {
   if (!authors.length) { out.note = 'No author names were given, so no earlier papers were searched.'; return out; }
   if (!mine.length) { out.note = 'The manuscript has no figure panels to compare.'; return out; }
 
-  update('Searching Europe PMC for open-access papers of the authors', 5);
+  update('Searching Europe PMC and OpenAlex for open-access papers of the authors', 5);
   const seen = new Set(), articles = [];
+  const add = art => { const k = String(art.pmcid || art.doi || art.key || '').toLowerCase(); if (!k || seen.has(k) || (art.doi && seen.has(String(art.doi).toLowerCase()))) return; seen.add(k); if (art.doi) seen.add(String(art.doi).toLowerCase()); articles.push(art); };
   for (const a of authors) {
-    for (const art of await articlesOf(a).catch(() => [])) {
-      if (seen.has(art.pmcid)) continue;
-      seen.add(art.pmcid); articles.push(art);
-    }
+    const [epmc, oalex] = await Promise.all([articlesOf(a).catch(() => []), openalexArticlesOf(a).catch(() => [])]);
+    epmc.forEach(x => add({ ...x, via: 'Europe PMC' }));
+    oalex.forEach(add);
   }
-  const list = articles.slice(0, MAX_ARTICLES);
+  // newest first, PMC papers (figure files) before PDF-only papers
+  const list = articles.sort((x, y) => (Number(y.year) || 0) - (Number(x.year) || 0) || (x.pmcid ? 0 : 1) - (y.pmcid ? 0 : 1)).slice(0, MAX_ARTICLES);
   out.checked.articles = list.length;
-  if (!list.length) { out.note = 'No open-access papers of these authors were found in Europe PMC (their earlier figures could not be compared).'; return out; }
+  if (!list.length) { out.note = 'No open-access papers of these authors were found in Europe PMC, OpenAlex or CORE (their earlier figures could not be compared).'; return out; }
 
   let done = 0;
   for (const art of list) {
-    update(`Comparing figures of ${art.pmcid} (${++done}/${list.length})`, 10 + done / list.length * 85);
-    const figs = await figuresOf(art.pmcid).catch(() => []);
+    update(`Comparing figures of ${art.pmcid || art.doi || art.title} (${++done}/${list.length})`, 10 + done / list.length * 85);
+    const figs = art.pmcid ? await figuresOf(art.pmcid).catch(() => []) : await pdfFiguresOf(art).catch(() => []);
     if (!figs.length) { out.checked.noFullText++; out.articles.push({ ...art, figures: 0, matched: 0 }); continue; }
     let matched = 0, nFig = 0;
     for (const f of figs) {
-      const img = await fetchImage(f.url).catch(() => null);
+      const img = f.img || await fetchImage(f.url).catch(() => null);
       if (!img || img.width < 80 || img.height < 80) continue;
       nFig++;
       const gray = E.toGray(img);
@@ -130,7 +158,7 @@ async function checkAuthorFigures(input, update = () => {}) {
           const d = Math.min(...m.hv.map(x => dist(x, h0)));
           if (d <= MATCH_DISTANCE) {
             matched++;
-            out.matches.push({ panel: m.id, panelLabel: m.label, pmcid: art.pmcid, article: art.title, year: art.year, journal: art.journal, doi: art.doi, author: art.author, figure: f.label, caption: f.caption, distance: d, url: `https://pmc.ncbi.nlm.nih.gov/articles/${art.pmcid}/`, imageUrl: img.url });
+            out.matches.push({ panel: m.id, panelLabel: m.label, pmcid: art.pmcid, article: art.title, year: art.year, journal: art.journal, doi: art.doi, author: art.author, figure: f.label, caption: f.caption, distance: d, url: art.pmcid ? `https://pmc.ncbi.nlm.nih.gov/articles/${art.pmcid}/` : art.url, imageUrl: img.url, via: art.via });
           }
         }
       }
@@ -143,4 +171,4 @@ async function checkAuthorFigures(input, update = () => {}) {
   return out;
 }
 
-module.exports = { checkAuthorFigures, articlesOf, figuresOf, authorQuery };
+module.exports = { checkAuthorFigures, articlesOf, openalexArticlesOf, figuresOf, pdfFiguresOf, fetchImage, authorQuery };

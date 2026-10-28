@@ -73,9 +73,9 @@ async function runCheck(input, update) {
   }
 
   const refWeight = opts.journals ? 65 : 90;
-  update(`Checking ${refs.length} references against 12 databases`, 5);
+  update(`Checking ${refs.length} references against 13 databases`, 5);
   result.references = await checkReferences(refs, {
-    onProgress: (d, n) => update(`Checking references (${d}/${n}) against 12 databases`, 5 + d / n * refWeight)
+    onProgress: (d, n) => update(`Checking references (${d}/${n}) against 13 databases`, 5 + d / n * refWeight)
   });
 
   if (opts.citations && body && body.trim().length > 200) {
@@ -157,7 +157,7 @@ function screeningSummary(r) {
       style: cp ? `${cp.score}% PJPS compliant (${cp.nonCompliant} reference(s) to fix${cp.inTextIssues ? `, ${cp.inTextIssues} in-text problem(s)` : ''})` : 'not checked',
       citations: c ? `${c.missing} missing, ${c.uncited} uncited, ${(c.yearMismatch || 0) + (c.etAlIssues || 0)} year / “et al.” problem(s)` : 'manuscript text not available',
       papermill: pm ? `${pm.level} (score ${pm.score})` : 'not checked',
-      images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels` : 'not checked (run Module 5 and attach the report)'
+      images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : 'not checked (run Module 5 and attach the report)'
     }
   };
 }

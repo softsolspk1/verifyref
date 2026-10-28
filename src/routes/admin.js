@@ -151,8 +151,87 @@ router.get('/admin/datasets', wrap(async (req, res) => res.json({ success: true,
 
 /** Image Integrity (Module 5) sources: public datasets, ImageTwin / Proofig knowledge base, retracted image cases, benchmark */
 router.get('/admin/image-sources', wrap(async (req, res) => {
+  await STORE.ensureLocal(['new/', 'public-images/']);
   const PUB = require('../publicImageData');
-  res.json({ success: true, datasets: PUB.catalog(), knowledge: PUB.knowledgeStatus(), benchmark: PUB.benchmark(), cases: PUB.cases({ per: 1 }).summary });
+  res.json({ success: true, datasets: PUB.catalog(await remoteSizes()), knowledge: PUB.knowledgeStatus(), benchmark: PUB.benchmark(), cases: PUB.cases({ per: 1 }).summary });
+}));
+
+// ------------------------------------------------------------------ Cloudflare R2 dataset storage
+
+const STORE = require('../datasetStore');
+const remoteSizes = async () => Object.fromEntries((await db.all("SELECT name, size FROM dataset_files WHERE name LIKE 'files/%'")).map(r => [r.name.slice(6), Number(r.size)]));
+
+router.get('/admin/storage', wrap(async (req, res) => res.json({ success: true, ...(await STORE.status()), list: await STORE.list() })));
+
+/** Copy the server's data folder to R2 (new and changed files only) */
+router.post('/admin/storage/sync', webOnly, wrap(async (req, res) => {
+  if (!STORE.enabled()) return res.status(400).json({ success: false, message: 'Cloudflare R2 is not configured (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET).' });
+  const job = await createJob(req.user.id, 'storage-sync', {});
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('storage-sync', async (input, { update }) => {
+  let n = 0;
+  const out = await STORE.pushDataDir({ onFile: rel => update(`Copying ${rel} to Cloudflare R2`, Math.min(95, 5 + ++n)) });
+  if (!out.files) out.note = 'This server has no data folder (the web platform reads its datasets from R2). Run "npm run datasets:push" on the computer that holds the data folder.';
+  return out;
+});
+
+/** Download one stored dataset file (Super Admin) */
+router.get('/admin/storage/file', wrap(async (req, res) => {
+  const name = String(req.query.name || '');
+  const row = await db.one('SELECT name, content_type FROM dataset_files WHERE name = $1', [name]);
+  if (!row) return res.status(404).json({ success: false, message: 'Not found.' });
+  res.redirect(require('../uploads').presign('GET', STORE.PREFIX + row.name, { expires: 600 }));
+}));
+
+// ------------------------------------------------------------------ Module 5 image reference databases
+
+const REFS = require('../imageRefs');
+
+router.get('/admin/image-databases', wrap(async (req, res) => res.json({ success: true, ...(await REFS.status()), sources: REFS.SOURCES })));
+router.get('/admin/image-databases/docs', wrap(async (req, res) => res.json({ success: true, ...(await REFS.listDocs(req.query)) })));
+router.get('/admin/image-databases/docs/:id/panels', wrap(async (req, res) => res.json({ success: true, panels: await REFS.panelsOf(parseInt(req.params.id, 10) || 0) })));
+router.delete('/admin/image-databases/docs/:id', webOnly, wrap(async (req, res) => {
+  await REFS.deleteDoc(parseInt(req.params.id, 10) || 0);
+  await auth.audit(req, 'image-reference-removed', String(req.params.id));
+  res.json({ success: true });
+}));
+
+const intOr = (v, d, max) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? Math.min(n, max) : d; };
+
+/** Index published PJPS papers from pjps.pk (default: articles newer than the newest indexed one) */
+router.post('/admin/image-databases/pjps', webOnly, wrap(async (req, res) => {
+  const b = req.body || {};
+  const job = await createJob(req.user.id, 'imgref-pjps', { from: intOr(b.from, null, 1e6), to: intOr(b.to, null, 1e6), limit: intOr(b.limit, 100, 2000), force: !!b.force });
+  await auth.audit(req, 'image-database-pjps', `${b.from || 'new'}-${b.to || 'latest'}`);
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('imgref-pjps', (input, { update }) => REFS.indexPjps({ ...input, budgetMs: process.env.VERCEL ? 270000 : Infinity }, update));
+
+/** Index open-access papers retracted / corrected for image problems (strongest cases first) */
+router.post('/admin/image-databases/retracted', webOnly, wrap(async (req, res) => {
+  const job = await createJob(req.user.id, 'imgref-retracted', { limit: intOr(req.body?.limit, 100, 2000), force: !!req.body?.force });
+  await auth.audit(req, 'image-database-retracted', String(req.body?.limit || 100));
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('imgref-retracted', (input, { update }) => REFS.indexRetracted({ ...input, budgetMs: process.env.VERCEL ? 270000 : Infinity }, update));
+
+/** Open-access PubMed Central papers in pharmacy / pharmacology / medicinal plants (continues where the last run stopped) */
+router.post('/admin/image-databases/pmc', webOnly, wrap(async (req, res) => {
+  const job = await createJob(req.user.id, 'imgref-pmc', { limit: intOr(req.body?.limit, 100, 2000), restart: !!req.body?.restart });
+  await auth.audit(req, 'image-database-pmc', String(req.body?.limit || 100));
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('imgref-pmc', (input, { update }) => REFS.indexPmc({ ...input, budgetMs: process.env.VERCEL ? 270000 : Infinity }, update));
+
+/** Reference figures uploaded by the Super Admin: PDF, Word or image files of one paper */
+router.post('/admin/image-databases/upload', webOnly, upload.fields([{ name: 'files', maxCount: 20 }]), wrap(async (req, res) => {
+  const files = (req.files?.files || []).map(f => ({ name: f.originalname, buffer: f.buffer }));
+  if (!files.length) return res.status(400).json({ success: false, message: 'Choose a PDF, Word (.docx), PNG or JPEG file.' });
+  const b = req.body || {};
+  const out = await REFS.indexUpload(files, { title: String(b.title || '').trim(), doi: String(b.doi || '').trim() || null, journal: String(b.journal || '').trim() || null, year: String(b.year || '').trim() || null, url: String(b.url || '').trim() || null, note: String(b.note || '').trim() || null });
+  await auth.audit(req, 'image-reference-uploaded', out.doc.title || '', { figures: out.figures, panels: out.panels });
+  res.json({ success: true, ...out });
 }));
 
 router.post('/admin/datasets/refresh', wrap(async (req, res) => {
@@ -161,7 +240,7 @@ router.post('/admin/datasets/refresh', wrap(async (req, res) => {
 }));
 
 defineJob('datasets', async (input, { update }) => {
-  update('Refreshing Retraction Watch, Beall\'s list, Problematic Paper Screener, FDA Orange Book, NLM Catalog and DOAJ', 10);
+  update('Refreshing Retraction Watch, Beall\'s list, Problematic Paper Screener, FDA Orange Book, NLM Catalog, DOAJ, Crossref journals, LTWA and e-mail domain lists', 10);
   return D.ensureDatasets({ force: true });
 });
 

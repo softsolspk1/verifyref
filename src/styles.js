@@ -276,11 +276,39 @@ S.apsa = {
   book: r => [names(r.authors, { f: 'G F', first: 'F, G', sep: ', ', last: ', and ', two: ' and ' }), '. ', yr(r), '. ', I(title(r)), '. ', r.place ? `${r.place}: ` : '', r.publisher ? `${r.publisher}.` : '']
 };
 
+// PJPS prints article titles in sentence case ("4-Hydroxycoumarin exhibits antinociceptive ... modulation: An integrated
+// in-silico and in-vivo study"). Database records often carry Title Case; only such titles are converted, and acronyms,
+// gene / unit spellings (mRNA, COVID-19, NF-κB), and names of places, peoples, strains and diseases keep their capitals.
+const KEEP_CAPS = new Set(('Pakistan Pakistani Karachi Lahore Punjab Sindh India Indian China Chinese Japan Japanese Korea Korean Iran Iranian Iraq Saudi Arabia Arabian Egypt Egyptian Turkey Turkish Nigeria Nigerian Africa African Asia Asian ' +
+  'Europe European America American Brazil Brazilian Malaysia Malaysian Indonesia Indonesian Bangladesh Thailand Thai Vietnam English Wistar Sprague Dawley Swiss Albino Balb Gram Western Northern Southern Eastern ' +
+  "Alzheimer Alzheimer's Parkinson Parkinson's Huntington Huntington's Crohn Crohn's Hodgkin Hodgkin's Gaussian Bayesian Fourier Michaelis Menten Lineweaver Burk Langmuir Freundlich Higuchi Korsmeyer Peppas Weibull Hixson Crowell Box Behnken Taguchi Monte Carlo Kaplan Meier Cox Pearson Spearman Tukey Duncan Student Fisher Mann Whitney Kruskal Wallis").split(' '));
+function sentenceCase(t) {
+  const words = String(t || '').split(/(\s+)/);
+  const real = words.filter(w => /[A-Za-z]{4,}/.test(w));
+  if (real.length < 3 || real.filter(w => /^[^a-z]*[A-Z]/.test(w)).length / real.length < 0.7) return t;   // already sentence case
+  let start = true;
+  return words.map(w => {
+    if (/^\s+$/.test(w)) return w;
+    let first = start;   // the first lettered part of the first word keeps its capital ("4-Hydroxycoumarin")
+    const out = w.split('-').map(part => {
+      const core = part.replace(/^[^\p{L}]+|[^\p{L}']+$/gu, '');
+      if (!core) return part;
+      const capFirst = first;
+      first = false;
+      // acronyms / mixed case (DNA, mRNA, HbA1c, κB) and words with digits stay as written
+      if (/\p{Lu}.*\p{Lu}|\p{Ll}\p{Lu}|\d/u.test(part) || KEEP_CAPS.has(core) || KEEP_CAPS.has(core.replace(/'s$/, ''))) return part;
+      return capFirst ? part : part.replace(core, core.charAt(0).toLowerCase() + core.slice(1));
+    }).join('-');
+    start = /[:?!.]$/.test(w) && !/\b[A-Z]\.$/.test(w);   // capital after a colon / sentence end, as in PJPS titles
+    return out;
+  }).join('');
+}
+
 /** PJPS house style: Surname A, Surname B and Surname C (Year). Title. Journal, Vol(Issue): pages. */
 S.pjps = {
   label: 'PJPS house style', kind: 'author-date', cite: { and: ' and ', etalFrom: 3, yearSep: ', ' },
   // Official PJPS instructions for authors: all authors are listed; journal abbreviated in italics, volume in bold; no DOI required
-  article: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, title(r), '. ',
+  article: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, sentenceCase(title(r)), '. ',
     r.journal ? [I(pjpsJournal(jn(r, true))), ', ', r.volume ? B(r.volume) : '', r.issue ? `(${r.issue})` : '', r.pages ? `: ${pg(r.pages, '-')}` : '', '.'] : ''],
   book: r => [names(r.authors, { f: 'F I', sep: ', ', last: ' and ', two: ' and ' }), ` (${yr(r)}). `, title(r), '. ', r.publisher ? `${r.publisher}${r.place ? ', ' + r.place : ''}.` : ''],
   // In: Gilman AG, Goodman LS (eds.), Pharmacol. Basis Ther., 7th ed., MacMillan Publishing Co., New York, pp. 446-472.

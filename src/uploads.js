@@ -71,6 +71,23 @@ async function putObject(key, buffer, contentType = 'application/octet-stream') 
   return { ok: true, key, size: buf.length };
 }
 
+/** Upload a local file without loading it into memory (large dataset archives) */
+function putFileStream(key, file, size, contentType = 'application/octet-stream') {
+  if (!enabled()) return Promise.reject(new Error('Cloudflare R2 is not configured.'));
+  const https = require('https');
+  const fs = require('fs');
+  const url = new URL(presign('PUT', key, { expires: 3600, headers: { 'content-length': String(size), 'content-type': contentType } }));
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, { method: 'PUT', headers: { 'content-length': String(size), 'content-type': contentType } }, res => {
+      let body = '';
+      res.on('data', d => { body += d; });
+      res.on('end', () => (res.statusCode < 300 ? resolve({ ok: true, key, size }) : reject(new Error(`R2 upload failed (${res.statusCode}): ${body.slice(0, 300)}`))));
+    });
+    req.on('error', reject);
+    fs.createReadStream(file).on('error', reject).pipe(req);
+  });
+}
+
 async function deleteObject(key) {
   if (!enabled() || !key) return;
   await fetch(presign('DELETE', key), { method: 'DELETE' }).catch(() => {});
@@ -131,4 +148,4 @@ function fileRef(f) {
 const loadFile = ref => (ref.r2Key ? getObject(ref.r2Key) : Promise.resolve(Buffer.from(ref.base64, 'base64')));
 const dropFiles = refs => Promise.all([].concat(refs || []).filter(r => r?.r2Key).map(r => deleteObject(r.r2Key)));
 
-module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, getObject, deleteObject };
+module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, putFileStream, getObject, deleteObject };

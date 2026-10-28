@@ -9,7 +9,7 @@ const OFFLINE_FEATURES = [
   ['Reference Style and Manuscript Format converters', 'Full (DOI completion when online)'],
   ['Citation pattern, Editor report, letters, revision comparison, Issue report', 'Full'],
   ['Saved reports and all exports', 'Full'],
-  ['Bibliography Check against the 12 databases', 'Cached references verified; others queued'],
+  ['Bibliography Check against the 13 databases', 'Cached references verified; others queued'],
   ['Verify Citations', 'With uploaded source PDFs; otherwise queued'],
   ['Find Evidence, Find a Journal, Conferences, Thesis Assistant', 'Queued until online'],
   ['Author search, Reviewer Finder, Check a Conference', 'Online only']

@@ -42,6 +42,7 @@ async function runIntegrity(input, update = () => {}) {
   const body = input.bodyText || text;
   const meta = input.meta || {};
   const online = isOnline() && input.online !== false;
+  await require('../datasets').warmEmailDomains();
   const abstract = meta.abstract || '';
   const dims = [];
 

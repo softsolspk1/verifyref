@@ -85,6 +85,22 @@ defineJob('papermill', runPaperMill);
 
 // ------------------------------------------------------------------ Module 5: Image Integrity (analysis runs in the browser)
 
+// The knowledge base and public image data live in the data folder, which is mirrored on Cloudflare R2: copy them
+// into DATA_DIR on first use where the folder is not deployed (Vercel)
+const STORE = require('../datasetStore');
+router.use('/images', (req, res, next) => STORE.ensureLocal(['new/', 'public-images/']).then(() => next(), next));
+
+/** Thumbnail of a figure panel in the image reference databases (kept on R2) */
+const REFS = require('../imageRefs');
+router.get('/images/refs/:id/thumb', mod('images'), wrap(async (req, res) => {
+  const buf = await REFS.refThumb(await REFS.thumbKey(parseInt(req.params.id, 10) || 0));
+  if (!buf) return res.status(404).json({ success: false, message: 'Thumbnail not available.' });
+  res.set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }).send(buf);
+}));
+
+/** What the PJPS image databases hold (shown on the Module 5 page) */
+router.get('/images/databases', mod('images'), wrap(async (req, res) => res.json({ success: true, ...(await REFS.status()) })));
+
 /** Save the browser's image analysis; compares the panel fingerprints with earlier PJPS manuscripts */
 router.post('/images', mod('images'), wrap(async (req, res) => {
   const b = req.body || {};
@@ -140,7 +156,10 @@ router.get('/images/letters', mod('images'), wrap(async (req, res) => res.json({
 
 /** Public reference data: datasets, retracted papers with image problems, engine benchmark */
 const PUB = require('../publicImageData');
-router.get('/images/public', mod('images'), wrap(async (req, res) => res.json({ success: true, datasets: PUB.catalog(), benchmark: PUB.benchmark() })));
+router.get('/images/public', mod('images'), wrap(async (req, res) => {
+  const remote = Object.fromEntries((await db.all("SELECT name, size FROM dataset_files WHERE name LIKE 'files/%'")).map(r => [r.name.slice(6), Number(r.size)]));
+  res.json({ success: true, datasets: PUB.catalog(remote), benchmark: PUB.benchmark() });
+}));
 router.get('/images/public/cases', mod('images'), wrap(async (req, res) => res.json({ success: true, ...PUB.cases({ q: req.query.q, oa: req.query.oa === '1', reason: req.query.reason, page: Math.max(1, parseInt(req.query.page, 10) || 1) }) })));
 router.get('/images/public/figures/:pmcid', mod('images'), wrap(async (req, res) => {
   try { res.json({ success: true, ...(await PUB.figures(req.params.pmcid)) }); } catch (e) { res.status(404).json({ success: false, message: e.message }); }

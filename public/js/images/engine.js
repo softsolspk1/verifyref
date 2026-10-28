@@ -94,7 +94,7 @@ function flipH(src) {
 }
 
 /** 8 orientations of a square grayscale array: k*90° rotation, optionally mirrored */
-function orient(src, k, mirror) {
+export function orient(src, k, mirror) {
   const { w, h, g } = src; // square
   const out = new Float32Array(w * h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -645,6 +645,17 @@ export function hashPanel(img, box, gray = null) {
   for (const mirror of [false, true]) for (let k = 0; k < 4; k++) out.push(hashHex(phash32(orient(sq, k, mirror))));
   const sq64 = resizeGray(gray, 64, 64, box), st = stats(sq64.g);
   return { hashes: out, blank: st.std < 8 };
+}
+
+/**
+ * Upright hashes of five crop windows of a panel (centre and the four corners, 75% of each side). Used by the reference
+ * databases: a figure cropped from a published one matches a window of the original, and the reverse.
+ */
+export function windowHashes(gray, box, f = 0.75) {
+  const w = Math.max(8, Math.round(box.w * f)), h = Math.max(8, Math.round(box.h * f));
+  const dx = box.w - w, dy = box.h - h;
+  return [[dx / 2, dy / 2], [0, 0], [dx, 0], [0, dy], [dx, dy]]
+    .map(([x, y]) => hashHex(phash32(resizeGray(gray, 32, 32, { x: box.x + Math.round(x), y: box.y + Math.round(y), w, h }))));
 }
 
 function pairDuplicate(A, B) {

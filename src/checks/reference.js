@@ -233,7 +233,8 @@ async function verifyReference(ref, opts = {}) {
       ['DataCite', S.dataciteSearch(ref)],
       ['DBLP', S.dblpSearch(ref)],
       ['arXiv', S.arxivSearch(ref)],
-      ['ERIC', S.ericSearch(ref)]
+      ['ERIC', S.ericSearch(ref)],
+      ['CORE', S.coreSearch(ref)]
     ];
     if (ref.looksLikeBook || !ref.journal) {
       if (!checked.has('Open Library')) wave2.push(['Open Library', S.openLibrarySearch(ref)]);
@@ -327,7 +328,17 @@ async function classify(v, retraction) {
     else if (wellIndexed) { status = 'suspicious'; reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles)`; }
     else if (errors >= 4) { status = 'unverified'; reason = 'Verification could not be completed (several databases did not respond)'; }
     else if (grey) { status = 'unverified'; reason = 'Book, report or web source — not found in scholarly databases; check manually'; }
-    else { status = 'suspicious'; reason = 'No match in any of the 12 scholarly databases'; }
+    else {
+      status = 'suspicious';
+      reason = 'No match in any of the 13 scholarly databases';
+      // Is the journal itself real? A journal missing from OpenAlex, the NLM Catalog and the Crossref title list too is a stronger sign
+      if (ref.journal && !journal) {
+        const D = require('../datasets');
+        const [nlm, cr] = await Promise.all([D.nlmJournal({ name: ref.journal }).catch(() => null), D.crossrefJournal({ name: ref.journal }).catch(() => null)]);
+        if (nlm || cr) reason += `; the journal exists (${nlm ? 'NLM Catalog' : 'Crossref title list'}) but this article was not found in it`;
+        else reason += '; the journal name itself is not found in OpenAlex, the NLM Catalog or the Crossref title list';
+      }
+    }
     v.journalProfile = journal;
   } else if (high.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code)) && v.confidence < 85) {
     status = 'suspicious';

@@ -24,6 +24,7 @@ self.onmessage = e => {
         const label = boxes.length > 1 ? (letter ? (fig ? `${fig}${letter}` : `${im.label}, panel ${letter}`) : `${im.label}, panel ${i + 1}`) : im.label;
         const p = E.preparePanel(img, b, { id: `${im.id}-p${i + 1}`, label, letter, imageId: im.id, index: i + 1 }, gray);
         p.forensic = F.analysePanel(img, gray, b, p.type, p.blank);
+        p.windows = p.blank ? [] : E.windowHashes(gray, b);
         panels.push(p);
       });
       self.postMessage({ type: 'progress', step: `Splitting and describing figures (${n + 1}/${images.length})`, progress: 10 + (n + 1) / images.length * 40 });
@@ -37,7 +38,7 @@ self.onmessage = e => {
     const findings = [...core, ...lanes, ...F.forensicFindings(panels, prov, [...core, ...lanes])].sort((a, b) => (a.level === b.level ? b.score - a.score : a.level === 'high' ? -1 : 1));
     self.postMessage({
       type: 'done',
-      panels: panels.map(p => ({ id: p.id, label: p.label, letter: p.letter || null, imageId: p.imageId, index: p.index, box: p.box, type: p.type, blank: p.blank, hashes: p.hashes.map(E.hashHex) })),
+      panels: panels.map(p => ({ id: p.id, label: p.label, letter: p.letter || null, imageId: p.imageId, index: p.index, box: p.box, type: p.type, blank: p.blank, hashes: p.hashes.map(E.hashHex), windows: p.windows })),
       findings: findings.map((f, i) => ({ ...f, id: `f${i + 1}`, category: F.categoryOf(f.kind) })),
       charts: F.seriesFingerprints(panels),
       provenance: Object.keys(prov).length

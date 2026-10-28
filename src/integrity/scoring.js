@@ -51,6 +51,8 @@ function linkedDimensions({ papermill, images, references }) {
     if (by.high) signals.push({ group: 'images', code: 'images-strong', title: `${by.high} strong image finding(s) (duplicated, manipulated or AI-generated figures)`, severity: 'high', weight: Math.min(8, 4 + by.high), evidence: [], note: 'From the Module 5 Image Integrity report.' });
     if (by.medium) signals.push({ group: 'images', code: 'images-check', title: `${by.medium} image finding(s) to check`, severity: 'medium', weight: Math.min(4, 1 + by.medium * 0.5), evidence: [] });
     if ((images.earlier || []).length) signals.push({ group: 'images', code: 'images-earlier', title: `Figure(s) matching ${images.earlier.length} earlier manuscript(s)`, severity: 'high', weight: 4, evidence: [] });
+    if (s.referencesRetracted) signals.push({ group: 'images', code: 'images-retracted', title: `${s.referencesRetracted} figure(s) matching papers retracted or corrected for image problems`, severity: 'high', weight: 6, evidence: [] });
+    if (s.referencesPjps) signals.push({ group: 'images', code: 'images-published', title: `${s.referencesPjps} figure(s) matching figures already published in PJPS`, severity: 'high', weight: 4, evidence: [] });
     out.push({ key: 'images', label: DIMENSIONS.images.label, checked: true, signals, source: images.checkId ? { kind: 'images', checkId: images.checkId } : null });
   }
   if (references?.summary) {

@@ -80,7 +80,7 @@ export function renderReport(el, result, { kind } = {}) {
     ${datasetBanner(result)}
     ${result.changes ? changesBanner(result.changes) : ''}
     ${kind !== 'citations' ? kpis(s) : ''}
-    ${s.suspicious || s.retracted ? `<div class="alert alert-bad"><b>Publication integrity alert:</b> ${s.suspicious ? `${s.suspicious} reference(s) could not be found in any of the 12 databases (possibly fabricated)` : ''}${s.suspicious && s.retracted ? '; ' : ''}${s.retracted ? `${s.retracted} retracted work(s) cited` : ''}.</div>` : ''}
+    ${s.suspicious || s.retracted ? `<div class="alert alert-bad"><b>Publication integrity alert:</b> ${s.suspicious ? `${s.suspicious} reference(s) could not be found in any of the 13 databases (possibly fabricated)` : ''}${s.suspicious && s.retracted ? '; ' : ''}${s.retracted ? `${s.retracted} retracted work(s) cited` : ''}.</div>` : ''}
     <div class="tabs">${tabs.map(([k, l, c], i) => `<button class="tab ${i === 0 ? 'active' : ''}" data-tab="${k}">${esc(l)}${c !== null && c !== undefined ? `<span class="count">${c}</span>` : ''}</button>`).join('')}</div>
     <div id="tab-body"></div>`;
 
@@ -199,7 +199,7 @@ function kpis(s) {
     ${s.pending ? k(s.pending, 'Pending — online', 'info', 'pending') : ''}
     ${k(s.doiSuggested, 'DOIs found', 'info', 'doi')}
   </div>
-  ${s.pending ? `<div class="alert alert-info"><b>${s.pending} reference(s) could not be checked offline.</b> They were checked against the local Retraction Watch and predatory-journal datasets only, and will be verified against the 12 databases automatically when the connection returns.</div>` : ''}`;
+  ${s.pending ? `<div class="alert alert-info"><b>${s.pending} reference(s) could not be checked offline.</b> They were checked against the local Retraction Watch and predatory-journal datasets only, and will be verified against the 13 databases automatically when the connection returns.</div>` : ''}`;
 }
 
 // ------------------------------------------------------------------ References tab

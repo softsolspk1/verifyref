@@ -174,6 +174,36 @@ CREATE INDEX IF NOT EXISTS idx_doaj_issn ON doaj_journals(issn);
 CREATE INDEX IF NOT EXISTS idx_doaj_eissn ON doaj_journals(eissn);
 CREATE INDEX IF NOT EXISTS idx_doaj_title ON doaj_journals(title_norm);
 
+-- ISSN List of Title Word Abbreviations (ISO 4): word or prefix ("pharmac-") -> abbreviation; Module 2 fallback when
+-- a journal is not in the NLM Catalog
+CREATE TABLE IF NOT EXISTS ltwa_words (
+  word TEXT NOT NULL,                    -- lower case, without the trailing "-" of a prefix
+  prefix BOOLEAN NOT NULL DEFAULT false,
+  abbrev TEXT,                           -- NULL = not abbreviated ("n.a.")
+  langs TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ltwa_word ON ltwa_words(word);
+
+-- Crossref title list (ftp.crossref.org/titlelist): every journal that registers DOIs with Crossref
+CREATE TABLE IF NOT EXISTS crossref_journals (
+  crossref_id TEXT,
+  title TEXT NOT NULL,
+  title_norm TEXT NOT NULL,
+  publisher TEXT,
+  issn TEXT,
+  eissn TEXT,
+  doi TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_crj_title ON crossref_journals(title_norm);
+CREATE INDEX IF NOT EXISTS idx_crj_issn ON crossref_journals(issn);
+CREATE INDEX IF NOT EXISTS idx_crj_eissn ON crossref_journals(eissn);
+
+-- Free-mail and disposable (throw-away) e-mail domains, Module 4 author and reviewer checks
+CREATE TABLE IF NOT EXISTS email_domains (
+  domain TEXT PRIMARY KEY,
+  kind TEXT NOT NULL                     -- freemail | disposable
+);
+
 CREATE TABLE IF NOT EXISTS journal_lists (
   list_type TEXT PRIMARY KEY,
   filename TEXT,
@@ -322,6 +352,52 @@ CREATE TABLE IF NOT EXISTS fingerprints (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_fingerprints_kind ON fingerprints(kind, created_at);
+
+-- Module 5 image reference databases: published PJPS papers, open-access papers retracted / corrected for image
+-- problems, and reference figures uploaded by the Super Admin. One row per paper (image_ref_docs) and per panel.
+CREATE TABLE IF NOT EXISTS image_ref_docs (
+  id SERIAL PRIMARY KEY,
+  source TEXT NOT NULL,                  -- pjps | retracted | reference
+  source_key TEXT NOT NULL,              -- pjps.pk article id, PMCID, or upload id
+  doi TEXT,
+  title TEXT,
+  journal TEXT,
+  year TEXT,
+  url TEXT,
+  pdf_url TEXT,
+  note TEXT,                             -- retraction reasons, uploader note
+  status TEXT NOT NULL,                  -- done | no-figures | missing | error
+  figures INTEGER NOT NULL DEFAULT 0,
+  panels INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (source, source_key)
+);
+CREATE INDEX IF NOT EXISTS idx_image_ref_docs_status ON image_ref_docs(source, status);
+
+CREATE TABLE IF NOT EXISTS image_refs (
+  id SERIAL PRIMARY KEY,
+  doc_id INTEGER NOT NULL REFERENCES image_ref_docs(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,
+  figure TEXT,                           -- "Image 3" / PMC figure label
+  panel TEXT,                            -- "Image 3, panel 2"
+  type TEXT,                             -- blot | fluorescence | histology | chart | grayscale | photo
+  hashes TEXT NOT NULL,                  -- 6 x 16 hex: whole panel, then 5 crop windows (centre, 4 corners), upright
+  series JSONB,                          -- chart data (bars / curve) for graph re-use
+  thumb_key TEXT,                        -- R2 object key of the JPEG thumbnail
+  w INTEGER, h INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_image_refs_doc ON image_refs(doc_id);
+
+-- Every dataset file kept on Cloudflare R2 (data folder mirror, raw snapshots of downloaded datasets, uploaded lists)
+CREATE TABLE IF NOT EXISTS dataset_files (
+  name TEXT PRIMARY KEY,                 -- path below the "datasets/" prefix, e.g. files/new/README.md, raw/doaj.csv
+  size BIGINT NOT NULL,
+  sha256 TEXT NOT NULL,
+  content_type TEXT,
+  source TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS offline_queue (
   id SERIAL PRIMARY KEY,

@@ -66,8 +66,13 @@ function resolveJournal({ name = '', issn = '' }) {
       for (const i of nlm.issns) { source = await openalexSourceByIssn(i); if (source) break; }
     }
     if (!source && name && !nlm) {
-      // Crossref journal registry as a last resort
-      const c = await getJson(`https://api.crossref.org/journals?query=${enc(name.slice(0, 150))}&rows=3&mailto=${enc(cfg.CONTACT_EMAIL)}`);
+      // Crossref journal registry as a last resort: the local title list first, then the live API
+      const local = await D.crossrefJournal({ name }).catch(() => null);
+      if (local) {
+        for (const i of [local.issn, local.eissn].filter(Boolean)) { source = await openalexSourceByIssn(i); if (source) break; }
+        if (!source) return { source: null, nlm: null, crossref: { title: local.title, publisher: local.publisher, source: 'Crossref title list (local copy)' }, issns: [local.issn, local.eissn].filter(Boolean), name: local.title, publisher: local.publisher };
+      }
+      const c = local ? { ok: false } : await getJson(`https://api.crossref.org/journals?query=${enc(name.slice(0, 150))}&rows=3&mailto=${enc(cfg.CONTACT_EMAIL)}`);
       const hit = c.ok && (c.data.message?.items || []).find(j => journalSimilarity(name, j.title) >= 0.85);
       if (hit) {
         for (const i of hit.ISSN || []) { source = await openalexSourceByIssn(i); if (source) break; }

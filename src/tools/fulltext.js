@@ -1,7 +1,7 @@
 // tools/fulltext.js - source texts for claim checking: open-access full text (Europe PMC), abstracts (OpenAlex,
 // Europe PMC), and uploaded PDFs split by page and linked to references by DOI or title.
 const S = require('../sources');
-const { getJson, getText } = require('../http');
+const { getJson, getText, getBuffer } = require('../http');
 const { cleanDoi, titleContains, invertedIndexToText } = require('../text');
 
 const enc = encodeURIComponent;
@@ -36,7 +36,60 @@ async function openFullText(record) {
   return text.length > 500 ? { text, origin: 'Open-access full text (Europe PMC)', url: `https://europepmc.org/article/PMC/${core.pmcid}` } : null;
 }
 
-/** Abstract for a record: OpenAlex first, Europe PMC second */
+/** Legal open-access PDF found through Unpaywall (publisher or repository copy) -> [{ page, text }], or null */
+async function unpaywallFullText(record) {
+  if (!record?.doi) return null;
+  const cfg = require('../config');
+  const r = await getJson(`https://api.unpaywall.org/v2/${enc(record.doi)}?email=${enc(cfg.CONTACT_EMAIL)}`, { ttl: 30 * 86400, timeout: 15000, retries: 1 });
+  // url_for_pdf, or a repository link that is itself a PDF; publishers often refuse automated downloads, so try up to 3
+  const pdfUrl = l => l?.url_for_pdf || (/\.pdf(?:$|[?#])/i.test(l?.url || '') ? l.url : null);
+  const urls = r.ok && r.data?.is_oa ? [...new Set([r.data.best_oa_location, ...(r.data.oa_locations || [])].map(pdfUrl).filter(Boolean))] : [];
+  for (const url of urls.slice(0, 3)) {
+    const loc = (r.data.oa_locations || []).find(l => pdfUrl(l) === url) || r.data.best_oa_location;
+    const pdf = await getBuffer(url, { timeout: 30000 });
+    if (!pdf.ok || pdf.buffer.length > 30 * 1024 * 1024 || pdf.buffer.slice(0, 5).toString() !== '%PDF-') continue;
+    const pages = await filePages(pdf.buffer, 'source.pdf').catch(() => null);
+    if (pages && pages.reduce((n, p) => n + p.text.length, 0) > 1500) {
+      return { pages, origin: `Open-access full text (Unpaywall: ${loc.host_type === 'repository' ? 'repository copy' : 'publisher'})`, url };
+    }
+  }
+  return null;
+}
+
+/** A downloaded PDF -> pages when it reads as a real paper, else null */
+async function pdfPages(url) {
+  const pdf = await getBuffer(url, { timeout: 30000 });
+  if (!pdf.ok || pdf.buffer.length > 30 * 1024 * 1024 || pdf.buffer.slice(0, 5).toString() !== '%PDF-') return null;
+  const pages = await filePages(pdf.buffer, 'source.pdf').catch(() => null);
+  return pages && pages.reduce((n, p) => n + p.text.length, 0) > 1500 ? pages : null;
+}
+
+/** Open-access PDF locations listed by OpenAlex (publisher and repository copies) */
+async function openalexFullText(record) {
+  if (!record?.doi) return null;
+  const oa = record.pdfUrls ? { record } : await S.openalexDoi(record.doi);
+  for (const url of (oa.record?.pdfUrls || []).slice(0, 3)) {
+    const pages = await pdfPages(url).catch(() => null);
+    if (pages) return { pages, origin: 'Open-access full text (OpenAlex location)', url };
+  }
+  return null;
+}
+
+/** CORE (core.ac.uk): the full text itself with an API key, otherwise its open-access PDF */
+async function coreFullText(record) {
+  if (!record?.doi && !record?.title) return null;
+  const c = record.source === 'CORE' ? { record } : record.doi ? await S.coreDoi(record.doi) : null;
+  const rec = c?.record;
+  if (!rec) return null;
+  if (rec.fullText) return { pages: [{ page: null, text: rec.fullText }], origin: 'Open-access full text (CORE)', url: rec.url };
+  if (rec.pdfUrl) {
+    const pages = await pdfPages(rec.pdfUrl).catch(() => null);
+    if (pages) return { pages, origin: 'Open-access full text (CORE)', url: rec.pdfUrl };
+  }
+  return null;
+}
+
+/** Abstract for a record: OpenAlex first, Europe PMC second, CORE third */
 async function abstractOf(record) {
   if (record.abstract && record.abstract.length > 200) return { text: record.abstract, origin: 'Abstract' };
   if (record.doi) {
@@ -45,6 +98,10 @@ async function abstractOf(record) {
   }
   const core = await europePmcCore(record);
   if (core?.abstractText) return { text: xmlText(core.abstractText), origin: 'Abstract (Europe PMC)' };
+  if (record.doi) {
+    const c = await S.coreDoi(record.doi).catch(() => null);
+    if (c?.record?.abstract?.length > 100) return { text: c.record.abstract, origin: 'Abstract (CORE)' };
+  }
   return null;
 }
 
@@ -54,6 +111,12 @@ async function sourceTextFor(record, upload) {
   if (!record) return null;
   const ft = await openFullText(record).catch(() => null);
   if (ft) return { pages: [{ page: null, text: ft.text }], origin: ft.origin, url: ft.url, fullText: true };
+  const up = await unpaywallFullText(record).catch(() => null);
+  if (up) return { pages: up.pages, origin: up.origin, url: up.url, fullText: true };
+  for (const fn of [openalexFullText, coreFullText]) {
+    const r = await fn(record).catch(() => null);
+    if (r) return { pages: r.pages, origin: r.origin, url: r.url, fullText: true };
+  }
   const ab = await abstractOf(record).catch(() => null);
   if (ab) return { pages: [{ page: null, text: ab.text }], origin: ab.origin, fullText: false };
   return null;
@@ -106,4 +169,4 @@ function linkUploads(files, refs, manual = {}) {
   return { map, unlinked };
 }
 
-module.exports = { openFullText, abstractOf, sourceTextFor, filePages, linkUploads, europePmcCore, xmlText, invertedIndexToText };
+module.exports = { openFullText, unpaywallFullText, openalexFullText, coreFullText, abstractOf, sourceTextFor, filePages, linkUploads, europePmcCore, xmlText, invertedIndexToText };

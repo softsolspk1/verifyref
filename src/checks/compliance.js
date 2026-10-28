@@ -85,7 +85,7 @@ function checkEntry(ref, record, nlm = null) {
     const fullNlmTitle = nlm && normalizeJournal(jname) === normalizeJournal(nlm.title) && normalizeJournal(nlm.isoAbbrev) !== normalizeJournal(nlm.title);
     if (jname && jname.split(/\s+/).length > 1 && (fullNlmTitle || UNABBREVIATED.test(jname))) {
       const exp = nlm?.isoAbbrev || record?.journalAbbrev || abbreviateJournal(jname);
-      add('journal', `Journal name abbreviated (ISO / NLM abbreviation${nlm ? ', from the NLM Catalog' : ''})`, jname, exp);
+      add('journal', `Journal name abbreviated (ISO / NLM abbreviation${nlm ? `, from the ${nlm.source === 'ISSN LTWA' ? 'ISSN List of Title Word Abbreviations' : 'NLM Catalog'}` : ''})`, jname, exp);
     }
     if (/\bpp?\.\s*\d/i.test(source)) add('pages', 'No “pp.” before page numbers', 'pp.', null, 'low');
     if (/\b(?:vol|volume|no|issue)\.?\s*\d/i.test(source)) add('volume', 'Write volume and issue as 32(1), without “Vol.” or “No.”', source.match(/\b(?:vol|volume|no|issue)\.?\s*\d+/i)[0], null, 'low');
@@ -191,14 +191,20 @@ function dedupe(list) {
  * refs: parsed reference entries (original text); records: Map/array of matched records by position (optional);
  * body: manuscript text (optional) for the in-text rules.
  */
-/** NLM Catalog record of each reference's journal (local copy), for the abbreviation rule; null entries when unknown */
+/**
+ * Expected journal abbreviation for each reference, for the abbreviation rule: the NLM Catalog record (local copy), or
+ * for journals NLM does not list, the ISO 4 form built from the ISSN List of Title Word Abbreviations. null when unknown
+ */
 async function nlmForRefs(refs, records = []) {
   const D = require('../datasets');
-  return Promise.all(refs.map((r, i) => {
+  return Promise.all(refs.map(async (r, i) => {
     const rec = records[i];
     const name = journalNameOf(r) || rec?.journal || '';
     if (!name && !(rec?.issn || []).length) return null;
-    return D.nlmJournal({ issns: rec?.issn || [], name }).catch(() => null);
+    const nlm = await D.nlmJournal({ issns: rec?.issn || [], name }).catch(() => null);
+    if (nlm || !name) return nlm;
+    const ltwa = await D.ltwaAbbreviate(name).catch(() => null);
+    return ltwa ? { title: name, isoAbbrev: ltwa, source: 'ISSN LTWA' } : null;
   }));
 }
 

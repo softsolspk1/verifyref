@@ -153,7 +153,7 @@ router.get('/admin/datasets', wrap(async (req, res) => res.json({ success: true,
 router.get('/admin/image-sources', wrap(async (req, res) => {
   await STORE.ensureLocal(['new/', 'public-images/']);
   const PUB = require('../publicImageData');
-  res.json({ success: true, datasets: PUB.catalog(await remoteSizes()), knowledge: PUB.knowledgeStatus(), benchmark: PUB.benchmark(), cases: PUB.cases({ per: 1 }).summary });
+  res.json({ success: true, datasets: PUB.catalog(await remoteSizes(), await REFS.sourceCounts().catch(() => ({}))), knowledge: PUB.knowledgeStatus(), benchmark: PUB.benchmark(), cases: PUB.cases({ per: 1 }).summary });
 }));
 
 // ------------------------------------------------------------------ Cloudflare R2 dataset storage
@@ -223,6 +223,19 @@ router.post('/admin/image-databases/pmc', webOnly, wrap(async (req, res) => {
   res.json({ success: true, jobId: job.id });
 }));
 defineJob('imgref-pmc', (input, { update }) => REFS.indexPmc({ ...input, budgetMs: process.env.VERCEL ? 270000 : Infinity }, update));
+
+/** Public image-integrity research datasets in the data folder: RSIID, BioFors, BINDER (resumes where it stopped) */
+const DATASET_INDEXERS = { rsiid: REFS.indexRsiid, biofors: REFS.indexBiofors, binder: REFS.indexBinder };
+router.post('/admin/image-databases/dataset/:name', webOnly, wrap(async (req, res) => {
+  if (!DATASET_INDEXERS[req.params.name]) return res.status(400).json({ success: false, message: 'Unknown dataset.' });
+  const job = await createJob(req.user.id, 'imgref-dataset', { name: req.params.name, limit: intOr(req.body?.limit, 1e6, 1e6) });
+  await auth.audit(req, 'image-database-dataset', req.params.name);
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('imgref-dataset', async (input, { update }) => {
+  await STORE.ensureLocal(input.name === 'biofors' ? 'benchmark/biofors/ann/' : 'public-images/');
+  return DATASET_INDEXERS[input.name]({ limit: input.limit, budgetMs: process.env.VERCEL ? 270000 : Infinity }, update);
+});
 
 /** Reference figures uploaded by the Super Admin: PDF, Word or image files of one paper */
 router.post('/admin/image-databases/upload', webOnly, upload.fields([{ name: 'files', maxCount: 20 }]), wrap(async (req, res) => {

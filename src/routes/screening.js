@@ -158,7 +158,7 @@ router.get('/images/letters', mod('images'), wrap(async (req, res) => res.json({
 const PUB = require('../publicImageData');
 router.get('/images/public', mod('images'), wrap(async (req, res) => {
   const remote = Object.fromEntries((await db.all("SELECT name, size FROM dataset_files WHERE name LIKE 'files/%'")).map(r => [r.name.slice(6), Number(r.size)]));
-  res.json({ success: true, datasets: PUB.catalog(remote), benchmark: PUB.benchmark() });
+  res.json({ success: true, datasets: PUB.catalog(remote, await REFS.sourceCounts().catch(() => ({}))), benchmark: PUB.benchmark() });
 }));
 router.get('/images/public/cases', mod('images'), wrap(async (req, res) => res.json({ success: true, ...PUB.cases({ q: req.query.q, oa: req.query.oa === '1', reason: req.query.reason, page: Math.max(1, parseInt(req.query.page, 10) || 1) }) })));
 router.get('/images/public/figures/:pmcid', mod('images'), wrap(async (req, res) => {

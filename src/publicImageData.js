@@ -17,7 +17,8 @@ let casesCache = null;
 const loadCases = () => casesCache || (casesCache = readJson(file('retracted_image_cases.json'))) || { summary: null, cases: [] };
 
 /** Verified sources (links checked October 2026). remote: { 'public-images/<path>': bytes } of the copies on Cloudflare R2 (the large archives are not copied to a web server) */
-function catalog(remote = {}) {
+/** db: imageRefs.sourceCounts() - what each dataset contributes to the Module 5 image databases */
+function catalog(remote = {}, db = {}) {
   const size = f => sizeLocal(f) || remote[path.relative(cfg.DATA_DIR, f).split(path.sep).join('/')] || 0;
   const bench = readJson(file('benchmark_results.json'));
   const cases = loadCases();
@@ -37,7 +38,13 @@ function catalog(remote = {}) {
       access: 'Crossref Labs Retraction Watch download + Europe PMC open-access flags', status: cases.summary ? `Loaded ${cases.summary.fetchedAt.slice(0, 10)}` : 'Not downloaded', use: 'Real positive examples: look up a case, see its reasons and read the figure captions on Europe PMC.' },
     { id: 'pubpeer', name: 'PubPeer', url: 'https://pubpeer.com', license: 'Comments are user content', scale: 'Crowdsourced post-publication reports', access: 'No bulk download. Check single papers by DOI at pubpeer.com.', status: 'External check only', use: 'Independent validation of flagged papers.' },
     { id: 'bbbc', name: 'Broad Bioimage Benchmark Collection (BBBC) and other CC image repositories', url: 'https://bbbc.broadinstitute.org/', license: 'Mostly CC0 / CC-BY', scale: 'Dozens of annotated microscopy sets', access: 'Already inside the RSIID pristine set (e.g. BBBC038, CC0)', status: rsiid ? 'Included through RSIID' : 'Not downloaded', use: 'Pristine microscopy for forgery generation.' }
-  ].map(d => ({ ...d, benchmarked: d.id === 'rsiid' ? !!bench : undefined }));
+  ].map(d => {
+    // which Module 5 image database the dataset feeds, and how much of it is searchable now
+    const feeds = { pmc_oa: ['pmc', 'retracted'], rsiid: ['rsiid'], binder: ['binder'], biofors: ['biofors'], retractions: ['retracted'], bbbc: ['rsiid'] }[d.id] || [];
+    const indexed = feeds.map(k => db[k]).filter(x => x && x.panels);
+    const searchable = indexed.length ? `In the image database: ${indexed.map(x => `${x.papers.toLocaleString()} paper(s) / figure(s), ${x.panels.toLocaleString()} panels`).join(' + ')} — compared with every manuscript` : (feeds.length ? 'Not yet in the image database (Admin › Data › Image integrity databases)' : 'Linked from every match (check the paper on PubPeer)');
+    return { ...d, searchable, indexed: indexed.reduce((a, x) => a + x.panels, 0), benchmarked: d.id === 'rsiid' ? !!bench : undefined };
+  });
 }
 
 const text = (s, n) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, n);

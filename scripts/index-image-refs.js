@@ -6,6 +6,8 @@
 //        open-access papers retracted / corrected for image problems (needs data/public-images/retracted_image_cases.json)
 //   --source pmc [--limit 500] [--restart]
 //        open-access PubMed Central papers in pharmacy / pharmacology / medicinal plants (continues where it stopped)
+//   --source rsiid | biofors | binder [--limit N] [--force]
+//        public research datasets from the data folder (RSIID pristine figures, BioFors panels, BINDER patches)
 //   --file <path> [--file <path>] --title "..." [--doi ...] [--note ...]
 //        reference figures from local PDF / Word / PNG / JPEG files
 //   --status   what the databases hold
@@ -32,10 +34,13 @@ const log = (step) => { if (Date.now() - last > 1000) { last = Date.now(); conso
     out = await REFS.indexPjps({ from: int('from', null), to: int('to', null), limit: int('limit', 500), concurrency: int('concurrency', 3), force: argv.includes('--force') }, log);
   } else if (opt('source') === 'retracted') {
     out = await REFS.indexRetracted({ limit: int('limit', 500), concurrency: int('concurrency', 3), force: argv.includes('--force') }, log);
+  } else if (['rsiid', 'biofors', 'binder'].includes(opt('source'))) {
+    const fn = { rsiid: REFS.indexRsiid, biofors: REFS.indexBiofors, binder: REFS.indexBinder }[opt('source')];
+    out = await fn({ limit: int('limit', Infinity), force: argv.includes('--force') }, log);
   } else if (opt('source') === 'pmc') {
     out = await REFS.indexPmc({ limit: int('limit', 500), concurrency: int('concurrency', 3), restart: argv.includes('--restart') }, log);
   } else {
-    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 11).join('\n').replace(/^\/\/ ?/gm, ''));
+    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 14).join('\n').replace(/^\/\/ ?/gm, ''));
     return db.close();
   }
   console.log(JSON.stringify(out, null, 2));

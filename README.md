@@ -26,7 +26,12 @@ Every figure panel of these papers is fingerprinted the same way as in the brows
 | Published PJPS papers | article PDFs on pjps.pk (`citation_pdf_url`); figures read straight from the PDF (`src/figureFiles.js`: JPEG / Flate / Indexed / CMYK, strip-stitching) | daily cron (new articles), Admin › Data, `npm run images:index -- --source pjps --from 1` for the whole archive |
 | Retracted / corrected for image problems | Retraction Watch reasons naming images + PubMed Central figures (4,055 open-access papers) | Admin › Data, `--source retracted` |
 | PubMed Central open access | pharmacy / pharmacology / medicinal-plant papers (≈105,000), newest first, resumes where it stopped | Admin › Data, `--source pmc` |
+| RSIID (Recod.ai, CC-BY; incl. BBBC microscopy) | ≈2,300 pristine scientific figures and figure templates from the Zenodo archives in `data/public-images/rsiid` | Admin › Data, `--source rsiid` |
+| BioFors (ICCV 2021) | 47,805 panels of 1,031 biomedical papers from `data/benchmark/biofors/biofors.tar`; panels the experts annotated (duplication, cut transitions) are labelled | Admin › Data, `--source biofors` |
+| BINDER (Harvard Dataverse, CC0) | near-duplicate patches; the zip needs the Dataverse guestbook, so it is downloaded by hand into `data/public-images/binder/` | Admin › Data, `--source binder` |
 | Reference library | PDF / Word / image files uploaded by the Super Admin | Admin › Data, `--file <path> --title …` |
+
+Archives are read file by file (`src/archiveReader.js`), so the 2 GB BioFors tar never has to fit in memory. PubPeer has no bulk download: every match and every retracted case links to the paper's PubPeer page.
 
 ### Datasets on Cloudflare R2
 

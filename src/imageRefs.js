@@ -17,6 +17,9 @@ const SOURCES = {
   pjps: { name: 'Published PJPS papers', short: 'PJPS published' },
   retracted: { name: 'Papers retracted or corrected for image problems (open access)', short: 'Retracted / corrected' },
   pmc: { name: 'PubMed Central open-access papers (pharmacy, pharmacology, medicinal plants)', short: 'PubMed Central' },
+  rsiid: { name: 'RSIID — pristine scientific figures (Recod.ai, CC-BY; includes BBBC microscopy)', short: 'RSIID' },
+  biofors: { name: 'BioFors — biomedical figure panels with expert duplication annotations (ICCV 2021)', short: 'BioFors' },
+  binder: { name: 'BINDER — bio-image near-duplicate examples (Harvard Dataverse, CC0)', short: 'BINDER' },
   reference: { name: 'Reference figures uploaded by the editorial office', short: 'Reference library' }
 };
 const PJPS = 'https://pjps.pk';
@@ -74,17 +77,18 @@ function encodeThumb(E, img, box) {
 }
 
 /** images: [{ width, height, data, label }] -> panels [{ figure, panel, type, blank, hashes[6], series, thumb(Buffer), w, h }] */
-async function fingerprintFigures(images) {
+async function fingerprintFigures(images, { single = false } = {}) {
   const { E, F } = await lib();
   const out = [];
   for (const raw of images) {
     const k = Math.min(1, MAX_FIGURE / Math.max(raw.width, raw.height));
     const img = k < 1 ? E.resizeRGBA(raw, raw.width * k, raw.height * k) : raw;
     const gray = E.toGray(img);
-    const boxes = E.splitPanels(img);
+    // single: the image is already one panel (BioFors, BINDER patches), so it is not split again
+    const boxes = single ? [{ x: 0, y: 0, w: img.width, h: img.height }] : E.splitPanels(img);
     boxes.forEach((b, i) => {
       if (b.w < 48 || b.h < 48) return;
-      const type = E.classify(img, b);
+      const type = raw.type || E.classify(img, b);
       const h = E.hashPanel(img, b, gray);
       if (h.blank) return;
       const series = type === 'chart' ? F.chartSeries(img, b).map(s => ({ kind: s.kind, n: s.n, v: s.values.map(v => Math.round(v)), spread: Math.round(s.spread * 100) / 100, wiggle: s.wiggle ? Math.round(s.wiggle * 100) / 100 : 0 })) : [];
@@ -98,8 +102,8 @@ async function fingerprintFigures(images) {
  * Store one paper and its panels (replacing an earlier indexing of the same paper). meta: { doi, title, journal, year,
  * url, pdfUrl, note }. Returns the document row.
  */
-async function storeDoc(source, key, meta, images, { status = null, error = null } = {}) {
-  const panels = images.length ? await fingerprintFigures(images) : [];
+async function storeDoc(source, key, meta, images, { status = null, error = null, single = false } = {}) {
+  const panels = images.length ? await fingerprintFigures(images, { single }) : [];
   const st = status || (panels.length ? 'done' : 'no-figures');
   const doc = await db.one(`INSERT INTO image_ref_docs(source, source_key, doi, title, journal, year, url, pdf_url, note, status, figures, panels, error, indexed_at)
     VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
@@ -248,7 +252,7 @@ async function indexRetracted({ limit = 100, force = false, budgetMs = Infinity,
   // strongest cases first: duplication / manipulation / fabrication, retractions before corrections, newest first
   const rank = c => (c.reasons.some(r => /Duplication|Manipulation|Falsification|Plagiarism of Image/.test(r)) ? 0 : 1) * 2 + (/Retraction/i.test(c.nature) ? 0 : 1);
   all.sort((a, b) => rank(a) - rank(b) || String(b.date).localeCompare(String(a.date)));
-  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'retracted' AND status <> 'error'")).map(r => r.source_key));
+  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'retracted' AND status = 'done'")).map(r => r.source_key));
   const list = all.filter(c => !done.has(c.pmcid)).slice(0, limit);
   const out = { available: all.length, indexedBefore: done.size, queued: list.length, papers: 0, figures: 0, panels: 0, errors: [], stoppedEarly: false };
   let next = 0;
@@ -258,7 +262,8 @@ async function indexRetracted({ limit = 100, force = false, budgetMs = Infinity,
       const c = list[next++];
       const meta = { doi: c.doi, title: c.title, journal: c.journal, year: String(c.date || '').slice(0, 4), url: `https://pmc.ncbi.nlm.nih.gov/articles/${c.pmcid}/`, note: `${c.nature} (${c.date}): ${c.reasons.join('; ')}` };
       try {
-        const figs = await AF.figuresOf(c.pmcid);
+        let figs = await AF.figuresOf(c.pmcid);
+        if (!figs.length) { await new Promise(r => setTimeout(r, 3000)); figs = await AF.figuresOf(c.pmcid); }   // PMC throttles parallel page requests
         const images = [];
         for (const f of figs) {
           const r = await download(f.url, { timeout: 45000, max: 30e6 });
@@ -295,7 +300,7 @@ async function indexPmc({ limit = 100, query = PMC_QUERY, force = false, budgetM
   const started = Date.now();
   const AF = require('./authorFigures');
   let offset = restart ? 0 : parseInt((await db.getMeta('imgref_pmc_offset')) || '0', 10);
-  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'pmc' AND status <> 'error'")).map(r => r.source_key));
+  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'pmc' AND status = 'done'")).map(r => r.source_key));
   const out = { query, papers: 0, figures: 0, panels: 0, skipped: 0, errors: [], stoppedEarly: false, total: null };
   const list = [];
   while (list.length < limit) {
@@ -326,7 +331,8 @@ async function indexPmc({ limit = 100, query = PMC_QUERY, force = false, budgetM
       const id = list[next++], pmcid = `PMC${id}`;
       const m = { ...(meta.get(id) || {}), url: `https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`, note: 'PubMed Central open-access subset' };
       try {
-        const figs = await AF.figuresOf(pmcid);
+        let figs = await AF.figuresOf(pmcid);
+        if (!figs.length) { await new Promise(r => setTimeout(r, 3000)); figs = await AF.figuresOf(pmcid); }   // PMC throttles parallel page requests
         const images = [];
         for (const f of figs) {
           const r = await download(f.url, { timeout: 45000, max: 30e6 });
@@ -346,6 +352,143 @@ async function indexPmc({ limit = 100, query = PMC_QUERY, force = false, budgetM
   // papers not reached because of the time budget are picked up next time
   await db.setMeta('imgref_pmc_offset', Math.max(0, offset - (list.length - next)));
   out.errors = out.errors.slice(0, 30);
+  return out;
+}
+
+// ------------------------------------------------------------------ public image-integrity research datasets (local archives)
+// The archives live in the data folder (mirrored on R2); they are read file by file (src/archiveReader.js).
+
+const path = require('path');
+const AR = require('./archiveReader');
+const dataFile = (...p) => path.join(require('./config').DATA_DIR, ...p);
+const fsExists = f => { try { return require('fs').statSync(f).size > 0; } catch { return false; } };
+
+async function decodeNamed(name, buf) {
+  try { return await decodeAny(buf); } catch { return null; }
+}
+
+/**
+ * RSIID (Recod.ai Scientific Image Integrity Dataset, zenodo.org/records/15095089): the pristine CC-licensed scientific
+ * figures the forgeries were made from (PNG / TIFF, incl. BBBC microscopy) and the figure templates. One entry per figure.
+ */
+async function indexRsiid({ limit = Infinity, force = false, budgetMs = Infinity } = {}, update = () => {}) {
+  const started = Date.now();
+  const files = [[dataFile('public-images', 'rsiid', 'artificial_forgery_src_data.zip'), /^srcDataset\/\d+\.(png|tif)$/i, 'pristine figure'],
+    [dataFile('public-images', 'rsiid', 'template.zip'), /^template_figures\/\d+\.(jpe?g|png)$/i, 'figure template']].filter(([f]) => fsExists(f));
+  if (!files.length) throw new Error('The RSIID archives are not in the data folder (public-images/rsiid). Download them from zenodo.org/records/15095089 or run npm run datasets:pull.');
+  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'rsiid' AND status <> 'error'")).map(r => r.source_key));
+  const todo = files.flatMap(([zip, re, kind]) => AR.zipEntries(zip).filter(e => re.test(e.name) && !done.has(e.name)).map(e => ({ zip, e, kind })));
+  const list = todo.slice(0, limit);
+  const out = { available: todo.length + done.size, indexedBefore: done.size, queued: list.length, figures: 0, panels: 0, errors: [], stoppedEarly: false };
+  for (const [i, { zip, e, kind }] of list.entries()) {
+    if (Date.now() - started > budgetMs) { out.stoppedEarly = true; break; }
+    try {
+      const img = await decodeNamed(e.name, AR.zipRead(zip, e));
+      const label = `RSIID ${kind} ${path.basename(e.name).replace(/\.[a-z]+$/i, '')}`;
+      const doc = await storeDoc('rsiid', e.name, { title: label, journal: 'RSIID (Recod.ai), CC-BY 4.0', url: 'https://zenodo.org/records/15095089', note: 'Pristine open-licence scientific figure used to build the RSIID forgery benchmark' },
+        img && img.width >= 48 && img.height >= 48 ? [{ ...img, label }] : [], img ? {} : { status: 'error', error: 'Could not decode the image' });
+      out.figures++; out.panels += doc.panels;
+    } catch (err) { out.errors.push(`${e.name}: ${err.message}`); }
+    if (i % 10 === 0) update(`RSIID: ${out.figures} figures, ${out.panels} panels (${i + 1}/${list.length})`, 5 + (i + 1) / list.length * 93);
+  }
+  out.errors = out.errors.slice(0, 30);
+  return out;
+}
+
+const BIOFORS_TYPES = { 'Blot/Gel': 'blot', Microscopy: 'fluorescence', 'Flow-cytometry': 'chart', FACS: 'chart', Macroscopy: 'photo' };
+
+/**
+ * BioFors (Sabir et al., ICCV 2021): 47,805 figure panels from 1,031 biomedical papers with expert annotations of
+ * external duplication (EDD), internal duplication (IDD) and cut / sharp transitions (CSTD). One entry per paper; panels
+ * named in the annotations are labelled, so a match says whether the experts marked that panel as duplicated.
+ */
+async function indexBiofors({ limit = Infinity, force = false, budgetMs = Infinity } = {}, update = () => {}) {
+  const started = Date.now();
+  const dir = dataFile('benchmark', 'biofors');
+  const tar = path.join(dir, 'biofors.tar');
+  if (!fsExists(tar)) throw new Error('The BioFors archive is not in the data folder (benchmark/biofors/biofors.tar). Request it from the authors (vimal.isi.edu/ekraam-2021-biofors) or run npm run datasets:pull.');
+  const readJson = f => { try { return JSON.parse(require('fs').readFileSync(path.join(dir, 'ann', f), 'utf8')); } catch { return {}; } };
+  const cls = readJson('classification.json'), edd = readJson('edd_gt.json'), idd = readJson('idd_gt.json'), cstd = readJson('cstd_gt.json');
+  const marked = id => {
+    const m = new Map();
+    const add = (f, what) => m.set(f, [...new Set([...(m.get(f) || []), what])]);
+    for (const pair of Object.keys(edd[id] || {})) pair.split(' ').forEach(f => add(f, 'duplicated in another panel'));
+    for (const f of Object.keys(idd[id] || {})) add(f, 'duplicated area inside the panel');
+    for (const f of Object.keys(cstd[id] || {})) add(f, 'cut / sharp transition');
+    return m;
+  };
+  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'biofors' AND status <> 'error'")).map(r => r.source_key));
+  const out = { papers: 0, panels: 0, annotatedPapers: 0, skippedDone: 0, errors: [], stoppedEarly: false };
+  let cur = null, files = [];
+  const flush = async () => {
+    if (!cur || !files.length) return;
+    const id = cur, list = files;
+    cur = null; files = [];
+    if (done.has(id)) { out.skippedDone++; return; }
+    const ann = marked(id);
+    const images = [];
+    for (const { name, data } of list) {
+      const img = await decodeNamed(name, data);
+      if (!img || img.width < 48 || img.height < 48) continue;
+      const flags = ann.get(name);
+      images.push({ ...img, label: `Panel ${name.replace(/\.png$/, '')}${flags ? ` [BioFors annotation: ${flags.join(', ')}]` : ''}`, type: BIOFORS_TYPES[cls[id]?.[name]] || null });
+    }
+    const counts = [Object.keys(edd[id] || {}).length && `${Object.keys(edd[id]).length} duplicated panel pair(s)`, Object.keys(idd[id] || {}).length && `${Object.keys(idd[id]).length} panel(s) with internal duplication`, Object.keys(cstd[id] || {}).length && `${Object.keys(cstd[id]).length} panel(s) with cut / sharp transitions`].filter(Boolean);
+    if (counts.length) out.annotatedPapers++;
+    const doc = await storeDoc('biofors', id, { title: `BioFors paper ${id}`, journal: 'BioFors (ICCV 2021) — biomedical papers', url: 'https://vimal.isi.edu/ekraam-2021-biofors', note: counts.length ? `Expert annotations: ${counts.join('; ')}` : 'No manipulation annotated by the BioFors experts' }, images, { single: true });
+    out.papers++; out.panels += doc.panels;
+    update(`BioFors paper ${id}: ${out.papers} papers, ${out.panels} panels indexed`, Math.min(98, 5 + out.papers / 1031 * 93));
+  };
+  try {
+    await AR.tarEach(tar, n => /^biofors_images\/\d+\/[^/]+\.png$/i.test(n), async (name, data) => {
+      const [, id, file] = name.match(/^biofors_images\/(\d+)\/([^/]+)$/);
+      if (id !== cur) {
+        await flush();
+        if (out.papers >= limit || Date.now() - started > budgetMs) { out.stoppedEarly = out.papers >= limit ? false : true; throw Object.assign(new Error('stop'), { stop: true }); }
+        cur = id;
+      }
+      if (!done.has(id)) files.push({ name: file, data });
+    });
+    await flush();
+  } catch (e) { if (!e.stop) throw e; }
+  out.errors = out.errors.slice(0, 30);
+  return out;
+}
+
+/**
+ * BINDER (Bio-Image Near-Duplicate Examples Repository, doi:10.7910/DVN/9YTD9Z): image patches and their manipulated
+ * near-duplicates. The zip must be downloaded by hand (Harvard Dataverse guestbook) into public-images/binder/.
+ */
+async function indexBinder({ limit = Infinity, force = false, budgetMs = Infinity } = {}, update = () => {}) {
+  const started = Date.now();
+  const dir = dataFile('public-images', 'binder');
+  const zip = (() => { try { return require('fs').readdirSync(dir).filter(f => /\.zip$/i.test(f)).map(f => path.join(dir, f))[0]; } catch { return null; } })();
+  if (!zip) throw new Error('BINDER is not in the data folder. Download BINDER_2020_7_9.zip from https://doi.org/10.7910/DVN/9YTD9Z (the site asks for a name and e-mail) into data/public-images/binder/, then run this again.');
+  const groups = new Map();
+  for (const e of AR.zipEntries(zip)) {
+    if (!/\.(png|jpe?g|tiff?|bmp)$/i.test(e.name) || /__MACOSX|\/\./.test(e.name)) continue;
+    const g = path.posix.dirname(e.name);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(e);
+  }
+  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'binder' AND status <> 'error'")).map(r => r.source_key));
+  const list = [...groups].filter(([g]) => !done.has(g)).slice(0, limit);
+  const out = { folders: groups.size, queued: list.length, patches: 0, panels: 0, errors: [], stoppedEarly: false };
+  for (const [i, [g, entries]] of list.entries()) {
+    if (Date.now() - started > budgetMs) { out.stoppedEarly = true; break; }
+    // large folders are stored in parts of 400 patches
+    for (let k = 0; k < entries.length; k += 400) {
+      const images = [];
+      for (const e of entries.slice(k, k + 400)) {
+        const img = await decodeNamed(e.name, AR.zipRead(zip, e)).catch(() => null);
+        if (img && img.width >= 32 && img.height >= 32) images.push({ ...img, label: path.posix.basename(e.name) });
+      }
+      const key = entries.length > 400 ? `${g}#${k / 400 + 1}` : g;
+      const doc = await storeDoc('binder', key, { title: `BINDER ${g}`, journal: 'BINDER (Harvard Dataverse, CC0)', url: 'https://doi.org/10.7910/DVN/9YTD9Z', note: 'Bio-image near-duplicate examples (rotation, scale, crop, contrast, compression)' }, images, { single: true });
+      out.patches += images.length; out.panels += doc.panels;
+    }
+    update(`BINDER ${g}: ${out.patches} patches indexed (${i + 1}/${list.length})`, 5 + (i + 1) / list.length * 93);
+  }
   return out;
 }
 
@@ -573,6 +716,6 @@ const panelsOf = docId => db.all('SELECT id, figure, panel, type, w, h, (thumb_k
 const thumbKey = async id => (await db.one('SELECT thumb_key FROM image_refs WHERE id = $1', [id]))?.thumb_key || null;
 
 module.exports = {
-  SOURCES, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, latestPjpsId, indexRetracted, indexPmc, indexUpload,
+  SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, latestPjpsId, indexRetracted, indexPmc, indexUpload,
   matchManuscript, candidates, loadIndex, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
 };

@@ -16,6 +16,9 @@ export async function renderImageDatabases(el, { desk = false } = {}) {
       ${row('pjps', `Article PDFs from pjps.pk; new articles are added every day${st.newestPjpsId ? ` (newest indexed: article ${st.newestPjpsId})` : ''}`)}
       ${row('retracted', 'Retraction Watch notices naming image problems, open-access figures from PubMed Central')}
       ${row('pmc', 'Newest first; each run continues where the previous one stopped')}
+      ${row('rsiid', 'Pristine figures and figure templates of the RSIID benchmark (Zenodo)')}
+      ${row('biofors', 'Panels of 1,031 papers; panels the experts marked as duplicated or spliced are labelled')}
+      ${row('binder', 'Near-duplicate patches; the archive must be downloaded by hand (Dataverse guestbook)')}
       ${row('reference', 'Uploaded below: PJPS archive PDFs, known problem figures, figures from other investigations')}
     </tbody></table></div>
     ${desk ? '' : `<div class="grid grid-2" style="margin-top:12px">
@@ -26,7 +29,9 @@ export async function renderImageDatabases(el, { desk = false } = {}) {
       <div class="field"><label>Other open-access figures</label>
         <div class="row" style="flex-wrap:wrap">Papers per run <input id="oa-limit" type="number" min="1" max="2000" value="100" style="width:80px"></div>
         <div class="hint">Retracted / corrected papers: strongest cases (duplication, manipulation, fabrication) first. PubMed Central: pharmacy, pharmacology and medicinal-plant papers, newest first.</div>
-        <div class="row" style="margin-top:6px"><button class="btn btn-sm" id="rt-run">Index retracted papers</button><button class="btn btn-sm" id="pmc-run">Index PubMed Central papers</button></div></div>
+        <div class="row" style="margin-top:6px"><button class="btn btn-sm" id="rt-run">Index retracted papers</button><button class="btn btn-sm" id="pmc-run">Index PubMed Central papers</button></div>
+        <div class="hint" style="margin-top:8px">Research datasets in the data folder (read from the archives on the server that holds them):</div>
+        <div class="row" style="margin-top:4px"><button class="btn btn-sm" data-ds="rsiid">Index RSIID</button><button class="btn btn-sm" data-ds="biofors">Index BioFors</button><button class="btn btn-sm" data-ds="binder">Index BINDER</button></div></div>
     </div>
     <form id="ref-form" class="card" style="margin:12px 0 0;background:var(--bg-soft, transparent)">
       <h3 style="margin-top:0">Add reference figures</h3>
@@ -50,7 +55,7 @@ export async function renderImageDatabases(el, { desk = false } = {}) {
     try {
       const { jobId } = await api(url, { body });
       const r = await runJob(jobId, prog, title);
-      const n = r.articles ?? r.papers ?? 0;
+      const n = r.articles ?? r.papers ?? r.figures ?? r.patches ?? 0;
       toast(`${n} paper(s) indexed, ${r.panels} panel(s)${r.errors?.length ? `, ${r.errors.length} failed` : ''}${r.stoppedEarly ? ' — time limit reached, run again to continue' : ''}`);
       renderImageDatabases(el, { desk });
     } catch (e) { toast(e.message, 'error'); }
@@ -59,6 +64,7 @@ export async function renderImageDatabases(el, { desk = false } = {}) {
     $('#pj-run', el).onclick = () => job('/api/admin/image-databases/pjps', { from: $('#pj-from', el).value, to: $('#pj-to', el).value, limit: $('#pj-limit', el).value }, 'Indexing published PJPS papers');
     $('#rt-run', el).onclick = () => job('/api/admin/image-databases/retracted', { limit: $('#oa-limit', el).value }, 'Indexing papers retracted for image problems');
     $('#pmc-run', el).onclick = () => job('/api/admin/image-databases/pmc', { limit: $('#oa-limit', el).value }, 'Indexing PubMed Central open-access papers');
+    $$('[data-ds]', el).forEach(b => (b.onclick = () => job(`/api/admin/image-databases/dataset/${b.dataset.ds}`, {}, `Indexing ${st.sources[b.dataset.ds].short}`)));
     $('#ref-form', el).onsubmit = async e => {
       e.preventDefault();
       const btn = $('button[type=submit]', e.target);

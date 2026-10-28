@@ -5,7 +5,7 @@ export const KIND_LABEL = {
   manuscript: 'Full Screening Report', references: '1 · Check Bibliography', citations: '3 · Citations', 'reviewer-report': 'Reviewer report',
   restyle: '2 · Reference Style', papermill: '4 · Paper Mill', images: '5 · Image Integrity', format: 'Manuscript Format', verify: 'Verify Citations', evidence: 'Find Evidence', 'journal-finder': 'Find a Journal',
   conferences: 'Conferences', assistant: 'Thesis/Paper Assistant', authors: 'Author publications',
-  integrity: 'Integrity Screening', 'peer-review': 'Peer-Review Integrity'
+  integrity: '4 · Paper Mill (integrity)', 'peer-review': '4 · Peer-review integrity'
 };
 const MS_KINDS = ['manuscript', 'references', 'citations'];
 const RISK = /(?:risk|Image risk) (LOW|MEDIUM|HIGH)/;

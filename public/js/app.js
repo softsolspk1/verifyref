@@ -22,7 +22,6 @@ import { renderAdmin, renderAudit } from './views/admin.js';
 import { renderDesktop } from './views/desktop.js';
 import { renderHome } from './views/home.js';
 import { renderCitations } from './views/citations.js';
-import { renderPaperMill } from './views/papermill.js';
 import { renderImages } from './views/images.js';
 import { renderDemo } from './views/demo.js';
 import { renderIntegrity } from './views/integrity.js';
@@ -36,18 +35,13 @@ import { renderApiKeys } from './views/apiKeys.js';
 const NAV = [
   { path: '/home', label: 'Home', icon: 'home' },
   { group: 'PJPS modules' },
-  { path: '/manuscript', label: 'Full Screening Report', icon: 'manuscript', module: 'manuscript' },
+  { path: '/manuscript', label: 'Full Screening Report', icon: 'manuscript', module: 'manuscript', hidden: true },
   { path: '/references', label: '1 · Check Bibliography', icon: 'refs', module: 'references' },
   { path: '/restyle', label: '2 · Reference Style & PJPS', icon: 'style', module: 'restyle' },
   { path: '/citations', label: '3 · Citations', icon: 'cite', module: 'citations' },
   { path: '/papermill', label: '4 · Paper Mill Detection', icon: 'papermill', module: 'papermill' },
   { path: '/images', label: '5 · Image Integrity', icon: 'image', module: 'images' },
   { path: '/demo', label: 'Demo data', icon: 'manuscript', hidden: true },
-  { group: 'Integrity Suite' },
-  { path: '/integrity', label: 'Integrity Screening', icon: 'integrity', module: 'integrity' },
-  { path: '/peer-review', label: 'Peer-Review Integrity', icon: 'peer', module: 'peer-review' },
-  { path: '/monitoring', label: 'Published Article Monitoring', icon: 'monitor', module: 'monitoring' },
-  { path: '/cases', label: 'Dashboard & Cases', icon: 'cases', module: 'cases' },
   { group: 'Earlier tools' },
   { path: '/verify', label: 'Verify Citations', icon: 'verify', module: 'verify', hidden: true },
   { path: '/evidence', label: 'Find Evidence', icon: 'evidence', module: 'evidence' },
@@ -68,7 +62,7 @@ const NAV = [
   { path: '/admin/users', label: 'Users', icon: 'users', admin: true },
   { path: '/admin/data', label: 'Datasets & journal lists', icon: 'data', admin: true },
   { path: '/admin/audit', label: 'Audit log & usage', icon: 'audit', admin: true },
-  { path: '/admin/api', label: 'Integrity API', icon: 'api', admin: true }
+  { path: '/admin/api', label: 'Integrity API', icon: 'api', admin: true, hidden: true }
 ];
 
 const guard = (module, fn) => (v, m) => (hasModule(module) ? fn(v, m) : (v.innerHTML = '<div class="card empty">Your account does not have access to this tool. Ask the Super Admin to enable it.</div>'));
@@ -80,13 +74,12 @@ const ROUTES = [
   [/^\/home$/, renderHome],
   [/^\/demo$/, renderDemo],
   [/^\/citations$/, guard('citations', renderCitations)],
-  [/^\/papermill$/, guard('papermill', renderPaperMill)],
+  [/^\/papermill$/, guard('papermill', renderIntegrity)],
+  [/^\/papermill\/peer-review$/, guard('papermill', renderPeerReview)],
+  [/^\/papermill\/cases$/, guard('papermill', renderCases)],
+  [/^\/papermill\/cases\/(\d+)$/, guard('papermill', (v, m) => renderCase(v, m[1]))],
+  [/^\/references\/monitoring$/, guard('references', (v, m) => (state.user.role === 'researcher' ? (v.innerHTML = '<div class="card empty">Published-article monitoring is for editors.</div>') : renderMonitoring(v, m)))],
   [/^\/images$/, guard('images', renderImages)],
-  [/^\/integrity$/, guard('integrity', renderIntegrity)],
-  [/^\/peer-review$/, guard('peer-review', renderPeerReview)],
-  [/^\/monitoring$/, guard('monitoring', renderMonitoring)],
-  [/^\/cases$/, guard('cases', renderCases)],
-  [/^\/cases\/(\d+)$/, guard('cases', (v, m) => renderCase(v, m[1]))],
   [/^\/restyle$/, guard('restyle', renderRestyle)],
   [/^\/verify$/, guard('verify', renderVerify)],
   [/^\/evidence$/, guard('evidence', renderEvidence)],
@@ -145,8 +138,30 @@ async function refreshConnection() {
   } catch (e) { /* ignore */ }
 }
 
+// Earlier addresses of features that now live inside a module
+const MOVED = [[/^\/integrity$/, '/papermill'], [/^\/peer-review$/, '/papermill/peer-review'], [/^\/cases(\/\d+)?$/, m => `/papermill/cases${m[1] || ''}`], [/^\/monitoring$/, '/references/monitoring']];
+
+// Feature tabs inside a module
+const TABS = {
+  '/references': [['/references', 'Check references'], ['/references/monitoring', 'Published-article monitoring', () => state.user.role !== 'researcher']],
+  '/papermill': [['/papermill', 'Integrity screening & risk score'], ['/papermill/peer-review', 'Peer-review integrity'], ['/papermill/cases', 'Cases & dashboard']]
+};
+
+function moduleTabs(view, path) {
+  const root = Object.keys(TABS).find(r => path === r || path.startsWith(r + '/'));
+  if (!root) return;
+  const tabs = TABS[root].filter(t => !t[2] || t[2]());
+  if (tabs.length < 2) return;
+  const active = tabs.filter(([p]) => path === p || path.startsWith(p + '/')).sort((a, b) => b[0].length - a[0].length)[0]?.[0];
+  const bar = document.createElement('div');
+  bar.className = 'tabs no-print';
+  bar.innerHTML = tabs.map(([p, l]) => `<a class="tab ${p === active ? 'active' : ''}" href="#${p}">${esc(l)}</a>`).join('');
+  view.prepend(bar);
+}
+
 async function route() {
   let path = location.hash.replace(/^#/, '') || firstAllowedPath();
+  for (const [re, to] of MOVED) { const m = path.match(re); if (m) { location.replace(`#${typeof to === 'function' ? to(m) : to}`); return; } }
   if (state.user.mustChangePassword && path !== '/account') { location.hash = '#/account'; return; }
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', path === a.dataset.path || path.startsWith(a.dataset.path + '/')));
   $('#sidebar').classList.remove('open');
@@ -159,7 +174,7 @@ async function route() {
   for (const [re, fn] of ROUTES) {
     const m = path.match(re);
     if (m) {
-      try { await fn(view, m); if (/^\/(manuscript|references|restyle|citations|papermill|images|integrity)$/.test(path)) shareManuscript(view); } catch (e) { view.innerHTML = `<div class="alert alert-bad">${esc(e.message)}</div>`; }
+      try { moduleTabs(root, path); await fn(view, m); if (/^\/(manuscript|references|restyle|citations|papermill|images)$/.test(path)) shareManuscript(view); } catch (e) { view.innerHTML = `<div class="alert alert-bad">${esc(e.message)}</div>`; }
       return;
     }
   }

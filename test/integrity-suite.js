@@ -1,4 +1,4 @@
-// test/integrity-suite.js - Integrity Suite end to end on an in-memory database, without external lookups:
+// test/integrity-suite.js - Module 4 integrity screening, peer review, cases, Module 1 monitoring and the API end to end on an in-memory database, without external lookups:
 // Integrity Screening (all dimensions + risk score), cross-submission checks, reports, Peer-Review Integrity,
 // case management with audit trail, published-article monitoring list, API keys and the Research Integrity API.
 // Run: node test/integrity-suite.js
@@ -50,9 +50,9 @@ References
 
   let r = await call('admin', 'POST', '/api/auth/login', { email: 'admin@test.local', password: 'admin-pass-123' });
   assert.ok(r.data.success, 'admin login');
-  assert.ok(['integrity', 'peer-review', 'monitoring', 'cases'].every(k => r.data.user.permissions.includes(k)), 'Integrity Suite modules granted to Super Admin');
+  assert.deepStrictEqual(r.data.user.permissions.filter(k => !['manuscript', 'reports', 'verify'].includes(k)).sort(), ['citations', 'images', 'papermill', 'references', 'restyle'], 'exactly the five modules');
   r = await call('admin', 'GET', '/api/app');
-  assert.ok(r.data.name === 'PJPS Data Integration System', 'portal renamed');
+  assert.ok(r.data.name === 'PJPS Data Integrity System', 'portal renamed');
 
   // ---- Integrity Screening: first submission
   r = await call('admin', 'POST', '/api/integrity', { text: MS('A', 'Ahmad Khan, Sara Ali', 'shared.mill@gmail.com', 'ring.reviewer@gmail.com'), manuscriptCode: 'PJPS-INT-1', authors: 'Ahmad Khan\nSara Ali', suggestedReviewers: 'Dr R. Reviewer, ring.reviewer@gmail.com', external: false });
@@ -125,6 +125,7 @@ References
   await call('rev', 'POST', '/api/auth/login', { email: 'rev@test.local', password: 'reviewer-pass-1' });
   assert.strictEqual((await call('rev', 'POST', '/api/integrity', { text: 'x'.repeat(400) })).status, 403, 'reviewer blocked from Integrity Screening');
   assert.strictEqual((await call('rev', 'GET', '/api/cases/dashboard')).status, 403, 'reviewer blocked from cases');
+  assert.strictEqual((await call('rev', 'GET', '/api/monitoring')).status, 403, 'reviewer blocked from Module 1 monitoring');
   assert.strictEqual((await call('rev', 'GET', `/api/checks/${res1.id}`)).status, 404, 'reviewer cannot open others\' reports');
 
   // ---- Monitoring list (no network in this test: listing and validation only)

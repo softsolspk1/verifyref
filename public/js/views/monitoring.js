@@ -6,7 +6,7 @@ const STATUS = { retracted: ['Retracted', 'bad'], concern: ['Expression of conce
 
 export async function renderMonitoring(view) {
   view.innerHTML = `
-    <div class="page-head"><div><h1>Published Article Monitoring</h1>
+    <div class="page-head"><div><h1>Module 1 — Published-article monitoring</h1>
       <p>Watches PJPS's published articles after publication: retractions, expressions of concern, corrections and withdrawals (Crossref notices and Retraction Watch), and references to papers that have been retracted since publication. Checked weekly by the daily schedule; editors who add articles and the Super Admins are notified of anything new.</p></div></div>
     <div class="kpis" id="kpis"></div>
     <div class="grid grid-2">
@@ -42,12 +42,12 @@ export async function renderMonitoring(view) {
       <td>${(a.events || []).map(e => `<div>${esc(e.type.replace(/_/g, ' '))} <span class="muted">(${esc(e.source)}${e.date ? ', ' + esc(e.date) : ''})</span>${e.notice ? ` <a href="https://doi.org/${esc(e.notice)}" target="_blank" rel="noopener">notice</a>` : ''}</div>`).join('')}
         ${(a.cited_retracted || []).length ? `<details><summary class="muted">${a.cited_retracted.length} cited paper(s) retracted</summary><ul class="evidence">${a.cited_retracted.map(c => `<li><a href="https://doi.org/${esc(c.doi)}" target="_blank" rel="noopener">${esc(c.title || c.doi)}</a> <span class="muted">${esc(c.date || '')}</span>${c.reason ? `<div class="muted">${esc(c.reason)}</div>` : ''}</li>`).join('')}</ul></details>` : ''}</td>
       <td class="muted">${a.last_checked ? fmtDate(a.last_checked) : 'pending'}</td>
-      <td class="no-print"><button class="btn btn-sm btn-ghost" data-one="${a.id}">Check</button>${hasModule('cases') && a.status !== 'ok' ? `<button class="btn btn-sm btn-ghost" data-case="${a.id}">Open case</button>` : ''}<button class="btn btn-sm btn-ghost" data-del="${a.id}">Remove</button></td></tr>`).join('')}</table></div>` : '<p>No articles yet. Add DOIs or import the journal from Crossref.</p>';
+      <td class="no-print"><button class="btn btn-sm btn-ghost" data-one="${a.id}">Check</button>${hasModule('papermill') && a.status !== 'ok' ? `<button class="btn btn-sm btn-ghost" data-case="${a.id}">Open case</button>` : ''}<button class="btn btn-sm btn-ghost" data-del="${a.id}">Remove</button></td></tr>`).join('')}</table></div>` : '<p>No articles yet. Add DOIs or import the journal from Crossref.</p>';
     $$('[data-one]', view).forEach(b => { b.onclick = () => job({ ids: [+b.dataset.one] }, 'Checking the article'); });
     $$('[data-del]', view).forEach(b => { b.onclick = async () => { await api(`/api/monitoring/articles/${b.dataset.del}`, { method: 'DELETE' }); load(); }; });
     $$('[data-case]', view).forEach(b => { b.onclick = async () => {
       const a = d.items.find(x => x.id === +b.dataset.case);
-      try { const r = await api('/api/cases', { body: { title: `Post-publication: ${a.title || a.doi}`, manuscriptCode: a.manuscript_code || a.doi, category: 'post-publication', priority: a.status === 'retracted' || a.status === 'concern' ? 'high' : 'normal', note: `${STATUS[a.status]?.[0] || a.status} — https://doi.org/${a.doi}` } }); location.hash = `#/cases/${r.case.id}`; } catch (e) { toast(e.message, 'error'); }
+      try { const r = await api('/api/cases', { body: { title: `Post-publication: ${a.title || a.doi}`, manuscriptCode: a.manuscript_code || a.doi, category: 'post-publication', priority: a.status === 'retracted' || a.status === 'concern' ? 'high' : 'normal', note: `${STATUS[a.status]?.[0] || a.status} — https://doi.org/${a.doi}` } }); location.hash = `#/papermill/cases/${r.case.id}`; } catch (e) { toast(e.message, 'error'); }
     }; });
   };
   const job = async (body, title, url = '/api/monitoring/check') => {

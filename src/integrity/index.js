@@ -1,10 +1,11 @@
-// integrity/index.js - Integrity Screening: runs every Integrity Suite analyser on one manuscript, adds the Module 4
-// paper-mill signals and the linked Module 1 / Module 5 reports for the same manuscript ID, and scores the result.
+// integrity/index.js - Module 4 Paper Mill Detection: runs every integrity analyser on one manuscript (similarity,
+// AI-written text, data, pharmaceutical validation, ethics, authors, submission network) together with the paper-mill
+// signals, adds the linked Module 1 / Module 5 reports for the same manuscript ID, and scores the result.
 const db = require('../db');
 const { prepare } = require('../pipeline');
 const { checkReferences } = require('../checks/reference');
 const { analyzeCitationPattern } = require('../editor/pattern');
-const { detectPaperMill } = require('../papermill');
+const { detectPaperMill, storeFingerprint } = require('../papermill');
 const { isOnline } = require('../http');
 const { analyzeSimilarity } = require('./similarity');
 const { analyzeAiWriting } = require('./aiWriting');
@@ -27,11 +28,8 @@ async function linkedReports(code, { imagesCheckId } = {}) {
   }
   if (!code) return out;
   if (!out.images) { const r = await latest(['images']); if (r) out.images = { checkId: r.id, summary: r.result.summary, earlier: r.result.earlier || [] }; }
-  const pm = await latest(['papermill']);
-  if (pm) out.papermill = { ...pm.result, id: pm.id };
   const ref = await latest(['manuscript', 'references']);
   if (ref?.result?.references?.summary) out.references = { checkId: ref.id, kind: ref.kind, summary: ref.result.references.summary };
-  if (!out.papermill && ref?.result?.papermill) out.papermill = { ...ref.result.papermill, id: ref.id };
   return out;
 }
 
@@ -64,27 +62,25 @@ async function runIntegrity(input, update = () => {}) {
   const net = await analyzeNetwork({ text, meta, referencesText: input.referencesText, suggestedReviewers: input.suggestedReviewers });
   dims.push(net);
 
-  // Module 4: a fresh run (references verified when "deep"), unless a saved Module 4 report for this manuscript exists
+  // Paper-mill signals (references verified online when "deep"), with the Module 5 report for this manuscript ID
   const linked = await linkedReports(meta.manuscriptCode, { imagesCheckId: input.imagesCheckId }).catch(() => ({}));
-  let papermill = linked.papermill || null;
-  let refSummary = null;
-  if (!papermill || input.deep) {
-    let references = [], pattern = null;
-    if (input.deep && input.referencesText && online) {
-      const { refs } = prepare({ referencesText: input.referencesText, bodyText: body });
-      if (refs.length) {
-        update(`Verifying ${refs.length} references`, 56);
-        const rc = await checkReferences(refs, { checkLinks: false, onProgress: (k, n) => update(`Verifying references (${k}/${n})`, 56 + k / n * 30) });
-        references = rc.results;
-        refSummary = rc.summary;
-        pattern = analyzeCitationPattern(meta, references);
-      }
+  let references = [], pattern = null, refSummary = null;
+  if (input.deep && input.referencesText && online) {
+    const { refs } = prepare({ referencesText: input.referencesText, bodyText: body });
+    if (refs.length) {
+      update(`Verifying ${refs.length} references`, 56);
+      const rc = await checkReferences(refs, { checkLinks: false, onProgress: (k, n) => update(`Verifying references (${k}/${n})`, 56 + k / n * 28) });
+      references = rc.results;
+      refSummary = rc.summary;
+      pattern = analyzeCitationPattern(meta, references);
     }
-    update('Paper-mill signals (Module 4)', 88);
-    papermill = await detectPaperMill({ text, body, meta, references, pattern, suggestedReviewers: input.suggestedReviewers, blast: false });
-    delete papermill._shingles;
-    papermill.id = null;
   }
+  update('Paper-mill signals', 86);
+  const images = linked.images ? { findings: linked.images.summary?.byLevel || {}, categories: linked.images.summary?.byCategory || {}, level: linked.images.summary?.level } : null;
+  const papermill = await detectPaperMill({ text, body, meta, references, pattern, suggestedReviewers: input.suggestedReviewers, images, blast: online && input.blast !== false });
+  const shingles = papermill._shingles;
+  delete papermill._shingles;
+  papermill.id = null;
   if (refSummary) linked.references = { checkId: null, kind: 'integrity', summary: refSummary };
   const linkedDims = linkedDimensions({ papermill, images: linked.images, references: linked.references });
 
@@ -104,8 +100,11 @@ async function runIntegrity(input, update = () => {}) {
     },
     options: { deep: !!input.deep, online },
     disclaimer: DISCLAIMER,
+    references: references.length ? references.map(r => ({ index: r.index, raw: r.raw, status: r.status, statusLabel: r.statusLabel, reason: r.reason, doi: r.record?.doi || r.parsed?.doi || null, retraction: r.retraction ? { nature: r.retraction.nature, reason: r.retraction.reason } : null })) : undefined,
+    papermillDetails: papermill.details,
     _hashes: sim._hashes,
-    _record: net._record
+    _record: net._record,
+    _shingles: shingles
   };
   return result;
 }
@@ -117,10 +116,11 @@ function integrityProblems(r) {
 /** Save the result, store the submission record for later cross-submission checks */
 async function saveIntegrity(userId, result, input) {
   const { saveResult } = require('../pipeline');
-  const hashes = result._hashes, record = result._record;
-  delete result._hashes; delete result._record;
+  const hashes = result._hashes, record = result._record, shingles = result._shingles;
+  delete result._hashes; delete result._record; delete result._shingles;
   await saveResult(userId, 'integrity', result, { title: input.meta.title || 'Integrity screening', manuscriptCode: input.meta.manuscriptCode, problems: integrityProblems(result), counts: { suspicious: result.risk.strongSignals } });
   await storeRecord({ checkId: result.id, userId, meta: input.meta, record, hashes }).catch(e => console.error('Integrity record not stored:', e.message));
+  await storeFingerprint({ checkId: result.id, userId, meta: input.meta, shingles }).catch(e => console.error('Fingerprint not stored:', e.message));
   return result;
 }
 

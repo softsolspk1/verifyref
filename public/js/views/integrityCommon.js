@@ -31,6 +31,6 @@ export async function openCase(checkId) {
   try {
     const r = await api('/api/cases', { body: { checkIds: [checkId] } });
     toast(`Case #${r.case.id} opened`);
-    location.hash = `#/cases/${r.case.id}`;
+    location.hash = `#/papermill/cases/${r.case.id}`;
   } catch (e) { toast(e.message, 'error'); }
 }

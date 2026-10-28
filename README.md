@@ -1,4 +1,4 @@
-# PJPS Data Integration System
+# PJPS Data Integrity System
 
 **by Softsols Pakistan** — five-module manuscript screening portal for the *Pakistan Journal of Pharmaceutical Sciences* (web platform). The earlier Windows desktop edition is still in the repository but is not developed further for the v4 modules.
 

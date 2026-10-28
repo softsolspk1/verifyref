@@ -217,7 +217,7 @@ async function loadShared(user, id) {
   const row = await db.one('SELECT user_id FROM checks WHERE id = $1', [id]);
   if (!row) return null;
   const { permissionsOf } = require('./modules');
-  const shared = user.role === 'super_admin' || (permissionsOf(user).includes('cases') && await db.one('SELECT 1 FROM cases WHERE check_ids @> $1::jsonb', [JSON.stringify([Number(id)])]));
+  const shared = user.role === 'super_admin' || (permissionsOf(user).includes('papermill') && await db.one('SELECT 1 FROM cases WHERE check_ids @> $1::jsonb', [JSON.stringify([Number(id)])]));
   return shared ? loadCheck(row.user_id, id) : null;
 }
 

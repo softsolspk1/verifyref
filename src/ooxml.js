@@ -42,7 +42,7 @@ class Docx {
   }
 
   /** Record later edits as Word tracked changes (insertions / deletions the editor can accept or reject) */
-  trackChanges(author = 'PJPS Data Integration System') {
+  trackChanges(author = 'PJPS Data Integrity System') {
     this.track = { author, date: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), id: 7000 };
     return this;
   }

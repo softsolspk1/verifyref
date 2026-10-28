@@ -86,6 +86,9 @@ async function probe() {
   return online;
 }
 
+// Hosts that rate-limited us: hostname -> time until which they are not called
+const cooldown = new Map();
+
 // Two-tier cache: in-process LRU in front of the PostgreSQL cache table
 const MEM_MAX = 5000;
 const mem = new Map();
@@ -147,6 +150,9 @@ async function request(url, options = {}) {
   }
 
   const host = new URL(url).hostname;
+  // A host that keeps answering "too many requests" is skipped for a while instead of retried for every lookup
+  const cool = cooldown.get(host);
+  if (cool && cool > Date.now()) return { ok: false, status: 429, error: 'rate-limited (cooling down)' };
   let attempt = 0;
   let result;
   while (true) {
@@ -190,6 +196,11 @@ async function request(url, options = {}) {
     const retryAfter = parseInt(result.headers?.['retry-after'] || '0', 10);
     await sleep(Math.min(retryAfter > 0 ? retryAfter * 1000 : 800 * 2 ** attempt, 8000));
   }
+
+  if (result.status === 429) {
+    const after = parseInt(result.headers?.['retry-after'] || '0', 10);
+    cooldown.set(host, Date.now() + Math.min(Math.max(after * 1000, 3 * 60000), 15 * 60000));
+  } else if (result.ok) cooldown.delete(host);
 
   // Cache successes and definitive "not found" answers, never transient errors
   if (cacheKey && (result.ok || result.status === 404)) {

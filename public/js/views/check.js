@@ -1,5 +1,5 @@
 // views/check.js - input forms for the Full Screening Report and Module 1 (Check Bibliography)
-import { api, esc, $, toast, runJob, dropzone, issueOptions, fmtDate, modal } from '../core.js';
+import { api, esc, $, toast, runJob, dropzone, fmtDate, modal } from '../core.js';
 import { renderReport } from './report.js';
 
 const MODES = {
@@ -73,11 +73,8 @@ export function renderCheckForm(view, kind) {
 
       <div class="card">
         <div class="grid grid-2">
-          <div class="field"><label for="issue">Add to issue</label><select id="issue">${issueOptions()}</select><div class="hint">Manuscripts in an issue appear in the Issue report.</div></div>
-          <div class="field"><label>Saving</label>
-            <label class="check"><input type="radio" name="save" value="full" checked> Save the full report (needed for letters and revision comparison)</label>
-            <label class="check"><input type="radio" name="save" value="counts"> Save counts only — no manuscript content is stored</label>
-          </div>
+          <div class="field" hidden><select id="issue"><option value=""></option></select>
+            <input type="radio" name="save" value="full" checked></div>
         </div>
         <div class="row">
           <button class="btn btn-primary" id="run">Run ${esc(m.title)}</button>

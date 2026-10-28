@@ -1,5 +1,5 @@
 // views/report.js - renders a check result: References, Citations, Journals, Citation pattern, Editor report
-import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, issueOptions, state, runJob, hasModule, datasetBanner } from '../core.js';
+import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, state, runJob, hasModule, datasetBanner } from '../core.js';
 import { decisionCard } from './decision.js';
 
 export async function renderSavedReport(view, id) {
@@ -64,7 +64,7 @@ export function renderReport(el, result, { kind } = {}) {
         <p>${meta.manuscriptCode ? `<b>${esc(meta.manuscriptCode)}</b> · version ${meta.version || 1} · ` : ''}${fmtDate(result.createdAt)}${result.truncated ? ` · <span class="badge b-warn">Only the first ${refs.length} of ${result.totalFound} references were checked</span>` : ''}</p>
       </div>
       <div class="row no-print">
-        ${id ? `<select id="issue-assign" class="btn-sm" style="width:auto" title="Issue">${issueOptions(result.issueId)}</select>` : ''}
+
         ${id && kind !== 'citations' ? `
           <div style="position:relative">
             <button class="btn btn-sm" id="export-btn">${ICONS.download} Export ▾</button>

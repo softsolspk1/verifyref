@@ -1,4 +1,4 @@
-// server.js - PJPS Data Integration System by Softsols Pakistan. One Express app serves the web platform (PostgreSQL,
+// server.js - PJPS Data Integrity System by Softsols Pakistan. One Express app serves the web platform (PostgreSQL,
 // Vercel or a VPS) and the Windows desktop edition (embedded database on 127.0.0.1, see desktop/main.js).
 const express = require('express');
 const path = require('path');

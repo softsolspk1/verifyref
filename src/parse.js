@@ -459,12 +459,14 @@ function extractManuscriptMeta(text) {
   const skip = l => /^(?:original (?:research )?article|research (?:article|paper)|review article|short communication|case report|manuscript|running title|title:?)$/i.test(l) || /^page \d+/i.test(l);
   const headLines = (absIdx > 0 ? lines.slice(0, absIdx) : lines.slice(0, 12)).filter(l => !skip(l));
 
+  // Labelled title-page lines: "Manuscript ID: …", "Authors: …", "Corresponding author: …", "Running title: …"
+  const LABEL = /^(manuscript (?:id|no\.?|number|code)|paper id|submission id|authors?|corresponding authors?|correspondence|e-?mails?|running (?:head|title)|short title|received|accepted|revised|article type|orcid(?: ids?)?)\s*[:\-–]\s*(.*)$/i;
   // Title: first substantial line(s) not looking like authors/affiliations
   let i = 0;
   const titleParts = [];
   while (i < headLines.length && titleParts.join(' ').length < 250) {
     const l = headLines[i].replace(/^title:\s*/i, '');
-    if (AFFIL_RE.test(l) || (titleParts.length && looksLikeAuthorLine(l))) break;
+    if (LABEL.test(l) || AFFIL_RE.test(l) || (titleParts.length && looksLikeAuthorLine(l))) break;
     if (l.split(' ').length >= 3 || titleParts.length) titleParts.push(l);
     i++;
     if (titleParts.length && /[a-z]$/.test(l) === false && l.length < 60) break;
@@ -473,6 +475,14 @@ function extractManuscriptMeta(text) {
 
   for (; i < headLines.length; i++) {
     const l = headLines[i];
+    const lab = l.match(LABEL);
+    if (lab) {
+      const k = lab[1].toLowerCase();
+      if (/^(manuscript|paper|submission)/.test(k)) meta.manuscriptCode = lab[2].trim().split(/\s+/)[0] || '';
+      else if (/^authors?$/.test(k) && looksLikeAuthorLine(lab[2])) meta.authors.push(...parseAuthorLine(lab[2]));
+      continue;
+    }
+    if (/@/.test(l)) continue;
     if (AFFIL_RE.test(l)) meta.affiliations.push(l.replace(/^[\d*†‡§¹²³⁴⁵⁶⁷⁸⁹,\s]+/, ''));
     else if (looksLikeAuthorLine(l)) meta.authors.push(...parseAuthorLine(l));
   }

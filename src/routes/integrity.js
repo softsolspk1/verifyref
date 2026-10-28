@@ -1,5 +1,5 @@
-// routes/integrity.js - Integrity Suite: Integrity Screening, Peer-Review Integrity, Published Article Monitoring,
-// Editorial Dashboard & Case Management, integrity reports (Word / PDF) and the API keys of the Research Integrity API.
+// routes/integrity.js - Module 4 Paper Mill Detection (integrity screening with risk score, peer-review integrity, cases
+// and dashboard), Module 1 published-article monitoring, integrity reports (Word / PDF) and the Research Integrity API keys.
 const crypto = require('crypto');
 const express = require('express');
 const db = require('../db');
@@ -20,6 +20,8 @@ const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const upload = require('../uploads').upload();
 const mod = auth.requireModule;
+// Module 1 published-article monitoring is an editor tool: Module 1 access and an editor or Super Admin role
+const monitorMod = (req, res, next) => mod('references')(req, res, () => (req.user.role === 'researcher' ? res.status(403).json({ success: false, message: 'Published-article monitoring is for editors.' }) : next()));
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const lines = v => (Array.isArray(v) ? v : String(v || '').split(/\r?\n/)).map(s => String(s).trim()).filter(Boolean);
 
@@ -39,7 +41,7 @@ async function integrityInput(req) {
   if (!ms) return null;
   const d = ms.detected;
   const meta = normalizeMeta({
-    title: b.title || d.title || ms.filename, manuscriptCode: b.manuscriptCode || '', abstract: b.abstract || d.abstract || '',
+    title: b.title || d.title || ms.filename, manuscriptCode: b.manuscriptCode || d.manuscriptCode || '', abstract: b.abstract || d.abstract || '',
     authors: lines(b.authors).length ? lines(b.authors) : (d.authors || []).map(a => a.name),
     affiliations: lines(b.affiliations).length ? lines(b.affiliations) : d.affiliations || [], keywords: b.keywords || d.keywords || [], version: b.version || null
   });
@@ -50,12 +52,12 @@ async function integrityInput(req) {
 async function integrityJob(input, { userId, update }) {
   const result = await runIntegrity(input, update);
   if (input.save !== false) await saveIntegrity(userId, result, input);
-  else { delete result._hashes; delete result._record; }
+  else { delete result._hashes; delete result._record; delete result._shingles; }
   return result;
 }
 defineJob('integrity', integrityJob);
 
-router.post('/integrity', mod('integrity'), upload.single('file'), wrap(async (req, res) => {
+router.post('/integrity', mod('papermill'), upload.single('file'), wrap(async (req, res) => {
   const input = await integrityInput(req);
   if (!input) return res.status(400).json({ success: false, message: 'Upload the full manuscript (Word or PDF) or paste its complete text.' });
   const job = await createJob(req.user.id, 'integrity', input);
@@ -111,7 +113,7 @@ async function peerJob(input, { userId, update }) {
 }
 defineJob('peer-review', peerJob);
 
-router.post('/peer-review', mod('peer-review'), upload.single('file'), wrap(async (req, res) => {
+router.post('/peer-review', mod('papermill'), upload.single('file'), wrap(async (req, res) => {
   const input = await peerInput(req);
   if (!input) return res.status(400).json({ success: false, message: 'Add at least one reviewer (name or e-mail).' });
   const job = await createJob(req.user.id, 'peer-review', input);
@@ -127,7 +129,7 @@ defineJob('monitor', async (input, { update }) => {
   return M.runMonitor({ force: true, ids: input.ids || null, limit: 500 });
 });
 
-router.get('/monitoring', mod('monitoring'), wrap(async (req, res) => {
+router.get('/monitoring', monitorMod, wrap(async (req, res) => {
   const params = [];
   let where = 'TRUE';
   if (req.query.status) { params.push(String(req.query.status).split(',')); where += ` AND status = ANY($${params.length}::text[])`; }
@@ -138,7 +140,7 @@ router.get('/monitoring', mod('monitoring'), wrap(async (req, res) => {
   res.json({ success: true, items, counts, lastChecked: last?.at || null, issn: require('../config').HOME_JOURNAL.issn });
 }));
 
-router.post('/monitoring/articles', mod('monitoring'), wrap(async (req, res) => {
+router.post('/monitoring/articles', monitorMod, wrap(async (req, res) => {
   const dois = lines(String(req.body?.dois || '').replace(/[,;]\s*/g, '\n'));
   if (!dois.length) return res.status(400).json({ success: false, message: 'Enter one or more DOIs.' });
   const out = await M.addArticles(dois, req.user.id, { manuscriptCode: req.body?.manuscriptCode || null });
@@ -146,7 +148,7 @@ router.post('/monitoring/articles', mod('monitoring'), wrap(async (req, res) => 
   res.json({ success: true, ...out });
 }));
 
-router.post('/monitoring/import', mod('monitoring'), wrap(async (req, res) => {
+router.post('/monitoring/import', monitorMod, wrap(async (req, res) => {
   const issn = String(req.body?.issn || '').trim();
   if (!/^\d{4}-\d{3}[\dX]$/i.test(issn)) return res.status(400).json({ success: false, message: 'Enter an ISSN such as 1011-601X.' });
   const job = await createJob(req.user.id, 'monitor', { action: 'import', issn, fromYear: parseInt(req.body?.fromYear, 10) || new Date().getFullYear() - 5, userId: req.user.id });
@@ -154,13 +156,13 @@ router.post('/monitoring/import', mod('monitoring'), wrap(async (req, res) => {
   res.json({ success: true, jobId: job.id });
 }));
 
-router.post('/monitoring/check', mod('monitoring'), wrap(async (req, res) => {
+router.post('/monitoring/check', monitorMod, wrap(async (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : null;
   const job = await createJob(req.user.id, 'monitor', { action: req.body?.rescreen ? 'rescreen' : 'check', ids });
   res.json({ success: true, jobId: job.id });
 }));
 
-router.delete('/monitoring/articles/:id', mod('monitoring'), wrap(async (req, res) => {
+router.delete('/monitoring/articles/:id', monitorMod, wrap(async (req, res) => {
   await db.query('DELETE FROM monitored_articles WHERE id = $1', [req.params.id]);
   await auth.audit(req, 'monitoring-remove', `article ${req.params.id}`);
   res.json({ success: true });
@@ -168,9 +170,9 @@ router.delete('/monitoring/articles/:id', mod('monitoring'), wrap(async (req, re
 
 // ------------------------------------------------------------------ Editorial Dashboard & Case Management
 
-router.get('/cases/dashboard', mod('cases'), wrap(async (req, res) => res.json({ success: true, ...(await C.dashboard()) })));
+router.get('/cases/dashboard', mod('papermill'), wrap(async (req, res) => res.json({ success: true, ...(await C.dashboard()) })));
 
-router.get('/cases', mod('cases'), wrap(async (req, res) => {
+router.get('/cases', mod('papermill'), wrap(async (req, res) => {
   const params = [];
   let where = 'TRUE';
   if (req.query.status) { params.push(String(req.query.status).split(',')); where += ` AND c.status = ANY($${params.length}::text[])`; }
@@ -180,13 +182,13 @@ router.get('/cases', mod('cases'), wrap(async (req, res) => {
   res.json({ success: true, items, labels: { statuses: C.STATUSES, priorities: C.PRIORITIES, outcomes: C.OUTCOMES } });
 }));
 
-router.get('/cases/assignees', mod('cases'), wrap(async (req, res) => {
+router.get('/cases/assignees', mod('papermill'), wrap(async (req, res) => {
   const rows = await db.all("SELECT id, name, role, permissions FROM users WHERE status = 'active' AND role IN ('super_admin', 'editor') ORDER BY name");
   const { permissionsOf } = require('../modules');
-  res.json({ success: true, users: rows.filter(u => permissionsOf(u).includes('cases')).map(u => ({ id: u.id, name: u.name })) });
+  res.json({ success: true, users: rows.filter(u => permissionsOf(u).includes('papermill')).map(u => ({ id: u.id, name: u.name })) });
 }));
 
-router.post('/cases', mod('cases'), wrap(async (req, res) => {
+router.post('/cases', mod('papermill'), wrap(async (req, res) => {
   const b = req.body || {};
   for (const id of b.checkIds || []) if (!(await loadShared(req.user, id))) return res.status(404).json({ success: false, message: `Report #${id} not found.` });
   const row = await C.createCase(req.user, b);
@@ -194,13 +196,13 @@ router.post('/cases', mod('cases'), wrap(async (req, res) => {
   res.json({ success: true, case: row });
 }));
 
-router.get('/cases/:id', mod('cases'), wrap(async (req, res) => {
+router.get('/cases/:id', mod('papermill'), wrap(async (req, res) => {
   const c = await C.getCase(req.params.id);
   if (!c) return res.status(404).json({ success: false, message: 'Case not found.' });
   res.json({ success: true, case: c, labels: { statuses: C.STATUSES, priorities: C.PRIORITIES, outcomes: C.OUTCOMES } });
 }));
 
-router.patch('/cases/:id', mod('cases'), wrap(async (req, res) => {
+router.patch('/cases/:id', mod('papermill'), wrap(async (req, res) => {
   for (const id of req.body?.linkChecks || []) if (!(await db.one('SELECT 1 FROM checks WHERE id = $1', [id]))) return res.status(404).json({ success: false, message: `Report #${id} not found.` });
   const c = await C.updateCase(req.params.id, req.user, req.body || {});
   if (!c) return res.status(404).json({ success: false, message: 'Case not found.' });
@@ -208,21 +210,21 @@ router.patch('/cases/:id', mod('cases'), wrap(async (req, res) => {
   res.json({ success: true, case: c });
 }));
 
-router.post('/cases/:id/events', mod('cases'), wrap(async (req, res) => {
+router.post('/cases/:id/events', mod('papermill'), wrap(async (req, res) => {
   if (!(await db.one('SELECT 1 FROM cases WHERE id = $1', [req.params.id]))) return res.status(404).json({ success: false, message: 'Case not found.' });
   const c = await C.addEvent(req.params.id, req.user, req.body || {});
   await auth.audit(req, `case-${req.body?.kind || 'note'}`, `case ${req.params.id}`);
   res.json({ success: true, case: c });
 }));
 
-router.get('/cases/:id/draft-query', mod('cases'), wrap(async (req, res) => {
+router.get('/cases/:id/draft-query', mod('papermill'), wrap(async (req, res) => {
   const q = await C.draftQuery(req.params.id);
   if (!q) return res.status(404).json({ success: false, message: 'Case not found.' });
   res.json({ success: true, ...q });
 }));
 
 /** Case report with evidence links and the full audit trail */
-router.get('/cases/:id/report', mod('cases'), wrap(async (req, res) => {
+router.get('/cases/:id/report', mod('papermill'), wrap(async (req, res) => {
   const c = await C.getCase(req.params.id);
   if (!c) return res.status(404).json({ success: false, message: 'Case not found.' });
   const reports = [];
@@ -238,7 +240,7 @@ router.get('/cases/:id/report', mod('cases'), wrap(async (req, res) => {
 
 // ------------------------------------------------------------------ Research Integrity API keys (Super Admin)
 
-const SCOPES = { screen: 'Submit manuscripts for Integrity Screening', 'peer-review': 'Peer-review integrity checks', reports: 'Read results and download reports', monitoring: 'Read published-article monitoring status' };
+const SCOPES = { screen: 'Submit manuscripts for Module 4 Paper Mill Detection', 'peer-review': 'Peer-review integrity checks', reports: 'Read results and download reports', monitoring: 'Read published-article monitoring status' };
 
 router.get('/admin/api-keys', auth.requireSuperAdmin, wrap(async (req, res) => {
   const keys = await db.all('SELECT k.id, k.name, k.prefix, k.scopes, k.webhook_url, k.revoked, k.last_used, k.created_at, u.name AS user_name, u.email AS user_email FROM api_keys k JOIN users u ON u.id = k.user_id ORDER BY k.created_at DESC');

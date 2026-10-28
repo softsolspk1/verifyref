@@ -20,7 +20,7 @@ function integrityBlocks(r) {
   const k = r.risk;
   const meta = r.meta || {};
   const blocks = [
-    { h1: 'CONFIDENTIAL — Research Integrity Report' },
+    { h1: 'CONFIDENTIAL — Module 4 Paper Mill & Integrity Report' },
     { p: r.disclaimer, italics: true },
     { kv: [['Manuscript', `${meta.manuscriptCode ? meta.manuscriptCode + ' — ' : ''}${meta.title || '—'}`], ['Authors', (meta.authors || []).map(a => a.name).join(', ') || '—'], ['Screened', stamp(r.createdAt)], ['Report', r.id ? link(r.id) : '—'],
       ['Integrity risk', `${k.level} — ${k.score}/100 (${k.strongSignals} strong signal(s))`], ['Recommendation', k.recommendation], ['Coverage', `${k.coverage.checked} of ${k.coverage.total} dimensions`]] },
@@ -44,7 +44,7 @@ function integrityBlocks(r) {
 function peerReviewBlocks(r) {
   const d = (r.dimensions || [])[0] || { signals: [], details: {} };
   return [
-    { h1: 'CONFIDENTIAL — Peer-Review Integrity Report' },
+    { h1: 'CONFIDENTIAL — Module 4 Peer-Review Integrity Report' },
     { p: r.disclaimer, italics: true },
     { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || '—'}`], ['Checked', stamp(r.createdAt)], ['Reviewers', String((d.details.reviewers || []).length)], ['Risk', `${r.risk.level} — ${r.risk.score}/100`], ['Recommendation', r.risk.recommendation]] },
     { h2: 'Why this score' }, { bullets: r.risk.explanation },

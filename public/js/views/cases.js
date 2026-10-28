@@ -5,7 +5,7 @@ import { api, esc, $, $$, toast, badge, fmtDate, download, ICONS, modal } from '
 const PRI_TONE = { urgent: 'bad', high: 'bad', normal: 'info', low: 'neutral' };
 const RISK_TONE = { CRITICAL: 'bad', HIGH: 'bad', MODERATE: 'warn', MEDIUM: 'warn', LOW: 'good' };
 const STATUS_TONE = { open: 'info', investigating: 'warn', awaiting_author: 'warn', committee: 'bad', closed: 'good' };
-const KIND = { integrity: 'Integrity Screening', papermill: 'Paper Mill', images: 'Image Integrity', 'peer-review': 'Peer review', manuscript: 'Full Screening', references: 'Bibliography' };
+const KIND = { integrity: 'Paper Mill', papermill: 'Paper Mill (earlier version)', images: 'Image Integrity', 'peer-review': 'Peer review', manuscript: 'Full Screening', references: 'Bibliography' };
 const when = d => (d ? new Date(d).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 
 export async function renderCases(view) {
@@ -16,7 +16,7 @@ export async function renderCases(view) {
   const scr = Object.fromEntries(d.screenings.map(x => [x.level, x.n]));
   const mon = Object.fromEntries(d.monitoring.map(x => [x.status, x.n]));
   view.innerHTML = `
-    <div class="page-head"><div><h1>Editorial Integrity Dashboard</h1><p>Open integrity cases, overdue author queries, high-risk screenings that nobody has picked up yet, and post-publication notices.</p></div>
+    <div class="page-head"><div><h1>Module 4 — Cases &amp; dashboard</h1><p>Open integrity cases, overdue author queries, high-risk screenings that nobody has picked up yet, and post-publication notices.</p></div>
       <div class="row"><button class="btn btn-primary btn-sm" id="new">New case</button></div></div>
     <div class="kpis">
       ${Object.entries(L.statuses).filter(([k]) => k !== 'closed').map(([k, l]) => `<div class="kpi ${k === 'committee' ? 'bad' : k === 'open' ? 'info' : 'warn'}"><div class="n">${n[k] || 0}</div><div class="l">${esc(l)}</div></div>`).join('')}
@@ -25,13 +25,13 @@ export async function renderCases(view) {
     </div>
     <div class="grid grid-2">
       <div class="card"><h3>Screenings, last 90 days</h3><div class="kpis" style="margin:0">${['CRITICAL', 'HIGH', 'MODERATE', 'LOW'].map(l => `<div class="kpi ${RISK_TONE[l]}"><div class="n">${scr[l] || 0}</div><div class="l">${l}</div></div>`).join('')}</div></div>
-      <div class="card"><h3>Published articles</h3><div class="kpis" style="margin:0">${[['retracted', 'Retracted'], ['concern', 'Concern'], ['corrected', 'Corrected'], ['cites-retracted', 'Cite retracted']].map(([k, l]) => `<div class="kpi ${mon[k] ? 'warn' : 'good'}"><div class="n">${mon[k] || 0}</div><div class="l">${l}</div></div>`).join('')}</div><a href="#/monitoring">Article monitoring →</a></div>
+      <div class="card"><h3>Published articles</h3><div class="kpis" style="margin:0">${[['retracted', 'Retracted'], ['concern', 'Concern'], ['corrected', 'Corrected'], ['cites-retracted', 'Cite retracted']].map(([k, l]) => `<div class="kpi ${mon[k] ? 'warn' : 'good'}"><div class="n">${mon[k] || 0}</div><div class="l">${l}</div></div>`).join('')}</div><a href="#/references/monitoring">Article monitoring →</a></div>
     </div>
     ${d.unhandled.length ? `<div class="card"><div class="card-head"><h3>High-risk reports without a case</h3>${badge(String(d.unhandled.length), 'bad')}</div><div class="table-wrap"><table class="t"><tr><th>Date</th><th>Report</th><th>Manuscript</th><th>Risk</th><th></th></tr>${d.unhandled.map(u => `<tr><td>${fmtDate(u.created_at)}</td><td>${esc(KIND[u.kind] || u.kind)}</td><td><a href="#/check/${u.id}">${esc(u.manuscript_code || '')} ${esc((u.title || '').slice(0, 80))}</a></td><td>${badge(u.level, RISK_TONE[u.level])}</td><td><button class="btn btn-sm" data-open="${u.id}">Open case</button></td></tr>`).join('')}</table></div></div>` : ''}
-    <div class="card"><div class="card-head"><h3>Active cases</h3><div class="row"><input id="q" type="search" placeholder="Search" style="max-width:220px"><select id="st" style="max-width:220px"><option value="">Active</option>${Object.entries(L.statuses).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select><label class="check"><input type="checkbox" id="mine"> Mine</label></div></div><div id="list"></div></div>`;
+    <div class="card"><div class="card-head"><h3>Active cases</h3><div class="row"><input id="q" type="search" placeholder="Search" style="max-width:220px"><select id="st" style="max-width:220px"><option value="">Active</option>${Object.entries(L.statuses).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select><label class="check" hidden><input type="checkbox" id="mine"> Mine</label></div></div><div id="list"></div></div>`;
 
   const table = rows => (rows.length ? `<div class="table-wrap"><table class="t"><tr><th>#</th><th>Case</th><th>Status</th><th>Priority</th><th>Risk</th><th>Assigned</th><th>Due</th><th>Updated</th></tr>${rows.map(c => `<tr>
-    <td>${c.id}</td><td><a href="#/cases/${c.id}">${esc(c.manuscript_code ? c.manuscript_code + ' — ' : '')}${esc(c.title.slice(0, 90))}</a></td>
+    <td>${c.id}</td><td><a href="#/papermill/cases/${c.id}">${esc(c.manuscript_code ? c.manuscript_code + ' — ' : '')}${esc(c.title.slice(0, 90))}</a></td>
     <td>${badge(L.statuses[c.status] || c.status, STATUS_TONE[c.status])}</td><td>${badge(L.priorities[c.priority] || c.priority, PRI_TONE[c.priority])}</td>
     <td>${c.risk_level ? badge(c.risk_level, RISK_TONE[c.risk_level]) : '—'}</td><td>${esc(c.assigned_name || '—')}</td>
     <td class="${c.due_at && new Date(c.due_at) < new Date() && c.status !== 'closed' ? 'txt-bad' : 'muted'}">${c.due_at ? fmtDate(c.due_at) : ''}</td><td class="muted">${fmtDate(c.updated_at)}</td></tr>`).join('')}</table></div>` : '<p class="muted">No cases.</p>');
@@ -44,7 +44,7 @@ export async function renderCases(view) {
   $('#q', view).oninput = () => { clearTimeout(t); t = setTimeout(reload, 300); };
   $('#st', view).onchange = reload;
   $('#mine', view).onchange = reload;
-  $$('[data-open]', view).forEach(b => { b.onclick = async () => { try { const r = await api('/api/cases', { body: { checkIds: [+b.dataset.open] } }); location.hash = `#/cases/${r.case.id}`; } catch (e) { toast(e.message, 'error'); } }; });
+  $$('[data-open]', view).forEach(b => { b.onclick = async () => { try { const r = await api('/api/cases', { body: { checkIds: [+b.dataset.open] } }); location.hash = `#/papermill/cases/${r.case.id}`; } catch (e) { toast(e.message, 'error'); } }; });
   $('#new', view).onclick = () => modal(`<h3>New integrity case</h3>
     <div class="field"><label>Title</label><input id="nc-title" type="text"></div>
     <div class="grid grid-2"><div class="field"><label>Manuscript ID or DOI</label><input id="nc-code" type="text"></div>
@@ -52,7 +52,7 @@ export async function renderCases(view) {
     <div class="field"><label>What prompted the case</label><textarea id="nc-note" rows="3" placeholder="e.g. reader complaint, reviewer concern, whistle-blower e-mail"></textarea></div>
     <div class="row"><button class="btn btn-primary" id="nc-save">Create</button><button class="btn" data-close>Cancel</button></div>`, { onMount: (m, close) => {
     $('#nc-save', m).onclick = async () => {
-      try { const r = await api('/api/cases', { body: { title: $('#nc-title', m).value, manuscriptCode: $('#nc-code', m).value, priority: $('#nc-pri', m).value, note: $('#nc-note', m).value } }); close(); location.hash = `#/cases/${r.case.id}`; } catch (e) { toast(e.message, 'error'); }
+      try { const r = await api('/api/cases', { body: { title: $('#nc-title', m).value, manuscriptCode: $('#nc-code', m).value, priority: $('#nc-pri', m).value, note: $('#nc-note', m).value } }); close(); location.hash = `#/papermill/cases/${r.case.id}`; } catch (e) { toast(e.message, 'error'); }
     };
   } });
 }
@@ -66,7 +66,7 @@ export async function renderCase(view, id) {
     return `<li><div class="when">${when(e.created_at)}</div><div><b>${esc(e.actor_name || 'System')}</b> ${esc(what)}</div>${e.body ? `<div class="body">${esc(e.body)}</div>` : ''}</li>`;
   };
   view.innerHTML = `
-    <p class="muted no-print"><a href="#/cases">← Dashboard</a></p>
+    <p class="muted no-print"><a href="#/papermill/cases">← Dashboard</a></p>
     <div class="page-head"><div><h1>Case #${c.id}: ${esc(c.title)}</h1>
       <p>${c.manuscript_code ? `<b>${esc(c.manuscript_code)}</b> · ` : ''}${badge(L.statuses[c.status], STATUS_TONE[c.status])} ${badge(L.priorities[c.priority], PRI_TONE[c.priority])} ${c.risk_level ? badge(`Risk ${c.risk_level}`, RISK_TONE[c.risk_level]) : ''} · opened ${fmtDate(c.created_at)} by ${esc(c.created_name || '—')}${c.outcome ? ` · <b>${esc(L.outcomes[c.outcome])}</b>` : ''}</p></div>
       <div class="row no-print"><button class="btn btn-sm" id="rep-docx">${ICONS.download} Case report (Word)</button><button class="btn btn-sm" id="rep-pdf">${ICONS.download} PDF</button></div></div>
@@ -78,7 +78,7 @@ export async function renderCase(view, id) {
             <div class="field" id="outcome-f" ${c.status === 'closed' ? '' : 'hidden'}><label>Outcome</label><select id="c-outcome"><option value="">— choose —</option>${Object.entries(L.outcomes).map(([k, l]) => `<option value="${k}" ${k === c.outcome ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
           </div>
           <div class="grid grid-2">
-            <div class="field"><label>Assigned to</label><select id="c-assign"><option value="">— nobody —</option>${users.map(u => `<option value="${u.id}" ${u.id === c.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
+            <div class="field" ${users.length > 1 ? '' : 'hidden'}><label>Assigned to</label><select id="c-assign"><option value="">— nobody —</option>${users.map(u => `<option value="${u.id}" ${u.id === c.assigned_to ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
             <div class="field"><label>Priority</label><select id="c-pri">${Object.entries(L.priorities).map(([k, l]) => `<option value="${k}" ${k === c.priority ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
           </div>
           <div class="grid grid-2"><div class="field"><label>Due</label><input id="c-due" type="date" value="${c.due_at ? new Date(c.due_at).toISOString().slice(0, 10) : ''}"></div>

@@ -46,7 +46,7 @@ router.post('/papermill', mod('papermill'), upload.single('file'), wrap(async (r
   if (!ms) return res.status(400).json({ success: false, message: 'Upload the full manuscript (Word or PDF) or paste its complete text.' });
   const d = ms.detected;
   const meta = normalizeMeta({
-    title: b.title || d.title || ms.filename, manuscriptCode: b.manuscriptCode || '', abstract: b.abstract || d.abstract || '',
+    title: b.title || d.title || ms.filename, manuscriptCode: b.manuscriptCode || d.manuscriptCode || '', abstract: b.abstract || d.abstract || '',
     authors: lines(b.authors).length ? lines(b.authors) : (d.authors || []).map(a => a.name),
     affiliations: lines(b.affiliations).length ? lines(b.affiliations) : d.affiliations || [], keywords: b.keywords || d.keywords || [], version: b.version || null
   });

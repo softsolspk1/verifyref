@@ -20,7 +20,7 @@ module.exports = {
   ROOT,
   DATA_DIR: env.DATA_DIR || path.join(ROOT, 'data'),
   PORT: parseInt(env.PORT || '3005', 10),
-  APP_NAME: 'PJPS Data Integration System',
+  APP_NAME: 'PJPS Data Integrity System',
   APP_VENDOR: 'Softsols Pakistan',
   APP_VERSION: '3.0.0',
   // Desktop edition: local server on 127.0.0.1 with an embedded database, synchronised with the web platform

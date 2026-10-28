@@ -1,6 +1,6 @@
-// views/integrity.js - Integrity Screening (editor only): one upload checked for text similarity, AI-written content,
-// research data integrity, pharmaceutical validation, research ethics, authors & affiliations and submission-network
-// patterns, combined with Module 4 / 5 / 1 findings into one explained risk score.
+// views/integrity.js - Module 4 Paper Mill Detection (editor only): one upload checked for paper-mill signals, text
+// similarity, AI-written content, research data integrity, pharmaceutical validation, research ethics, authors &
+// affiliations and submission-network patterns, combined with Module 5 / 1 findings into one explained risk score.
 import { api, esc, $, $$, toast, runJob, badge, download, fmtDate, ICONS, hasModule } from '../core.js';
 import { decisionCard } from './decision.js';
 import { riskBanner, explanationCard, signalList, openCase } from './integrityCommon.js';
@@ -20,9 +20,9 @@ const ABOUT = {
 
 export function renderIntegrity(view) {
   view.innerHTML = `
-    <div class="page-head"><div><h1>Integrity Screening</h1>
-      <p>One upload checks plagiarism and text similarity, AI-written content, research data, pharmaceutical details, research ethics, authors and affiliations, and paper-mill patterns across submissions — then combines them with the Paper Mill, Image Integrity and Bibliography reports for the same manuscript ID into one risk score with a transparent explanation.</p></div></div>
-    <div class="alert alert-warn">Screening aid only — it never rejects a paper by itself. The manuscript text stays on this server; only titles, abstracts, names and identifiers are looked up in public registries.</div>
+    <div class="page-head"><div><h1>Module 4 — Paper Mill Detection</h1>
+      <p>One upload checks every sign of a paper-mill or otherwise unreliable manuscript: tortured phrases, templates, fabricated and mill-retracted references, author retractions, plagiarism and text similarity (earlier submissions and published papers), AI-written content, research data (statistics, GRIM, duplicated values), pharmaceutical details (doses, identifiers, methods), research ethics and trial registration, authors and affiliations (ORCID, CRediT, ROR) and coordinated submissions. Figures from the Module 5 report for the same manuscript ID are included. The result is one risk score with the evidence for every point.</p></div></div>
+    <div class="alert alert-warn">Screening aid only — it never rejects a paper by itself. The report is confidential. The manuscript text stays on this server; only titles, abstracts, names and identifiers are looked up in public registries.</div>
     <div id="form-area">
       <div class="card">
         <div class="dropzone" id="dz">
@@ -36,7 +36,7 @@ export function renderIntegrity(view) {
       <div class="card">
         <div class="card-head"><h2>Manuscript details</h2><span class="muted">Detected from the file when left empty</span></div>
         <div class="grid grid-2">
-          <div class="field"><label for="m-code">Manuscript ID</label><input id="m-code" type="text" placeholder="e.g. PJPS-2026-0412"><div class="hint">Links the Paper Mill, Image Integrity and Bibliography reports with the same ID into the score.</div></div>
+          <div class="field"><label for="m-code">Manuscript ID</label><input id="m-code" type="text" placeholder="e.g. PJPS-2026-0412"><div class="hint">Use the same ID for a revision (author changes are detected) and for the Module 5 report, whose findings are included.</div></div>
           <div class="field"><label for="m-title">Title</label><input id="m-title" type="text"></div>
         </div>
         <div class="grid grid-2">
@@ -46,10 +46,10 @@ export function renderIntegrity(view) {
         <div class="grid grid-2">
           <div class="field"><label for="m-rev">Suggested reviewers <span class="muted">(names and e-mails)</span></label><textarea id="m-rev" rows="3"></textarea></div>
           <div class="field"><label for="m-img">Image Integrity report <span class="muted">(optional)</span></label><select id="m-img"><option value="">— latest for this manuscript ID —</option></select>
-            <label class="check" style="margin-top:12px"><input type="checkbox" id="m-deep"> Verify every reference online (slower; adds Module 1 evidence)</label>
+            <label class="check" style="margin-top:12px"><input type="checkbox" id="m-deep" checked> Verify every reference online (fabricated, retracted, predatory)</label>
             <label class="check"><input type="checkbox" id="m-ext" checked> Look up public registries (ORCID, ROR, ClinicalTrials.gov, PubChem, OpenAlex)</label></div>
         </div>
-        <div class="row"><button class="btn btn-primary" id="run">Run Integrity Screening</button></div>
+        <div class="row"><button class="btn btn-primary" id="run">Run Paper Mill Detection</button></div>
       </div>
     </div>
     <div id="progress"></div>
@@ -76,7 +76,7 @@ export function renderIntegrity(view) {
     $('#form-area', view).hidden = true;
     try {
       const { jobId } = await api('/api/integrity', { form: fd });
-      const result = await runJob(jobId, $('#progress', view), 'Integrity Screening');
+      const result = await runJob(jobId, $('#progress', view), 'Paper Mill Detection');
       renderIntegrityResult($('#result', view), result);
     } catch (e) {
       toast(e.message, 'error');
@@ -90,19 +90,18 @@ export function renderIntegrityResult(el, r) {
   const scoreOf = key => r.risk.dimensions.find(d => d.key === key) || { points: 0 };
   el.innerHTML = `
     <div class="page-head">
-      <div><h1>${esc(r.meta?.title || 'Integrity Screening')}</h1>
+      <div><h1>${esc(r.meta?.title || 'Paper Mill Detection')}</h1>
         <p>${r.meta?.manuscriptCode ? `<b>${esc(r.meta.manuscriptCode)}</b> · ` : ''}${fmtDate(r.createdAt)} · <span class="badge b-bad">Confidential — editor only</span></p></div>
-      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="x-docx">${ICONS.download} Report (Word)</button><button class="btn btn-sm" id="x-pdf">${ICONS.download} PDF</button>${hasModule('cases') ? '<button class="btn btn-sm btn-primary" id="x-case">Open integrity case</button>' : ''}` : ''}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print</button></div>
+      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="x-docx">${ICONS.download} Report (Word)</button><button class="btn btn-sm" id="x-pdf">${ICONS.download} PDF</button>${hasModule('papermill') ? '<button class="btn btn-sm btn-primary" id="x-case">Open integrity case</button>' : ''}` : ''}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print</button></div>
     </div>
     ${riskBanner(r.risk, 'Integrity risk', r.disclaimer)}
     <div class="dim-grid">${dims.map((d, i) => { const s = scoreOf(d.key); const cap = s.points ? Math.min(100, s.points * 10) : 0; return `<button class="dim ${d.signals.some(x => x.severity === 'high') ? 'hot' : d.signals.length ? '' : 'clear'} ${i === 0 ? 'active' : ''}" data-i="${i}">
       <div class="dim-name">${esc(d.label)}</div><div class="dim-meta">${d.checked === false && !d.signals.length ? 'not enough material' : `${d.signals.length} signal(s) · ${s.points} pts`}${d.source?.checkId ? ' · linked report' : ''}</div><div class="dim-bar"><span style="width:${d.signals.length ? Math.max(6, cap) : 100}%"></span></div></button>`; }).join('')}</div>
     <div class="card" id="dim-card"></div>
     ${explanationCard(r.risk)}
-    <div class="card"><h3>Linked reports</h3><ul class="checked">
-      <li>${r.linked?.papermill ? `✓ Paper Mill Detection — ${esc(r.linked.papermill.level || '')}${r.linked.papermill.checkId ? ` · <a href="#/check/${r.linked.papermill.checkId}">open</a>` : ' (run as part of this screening)'}` : '— Paper Mill Detection'}</li>
+    <div class="card"><h3>Linked evidence</h3><ul class="checked">
       <li>${r.linked?.images ? `✓ Image Integrity — ${esc(r.linked.images.level || '')} · <a href="#/check/${r.linked.images.checkId}">open</a>` : '— Image Integrity: no report for this manuscript ID (run Module 5 to include figures)'}</li>
-      <li>${r.linked?.references ? `✓ Reference verification — ${r.linked.references.summary.total} references${r.linked.references.checkId ? ` · <a href="#/check/${r.linked.references.checkId}">open</a>` : ''}` : '— Reference verification: not run (tick “Verify every reference online”, or run Module 1 / the Full Screening Report)'}</li>
+      <li>${r.linked?.references ? `✓ Reference verification — ${r.linked.references.summary.total} references${r.linked.references.checkId ? ` · <a href="#/check/${r.linked.references.checkId}">open</a>` : ''}` : '— Reference verification: not run (tick “Verify every reference online”, or run Module 1)'}</li>
     </ul></div>
     <div id="decision" class="no-print"></div>`;
 

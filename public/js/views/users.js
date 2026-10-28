@@ -19,7 +19,7 @@ export async function renderUsers(view) {
       ${users.map(u => `<tr data-search="${esc(`${u.name} ${u.email} ${u.journal || ''}`.toLowerCase())}">
         <td><b>${esc(u.name)}</b><div class="muted">${esc(u.email)}</div>${u.designation || u.journal ? `<div class="muted" style="font-size:12px">${esc([u.designation, u.journal].filter(Boolean).join(' · '))}</div>` : ''}</td>
         <td>${badge(META.roles[u.role]?.label || u.role, u.role === 'super_admin' ? 'info' : 'neutral')}</td>
-        <td>${u.role === 'super_admin' || u.allow_web ? badge('Web', 'good') : ''} ${u.role === 'super_admin' || u.allow_desktop ? badge(`Desktop · ${u.offline_days} d offline`, 'good') : ''}${u.devices ? `<div class="muted" style="font-size:12px">${u.devices} device(s)</div>` : ''}</td>
+        <td>${u.role === 'super_admin' || u.allow_web ? badge('Web', 'good') : ''} ${state.app.desktop && (u.role === 'super_admin' || u.allow_desktop) ? badge(`Desktop · ${u.offline_days} d offline`, 'good') : ''}${u.devices ? `<div class="muted" style="font-size:12px">${u.devices} device(s)</div>` : ''}</td>
         <td class="muted" style="font-size:12.5px">${u.role === 'super_admin' ? 'All' : Array.isArray(u.permissions) ? `${u.permissions.filter(k => k[0] !== "_").length} of ${META.modules.length} (custom)` : 'Role default'}</td>
         <td>${u.last_login_at ? fmtDate(u.last_login_at) : '<span class="muted">never</span>'}${u.must_change_password ? `<div>${badge('must change password', 'warn')}</div>` : ''}</td>
         <td class="num">${u.runs_30d}</td>
@@ -75,7 +75,7 @@ function userForm(u, done) {
       <div class="grid grid-2">
         <div class="field"><label>Full name</label><input name="fullname" type="text" required value="${esc(u?.name || '')}"></div>
         <div class="field"><label>E-mail (sign-in)</label><input name="email" type="email" required value="${esc(u?.email || '')}"></div>
-        <div class="field"><label>Role</label><select name="role">${Object.entries(META.roles).map(([k, r]) => `<option value="${k}" ${k === role ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}</select></div>
+        <div class="field"><label>Role</label><select name="role">${Object.entries(META.roles).filter(([k]) => k !== 'researcher' || k === role).map(([k, r]) => `<option value="${k}" ${k === role ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}</select></div>
         <div class="field"><label>Designation</label><input name="designation" type="text" value="${esc(u?.designation || '')}" placeholder="e.g. Associate Editor"></div>
         <div class="field"><label>Journal / organisation</label><input name="journal" type="text" value="${esc(u?.journal || state.app.homeJournal.name)}"></div>
         <div class="field"><label>ORCID <span class="muted">(optional)</span></label><input name="orcid" type="text" value="${esc(u?.orcid || '')}" placeholder="0000-0000-0000-0000"></div>
@@ -83,8 +83,7 @@ function userForm(u, done) {
       <div class="card" style="padding:14px;margin-bottom:12px">
         <label>Access</label>
         <label class="check"><input type="checkbox" name="allowWeb" ${!u || u.allow_web ? 'checked' : ''}> Web platform</label>
-        <label class="check"><input type="checkbox" name="allowDesktop" ${u?.allow_desktop ? 'checked' : ''}> Desktop application (Windows), including offline use</label>
-        <div class="field" style="margin:8px 0 0;max-width:280px"><label>Offline use allowed for (days)</label><input name="offlineDays" type="number" min="1" max="90" value="${u?.offline_days || 14}"><div class="hint">After this many days without a connection the desktop asks the user to reconnect.</div></div>
+        <div hidden><input type="checkbox" name="allowDesktop" ${u?.allow_desktop ? 'checked' : ''}><input name="offlineDays" type="number" value="${u?.offline_days || 14}"></div>
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px" id="perm-card">
         <div class="row" style="justify-content:space-between"><label style="margin:0">Tools this user may use</label><button type="button" class="btn btn-sm btn-ghost" id="defaults">Reset to role defaults</button></div>

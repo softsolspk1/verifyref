@@ -73,7 +73,7 @@ function scoreIntegrity(dimensions) {
     const raw = (d.signals || []).reduce((a, s) => a + (s.weight || 0), 0);
     const capped = Math.min(cfg.cap, raw);
     points += capped;
-    perDimension.push({ key: d.key, label: cfg.label, checked: d.checked !== false, signals: (d.signals || []).length, points: +capped.toFixed(1), capped: raw > cfg.cap, source: d.source || null });
+    perDimension.push({ key: d.key, label: cfg.label, checked: d.checked !== false || (d.signals || []).length > 0, signals: (d.signals || []).length, points: +capped.toFixed(1), capped: raw > cfg.cap, source: d.source || null });
     const scale = raw ? capped / raw : 0;
     for (const s of d.signals || []) contributions.push({ dimension: cfg.label, key: d.key, code: s.code, title: s.title, severity: s.severity, points: +(s.weight * scale).toFixed(2) });
   }
@@ -84,8 +84,11 @@ function scoreIntegrity(dimensions) {
   const reasons = [];
   if (definite.length && RANK[level] < RANK.HIGH) { level = 'HIGH'; reasons.push(`Raised to HIGH: definite signal — ${definite[0].title}`); }
   if (strong.length >= 3 && RANK[level] < RANK.CRITICAL) { level = 'CRITICAL'; reasons.push(`Raised to CRITICAL: ${strong.length} strong signals in ${new Set(strong.map(s => s.key)).size} dimension(s)`); }
-  const checked = perDimension.filter(d => d.checked).length;
-  const notChecked = Object.entries(DIMENSIONS).filter(([k]) => !dimensions.some(d => d.key === k && d.checked !== false)).map(([, v]) => v.label);
+  // A manuscript screening covers every dimension except peer review (its own check); a peer-review check covers only that
+  const expected = dimensions.length && dimensions.every(d => d.key === 'peer') ? ['peer'] : Object.keys(DIMENSIONS).filter(k => k !== 'peer');
+  const done = new Set(perDimension.filter(d => d.checked).map(d => d.key));
+  const checked = expected.filter(k => done.has(k)).length;
+  const notChecked = expected.filter(k => !done.has(k)).map(k => DIMENSIONS[k].label);
   return {
     score, level, points: +points.toFixed(1), strongSignals: strong.length,
     recommendation: RECOMMEND[level],
@@ -97,7 +100,7 @@ function scoreIntegrity(dimensions) {
     ],
     dimensions: perDimension,
     contributions: contributions.sort((a, b) => b.points - a.points),
-    coverage: { checked, total: Object.keys(DIMENSIONS).length, notChecked },
+    coverage: { checked, total: expected.length, notChecked },
     method: 'Points per dimension = sum of signal weights (capped per dimension); score = 100 × (1 − e^(−points/12)); LOW < 15 ≤ MODERATE < 40 ≤ HIGH < 70 ≤ CRITICAL; a definite strong signal raises the level to at least HIGH, three strong signals to CRITICAL.'
   };
 }

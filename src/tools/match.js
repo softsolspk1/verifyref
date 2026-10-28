@@ -68,16 +68,33 @@ function sentenceSpans(text) {
   return spans;
 }
 
+// Terms of the whole source (title + text) kept on each passage; a Symbol key so it is never serialised into results
+const DOC = Symbol('docTerms');
+
 /** Passages: single sentences and pairs of adjacent sentences, from one source text */
 function passagesOf(text, meta = {}) {
   const sents = sentenceSpans(text).map(x => x.text).filter(x => x.length > 25 && x.length < 1200);
+  const doc = new Set(terms(`${meta.title || ''} ${text}`));
   const out = [];
+  const add = p => { p[DOC] = doc; out.push(p); };
   sents.forEach((x, i) => {
-    out.push({ ...meta, text: x });
-    if (i + 1 < sents.length && x.length + sents[i + 1].length < 900) out.push({ ...meta, text: `${x} ${sents[i + 1]}`, pair: true });
+    add({ ...meta, text: x });
+    if (i + 1 < sents.length && x.length + sents[i + 1].length < 900) add({ ...meta, text: `${x} ${sents[i + 1]}`, pair: true });
   });
   return out;
 }
+
+/** "N. sativa" in a source means "Nigella sativa" when the claim names the full binomial (and the other way round) */
+function expandBinomials(claim, text) {
+  let out = String(text);
+  for (const m of String(claim).matchAll(/\b([A-Z][a-z]{3,})\s+([a-z]{4,})\b/g)) {
+    out = out.replace(new RegExp(String.raw`\b${m[1][0]}\.\s*${m[2]}\b`, 'g'), `${m[1]} ${m[2]}`);
+  }
+  return out;
+}
+
+/** The claim without its citations: author names and years in "(Khan et al., 2021)" or "[3]" are not claim content */
+const withoutCitations = claim => String(claim).replace(/\([^()]*\b(?:19|20)\d{2}[a-z]?[^()]*\)/g, ' ').replace(/\[[\d,\s–-]+\]/g, ' ');
 
 /** Document frequencies over a set of passages */
 function idfOf(passages) {
@@ -88,21 +105,30 @@ function idfOf(passages) {
 }
 
 /** Score one passage against a claim */
-function scorePassage(claim, passage, idf) {
+function scorePassage(rawClaim, passage, idf) {
+  const claim = withoutCitations(rawClaim);
   const ct = [...new Set(terms(claim))];
   if (!ct.length) return { score: 0, coverage: 0 };
-  const pt = new Set(terms(passage.text));
+  const ptext = expandBinomials(claim, passage.text);
+  const pt = new Set(terms(ptext));
+  // Abbreviations in the claim ("N. sativa") expanded from the source as well
+  const doc = passage[DOC] ? new Set([...passage[DOC], ...terms(expandBinomials(claim, [...passage[DOC]].join(' ')))]) : null;
   let have = 0, total = 0;
   const missing = [];
   for (const t of ct) {
     const w = idf(t);
     total += w;
-    if (pt.has(t)) have += w; else missing.push(t);
+    if (pt.has(t)) have += w;
+    else {
+      missing.push(t);
+      // A term the source discusses elsewhere (title, another sentence of the abstract) gives part of the credit
+      if (doc?.has(t)) have += w * 0.5;
+    }
   }
   const coverage = total ? have / total : 0;
   // adjacent-term bonus: shared bigrams indicate the same statement rather than shared vocabulary
   const cb = new Set(); const ctl = terms(claim); for (let i = 0; i + 1 < ctl.length; i++) cb.add(`${ctl[i]} ${ctl[i + 1]}`);
-  const ptl = terms(passage.text); let bi = 0; for (let i = 0; i + 1 < ptl.length; i++) if (cb.has(`${ptl[i]} ${ptl[i + 1]}`)) bi++;
+  const ptl = terms(ptext); let bi = 0; for (let i = 0; i + 1 < ptl.length; i++) if (cb.has(`${ptl[i]} ${ptl[i + 1]}`)) bi++;
   const bigram = cb.size ? Math.min(1, bi / Math.max(2, cb.size * 0.5)) : 0;
   const cn = numbersIn(claim), pn = numbersIn(passage.text);
   const numbersFound = cn.filter(n => pn.includes(n));

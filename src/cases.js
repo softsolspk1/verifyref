@@ -13,7 +13,7 @@ const OUTCOMES = {
 };
 const PRIORITY_OF = { CRITICAL: 'urgent', HIGH: 'high', MODERATE: 'normal', LOW: 'low' };
 
-const KIND_LABEL = { integrity: 'Integrity Screening', papermill: 'Paper Mill Detection', images: 'Image Integrity', manuscript: 'Full Screening Report', references: 'Check Bibliography', 'peer-review': 'Peer-Review Integrity' };
+const KIND_LABEL = { integrity: 'Module 4 Paper Mill Detection', papermill: 'Module 4 Paper Mill Detection (earlier version)', images: 'Image Integrity', manuscript: 'Full Screening Report', references: 'Check Bibliography', 'peer-review': 'Module 4 Peer-review integrity' };
 
 async function event(caseId, user, kind, body = '', data = null) {
   await db.query('INSERT INTO case_events(case_id, kind, body, data, actor_id, actor_name) VALUES($1,$2,$3,$4,$5,$6)', [caseId, kind, body || null, data ? JSON.stringify(data) : null, user?.id || null, user?.name || 'System']);
@@ -66,7 +66,7 @@ async function updateCase(id, user, b) {
     const to = b.assignedTo ? await db.one('SELECT id, name FROM users WHERE id = $1', [b.assignedTo]) : null;
     await db.query('UPDATE cases SET assigned_to = $2 WHERE id = $1', [id, to?.id || null]);
     await event(id, user, 'assign', '', { to: to?.id || null, name: to?.name || 'nobody' });
-    if (to && to.id !== user.id) await require('./alerts').notify(to.id, { kind: 'system', title: `Integrity case assigned to you: ${c.title.slice(0, 80)}`, body: `Case #${id} — assigned by ${user.name}.`, link: `#/cases/${id}` }).catch(() => {});
+    if (to && to.id !== user.id) await require('./alerts').notify(to.id, { kind: 'system', title: `Integrity case assigned to you: ${c.title.slice(0, 80)}`, body: `Case #${id} — assigned by ${user.name}.`, link: `#/papermill/cases/${id}` }).catch(() => {});
   }
   if (b.dueAt !== undefined) await db.query('UPDATE cases SET due_at = $2 WHERE id = $1', [id, b.dueAt || null]);
   if (Array.isArray(b.linkChecks) && b.linkChecks.length) {

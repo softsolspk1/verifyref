@@ -1,6 +1,6 @@
 // views/restyle.js - Module 2: PJPS style compliance check (rule by rule) and converter to PJPS format (Word document
 // with Track Changes, or a pasted list). Other styles remain available in the style picker.
-import { api, esc, $, $$, toast, dropzone, runJob, styleOptions, download, downloadJobFile, copyText, badge, ICONS, state } from '../core.js';
+import { api, esc, $, $$, toast, dropzone, runJob, download, downloadJobFile, copyText, badge, ICONS, state } from '../core.js';
 
 const STATUS = { matched: ['Matched record', 'good'], parsed: ['From the text as written', 'warn'], kept: ['Unchanged — check manually', 'bad'] };
 
@@ -8,7 +8,7 @@ export function renderRestyle(view) {
   let mode = 'docx', file = null;
   view.innerHTML = `
     <div class="page-head"><div><h1>Module 2 — Reference Style Check &amp; PJPS Converter</h1>
-      <p>Checks every reference and in-text citation against the PJPS house style rule by rule (authors, year, title, journal abbreviation, volume(issue): pages, missing details, order, a/b letters) and lists each deviation with the expected form. Then converts the citations and the reference list to PJPS format — in the Word file as Track Changes the editor or author can accept or reject. Each entry is matched to its registered record first, so missing DOIs, issues and pages are filled in; entries that cannot be matched are flagged, never silently changed.</p></div></div>
+      <p>Checks every reference and in-text citation against the PJPS house style rule by rule (authors, year, title, journal abbreviation, volume(issue): pages, missing details, order, a/b letters) and lists each deviation with the expected form. Then converts the citations and the reference list to PJPS format — in the Word file as Track Changes that you can accept or reject. Each entry is matched to its registered record first, so missing DOIs, issues and pages are filled in; entries that cannot be matched are flagged, never silently changed.</p></div></div>
     <div id="form-area">
       <div class="card">
         <div class="seg" style="margin-bottom:14px"><button class="active" data-mode="docx">Word document</button><button data-mode="list">Paste a reference list</button></div>
@@ -22,7 +22,7 @@ export function renderRestyle(view) {
           <div class="field"><label for="list">References, one per line</label><textarea id="list" class="mono" rows="10" placeholder="Khan MA, Siddiqui A (2021). Antioxidant activity of … Pak J Pharm Sci 34(2): 455-462."></textarea></div>
         </div>
         <div class="grid grid-2" style="margin-top:14px">
-          <div class="field"><label for="style">Convert to</label><select id="style">${styleOptions('pjps')}</select><div class="hint">The compliance check always uses the PJPS house style.</div></div>
+          <div class="field"><label>Correct to</label><input type="hidden" id="style" value="pjps"><div><b>PJPS reference style</b></div><div class="hint">Every reference and in-text citation is checked against the PJPS house style and corrected to it.</div></div>
           <div class="field"><label>Options</label>
             <label class="check"><input type="checkbox" id="track" checked> Show the changes in the Word file as Track Changes</label>
             <label class="check"><input type="checkbox" id="lookup" checked> Complete missing DOI, issue and pages from registered records</label>

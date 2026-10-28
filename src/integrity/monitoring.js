@@ -114,7 +114,7 @@ async function runMonitor({ force = false, limit = 150, ids = null } = {}) {
       if (r.fresh.length || r.newCited.length) {
         out.events += r.fresh.length; out.citedRetracted += r.newCited.length;
         const lines = [...r.fresh.map(e => `${e.type.replace(/_/g, ' ')} (${e.source}${e.date ? ', ' + e.date : ''})${e.reason ? ' — ' + e.reason : ''}`), ...r.newCited.map(c => `Cites a retracted paper: ${c.title || c.doi}`)];
-        for (const uid of await recipients(row)) await notify(uid, { kind: 'retraction', title: `Published article: ${r.fresh.length ? r.fresh[0].type.replace(/_/g, ' ') : 'cites a retracted paper'} — ${row.title?.slice(0, 80) || row.doi}`, body: `${row.doi}\n${lines.join('\n')}`, link: '#/monitoring', data: { doi: row.doi, monitored: row.id } });
+        for (const uid of await recipients(row)) await notify(uid, { kind: 'retraction', title: `Published article: ${r.fresh.length ? r.fresh[0].type.replace(/_/g, ' ') : 'cites a retracted paper'} — ${row.title?.slice(0, 80) || row.doi}`, body: `${row.doi}\n${lines.join('\n')}`, link: '#/references/monitoring', data: { doi: row.doi, monitored: row.id } });
       }
     } catch (e) {
       out.errors++;

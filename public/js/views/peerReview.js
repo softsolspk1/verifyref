@@ -23,13 +23,13 @@ const rvForm = i => `<div class="rv-card" data-rv="${i}">
 
 export function renderPeerReview(view) {
   view.innerHTML = `
-    <div class="page-head"><div><h1>Peer-Review Integrity</h1>
+    <div class="page-head"><div><h1>Module 4 — Peer-review integrity</h1>
       <p>Checks each reviewer of a manuscript: is the identity real (ORCID, institutional e-mail), is there a conflict of interest with the authors (same institution, co-authored papers in the last 10 years, shared surname), and does the report look genuine (specific to this manuscript, not reused from another review, no coercive citation requests, no AI-tool traces, not returned within hours). Reviewers suggested by unrelated author teams are flagged as possible review rings.</p></div></div>
     <div id="form-area">
       <div class="card">
-        <div class="card-head"><h2>Manuscript</h2><span class="muted">Or take the details from an Integrity Screening</span></div>
+        <div class="card-head"><h2>Manuscript</h2><span class="muted">Or take the details from a Module 4 screening</span></div>
         <div class="grid grid-2">
-          <div class="field"><label for="p-from">From an Integrity Screening</label><select id="p-from"><option value="">— enter below —</option></select></div>
+          <div class="field"><label for="p-from">From a Module 4 screening</label><select id="p-from"><option value="">— enter below —</option></select></div>
           <div class="field"><label for="p-code">Manuscript ID</label><input id="p-code" type="text"></div>
         </div>
         <div class="grid grid-2">
@@ -77,7 +77,7 @@ export function renderPeerReviewResult(el, r) {
   const reviewers = d.details?.reviewers || [];
   el.innerHTML = `
     <div class="page-head"><div><h1>Peer-review integrity${r.meta?.manuscriptCode ? ` — ${esc(r.meta.manuscriptCode)}` : ''}</h1><p>${esc(r.meta?.title || '')} · ${fmtDate(r.createdAt)} · <span class="badge b-bad">Confidential</span></p></div>
-      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="x-docx">${ICONS.download} Report (Word)</button><button class="btn btn-sm" id="x-pdf">${ICONS.download} PDF</button>${hasModule('cases') ? '<button class="btn btn-sm btn-primary" id="x-case">Open integrity case</button>' : ''}` : ''}</div></div>
+      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="x-docx">${ICONS.download} Report (Word)</button><button class="btn btn-sm" id="x-pdf">${ICONS.download} PDF</button>${hasModule('papermill') ? '<button class="btn btn-sm btn-primary" id="x-case">Open integrity case</button>' : ''}` : ''}</div></div>
     ${riskBanner(r.risk, 'Peer-review risk', r.disclaimer)}
     ${reviewers.map(rv => `<div class="card"><div class="card-head"><h3>${esc(rv.name || rv.email || 'Reviewer')}</h3><span class="muted">${esc(rv.email || '')}${rv.orcid ? ` · <a href="https://orcid.org/${esc(rv.orcid)}" target="_blank" rel="noopener">${esc(rv.orcid)}</a>` : ''}</span></div>
       ${rv.coauthorship?.checked ? `<p class="muted">OpenAlex: ${esc(rv.coauthorship.displayName || '')}${rv.coauthorship.institution ? `, ${esc(rv.coauthorship.institution)}` : ''} · ${rv.coauthorship.items.length} joint paper(s) with the authors</p>` : ''}

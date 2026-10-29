@@ -48,7 +48,15 @@ async function buildDocx(blocks, { rtl = false, title = cfg.APP_NAME } = {}) {
     else if (b.bullets) for (const t of b.bullets) children.push(para(t, { rtl, bullet: true }));
     else if (b.kv) for (const [k, v] of b.kv) children.push(para([run(`${k}: `, { bold: true, rtl }), run(v, { rtl })], { rtl }));
     else if (b.table) { children.push(table(b.table.headers, b.table.rows, rtl)); children.push(para('', { after: 120 })); }
-    else if (b.images) {
+    else if (b.callout) {
+      const color = { ok: '1E6B34', warn: '8A5300', bad: '9B1C1C' }[b.callout.level] || '5B6675';
+      children.push(para(b.callout.title, { rtl, bold: true, color }));
+      if (b.callout.text) children.push(para(b.callout.text, { rtl }));
+    } else if (b.scorecard) {
+      const label = { ok: 'Pass', warn: 'Check', bad: 'Action', na: 'Not run' };
+      children.push(table(['Module', 'Result', 'Verdict'], b.scorecard.map(r => [r.module, r.result, r.verdict || label[r.level] || '—']), rtl));
+      children.push(para('', { after: 120 }));
+    } else if (b.images) {
       // Images side by side (data: URLs from the browser), each scaled to fit half a page width
       const runs = [];
       for (const im of b.images) {
@@ -292,6 +300,27 @@ function imagesBlocks(r) {
  * Full Screening Report. version 'editor': all modules with the recommendation; 'author': Modules 1-3 only (problems
  * the authors must fix), for sending after the editor's approval.
  */
+/** One row per module of the Full Screening Report with its verdict (ok | warn | bad | na) */
+function screeningScorecard(r) {
+  const sc = r.screening || { lines: {} };
+  const s = r.references.summary;
+  const c = r.citations && !r.citations.error ? r.citations.summary : null;
+  const cp = r.compliance?.summary;
+  const pm = r.papermill?.risk;
+  const im = r.images?.summary;
+  const lvl = x => ({ HIGH: 'bad', MEDIUM: 'warn', LOW: 'ok' }[x] || 'na');
+  const rows = [
+    { module: '1. Bibliography (references)', result: sc.lines.bibliography || `${s.verified} verified of ${s.total}`, level: s.suspicious >= 3 || s.retracted ? 'bad' : s.suspicious || s.miscited >= 5 || s.unverified >= Math.max(5, s.total * 0.2) ? 'warn' : 'ok' },
+    { module: '2. Reference style (PJPS)', result: sc.lines.style || 'not checked', level: !cp ? 'na' : cp.score >= 80 ? 'ok' : cp.score >= 60 ? 'warn' : 'bad' },
+    { module: '3. In-text citations', result: sc.lines.citations || 'not checked', level: !c ? 'na' : c.missing >= 3 || c.uncited >= 5 ? 'bad' : c.missing || c.uncited || c.yearMismatch ? 'warn' : 'ok' },
+    { module: '4. Paper mill signals', result: sc.lines.papermill || 'not checked', level: lvl(pm?.level) },
+    { module: '5. Image integrity', result: sc.lines.images || 'not checked', level: lvl(im?.level) }
+  ];
+  if (r.plagiarism) rows.push({ module: 'Plagiarism (text overlap)', result: sc.lines.plagiarism || `${r.plagiarism.summary.similarity}% overlap`, level: r.plagiarism.summary.level });
+  if (r.novelty) rows.push({ module: 'Novelty & citation outlook', result: sc.lines.novelty || `novelty ${r.novelty.summary.score}/100`, level: r.novelty.summary.level });
+  return rows;
+}
+
 function screeningBlocks(r, version = 'editor') {
   const sc = r.screening || { lines: {} };
   const s = r.references.summary;
@@ -303,10 +332,8 @@ function screeningBlocks(r, version = 'editor') {
     { kv: [['Manuscript', `${meta.manuscriptCode ? meta.manuscriptCode + ' — ' : ''}${meta.title || '—'}`], ['Version', String(meta.version || 1)], ['Date', new Date(r.createdAt).toISOString().slice(0, 10)]] }
   ];
   if (version === 'editor') {
-    blocks.push({ h2: 'Summary' }, { kv: [
-      ['Recommendation', sc.recommendationLabel || '—'], ['1. Bibliography', sc.lines.bibliography || '—'], ['2. PJPS style', sc.lines.style || '—'], ['3. Citations', sc.lines.citations || '—'],
-      ['4. Paper mill risk', sc.lines.papermill || '—'], ['5. Image integrity', sc.lines.images || '—']] });
-    if (sc.reasons?.length) blocks.push({ bullets: sc.reasons });
+    blocks.push({ h2: 'Summary' }, { callout: { level: { proceed: 'ok', return: 'warn', investigate: 'bad' }[sc.recommendation] || 'na', title: `Recommendation: ${sc.recommendationLabel || '—'}`, text: (sc.reasons || []).join(' · ') } });
+    blocks.push({ scorecard: screeningScorecard(r) });
     if (r.decision) blocks.push({ kv: [['Editor decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—']] });
   } else {
     blocks.push({ p: `Before peer review your manuscript was checked: references against international scholarly databases, the journal's reference style, and in-text citations against the reference list. Please correct the items below and resubmit with a point-by-point response.` });

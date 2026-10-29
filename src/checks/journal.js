@@ -226,7 +226,7 @@ async function checkJournal(input) {
     wikidataScopus(issns),
     issns.length ? (offline ? D.doajLocal(issns).then(r => r || { inDoaj: null }) : doajLookup(issns)) : { inDoaj: offline ? null : !!src?.is_in_doaj },
     name ? D.journalRetractionCounts(name) : { retractions: 0, concerns: 0, corrections: 0 },
-    D.predatoryMatches({ journal: name, publisher: resolved?.publisher, homepage: src?.homepage_url }),
+    D.predatoryMatches({ journal: name, publisher: resolved?.publisher, homepage: src?.homepage_url, issns }),
     issns[0] ? issnPortal(issns[0]) : { registered: null }
   ]);
   const lists = interpretLists(listHits);

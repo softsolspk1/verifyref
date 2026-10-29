@@ -352,6 +352,10 @@ async function classify(v, retraction) {
   } else if (anyFound && (record.retracted || (retraction && /retraction/i.test(retraction.nature)))) {
     status = 'retracted';
     reason = 'This work has been retracted';
+  } else if (!anyFound && v.closest && (ref.looksLikeWeb || (ref.looksLikeBook && !ref.doi) || (!ref.journal && !ref.doi && !ref.pmid)) && scoreCandidate(ref, v.closest).tSim < 0.7) {
+    // a web page, report or book whose "closest record" is some unrelated paper: say what it is, not the stray match
+    status = 'unverified';
+    reason = 'Book, report or web source — not found in scholarly databases; check manually';
   } else if (!anyFound && v.closest) {
     status = 'unverified';
     const about = [v.closest.authors?.[0]?.family, v.closest.year, v.closest.journal].filter(Boolean).join(', ');

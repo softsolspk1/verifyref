@@ -185,16 +185,24 @@ async function loadBeall() {
 }
 
 /** Match a journal/publisher name or homepage against predatory & hijacked lists */
-async function predatoryMatches({ journal, publisher, homepage }) {
+async function predatoryMatches({ journal, publisher, homepage, issns = [] }) {
   const names = [journal, publisher].filter(Boolean).map(normalizeJournal);
   const dom = homepage ? domainOf(homepage) : null;
   if (!names.length && !dom) return [];
   const rows = await db.all('SELECT * FROM predatory WHERE name_norm = ANY($1::text[]) OR domain = $2', [names, dom]);
   const pubNorm = publisher ? normalizeJournal(publisher) : null;
   const jNorm = journal ? normalizeJournal(journal) : null;
-  return rows
+  const hits = rows
     .filter(r => r.domain === dom || r.name_norm === jNorm || (r.name_norm === pubNorm && r.kind === 'publisher'))
     .map(r => ({ ...r, matchedBy: r.domain && r.domain === dom ? 'website domain' : r.name_norm === jNorm ? 'journal name' : 'publisher name' }));
+  // The Beall archive still names publishers later cleared (MDPI was removed in 2015; Dove Medical Press is part of Taylor &
+  // Francis): a journal of one of the major publishers is not called predatory through its publisher or shared website
+  // domain. Hijacked clones and a listing of the journal itself still count.
+  if (hits.some(h => h.kind !== 'hijacked' && h.matchedBy !== 'journal name')) {
+    const major = await publisherJournal({ issns, name: journal || '' }).catch(() => null);
+    if (major) return hits.filter(h => h.kind === 'hijacked' || h.matchedBy === 'journal name');
+  }
+  return hits;
 }
 
 // ------------------------------------------------------------------ Uploaded journal lists

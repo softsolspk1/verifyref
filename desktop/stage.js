@@ -21,7 +21,11 @@ fs.copyFileSync(path.join(__dirname, 'build', 'icon.ico'), path.join(OUT, 'build
 
 // The web platform address the installer is pre-configured with (editable on the sign-in screen)
 const cfgFile = path.join(__dirname, 'desktop-config.json');
-if (!fs.existsSync(cfgFile)) fs.writeFileSync(cfgFile, JSON.stringify({ remoteUrl: process.env.REMOTE_URL || '', contactEmail: 'editor@pjps.pk' }, null, 2));
+// REMOTE_URL=https://… npm run desktop:dist bakes the platform address into the installer
+if (!fs.existsSync(cfgFile) || process.env.REMOTE_URL) {
+  const prev = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
+  fs.writeFileSync(cfgFile, JSON.stringify({ contactEmail: 'editor@pjps.pk', ...prev, remoteUrl: (process.env.REMOTE_URL || prev.remoteUrl || '').replace(/\/+$/, '') }, null, 2));
+}
 fs.copyFileSync(cfgFile, path.join(OUT, 'desktop-config.json'));
 
 // Runtime dependencies only; pg and the Vercel helper are not used by the embedded database but are required lazily

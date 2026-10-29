@@ -1,6 +1,8 @@
 // desktop.js - desktop edition: sign-in against the web platform (with offline sign-in afterwards), and
 // synchronisation of the account, integrity datasets, journal lists, saved reports and notifications.
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
 const db = require('./db');
 const cfg = require('./config');
 const auth = require('./auth');
@@ -102,26 +104,43 @@ async function changePassword(req, res, current, next) {
 
 // ------------------------------------------------------------------ synchronisation
 
+// Dataset tables copied from the web platform: status = key in the platform's dataset status, meta = prefix of the
+// <meta>_loaded_at / <meta>_count keys. Columns are read from the local schema, so new columns come along by themselves.
 const TABLES = {
-  retractions: { cols: ['doi', 'retraction_doi', 'retraction_date', 'nature', 'reason', 'title', 'journal', 'journal_norm'], types: ['text', 'text', 'text', 'text', 'text', 'text', 'text', 'text'], meta: ['rw_loaded_at', 'rw_count'] },
-  predatory: { cols: ['kind', 'name', 'name_norm', 'url', 'domain', 'genuine_url', 'source'], types: ['text', 'text', 'text', 'text', 'text', 'text', 'text'], meta: ['beall_loaded_at', 'beall_count'] },
-  journal_list_entries: { cols: ['list_type', 'issn', 'eissn', 'title', 'title_norm', 'data'], types: ['text', 'text', 'text', 'text', 'text', 'jsonb'] }
+  retractions: { status: 'retractionWatch', meta: 'rw', label: 'Retraction Watch' },
+  predatory: { status: 'beall', meta: 'beall', label: 'Beall’s list' },
+  pps_fingerprints: { status: 'screener', meta: 'pps', label: 'Problematic Paper Screener' },
+  fda_orange_book: { status: 'fdaOrangeBook', meta: 'fda_ob', label: 'FDA Orange Book' },
+  nlm_journals: { status: 'nlm', meta: 'nlm', label: 'NLM Catalog' },
+  doaj_journals: { status: 'doaj', meta: 'doaj', label: 'DOAJ' },
+  ltwa_words: { status: 'ltwa', meta: 'ltwa', label: 'ISSN LTWA' },
+  crossref_journals: { status: 'crossrefJournals', meta: 'crj', label: 'Crossref journal list' },
+  email_domains: { status: 'emailDomains', meta: 'maildom', label: 'e-mail domain lists' },
+  journal_list_entries: { label: 'journal index lists' }
 };
 
+const PG_TYPES = { text: 'text', integer: 'int', bigint: 'bigint', boolean: 'bool', jsonb: 'jsonb', numeric: 'numeric', 'double precision': 'float8', 'timestamp with time zone': 'timestamptz' };
+
+async function columnsOf(table) {
+  const rows = await db.all('SELECT column_name, data_type, column_default FROM information_schema.columns WHERE table_name = $1 AND table_schema = current_schema() ORDER BY ordinal_position', [table]);
+  // serial ids are local to each database
+  return rows.filter(r => !(r.column_name === 'id' && /nextval/.test(r.column_default || ''))).map(r => ({ name: r.column_name, type: PG_TYPES[r.data_type] || 'text' }));
+}
+
 async function pullTable(name, token, update) {
-  const t = TABLES[name];
+  const cols = await columnsOf(name);
   const rows = [];
   let offset = 0;
   for (;;) {
     const r = await remote(`/api/sync/table/${name}?offset=${offset}&limit=10000`, { token, timeout: 120000 });
     rows.push(...r.rows);
     offset += r.rows.length;
-    update?.(`Downloading ${name.replace(/_/g, ' ')} (${rows.length.toLocaleString()} of ${r.total.toLocaleString()})`);
+    update?.(`Downloading ${TABLES[name].label} (${rows.length.toLocaleString()} of ${r.total.toLocaleString()})`);
     if (!r.rows.length || offset >= r.total) break;
   }
   await db.transaction(async client => {
     await client.query(`DELETE FROM ${name}`);
-    await db.bulkInsert(client, name, t.cols.map((c, i) => ({ name: c, type: t.types[i] })), rows.map(r => t.cols.map(c => (c === 'data' && r[c] ? JSON.stringify(r[c]) : r[c]))));
+    await db.bulkInsert(client, name, cols, rows.map(r => cols.map(c => (c.type === 'jsonb' && r[c.name] != null ? JSON.stringify(r[c.name]) : r[c.name]))));
   });
   return rows.length;
 }
@@ -129,17 +148,18 @@ async function pullTable(name, token, update) {
 async function syncDatasets(token, update) {
   const m = await remote('/api/sync/manifest', { token });
   const out = {};
-  const local = async k => db.getMeta(k);
-  if (m.retractionWatch.count && m.retractionWatch.loadedAt !== await local('rw_loaded_at')) {
-    out.retractions = await pullTable('retractions', token, update);
-    await db.setMeta('rw_loaded_at', m.retractionWatch.loadedAt); await db.setMeta('rw_count', out.retractions);
-  }
-  if (m.beall.count && m.beall.loadedAt !== await local('beall_loaded_at')) {
-    out.predatory = await pullTable('predatory', token, update);
-    await db.setMeta('beall_loaded_at', m.beall.loadedAt); await db.setMeta('beall_count', out.predatory);
+  for (const [name, t] of Object.entries(TABLES)) {
+    const st = t.status && m[t.status];
+    if (!st || !st.count || st.loadedAt === await db.getMeta(`${t.meta}_loaded_at`)) continue;
+    try {
+      out[name] = await pullTable(name, token, update);
+      await db.setMeta(`${t.meta}_loaded_at`, st.loadedAt);
+      await db.setMeta(`${t.meta}_count`, out[name]);
+      if (name === 'retractions') await db.setMeta('rw_authors', '2');
+    } catch (e) { out[`${name}Error`] = e.message; }
   }
   const listsSig = JSON.stringify(m.lists.map(l => [l.list_type, l.uploaded_at, l.row_count]));
-  if (listsSig !== await local('lists_sig')) {
+  if (listsSig !== await db.getMeta('lists_sig')) {
     out.lists = await pullTable('journal_list_entries', token, update);
     await db.transaction(async client => {
       await client.query('DELETE FROM journal_lists');
@@ -147,6 +167,8 @@ async function syncDatasets(token, update) {
     });
     await db.setMeta('lists_sig', listsSig);
   }
+  update?.('Downloading the image-integrity knowledge base and reference files');
+  out.files = await pullFiles(token, update).catch(e => ({ error: e.message }));
   if (!m.retractionWatch.count) {
     // The platform has no Retraction Watch copy yet: download it from the source directly
     update?.('Downloading Retraction Watch and Beall’s list from their sources');
@@ -154,6 +176,75 @@ async function syncDatasets(token, update) {
   }
   await db.setMeta('datasets_synced_at', new Date().toISOString());
   return out;
+}
+
+/**
+ * Data folder files kept on the platform's R2 store (ImageTwin / Proofig knowledge base, public image data, ICLAC,
+ * PPS exports, journal lists): copied into this computer's data folder when missing or changed. The multi-gigabyte
+ * benchmark archives stay online.
+ */
+async function pullFiles(token, update) {
+  const { files } = await remote('/api/sync/files', { token, timeout: 60000 });
+  let fetched = 0, bytes = 0;
+  for (const f of files) {
+    const file = path.join(cfg.DATA_DIR, ...f.path.split('/'));
+    if ((await db.getMeta(`file_sha:${f.path}`)) === f.sha256 && fs.existsSync(file)) continue;
+    const res = await remote(`/api/sync/file?name=${encodeURIComponent(f.path)}`, { token, timeout: 600000, raw: true });
+    if (!res.ok) continue;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(`${file}.part`, Buffer.from(await res.arrayBuffer()));
+    fs.renameSync(`${file}.part`, file);
+    await db.setMeta(`file_sha:${f.path}`, f.sha256);
+    fetched++; bytes += Number(f.size) || 0;
+    update?.(`Downloading reference files (${fetched} new or changed: ${f.path})`);
+  }
+  return { files: files.length, fetched, bytes };
+}
+
+// ------------------------------------------------------------------ Module 5 on the desktop
+// The image reference databases (published PJPS figures, retracted papers, PubMed Central, RSIID, BioFors, BINDER:
+// tens of thousands of figures with thumbnails on R2) and the PJPS-wide manuscript fingerprints stay on the web
+// platform. The desktop sends the panel fingerprints there and shows what it finds; offline, only the manuscripts
+// screened on this computer are compared.
+
+async function remoteImageMatch(userId, panels, charts, excludeCode = null) {
+  const token = await deviceToken(userId);
+  if (!token) throw new Error('this computer is not linked to the web platform (sign in online once)');
+  if (!(await probe())) throw new Error('no internet connection');
+  const out = { earlier: [], earlierCharts: [], refs: { matches: [], charts: [], searched: null } };
+  const BATCH = 40; // panel thumbnails travel with the fingerprints (used to verify candidates); keeps requests small
+  for (let i = 0; i < Math.max(panels.length, 1); i += BATCH) {
+    const r = await remote('/api/sync/images/match', { method: 'POST', token, timeout: 120000, body: { panels: panels.slice(i, i + BATCH), charts: i ? [] : charts, excludeCode } });
+    out.earlier.push(...(r.earlier || []));
+    out.earlierCharts.push(...(r.earlierCharts || []));
+    out.refs.matches.push(...(r.refs?.matches || []));
+    out.refs.charts.push(...(r.refs?.charts || []));
+    if (r.refs?.searched) out.refs.searched = out.refs.searched ? { ...r.refs.searched, panels: out.refs.searched.panels + r.refs.searched.panels } : r.refs.searched;
+    if (r.refs?.error) out.refs.error = r.refs.error;
+  }
+  for (const e of [...out.earlier, ...out.earlierCharts]) e.onPlatform = true;
+  return out;
+}
+
+/** Thumbnail of a reference-database figure, fetched from the web platform (kept in the local cache) */
+async function remoteRefThumb(userId, id) {
+  const key = `refthumb:${id}`;
+  const cached = await db.one('SELECT value FROM cache WHERE key = $1', [key]).catch(() => null);
+  if (cached?.value?.b64) return Buffer.from(cached.value.b64, 'base64');
+  const token = await deviceToken(userId);
+  if (!token) return null;
+  const res = await remote(`/api/sync/images/refs/${id}/thumb`, { token, raw: true }).catch(() => null);
+  if (!res || !res.ok) return null;
+  const buf = Buffer.from(await res.arrayBuffer());
+  await db.query('INSERT INTO cache(key, value) VALUES($1, $2) ON CONFLICT (key) DO NOTHING', [key, JSON.stringify({ b64: buf.toString('base64') })]).catch(() => {});
+  return buf;
+}
+
+/** What the platform's image databases hold (Module 5 page); null offline */
+async function remoteImageDatabases(userId) {
+  const token = await deviceToken(userId);
+  if (!token || !isOnline()) return null;
+  return remote('/api/sync/images/databases', { token, timeout: 20000 }).catch(() => null);
 }
 
 const CHECK_COLS = ['uid', 'kind', 'manuscript_code', 'version', 'title', 'ref_total', 'verified', 'suspicious', 'unverified', 'miscited', 'retracted', 'missing_citations', 'uncited_references', 'journal_flags', 'self_citation_rate', 'problems', 'result', 'created_at', 'origin', 'pending_online'];
@@ -269,4 +360,4 @@ async function status(userId) {
   };
 }
 
-module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS };
+module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases };

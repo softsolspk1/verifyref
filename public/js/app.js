@@ -20,6 +20,7 @@ import { renderAlerts } from './views/alerts.js';
 import { renderUsers } from './views/users.js';
 import { renderAdmin, renderAudit } from './views/admin.js';
 import { renderDesktop } from './views/desktop.js';
+import { renderGetDesktop } from './views/getDesktop.js';
 import { renderHome } from './views/home.js';
 import { renderCitations } from './views/citations.js';
 import { renderImages } from './views/images.js';
@@ -58,6 +59,7 @@ const NAV = [
   { path: '/activity', label: 'Saved reports', icon: 'activity' },
   { path: '/alerts', label: 'Alerts & notifications', icon: 'bell', badge: 'unread', hidden: true },
   { path: '/desktop', label: 'Sync & offline queue', icon: 'sync', desktop: true },
+  { path: '/get-desktop', label: 'Desktop application', icon: 'desktop', web: true },
   { group: 'Administration', admin: true },
   { path: '/admin/users', label: 'Users', icon: 'users', admin: true },
   { path: '/admin/data', label: 'Datasets & journal lists', icon: 'data', admin: true },
@@ -96,6 +98,7 @@ const ROUTES = [
   [/^\/alerts$/, renderAlerts],
   [/^\/check\/(\d+)$/, (v, m) => renderSavedReport(v, m[1])],
   [/^\/desktop$/, renderDesktop],
+  [/^\/get-desktop$/, renderGetDesktop],
   [/^\/admin\/users$/, adminOnly(renderUsers)],
   [/^\/admin\/data$/, adminOnly(renderAdmin)],
   [/^\/admin\/audit$/, adminOnly(renderAudit)],
@@ -110,7 +113,7 @@ function firstAllowedPath() {
 
 function renderNav() {
   const isAdmin = state.user.role === 'super_admin';
-  const items = NAV.filter(n => !n.hidden && (!n.admin || isAdmin) && (!n.desktop || state.app.desktop) && (!n.module || hasModule(n.module)));
+  const items = NAV.filter(n => !n.hidden && (!n.admin || isAdmin) && (!n.desktop || state.app.desktop) && (!n.web || !state.app.desktop) && (!n.module || hasModule(n.module)));
   // Drop group headings with no visible items
   const visible = items.filter((n, i) => !n.group || (items[i + 1] && !items[i + 1].group));
   $('#nav').innerHTML = visible.map(n => n.group
@@ -181,6 +184,26 @@ async function route() {
   view.innerHTML = '<div class="empty">Page not found.</div>';
 }
 
+// Light theme by default (web and desktop); dark only when the user picks it (remembered on this browser)
+function themeToggle() {
+  const root = document.documentElement;
+  let saved = null;
+  try { saved = localStorage.getItem('pjps-theme'); } catch (e) { /* storage blocked */ }
+  if (saved === 'light' || saved === 'dark') root.dataset.theme = saved;
+  const btn = document.createElement('button');
+  btn.className = 'theme-toggle';
+  btn.type = 'button';
+  const isDark = () => root.dataset.theme === 'dark';
+  const label = () => { btn.textContent = isDark() ? '☀ Light' : '☾ Dark'; btn.title = `Switch to the ${isDark() ? 'light' : 'dark'} theme`; };
+  btn.onclick = () => {
+    root.dataset.theme = isDark() ? 'light' : 'dark';
+    try { localStorage.setItem('pjps-theme', root.dataset.theme); } catch (e) { /* ignore */ }
+    label();
+  };
+  label();
+  document.querySelector('.sidebar-foot .row')?.appendChild(btn);
+}
+
 async function init() {
   const me = await api('/api/auth/me');
   if (!me.user) { location.href = '/'; return; }
@@ -190,6 +213,7 @@ async function init() {
   $('#who-role').textContent = `${me.user.roleLabel}${me.user.journal ? ' · ' + me.user.journal : ''}`;
   if (state.app.desktop) document.body.classList.add('is-desktop');
   renderNav();
+  themeToggle();
   await loadIssues().catch(() => {});
   $('#logout').onclick = async e => { e.preventDefault(); await api('/api/auth/logout', { body: {} }); location.href = '/'; };
   $('#menu-btn').onclick = () => $('#sidebar').classList.toggle('open');

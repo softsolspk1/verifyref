@@ -1,13 +1,15 @@
-// desktop/main.js - PJPS Reference Checker for Windows. Starts the same application engine as the web platform on
+// desktop/main.js - PJPS Data Integrity System for Windows. Starts the same application engine as the web platform on
 // 127.0.0.1 with an embedded PostgreSQL-compatible database (PGlite) in the user's profile, and shows it in a window.
 // Sign-in and synchronisation go to the web platform; most checks keep working offline.
 const { app, BrowserWindow, Menu, shell, dialog, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-const APP_NAME = 'PJPS Reference Checker';
+const APP_NAME = 'PJPS Data Integrity System';
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 app.setAppUserModelId('pk.softsols.pjps-reference-checker');
+// The data folder keeps its first name, so the database and datasets of earlier versions carry over after the rename
+app.setPath('userData', path.join(app.getPath('appData'), 'PJPS Reference Checker'));
 
 const userData = app.getPath('userData');
 const dataDir = path.join(userData, 'data');
@@ -42,7 +44,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1360, height: 860, minWidth: 900, minHeight: 600, show: false,
     title: APP_NAME, icon: path.join(__dirname, 'build', 'icon.ico'),
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f151b' : '#f4f6f8',
+    backgroundColor: '#f3f5fb', // light theme in the web portal and the desktop
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true }
   });
   win.once('ready-to-show', () => win.show());
@@ -67,7 +69,7 @@ function buildMenu() {
     { label: 'View', submenu: [{ role: 'reload' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }, { role: 'toggleDevTools', label: 'Developer tools' }] },
     { label: 'Help', submenu: [
       { label: 'View log file', click: () => shell.openPath(logFile) },
-      { label: `About ${APP_NAME}`, click: () => dialog.showMessageBox(win, { type: 'info', title: APP_NAME, message: `${APP_NAME} ${app.getVersion()}`, detail: `Desktop edition with offline mode.\n© ${new Date().getFullYear()} Softsols Pakistan\n\nData folder: ${userData}` }) }
+      { label: `About ${APP_NAME}`, click: () => dialog.showMessageBox(win, { type: 'info', title: APP_NAME, message: `${APP_NAME} ${app.getVersion()}`, detail: `The five PJPS modules (desktop edition with offline mode).\n© ${new Date().getFullYear()} Softsols Pakistan\n\nData folder: ${userData}` }) }
     ] }
   ]));
 }
@@ -87,6 +89,7 @@ async function checkForUpdate() {
 }
 
 app.whenReady().then(async () => {
+  nativeTheme.themeSource = 'light';
   try {
     const server = require(serverPath);
     const port = await server.start({ port: 0 });

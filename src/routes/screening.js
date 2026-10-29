@@ -2,6 +2,7 @@
 // the editor's decision record on a saved report, and the Module 1 reference-age rule.
 const express = require('express');
 const db = require('../db');
+const cfg = require('../config');
 const auth = require('../auth');
 const P = require('../parse');
 const W = require('../docx');
@@ -93,13 +94,21 @@ router.use('/images', (req, res, next) => STORE.ensureLocal(['new/', 'public-ima
 /** Thumbnail of a figure panel in the image reference databases (kept on R2) */
 const REFS = require('../imageRefs');
 router.get('/images/refs/:id/thumb', mod('images'), wrap(async (req, res) => {
-  const buf = await REFS.refThumb(await REFS.thumbKey(parseInt(req.params.id, 10) || 0));
+  const id = parseInt(req.params.id, 10) || 0;
+  // desktop: the reference databases (and their thumbnails) are on the web platform
+  const buf = cfg.DESKTOP ? await require('../desktop').remoteRefThumb(req.user.id, id) : await REFS.refThumb(await REFS.thumbKey(id));
   if (!buf) return res.status(404).json({ success: false, message: 'Thumbnail not available.' });
   res.set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }).send(buf);
 }));
 
 /** What the PJPS image databases hold (shown on the Module 5 page) */
-router.get('/images/databases', mod('images'), wrap(async (req, res) => res.json({ success: true, ...(await REFS.status()) })));
+router.get('/images/databases', mod('images'), wrap(async (req, res) => {
+  if (cfg.DESKTOP) {
+    const r = await require('../desktop').remoteImageDatabases(req.user.id);
+    if (r) return res.json({ ...r, success: true, onPlatform: true });
+  }
+  res.json({ success: true, ...(await REFS.status()) });
+}));
 
 /** Save the browser's image analysis; compares the panel fingerprints with earlier PJPS manuscripts */
 router.post('/images', mod('images'), wrap(async (req, res) => {
@@ -158,7 +167,8 @@ router.get('/images/letters', mod('images'), wrap(async (req, res) => res.json({
 const PUB = require('../publicImageData');
 router.get('/images/public', mod('images'), wrap(async (req, res) => {
   const remote = Object.fromEntries((await db.all("SELECT name, size FROM dataset_files WHERE name LIKE 'files/%'")).map(r => [r.name.slice(6), Number(r.size)]));
-  res.json({ success: true, datasets: PUB.catalog(remote, await REFS.sourceCounts().catch(() => ({}))), benchmark: PUB.benchmark() });
+  const counts = (cfg.DESKTOP && (await require('../desktop').remoteImageDatabases(req.user.id))?.bySource) || await REFS.sourceCounts().catch(() => ({}));
+  res.json({ success: true, datasets: PUB.catalog(remote, counts), benchmark: PUB.benchmark() });
 }));
 router.get('/images/public/cases', mod('images'), wrap(async (req, res) => res.json({ success: true, ...PUB.cases({ q: req.query.q, oa: req.query.oa === '1', reason: req.query.reason, page: Math.max(1, parseInt(req.query.page, 10) || 1) }) })));
 router.get('/images/public/figures/:pmcid', mod('images'), wrap(async (req, res) => {

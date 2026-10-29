@@ -1,8 +1,8 @@
 {
   "name": "pjps-reference-checker-desktop",
-  "productName": "PJPS Reference Checker",
-  "version": "3.0.0",
-  "description": "PJPS Reference Checker for Windows — desktop edition with offline mode, by Softsols Pakistan",
+  "productName": "PJPS Data Integrity System",
+  "version": "3.1.0",
+  "description": "PJPS Data Integrity System for Windows — the five PJPS modules with offline mode, by Softsols Pakistan",
   "author": "Softsols Pakistan",
   "private": true,
   "main": "main.js",
@@ -18,16 +18,16 @@
   },
   "build": {
     "appId": "pk.softsols.pjps-reference-checker",
-    "productName": "PJPS Reference Checker",
+    "productName": "PJPS Data Integrity System",
     "copyright": "© Softsols Pakistan",
     "directories": { "app": "app", "output": "dist", "buildResources": "build" },
     "asar": true,
-    "asarUnpack": ["node_modules/@electric-sql/pglite/**"],
+    "asarUnpack": ["node_modules/@electric-sql/pglite/**", "node_modules/sharp/**", "node_modules/@img/**"],
     "extraResources": [{ "from": "desktop-config.json", "to": "desktop-config.json" }],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }],
       "icon": "build/icon.ico",
-      "artifactName": "PJPS-Reference-Checker-${version}-${arch}-${target}.${ext}"
+      "artifactName": "PJPS-Data-Integrity-${version}-${arch}-${target}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -36,10 +36,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "PJPS Reference Checker",
+      "shortcutName": "PJPS Data Integrity System",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "PJPS-Reference-Checker-Setup-${version}.${ext}"
+      "artifactName": "PJPS-Data-Integrity-Setup-${version}.${ext}"
     },
-    "portable": { "artifactName": "PJPS-Reference-Checker-Portable-${version}.${ext}" }
+    "portable": { "artifactName": "PJPS-Data-Integrity-Portable-${version}.${ext}" }
   }
 }

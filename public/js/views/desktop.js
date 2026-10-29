@@ -3,16 +3,15 @@ import { api, esc, $, $$, badge, toast, fmtDate, runJob, state } from '../core.j
 
 const OFFLINE_FEATURES = [
   ['Reading documents (PDF, Word, ODT, RTF, text, BibTeX, RIS)', 'Full'],
-  ['Citation Check (in-text ↔ reference list)', 'Full'],
-  ['Retraction check (Retraction Watch copy)', 'Full'],
-  ['Predatory / hijacked journal check, journal index lists', 'Full'],
-  ['Reference Style and Manuscript Format converters', 'Full (DOI completion when online)'],
-  ['Citation pattern, Editor report, letters, revision comparison, Issue report', 'Full'],
-  ['Saved reports and all exports', 'Full'],
-  ['Bibliography Check against the 13 databases', 'Cached references verified; others queued'],
-  ['Verify Citations', 'With uploaded source PDFs; otherwise queued'],
-  ['Find Evidence, Find a Journal, Conferences, Thesis Assistant', 'Queued until online'],
-  ['Author search, Reviewer Finder, Check a Conference', 'Online only']
+  ['Module 1 · Check Bibliography: retraction, predatory and journal index lists, NLM / DOAJ / Crossref journal copies', 'Full'],
+  ['Module 1 · look-ups of new references in the 13 databases (Crossref, PubMed, OpenAlex, CORE …)', 'Cached references verified; others queued'],
+  ['Module 2 · Reference Style & PJPS (NLM / LTWA abbreviations)', 'Full (DOI completion when online)'],
+  ['Module 3 · Citations (in-text ↔ reference list)', 'Full'],
+  ['Module 4 · Paper Mill Detection (PPS fingerprints, ICLAC, e-mail domains)', 'Full; published-elsewhere search when online'],
+  ['Module 5 · Image Integrity: forensic analysis, copy-move, AI indicators, viewer', 'Full'],
+  ['Module 5 · comparison with published PJPS, retracted-paper and PubMed Central figures', 'Online (databases on the web platform)'],
+  ['Saved reports, Full Screening Report and all exports', 'Full'],
+  ['Author figure search, Reviewer Finder, Check a Conference', 'Online only']
 ];
 
 export async function renderDesktop(view) {

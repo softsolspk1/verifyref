@@ -3,6 +3,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
+const cfg = require('../config');
 const auth = require('../auth');
 const D = require('../datasets');
 const { CHECK_COLS } = require('../desktop');
@@ -50,11 +51,15 @@ router.post('/desktop/password', wrap(device), wrap(async (req, res) => {
 }));
 
 router.get('/sync/manifest', wrap(device), wrap(async (req, res) => {
-  const st = await D.listStatus();
-  res.json({ success: true, retractionWatch: st.retractionWatch, beall: st.beall, lists: await db.all('SELECT list_type, filename, row_count, uploaded_at FROM journal_lists') });
+  const { lists, ...st } = await D.listStatus();
+  res.json({ success: true, ...st, lists: await db.all('SELECT list_type, filename, row_count, uploaded_at FROM journal_lists') });
 }));
 
-const TABLE_ORDER = { retractions: 'doi', predatory: 'id', journal_list_entries: 'list_type, title_norm, issn, eissn' };
+// Every dataset table the desktop copies, with a stable order for paging
+const TABLE_ORDER = {
+  retractions: 'doi', predatory: 'id', journal_list_entries: 'list_type, title_norm, issn, eissn', pps_fingerprints: 'kind, terms', fda_orange_book: 'id',
+  nlm_journals: 'nlm_id', doaj_journals: 'title_norm, issn, eissn', ltwa_words: 'word, prefix, abbrev', crossref_journals: 'title_norm, crossref_id, issn', email_domains: 'domain'
+};
 router.get('/sync/table/:name', wrap(device), wrap(async (req, res) => {
   const order = TABLE_ORDER[req.params.name];
   if (!order) return res.status(404).json({ success: false, message: 'Unknown table.' });
@@ -110,5 +115,74 @@ router.delete('/sync/follows/:id', wrap(device), wrap(async (req, res) => {
   await db.query('DELETE FROM follows WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
   res.json({ success: true });
 }));
+
+// ------------------------------------------------------------------ data files and Module 5 for the desktop
+
+const STORE = require('../datasetStore');
+const R2 = require('../uploads');
+const FILE_MAX = 60e6; // benchmark archives (BioFors 2 GB, RSIID) stay online
+
+/** Data folder files on R2 that the desktop keeps a copy of */
+router.get('/sync/files', wrap(device), wrap(async (req, res) => {
+  const rows = (await STORE.list()).filter(r => r.name.startsWith('files/') && Number(r.size) <= FILE_MAX && !r.name.startsWith('files/benchmark/'));
+  res.json({ success: true, files: rows.map(r => ({ path: r.name.slice(6), size: Number(r.size), sha256: r.sha256 })) });
+}));
+
+/** One data file: a short-lived R2 link (the R2 keys never leave the platform) */
+router.get('/sync/file', wrap(device), wrap(async (req, res) => {
+  const name = String(req.query.name || '');
+  const row = name && !name.includes('..') ? await db.one('SELECT name FROM dataset_files WHERE name = $1', [`files/${name}`]) : null;
+  if (!row || !R2.enabled()) return res.status(404).json({ success: false, message: 'File not available.' });
+  res.redirect(302, R2.presign('GET', STORE.PREFIX + row.name, { expires: 900 }));
+}));
+
+/** Module 5 from the desktop: PJPS-wide manuscript fingerprints and the image reference databases */
+router.post('/sync/images/match', wrap(device), wrap(async (req, res) => {
+  const IMG = require('../images');
+  const REFS = require('../imageRefs');
+  const isHex = h => typeof h === 'string' && /^[0-9a-f]{16}$/.test(h);
+  const panels = (req.body?.panels || []).slice(0, 60).map(p => ({ id: String(p.id), label: String(p.label || '').slice(0, 160), type: String(p.type || ''),
+    hashes: (p.hashes || []).filter(isHex).slice(0, 8), windows: (p.windows || []).filter(isHex).slice(0, 5), thumb: typeof p.thumb === 'string' && p.thumb.length <= 40000 ? p.thumb : null, w: p.w | 0, h: p.h | 0 }));
+  const charts = REFS.cleanSeries(req.body?.charts);
+  const excludeCode = req.body?.excludeCode || null;
+  await STORE.ensureLocal(['new/', 'public-images/']);
+  const [earlier, earlierCharts, refs] = await Promise.all([
+    IMG.compareWithEarlier(panels, { excludeCode }), IMG.compareChartsWithEarlier(charts, { excludeCode }),
+    REFS.matchManuscript(panels, charts).catch(e => ({ matches: [], charts: [], searched: null, error: e.message }))
+  ]);
+  res.json({ success: true, earlier, earlierCharts, refs });
+}));
+
+router.get('/sync/images/refs/:id/thumb', wrap(device), wrap(async (req, res) => {
+  const REFS = require('../imageRefs');
+  const buf = await REFS.refThumb(await REFS.thumbKey(parseInt(req.params.id, 10) || 0));
+  if (!buf) return res.status(404).json({ success: false, message: 'Thumbnail not available.' });
+  res.set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }).send(buf);
+}));
+
+// ------------------------------------------------------------------ desktop installer downloads (web portal)
+// scripts/publish-desktop.js uploads the Windows installer and portable build to R2 (downloads/) and records the
+// release in meta 'desktop_release'; signed-in users download it from the "Desktop application" page.
+
+async function release() {
+  try { return JSON.parse((await db.getMeta('desktop_release')) || 'null'); } catch { return null; }
+}
+
+router.get('/desktop-app', auth.requireUser, wrap(async (req, res) => {
+  const r = await release();
+  res.json({
+    success: true, release: r && { version: r.version, publishedAt: r.publishedAt, notes: r.notes || null, files: (r.files || []).map(f => ({ kind: f.kind, name: f.name, size: f.size })) },
+    allowed: req.user.role === 'super_admin' || !!req.user.allow_desktop, platformUrl: cfg.PUBLIC_URL || `${String(req.get('x-forwarded-proto') || req.protocol).split(',')[0]}://${req.get('host')}`, storage: R2.enabled()
+  });
+}));
+
+router.get('/desktop-app/download/:kind', auth.requireUser, wrap(async (req, res) => {
+  const f = ((await release())?.files || []).find(x => x.kind === req.params.kind);
+  if (!f || !R2.enabled()) return res.status(404).json({ success: false, message: 'The desktop application has not been published yet. Ask the Super Admin.' });
+  await auth.audit(req, 'desktop-download', f.name, { kind: f.kind });
+  res.redirect(302, R2.presign('GET', f.key, { expires: 600, query: { 'response-content-disposition': `attachment; filename="${f.name}"` } }));
+}));
+
+router.get('/sync/images/databases', wrap(device), wrap(async (req, res) => res.json({ success: true, ...(await require('../imageRefs').status()) })));
 
 module.exports = router;

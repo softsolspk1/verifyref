@@ -1,6 +1,6 @@
 # PJPS Data Integrity System
 
-**by Softsols Pakistan** — five-module manuscript screening portal for the *Pakistan Journal of Pharmaceutical Sciences* (web platform). The earlier Windows desktop edition is still in the repository but is not developed further for the v4 modules.
+**by Softsols Pakistan** — five-module manuscript screening system for the *Pakistan Journal of Pharmaceutical Sciences*, as a web portal and as a Windows desktop application with the same five modules.
 
 The feature set follows [ReferenceVerify](https://referenceverify.com/) (all tools except its integrations and pricing), adapted to PJPS. The proposal is in [`docs/PJPS-Reference-Checker-Proposal.docx`](docs/PJPS-Reference-Checker-Proposal.docx).
 
@@ -111,16 +111,17 @@ npm start                 # run from source
 npm run dist              # installer + portable exe in desktop/dist/
 ```
 
-Set the web platform address in `desktop/desktop-config.json` before building (`"remoteUrl": "https://…"`), or enter it on the sign-in screen at first launch.
+From the project root: `REMOTE_URL=https://your-platform npm run desktop:dist` builds with the platform address pre-set (otherwise it is entered on the sign-in screen at first launch), and `npm run desktop:publish -- --notes "…"` uploads the installer and portable version to Cloudflare R2. Signed-in users then download them from **Desktop application** in the web portal's menu (each download is written to the audit log).
 
 **How it works**
 
 - First sign-in is online, against the web platform (only accounts with desktop access). Afterwards the user can sign in offline until the offline period ends.
-- **Sync** (automatic every 30 minutes and on reconnection, or *Sync & offline queue → Sync now*): account and permissions, Retraction Watch, Beall's list, hijacked journals, uploaded journal index lists, saved reports (both directions) and notifications.
+- **Sync** (automatic every 30 minutes and on reconnection, or *Sync & offline queue → Sync now*): account and permissions, every dataset table (Retraction Watch, Beall's list, Problematic Paper Screener, FDA Orange Book, NLM Catalog, DOAJ, LTWA, Crossref journal list, e-mail domains, journal index lists), the data-folder files on R2 up to 60 MB each (ImageTwin / Proofig knowledge base, public image data, ICLAC, PPS exports; the multi-gigabyte benchmark archives stay online), saved reports (both directions) and notifications.
+- **Module 5** runs its forensic analysis on the computer; the comparison with earlier PJPS manuscripts and the image reference databases (published PJPS, retracted, PubMed Central, RSIID, BioFors, BINDER figures) is done by the web platform through the device API, and offline the report says these were not searched.
 - **Offline**: document reading, Citation Check, retraction / predatory / journal-list checks, Reference Style and Manuscript Format, citation pattern, editor reports and letters, issue reports, saved reports and all exports. References already looked up are verified from the cache; others are marked *Pending — online verification* (never "suspicious") and re-checked automatically when the connection returns. Online-only tools (Find Evidence, Find a Journal, conferences, the Thesis Assistant) are queued.
 - Suspending a user or revoking a device on the web platform locks the desktop at its next connection.
 
-`node test/smoke-desktop.js` (with `REMOTE_URL`, `DESK_EMAIL`, `DESK_PASSWORD`) runs the online → offline → reconnect cycle against a running web platform; `SIMULATE_OFFLINE=1` makes the desktop engine behave as if the network were down.
+`node test/desktop-sync.js` (part of `npm test`) runs a platform and a desktop in-process: sign-in, dataset sync and Module 5 matching. `node test/smoke-desktop.js` (with `REMOTE_URL`, `DESK_EMAIL`, `DESK_PASSWORD`) runs the online → offline → reconnect cycle against a running web platform; `SIMULATE_OFFLINE=1` makes the desktop engine behave as if the network were down.
 
 ## Project layout
 

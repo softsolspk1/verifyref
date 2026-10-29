@@ -6,6 +6,7 @@ const db = require('./db');
 const { saveResult } = require('./pipeline');
 const KB = require('./imageKnowledge');
 const REFS = require('./imageRefs');
+const cfg = require('./config');
 
 const COVERAGE = {
   duplication: { done: true, note: 'Whole, partial, rotated, mirrored, resized, cropped copies - inside the manuscript, against earlier PJPS manuscripts, published PJPS papers and papers retracted for image problems' },
@@ -91,10 +92,22 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     thumbA: cap(f.thumbA, 160000), thumbB: cap(f.thumbB, 160000), thumbAW: f.thumbAW | 0, thumbAH: f.thumbAH | 0, thumbBW: f.thumbBW | 0, thumbBH: f.thumbBH | 0
   })).map(f => ({ ...f, assessment: KB.assess(f) }));
   const usable = panels.filter(p => !p.blank && p.type !== 'chart');
-  const earlier = await compareWithEarlier(usable, { excludeCode: meta.manuscriptCode || null });
+  let earlier = await compareWithEarlier(usable, { excludeCode: meta.manuscriptCode || null });
   const charts = cleanSeries(input.charts);
-  const earlierCharts = await compareChartsWithEarlier(charts, { excludeCode: meta.manuscriptCode || null });
-  const refs = await REFS.matchManuscript(usable, charts).catch(e => ({ matches: [], charts: [], searched: null, error: e.message }));
+  let earlierCharts = await compareChartsWithEarlier(charts, { excludeCode: meta.manuscriptCode || null });
+  let refs;
+  if (cfg.DESKTOP) {
+    // Desktop: the PJPS-wide fingerprints and the image reference databases are on the web platform; offline, only the
+    // manuscripts screened on this computer are compared (and the report says so)
+    const r = await require('./desktop').remoteImageMatch(userId, usable, charts, meta.manuscriptCode || null).catch(e => ({ error: e.message }));
+    if (r.refs) {
+      const keyOf = e => `${e.manuscriptCode}|${e.label}|${e.panel}`;
+      const seen = new Set(earlier.map(keyOf));
+      earlier = [...earlier, ...r.earlier.filter(e => !seen.has(keyOf(e)))].sort((a, b) => a.distance - b.distance).slice(0, 50);
+      earlierCharts = [...earlierCharts, ...r.earlierCharts].sort((a, b) => b.correlation - a.correlation).slice(0, 30);
+      refs = r.refs;
+    } else refs = { matches: [], charts: [], searched: null, error: `The PJPS image databases are on the web platform and could not be searched (${r.error}). Only the manuscripts screened on this computer were compared; run the check again when online.` };
+  } else refs = await REFS.matchManuscript(usable, charts).catch(e => ({ matches: [], charts: [], searched: null, error: e.message }));
   const byLevel = { high: findings.filter(f => f.level === 'high').length, medium: findings.filter(f => f.level === 'medium').length };
   if (earlier.some(e => e.distance <= 3) || earlierCharts.some(e => e.correlation >= 0.998)) byLevel.high++;
   if (refs.matches.some(m => m.level === 'high') || refs.charts.some(c => c.correlation >= 0.998)) byLevel.high++;

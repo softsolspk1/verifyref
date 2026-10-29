@@ -344,6 +344,13 @@ function parseReferenceEntry(raw, index) {
     if (pp) ref.pages = pp[1].replace(/\s+/g, '').replace(/[–—]/g, '-');
   }
 
+  // MDPI / AMA with dotted initials: Surname I.I., Surname I. Title. Abbrev. Journal. Year;Vol(Issue):pages.
+  const dotted = parseDottedVancouver(core);
+  if (dotted) {
+    Object.assign(ref, dotted);
+    return finishEntry(ref, core, accessed);
+  }
+
   // Elsevier numbered: I. Surname, I. Surname, Title, Journal, Vol (Year) pages.
   const elsevier = parseElsevierNumbered(core);
   if (elsevier) {
@@ -442,6 +449,38 @@ const EN_AUTHORS = new RegExp(String.raw`^(${EN_FAM},\s?${EN_INIT}(?:(?:,\s*and\
 const EN_YEAR = String.raw`((?:1[6-9]|20)\d{2})([a-z])?`;
 // "61(9): p. 892-906" | "335: p. 141-151" | "78" | "p. 98-103" | "14, 57"
 const EN_LOCATOR = /^(?:(\d{1,5})(?:\s*\(\s*([^)]{1,15}?)\s*\))?)?(?:\s*[:,]?\s*(?:pp?\.\s*)?([A-Za-z]?\d[\w\-–—]*))?\s*\.?$/;
+
+// MDPI / AMA output style: "Jeong W.Y., Kwon M., Kim K.S. Recent advances ... A review. Biomater. Res. 2021;25:24."
+// The journal abbreviation has full stops too, so the title ends at the first full stop after which only journal words follow.
+const DV_INIT = String.raw`[\p{Lu}]\.(?:\s?-?[\p{Lu}]\.)*`;
+const DV_AUTHOR = String.raw`${EN_FAM}\s${DV_INIT}`;
+const DV_AUTHORS = new RegExp(String.raw`^(${DV_AUTHOR}(?:,\s*(?:and\s+)?${DV_AUTHOR})*(?:,?\s*et\s+al\.?)?)\s+(?=\S)`, 'u');
+const DV_TAIL = new RegExp(String.raw`^(.+?)\s+${EN_YEAR}(?:\s+[A-Z][a-z]{2}(?:\s+\d{1,2})?)?;\s*(\d{1,5}[A-Za-z]?)?\s*(?:\(\s*([^)]{1,12}?)\s*\))?\s*(?::\s*([A-Za-z]?\d[\w\-–—]*))?\s*\.?$`, 'u');
+const JOURNAL_WORD = /^(?:[\p{Lu}][\p{L}\-']*\.?|of|and|the|in|for|on|&|\([^)]*\)[\p{L}.\-]*|[\p{Lu}\d]+:?)$/u;
+
+function parseDottedVancouver(core) {
+  const am = core.match(DV_AUTHORS);
+  if (!am) return null;
+  const rest = core.slice(am[0].length).trim();
+  const t = rest.match(DV_TAIL);
+  if (!t) return null;
+  const before = t[1].replace(/\.\s*$/, '');
+  let title = null, journal = null;
+  const stops = /\.\s+/g;
+  let m;
+  while ((m = stops.exec(before))) {
+    const j = before.slice(m.index + m[0].length).trim();
+    if (j && j.split(/\s+/).every(w => JOURNAL_WORD.test(w))) { title = before.slice(0, m.index).trim(); journal = j; break; }
+  }
+  if (!title || title.length < 8) return null;
+  const authors = am[1].replace(/,?\s*et\s+al\.?\s*$/, '').split(/\s*,\s*(?:and\s+)?/).map(a => {
+    const x = a.trim().match(new RegExp(String.raw`^(${EN_FAM})\s(${DV_INIT})$`, 'u'));
+    return x ? { family: x[1].trim(), given: x[2].trim() } : null;
+  }).filter(Boolean);
+  if (!authors.length) return null;
+  return { authors, title, journal: journal.replace(/\.$/, ''), year: +t[2], ...(t[3] ? { yearSuffix: t[3] } : {}), volume: t[4] || '', issue: (t[5] || '').trim(),
+    pages: (t[6] || '').replace(/\s+/g, '').replace(/[–—]/g, '-') };
+}
 
 // Elsevier numbered output style (Journal of Drug Delivery Science and Technology, Int J Pharm ...):
 // "U.K. Mandal, B. Chatterjee, F.G. Senjoti, Title, Journal, 11 (2016) 575-584."

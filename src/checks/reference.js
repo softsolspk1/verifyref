@@ -44,6 +44,12 @@ function extraTitleWords(ref, rec) {
   return { invented: regTok.length && covered / regTok.length >= 0.9 ? extras.length : 0, extras };
 }
 
+/** Share of the registered title's words found in the reference as written (0 for titles under five words: too generic) */
+function rawTitleCover(ref, rec) {
+  const words = normalize(rec.title || '').split(' ').filter(w => w.length > 2);
+  return words.length >= 5 ? titleContains(ref.raw || '', rec.title) : 0;
+}
+
 /** Score how well a database record matches the cited reference (0-100) */
 function scoreCandidate(ref, rec) {
   if (!rec || !rec.title) return { score: 0 };
@@ -53,7 +59,9 @@ function scoreCandidate(ref, rec) {
     ref.title && ref.journal ? titleSimilarity(`${ref.title}. ${ref.journal}`, rec.title) : 0,
     rec.shortTitle ? titleSimilarity(ref.title, rec.shortTitle) : 0,
     ref.title ? titleContains(ref.title, rec.title) * 0.95 : 0,
-    ref.title ? 0 : titleContains(ref.raw, rec.title) * 0.9
+    ref.title ? 0 : titleContains(ref.raw, rec.title) * 0.9,
+    // the whole registered title written in the reference: a match even when the fields were split wrongly
+    rawTitleCover(ref, rec) * 0.92
   );
   // D10: words in the cited title that the registered title does not have (invented words) lower the match
   const extra = extraTitleWords(ref, rec);
@@ -108,7 +116,8 @@ function compare(ref, rec, s) {
     const d = Math.abs(ref.year - rec.year);
     add('year', d === 1 ? 'low' : 'medium', d === 1 ? 'Year differs by one (often online-first vs print year)' : 'Publication year is wrong', ref.year, rec.year);
   }
-  if (s.journalScore !== null && s.journalScore < 0.5) {
+  // a chapter matched to its book, or a book to a series, is not a wrong journal
+  if (s.journalScore !== null && s.journalScore < 0.5 && !greyRef(ref) && !/book|chapter|monograph|reference-entry/i.test(rec.type || '')) {
     const preprint = rec.type === 'preprint' || /arxiv|biorxiv|medrxiv|chemrxiv|ssrn|preprint|research square|zenodo/i.test(`${rec.journal} ${rec.source}`);
     if (preprint) add('preprint', 'low', 'Matched the preprint version; the cited venue may be the published version — cite the published record', ref.journal, rec.journal);
     else add('journal', 'high', 'Real article attributed to the wrong journal', ref.journal, rec.journal);
@@ -128,9 +137,15 @@ function compare(ref, rec, s) {
   return issues;
 }
 
+// a book, chapter, report or web page as cited ("Publisher; City, Country: 2017", "4th ed.", "accessed on", a URL)
+const greyRef = ref => !!(ref.looksLikeWeb || ref.looksLikeBook || ref.type === 'book-chapter' || /\baccessed on\b|\bavailable online\b|\[internet\]|\b\d+(?:st|nd|rd|th) ed\b/i.test(ref.raw || '')
+  || /;\s*[\p{Lu}][\p{L} .'&/-]+(?:,\s*[\p{L} .'/-]+)*:\s*(?:1[6-9]|20)\d{2}/u.test(ref.raw || ''));
+
 /** A same- or similar-title record that disagrees on authors / year / journal / volume is another publication, not this one */
 function differentWork(ref, rec, s) {
   if (s.authorScore === 1) return false;
+  // a book or web page "matched" to a record by other authors is not that book or page
+  if (greyRef(ref) && s.authorScore === 0) return true;
   const vol = v => (String(v || '').match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, '');
   const off = [
     s.authorScore === 0,
@@ -217,7 +232,7 @@ async function verifyReference(ref, opts = {}) {
   let idMatches = false;
   if (idRecord) {
     const s = scoreCandidate(ref, idRecord);
-    idMatches = s.tSim >= 0.6 || (s.tSim >= 0.4 && s.authorScore === 1 && s.yearScore >= 0.75) || !ref.title;
+    idMatches = s.tSim >= 0.6 || (s.tSim >= 0.4 && s.authorScore === 1 && s.yearScore >= 0.75) || !ref.title || rawTitleCover(ref, idRecord) >= 0.9;
     if (!idMatches) {
       issues.push({ code: 'doi-mismatch', severity: 'high', message: 'The identifier belongs to a different publication', cited: ref.title, registered: idRecord.title });
     }

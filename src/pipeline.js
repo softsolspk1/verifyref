@@ -154,12 +154,14 @@ function screeningSummary(r) {
   const reasons = [];
   let rec = 'proceed';
   const escalate = (level, why) => { reasons.push(why); if (level === 'investigate' || (level === 'return' && rec === 'proceed')) rec = level; };
-  if (pm?.level === 'HIGH') escalate('investigate', `Paper mill risk HIGH (${r.papermill.signals.filter(x => x.severity === 'high').map(x => x.title).slice(0, 2).join('; ')})`);
+  // name the strong signals, or when the level comes from the sum of several, the weightiest ones
+  const pmTop = () => { const sig = r.papermill.signals; const high = sig.filter(x => x.severity === 'high'); return (high.length ? high : [...sig].sort((a, b) => b.weight - a.weight)).slice(0, 2).map(x => x.title).join('; '); };
+  if (pm?.level === 'HIGH') escalate('investigate', `Paper mill risk HIGH (${pmTop()})`);
   if (im?.level === 'HIGH') escalate('investigate', `Image integrity: ${im.byLevel?.high || 0} strong finding(s)`);
   if (s.suspicious >= 3) escalate('investigate', `${s.suspicious} references not found in any database (possibly fabricated)`);
   else if (s.suspicious) escalate('return', `${s.suspicious} reference(s) could not be found`);
   if (s.retracted) escalate('return', `${s.retracted} retracted work(s) cited`);
-  if (pm?.level === 'MEDIUM') escalate('return', 'Paper mill risk MEDIUM — check the signals before review');
+  if (pm?.level === 'MEDIUM') escalate('return', `Paper mill risk MEDIUM — check the signals before review (${pmTop()})`);
   if (im?.level === 'MEDIUM') escalate('return', `Image integrity: ${im.byLevel?.medium || 0} finding(s) to check`);
   if (c && (c.missing >= 3 || c.uncited >= 5)) escalate('return', `${c.missing} citation(s) missing from the list, ${c.uncited} reference(s) never cited`);
   if (cp && cp.score < 60) escalate('return', `Only ${cp.score}% of references follow PJPS style`);

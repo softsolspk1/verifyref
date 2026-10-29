@@ -20,6 +20,11 @@ const STOP = new Set(('a an the and or of in on at to for from by with without a
   + 'than then into over under between among within during after before about also such may can could should would will not no but if so more most less '
   + 'all any each both other some same we our us they them using used use based study studies present results result showed shown show new novel effect '
   + 'effects evaluation development developed analysis role vitro vivo patients method methods approach').split(' '));
+// title words too general to stand for a research concept
+const GENERIC = new Set(('assisted mediated loaded induced enhanced improved improvement potential application applications system systems delivery drug '
+  + 'drugs therapy treatment activity activities properties property characterization characterisation formulation formulations preparation prepared '
+  + 'comparative comparison physical chemical technique techniques review current recent advance advances strategy strategies model models design '
+  + 'designed optimization optimisation assessment investigation performance efficacy clinical experimental').split(' '));
 const tokens = t => String(t || '').toLowerCase().replace(/<[^>]+>/g, ' ').replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/[\s-]+/)
   .filter(w => w.length > 2 && !STOP.has(w) && !/^\d+$/.test(w)).map(w => w.replace(/(ies)$/, 'y').replace(/(?<=[a-z]{4})s$/, ''));
 
@@ -62,7 +67,8 @@ function keyConcepts(meta, corpusDocs) {
   if (kw.length >= 2) return kw.slice(0, 4);
   const df = new Map();
   for (const d of corpusDocs) for (const w of new Set(d)) df.set(w, (df.get(w) || 0) + 1);
-  return [...new Set(tokens(meta.title))].sort((a, b) => (df.get(a) || 0) - (df.get(b) || 0)).slice(0, 4);
+  const words = [...new Set(tokens(meta.title))].filter(w => w.length >= 4 && !GENERIC.has(w));
+  return words.sort((a, b) => (df.get(a) || 0) - (df.get(b) || 0)).slice(0, 4);
 }
 
 async function countWorks(filter) {
@@ -106,10 +112,13 @@ async function checkNovelty({ meta = {}, journal = {} }, update = () => {}) {
   // the manuscript's 20 most specific terms: how much of them a work covers (cosine alone is diluted by long abstracts)
   const key = [...vec[0].entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
   const keyWeight = key.reduce((a, [, x]) => a + x, 0) || 1;
+  // titles (+ keywords) compared on their own: a long abstract spreads its weight over many terms and compresses the
+  // full-text cosine, while the title states what the work is about
+  const tvec = tfidf([tokens(`${title} ${(meta.keywords || []).join(' ')}`), ...prior.map(w => tokens(w.title))]);
   prior.forEach((w, i) => {
     const have = new Set(docs[i + 1]);
     const coverage = key.reduce((a, [t, x]) => a + (have.has(t) ? x : 0), 0) / keyWeight;
-    w.similarity = Math.round(Math.max(cosine(vec[0], vec[i + 1]), coverage * 0.85) * 1000) / 1000;
+    w.similarity = Math.round(Math.max(cosine(vec[0], vec[i + 1]), coverage * 0.85, cosine(tvec[0], tvec[i + 1]) * 0.9) * 1000) / 1000;
   });
   prior.sort((a, b) => b.similarity - a.similarity);
   const top = prior.slice(0, 10);

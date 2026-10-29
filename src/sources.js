@@ -4,7 +4,7 @@
 //   pages, type, url, publisher, retracted, notices:[], pmid, openalexId, abstract, topics:[] }
 
 const { getJson, getText } = require('./http');
-const { cleanDoi, splitName, invertedIndexToText } = require('./text');
+const { cleanDoi, splitName, invertedIndexToText, titleSimilarity } = require('./text');
 const cfg = require('./config');
 
 const enc = encodeURIComponent;
@@ -531,10 +531,12 @@ async function coreQuery(query, limit = 4) {
   return { records: (r.data?.results || []).map(fromCore) };
 }
 
-async function coreDoi(doi) {
-  const r = await coreQuery(`doi:"${String(doi).replace(/"/g, '')}"`, 2);
+// CORE's repository records sometimes carry another paper's DOI (a thesis that cites it, say), so when the expected
+// title is known, a record only counts if its title matches too
+async function coreDoi(doi, title) {
+  const r = await coreQuery(`doi:"${String(doi).replace(/"/g, '')}"`, title ? 5 : 2);
   if (r.error) return r;
-  const rec = r.records.find(x => x.doi === cleanDoi(doi));
+  const rec = r.records.find(x => x.doi === cleanDoi(doi) && (!title || titleSimilarity(title, x.title) >= 0.7));
   return rec ? { record: rec } : { notFound: true };
 }
 

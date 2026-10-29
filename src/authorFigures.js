@@ -98,7 +98,7 @@ async function openalexArticlesOf(author) {
 async function pdfFiguresOf(art) {
   const urls = [...(art.pdfUrls || [])];
   if (!urls.length && art.doi) {
-    const c = await require('./sources').coreDoi(art.doi).catch(() => null);
+    const c = await require('./sources').coreDoi(art.doi, art.title).catch(() => null);
     if (c?.record?.pdfUrl) { urls.push(c.record.pdfUrl); art.via = `${art.via} + CORE`; }
   }
   for (const url of urls.slice(0, 2)) {

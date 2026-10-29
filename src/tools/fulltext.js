@@ -78,7 +78,7 @@ async function openalexFullText(record) {
 /** CORE (core.ac.uk): the full text itself with an API key, otherwise its open-access PDF */
 async function coreFullText(record) {
   if (!record?.doi && !record?.title) return null;
-  const c = record.source === 'CORE' ? { record } : record.doi ? await S.coreDoi(record.doi) : null;
+  const c = record.source === 'CORE' ? { record } : record.doi ? await S.coreDoi(record.doi, record.title) : null;
   const rec = c?.record;
   if (!rec) return null;
   if (rec.fullText) return { pages: [{ page: null, text: rec.fullText }], origin: 'Open-access full text (CORE)', url: rec.url };
@@ -99,7 +99,7 @@ async function abstractOf(record) {
   const core = await europePmcCore(record);
   if (core?.abstractText) return { text: xmlText(core.abstractText), origin: 'Abstract (Europe PMC)' };
   if (record.doi) {
-    const c = await S.coreDoi(record.doi).catch(() => null);
+    const c = await S.coreDoi(record.doi, record.title).catch(() => null);
     if (c?.record?.abstract?.length > 100) return { text: c.record.abstract, origin: 'Abstract (CORE)' };
   }
   return null;

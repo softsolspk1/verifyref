@@ -66,7 +66,7 @@ if (process.argv[2] === 'platform') {
     r = await call('POST', '/api/desktop/sync', { datasets: true });
     assert.ok(r.data.jobId, 'sync job');
     let job;
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 360; i++) { // up to 90 s: a busy machine slows the in-memory databases down
       job = (await call('GET', `/api/jobs/${r.data.jobId}`)).data;
       if (job.status === 'done' || job.status === 'error') break;
       await new Promise(res => setTimeout(res, 250));

@@ -69,7 +69,12 @@ function buildMenu() {
     { label: 'View', submenu: [{ role: 'reload' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }, { role: 'toggleDevTools', label: 'Developer tools' }] },
     { label: 'Help', submenu: [
       { label: 'View log file', click: () => shell.openPath(logFile) },
-      { label: `About ${APP_NAME}`, click: () => dialog.showMessageBox(win, { type: 'info', title: APP_NAME, message: `${APP_NAME} ${app.getVersion()}`, detail: `The five PJPS modules (desktop edition with offline mode).\n© ${new Date().getFullYear()} Softsols Pakistan\n\nData folder: ${userData}` }) }
+      { label: 'Softsols Pakistan website', click: () => shell.openExternal('https://softsols.pk/') },
+      { type: 'separator' },
+      { label: `About ${APP_NAME}`, click: async () => {
+        const r = await dialog.showMessageBox(win, { type: 'info', title: APP_NAME, message: `${APP_NAME} ${app.getVersion()}`, detail: `The five PJPS modules (desktop edition with offline mode).\nDeveloped by Softsols Pakistan — https://softsols.pk/\n© ${new Date().getFullYear()} Softsols Pakistan\n\nData folder: ${userData}`, buttons: ['OK', 'Visit softsols.pk'], defaultId: 0 });
+        if (r.response === 1) shell.openExternal('https://softsols.pk/');
+      } }
     ] }
   ]));
 }

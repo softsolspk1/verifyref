@@ -14,13 +14,13 @@
         <div class="brand-mark">PJPS</div>
         <div>
           <div class="brand-name">PJPS Data Integrity System</div>
-          <div class="brand-sub">by Softsols Pakistan</div>
+          <div class="brand-sub">by <a href="https://softsols.pk/" target="_blank" rel="noopener">Softsols Pakistan</a></div>
         </div>
       </div>
       <h1>Manuscript screening for PJPS</h1>
       <p class="lead">Five modules check every submission before peer review: fabricated, wrong or retracted references, the PJPS reference style, citations that do not support the text, paper-mill signs and duplicated or edited figures.</p>
       <ul class="feature-list">
-        <li><b>1 · Check Bibliography</b>12 scholarly databases, DOIs, Retraction Watch, links, reference age, self-citation, predatory journals and duplicates; monitoring of published PJPS articles for retractions, corrections and concerns.</li>
+        <li><b>1 · Check Bibliography</b>13 scholarly databases, DOIs, Retraction Watch, links, reference age, self-citation, predatory journals and duplicates; monitoring of published PJPS articles for retractions, corrections and concerns.</li>
         <li><b>2 · Reference Style &amp; PJPS</b>Rule-by-rule PJPS style check and conversion of citations and references, in Word as Track Changes.</li>
         <li><b>3 · Citations</b>In-text citations against the reference list, claim support from the cited sources, citation patterns and author letters in English and Urdu.</li>
         <li><b>4 · Paper Mill Detection</b>Paper-mill signals, plagiarism and text similarity, AI-written text, research data, pharmaceutical validation, ethics, authors, peer review and coordinated submissions — one explained risk score, cases and reports.</li>
@@ -39,6 +39,17 @@
             <div class="field"><label for="l-pass">Password</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
             <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center">Sign in</button>
           </form>
+          <div id="get-desktop" class="dl-login" hidden>
+            <div class="dl-login-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M12 7v6M9.5 10.5L12 13l2.5-2.5"/></svg></div>
+            <div>
+              <b>Desktop application for Windows</b>
+              <div class="muted" id="dl-meta">The same five modules, with offline use.</div>
+              <div class="row" style="margin-top:8px">
+                <a class="btn btn-sm btn-primary" id="dl-setup" href="/api/desktop-app/download/setup">Download installer</a>
+                <a class="btn btn-sm" id="dl-portable" href="/api/desktop-app/download/portable">Portable</a>
+              </div>
+            </div>
+          </div>
           <div id="desk" hidden style="margin-top:18px">
             <p class="muted" style="margin:0 0 6px"><span id="conn-state"></span> The first sign-in on this computer must be online; afterwards you can sign in offline for the period set by the Super Admin.</p>
             <a href="#" id="show-settings">Web platform address</a>
@@ -54,6 +65,7 @@
           </form>
         </div>
         <div id="msg" class="alert" hidden style="margin-top:16px"></div>
+        <p class="dev-credit">Developed by <a href="https://softsols.pk/" target="_blank" rel="noopener">Softsols Pakistan</a></p>
       </div>
     </section>
   </div>
@@ -73,7 +85,19 @@
 
     fetch('/api/app').then(r => r.json()).then(async app => {
       if (app.user) { location.href = '/app'; return; }
-      if (!app.desktop) return;
+      if (!app.desktop) {
+        // web: offer the Windows desktop application once it has been published
+        const d = await fetch('/api/desktop-app/latest').then(r => r.json()).catch(() => ({}));
+        const r = d.release;
+        if (!r) return;
+        const file = k => r.files.find(f => f.kind === k);
+        const mb = n => `${Math.round(n / 1048576)} MB`;
+        if (!file('setup')) $('dl-setup').remove();
+        if (!file('portable')) $('dl-portable').remove();
+        $('dl-meta').textContent = `Version ${r.version}${file('setup') ? ` · ${mb(file('setup').size)}` : ''} · Windows 10 / 11, 64-bit · the same five modules, with offline use.`;
+        show($('get-desktop'), true);
+        return;
+      }
       show($('desk'), true);
       const s = await fetch('/api/desktop/settings').then(r => r.json());
       $('s-url').value = s.remoteUrl || '';

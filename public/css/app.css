@@ -466,3 +466,21 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .steps li { counter-increment: s; position: relative; padding-left: 40px; font-size: 13.5px; }
 .steps li::before { content: counter(s); position: absolute; left: 0; top: -2px; width: 28px; height: 28px; border-radius: 50%; background: var(--grad); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px; }
 @media (max-width: 760px) { .dl-art { display: none; } .dl-hero { padding: 22px 18px; } }
+
+/* sign-in page: desktop download; developer credit */
+.dl-login { display: flex; gap: 12px; align-items: flex-start; margin-top: 20px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 7%, var(--surface)), color-mix(in srgb, var(--accent) 7%, var(--surface))); font-size: 13.5px; }
+.dl-login-icon { flex: none; width: 38px; height: 38px; border-radius: 10px; background: var(--grad); color: #fff; display: grid; place-items: center; }
+.dl-login-icon svg { width: 21px; height: 21px; }
+.dl-login .muted { font-size: 12.5px; }
+.dev-credit { font-size: 12px; color: var(--text-3); margin: 18px 0 0; text-align: center; }
+.dev-credit a { font-weight: 600; }
+.sidebar .dev-credit { text-align: left; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--side-line); color: var(--side-muted); }
+.landing .brand-sub a, .sidebar .brand-sub a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.sidebar .nav a { padding: 7px 10px; }
+.sidebar .nav-group { padding-top: 10px; }
+.sidebar .dev-credit { margin-top: 8px; padding-top: 6px; }
+/* the menu scrolls on its own; the account footer (with the developer credit) stays visible */
+@media (min-width: 901px) {
+  .sidebar { overflow: hidden; }
+  .sidebar .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; margin-right: -6px; padding-right: 6px; }
+}

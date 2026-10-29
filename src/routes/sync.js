@@ -176,7 +176,13 @@ router.get('/desktop-app', auth.requireUser, wrap(async (req, res) => {
   });
 }));
 
-router.get('/desktop-app/download/:kind', auth.requireUser, wrap(async (req, res) => {
+// Public: the sign-in page offers the download (signing in to the desktop still needs an account with desktop access)
+router.get('/desktop-app/latest', wrap(async (req, res) => {
+  const r = await release();
+  res.json({ success: true, release: r && R2.enabled() ? { version: r.version, publishedAt: r.publishedAt, files: (r.files || []).map(f => ({ kind: f.kind, name: f.name, size: f.size })) } : null });
+}));
+
+router.get('/desktop-app/download/:kind', wrap(async (req, res) => {
   const f = ((await release())?.files || []).find(x => x.kind === req.params.kind);
   if (!f || !R2.enabled()) return res.status(404).json({ success: false, message: 'The desktop application has not been published yet. Ask the Super Admin.' });
   await auth.audit(req, 'desktop-download', f.name, { kind: f.kind });

@@ -21,7 +21,7 @@ const get = (url, timeout = 600000) => new Promise((resolve, reject) => {
 
 const IMAGE_REASON = /image|photo|figure|western blot|gel|micrograph/i;
 // Crossref gives M/D/YYYY
-const isoDate = d => { const m = String(d || '').match(/^(d{1,2})/(d{1,2})/(d{4})/); return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : ''; };
+const isoDate = d => { const m = String(d || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : ''; };
 const cleanDoi = d => String(d || '').trim().toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, '');
 
 (async () => {

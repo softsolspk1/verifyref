@@ -3,6 +3,13 @@
 const PDFDocument = require('pdfkit');
 const cfg = require('./config');
 
+// pdfkit loads its built-in fonts by internal '#standard-fonts/...' aliases that Vercel's file tracing does not follow,
+// so on Vercel every PDF failed with "Cannot find module .../standard-fonts/Helvetica.cjs". Requiring the fonts used
+// here by their public names makes the tracer bundle them; pdfkit's own require then finds the same files.
+require('pdfkit/standard-fonts/Helvetica');
+require('pdfkit/standard-fonts/HelveticaBold');
+require('pdfkit/standard-fonts/HelveticaOblique');
+
 const INK = '#1F2A37', MUTED = '#5B6675', HEAD = '#0F4C5C', LINE = '#C9D1D9';
 
 // Built-in PDF fonts cover Latin text only; characters outside WinAnsi (e.g. Urdu) are replaced so the file still opens

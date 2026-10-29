@@ -104,8 +104,12 @@ export function renderReport(el, result, { kind } = {}) {
   const eb = $('#export-btn', el);
   if (eb) {
     const menu = $('#export-menu', el);
-    eb.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; };
-    document.addEventListener('click', () => (menu.hidden = true), { once: true });
+    // the next click anywhere (a menu item included) closes the menu again
+    eb.onclick = e => {
+      e.stopPropagation();
+      menu.hidden = !menu.hidden;
+      if (!menu.hidden) document.addEventListener('click', () => (menu.hidden = true), { once: true });
+    };
     $$('[data-export]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/export?format=${b.dataset.export}${b.dataset.export === 'corrected' ? '&style=pjps' : ''}`).catch(e => toast(e.message, 'error'))));
     $$('[data-screen]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/screening?version=${b.dataset.screen}`).catch(e => toast(e.message, 'error'))));
   }

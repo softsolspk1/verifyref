@@ -72,7 +72,7 @@ const note = (k, v) => console.log(k.padEnd(30), typeof v === 'string' ? v : JSO
   note('format intake', R.formats);
 
   // ---- retraction monitoring / alerts
-  const chk = await api.json('GET', '/api/checks'); const first = (chk.data.checks || [])[0];
+  await api.json('GET', '/api/checks');
   const fo = await api.json('GET', '/api/follows'); note('follows endpoint', { status: fo.status, keys: Object.keys(fo.data) });
   const al = await api.json('POST', '/api/admin/alerts/run', {}); note('alerts run', { status: al.status, data: al.data });
   R.alerts = { follows: fo.status, run: al.status, data: al.data };

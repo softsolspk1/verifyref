@@ -1,5 +1,5 @@
 // parse.js - document extraction, reference splitting/parsing, manuscript metadata and in-text citations
-const { cleanDoi, splitName, normalize } = require('./text');
+const { cleanDoi, splitName } = require('./text');
 
 const DOI_REGEX = /10\.\d{4,9}\/[^\s"'<>,]*[^\s"'<>.,;:]/i;
 const NUMBERED_PREFIX = /^\s*(?:\[\d{1,4}\]|\(\d{1,4}\)|\d{1,4}[.)](?!\d))\s*/;
@@ -15,8 +15,8 @@ function repairText(text) {
   if (!text) return '';
   return String(text)
     .replace(/\r\n?/g, '\n')
-    .replace(/ | | /g, ' ')
-    .replace(/^﻿/, '')
+    .replace(/\u00A0|\u2009|\u202F/g, ' ')
+    .replace(/^\uFEFF/, '')
     .replace(/ﬀ/g, 'ff').replace(/ﬁ/g, 'fi').replace(/ﬂ/g, 'fl').replace(/ﬃ/g, 'ffi').replace(/ﬄ/g, 'ffl')
     .replace(/­/g, '')
     .replace(/[‐‑]/g, '-')
@@ -229,7 +229,7 @@ function splitContinuation(lines) {
     const curDone = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /[.)\d]$/.test(cur);
     const strongEnd = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /(?:\d[.)]?|10\.\S+)$/.test(cur);
     if (!cur) cur = line;
-    else if (NUMBERED_PREFIX.test(line) || (startsEntry(line) && (curDone || cur.length > 60)) || (strongEnd && /^[\p{Lu}\[]/u.test(line))) {
+    else if (NUMBERED_PREFIX.test(line) || (startsEntry(line) && (curDone || cur.length > 60)) || (strongEnd && /^[\p{Lu}[]/u.test(line))) {
       entries.push(cur);
       cur = line;
     } else cur += ' ' + line;
@@ -312,7 +312,7 @@ function parseReferenceEntry(raw, index) {
 
   // Volume(issue):pages patterns
   const vip =
-    core.match(/(?:vol\.?\s*)?(\d{1,4})\s*\(\s*([\w\-–\/ ]{1,12})\s*\)\s*[:,]?\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,9}(?:\s*[-–—]\s*[A-Za-z]?\d{1,9})?)/i) ||
+    core.match(/(?:vol\.?\s*)?(\d{1,4})\s*\(\s*([\w\-–/ ]{1,12})\s*\)\s*[:,]?\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,9}(?:\s*[-–—]\s*[A-Za-z]?\d{1,9})?)/i) ||
     core.match(/vol\.?\s*(\d{1,4}),?\s*(?:no\.?|issue)\s*([\w\-–]{1,8}),?\s*(?:pp?\.?\s*)([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)/i) ||
     core.match(/;\s*(\d{1,4})\s*:\s*()([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)/) ||
     core.match(/,\s*(?:vol\.?\s*)?(\d{1,4})\s*()[,:]\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,6}\s*[-–—]\s*[A-Za-z]?\d{1,6}|e\d{3,8}|\d{4,8})\b/i) ||

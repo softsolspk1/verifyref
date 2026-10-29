@@ -186,4 +186,3 @@ async function cookieOf(api) { // login again to obtain the cookie for raw fetch
   const r = await fetch(api.base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'admin@test.local', password: 'admin-pass-123' }) });
   return (cookieOf.c = r.headers.get('set-cookie').split(';')[0]);
 }
-async function lastJobId() { return null; }

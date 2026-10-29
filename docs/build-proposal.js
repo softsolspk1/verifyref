@@ -3,10 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType,
-  BorderStyle, ShadingType, LevelFormat, Header, Footer, PageNumber, PageBreak, TableOfContents, VerticalAlign
+  BorderStyle, ShadingType, LevelFormat, Header, Footer, PageNumber, TableOfContents, VerticalAlign
 } = require('docx');
 
-const BRAND = '0B4F6C', ACCENT = '1F8A70', MUTED = '5B6B7A', LIGHT = 'E3F0F6';
+const BRAND = '0B4F6C', ACCENT = '1F8A70', MUTED = '5B6B7A';
 const W = 9638; // A4 width minus 2 cm margins, in DXA
 const FONT = 'Calibri';
 
@@ -17,7 +17,6 @@ const p = (text, o = {}) => new Paragraph({
 });
 const h1 = text => new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: true, children: [new TextRun({ text, font: FONT })] });
 const h2 = text => new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun({ text, font: FONT })] });
-const h3 = text => new Paragraph({ heading: HeadingLevel.HEADING_3, children: [new TextRun({ text, font: FONT })] });
 const bullets = (items, level = 0) => items.map(it => new Paragraph({
   numbering: { reference: 'bullets', level },
   spacing: { after: 60, line: 276 },

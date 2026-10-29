@@ -3,11 +3,11 @@
 const PDFDocument = require('pdfkit');
 const cfg = require('./config');
 
-const INK = '#1F2A37', MUTED = '#5B6675', HEAD = '#0F4C5C', LINE = '#C9D1D9', BAND = '#EEF3F6';
+const INK = '#1F2A37', MUTED = '#5B6675', HEAD = '#0F4C5C', LINE = '#C9D1D9';
 
 // Built-in PDF fonts cover Latin text only; characters outside WinAnsi (e.g. Urdu) are replaced so the file still opens
 const safe = s => String(s ?? '').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...').replace(/•/g, '-')
-  .replace(/[^\x09\x0A\x20-\x7E\xA0-\xFF]/g, '?');
+  .replace(/[^\x09\x0A\x20-\x7E\xA0-\xFF]/g, '?'); // eslint-disable-line no-control-regex
 
 function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
   return new Promise((resolve, reject) => {

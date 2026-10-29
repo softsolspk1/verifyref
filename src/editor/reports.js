@@ -1,5 +1,5 @@
 // editor/reports.js - Decision summary, author correction letter (English/Urdu), revision comparison, issue report
-const { titleSimilarity, normalize } = require('../text');
+const { titleSimilarity } = require('../text');
 const cfg = require('../config');
 
 // ------------------------------------------------------------------ problems list (shared by summary / issue report)

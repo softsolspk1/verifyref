@@ -1,5 +1,5 @@
 // views/journal.js - Journal Check: single journal lookup
-import { api, esc, $, badge, sevTone, toast, copyText, ICONS } from '../core.js';
+import { api, esc, $, badge, toast, copyText, ICONS } from '../core.js';
 
 export function renderJournalCheck(view) {
   view.innerHTML = `

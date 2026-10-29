@@ -12,12 +12,12 @@ const ctx = (text, i, len) => text.slice(Math.max(0, i - 60), i + len + 60).repl
 // ------------------------------------------------------------------ numerics
 
 function lgamma(x) {
-  const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+  const c = [76.18009172947146, -86.50532032941678, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
   let y = x, t = x + 5.5;
   t -= (x + 0.5) * Math.log(t);
   let s = 1.000000000190015;
   for (const k of c) s += k / ++y;
-  return -t + Math.log(2.5066282746310005 * s / x);
+  return -t + Math.log(2.5066282746310007 * s / x);
 }
 
 function betacf(a, b, x) {
@@ -198,7 +198,7 @@ function findPrimers(text) {
   const t = String(text).replace(/[‘’′´`]/g, "'").replace(/[−–—‑]/g, '-');
   const out = [];
   const seen = new Set();
-  const re = /(?:([A-Za-z0-9α-ωΑ-Ω\-\/\.]{2,24})\s*[,:;(]?\s*)?\(?\b(forward|reverse|sense|antisense|fwd|rev|F|R)\b\)?\s*[:=]?\s*(?:primer\s*)?[:=]?\s*5\s*'?\s*-?\s*([ACGTUN](?:[ACGTUN\s]{13,60}?)[ACGTUN])\s*-?\s*3\s*'/gi;
+  const re = /(?:([A-Za-z0-9α-ωΑ-Ω\-/.]{2,24})\s*[,:;(]?\s*)?\(?\b(forward|reverse|sense|antisense|fwd|rev|F|R)\b\)?\s*[:=]?\s*(?:primer\s*)?[:=]?\s*5\s*'?\s*-?\s*([ACGTUN](?:[ACGTUN\s]{13,60}?)[ACGTUN])\s*-?\s*3\s*'/gi;
   for (const m of t.matchAll(re)) {
     const seq = m[3].replace(/\s+/g, '').toUpperCase();
     if (seq.length < 12 || seq.length > 60 || seen.has(m.index)) continue;

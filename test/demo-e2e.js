@@ -4,7 +4,6 @@ process.env.PGLITE_DIR = 'memory://';
 process.env.ADMIN_EMAIL = 'admin@test.local';
 process.env.ADMIN_PASSWORD = 'admin-pass-123';
 delete process.env.DATABASE_URL;
-const fs = require('fs');
 const path = require('path');
 const mammoth = require('mammoth');
 (async () => {

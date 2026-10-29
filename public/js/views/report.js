@@ -1,5 +1,5 @@
 // views/report.js - renders a check result: References, Citations, Journals, Citation pattern, Editor report
-import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, state, runJob, hasModule, datasetBanner } from '../core.js';
+import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, runJob, hasModule, datasetBanner } from '../core.js';
 import { decisionCard } from './decision.js';
 
 export async function renderSavedReport(view, id) {
@@ -132,7 +132,6 @@ function changesBanner(c) {
     ${c.rows.map(r => `<tr><td class="num">${r.index}</td><td>${r.change === 'status' ? `${esc(r.before)} → <b>${esc(r.after)}</b>` : r.change === 'new' ? `New: ${esc(r.after)}` : `Removed (${esc(r.before)})`}</td><td>${esc(r.raw.slice(0, 180))}${r.reason ? `<div class="muted">${esc(r.reason)}</div>` : ''}</td></tr>`).join('')}</table></div>`;
 }
 
-const REC_TONE = { proceed: 'good', return: 'warn', investigate: 'bad' };
 
 function summaryTab(body, r) {
   const sc = r.screening;
@@ -343,7 +342,6 @@ export function journalRow(x) {
 function patternTab(body, p, refs) {
   if (!p) { body.innerHTML = '<div class="empty">Citation pattern was not analysed.</div>'; return; }
   const s = p.summary;
-  const title = i => esc((refs.find(r => r.index === i)?.record?.title || refs.find(r => r.index === i)?.parsed?.title || '').slice(0, 140));
   body.innerHTML = `
     ${!p.manuscriptAuthors.length ? '<div class="alert alert-warn">No manuscript authors were given, so self-citation could not be measured. Re-run with the author names.</div>' : ''}
     ${p.basis ? `<p class="muted">Relevance is estimated from the manuscript's ${esc(p.basis)} against each reference's title and subject topics.</p>` : ''}
@@ -373,7 +371,6 @@ function patternTab(body, p, refs) {
 // ------------------------------------------------------------------ Editor report tab
 
 function editorTab(body, result) {
-  const id = result.id;
   body.innerHTML = `
     <div class="tabs" style="margin-top:-4px">
       <button class="tab active" data-sub="summary">Decision summary</button>

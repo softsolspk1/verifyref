@@ -19,7 +19,7 @@ function detectDelimiter(headerLine) {
 
 /** RFC-4180 CSV parser (quoted fields, embedded newlines). Returns array of row arrays. */
 function parseCsv(text, delimiter) {
-  text = String(text).replace(/^﻿/, '');
+  text = String(text).replace(/^\uFEFF/, '');
   const firstLine = text.slice(0, text.indexOf('\n') > 0 ? text.indexOf('\n') : text.length);
   const d = delimiter || detectDelimiter(firstLine);
   const rows = [];

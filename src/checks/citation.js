@@ -51,7 +51,7 @@ function checkNumeric(body, refs) {
   const firstAppearance = [];
   for (const c of cites) {
     for (const n of c.nums) {
-      if (!byNum.has(n)) missing.push({ citation: `[${n}]`, context: c.context, para: c.para, para: c.para, reason: n > max ? `Reference ${n} does not exist (list has ${refs.length})` : `No reference numbered ${n}` });
+      if (!byNum.has(n)) missing.push({ citation: `[${n}]`, context: c.context, para: c.para, reason: n > max ? `Reference ${n} does not exist (list has ${refs.length})` : `No reference numbered ${n}` });
       else {
         if (!citedCount.has(n)) firstAppearance.push(n);
         citedCount.set(n, (citedCount.get(n) || 0) + 1);
@@ -148,7 +148,7 @@ function checkAuthorYear(body, refs) {
     } else {
       const near = sameAuthor.filter(k => k.year && Math.abs(k.year - c.year) <= 2);
       if (near.length) {
-        yearMismatch.push({ citation: label, context: c.context, para: c.para, para: c.para, candidates: near.map(k => ({ index: k.ref.index, year: k.year })), message: `Cited as ${c.year} but the reference list has ${near.map(k => k.year + (k.suffix || '')).join(', ')}` });
+        yearMismatch.push({ citation: label, context: c.context, para: c.para, candidates: near.map(k => ({ index: k.ref.index, year: k.year })), message: `Cited as ${c.year} but the reference list has ${near.map(k => k.year + (k.suffix || '')).join(', ')}` });
         for (const k of near) citedCount.set(k.ref.index, (citedCount.get(k.ref.index) || 0) + 0.5);
       } else if (sameAuthor.length === 0 && first.length >= 4 && (spell = refKeys.filter(k => k.year === c.year && k.authors[0] && editDistance(k.authors[0], first) <= (first.length >= 7 ? 2 : 1))).length === 1) {
         // The author is in the list with the same year but the name is spelled differently

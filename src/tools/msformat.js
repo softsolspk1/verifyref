@@ -38,12 +38,6 @@ function margins(t) {
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Math.round(v)]));
 }
 
-function ensure(d, parent, name, order) {
-  let e = kid(parent, name);
-  if (!e) e = d.setChild(parent, name, {}, order);
-  return e;
-}
-
 function setRunDefaults(d, rPr, t, sizePt, bold) {
   d.setChild(rPr, 'rFonts', { ascii: t.font, hAnsi: t.font, cs: t.font, eastAsia: t.font }, RPR_ORDER);
   d.setChild(rPr, 'sz', { val: Math.round(sizePt * 2) }, RPR_ORDER);

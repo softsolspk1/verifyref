@@ -19,7 +19,7 @@ function decodeXml(s) {
 const stripTags = s => decodeXml(String(s || '').replace(/<[^>]+>/g, ' '));
 
 // Search queries should use the cleaned title; strip characters that break API query syntax
-const q = s => String(s || '').replace(/["():\[\]{}^~*?\\/!]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+const q = s => String(s || '').replace(/["():[\]{}^~*?\\/!]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
 
 // ---------------------------------------------------------------- 1. Crossref
 

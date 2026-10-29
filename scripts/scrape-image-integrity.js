@@ -113,8 +113,8 @@ function htmlToMarkdown(html, baseUrl = '') {
 
   // Paragraphs and breaks
   target = target.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '\n\n$1\n\n');
-  target = target.replace(/<br\s*[\/]?>/gi, '\n');
-  target = target.replace(/<hr\s*[\/]?>/gi, '\n\n---\n\n');
+  target = target.replace(/<br\s*\/?>/gi, '\n');
+  target = target.replace(/<hr\s*\/?>/gi, '\n\n---\n\n');
 
   // Blockquotes
   target = target.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '\n> $1\n');

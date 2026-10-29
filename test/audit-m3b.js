@@ -39,7 +39,6 @@ const wrapLines = (t, n = 85) => { const w = t.split(' '); const out = []; let l
     ['Antibacterial activity of medicinal plants', 'Khan A, Ali B, Shah C. Pak. J. Pharm. Sci. 2019', 'Page 1 - Abstract'].concat(wrapLines('Aqueous extract of Nigella sativa seeds showed antibacterial activity against Staphylococcus aureus with a minimum inhibitory concentration of 12.5 mg/mL.')),
     ['Page 2 - Results'].concat(wrapLines('The extract was tested in vitro only. No activity was observed against Escherichia coli or Pseudomonas aeruginosa at concentrations up to 50 mg/mL. Cytotoxicity was not evaluated in this study.'))
   ]);
-  const aliPdf = makePdf([['Effect of curcumin on wound healing in rats', 'Ali B, Khan A. 2018'].concat(wrapLines('Topical curcumin ointment at 2 percent accelerated wound closure in Wistar rats, reducing the healing time from 18 days to 12 days compared with the untreated control group.'))]);
 
   const claims = [
     // [sentence with citation, expected verdict class]

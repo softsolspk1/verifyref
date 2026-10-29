@@ -94,7 +94,7 @@ const show = (label, r) => {
   R.dupEdited = !!dup2?.signals.some(s => s.code === 'duplicate');
   console.log('duplicate exact:', R.dupExact, '| duplicate after small edits:', R.dupEdited);
   // ---- authorship change between versions (same manuscript code)
-  const v1 = await run(api, { text: CLEAN, manuscriptCode: 'AUDIT-PM-AUTH', authors: 'Sana Rehman\nImran Qureshi\nNaila Akhtar', version: '1' }, 'v1');
+  await run(api, { text: CLEAN, manuscriptCode: 'AUDIT-PM-AUTH', authors: 'Sana Rehman\nImran Qureshi\nNaila Akhtar', version: '1' }, 'v1');
   const v2 = await run(api, { text: CLEAN, manuscriptCode: 'AUDIT-PM-AUTH', authors: 'Sana Rehman\nWei Zhang\nLi Chen\nNaila Akhtar', version: '2' }, 'v2');
   R.authorshipChange = !!v2?.signals.some(s => /author/i.test(s.code) && /change|added|remov|order/i.test(s.title + s.code));
   console.log('authorship change detected:', R.authorshipChange, '|', (v2?.signals || []).filter(s => s.group === 'authors').map(s => s.code + ': ' + s.title.slice(0, 80)).join(' ; '));
@@ -121,7 +121,6 @@ const show = (label, r) => {
     // reviewer role must not reach Module 4
     const cu = await api.json('POST', '/api/admin/users', { email: 'rev@test.local', name: 'Rev Tester', role: 'researcher', password: 'revpass-12345', allowWeb: true });
     console.log('created reviewer', cu.status);
-    const rApi = Object.assign({}, api);
     const lg = await fetch(api.base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'rev@test.local', password: 'revpass-12345' }) });
     const ck = lg.headers.get('set-cookie')?.split(';')[0];
     const probe = async (m, p, b) => (await fetch(api.base + p, { method: m, headers: { 'Content-Type': 'application/json', Cookie: ck }, body: b ? JSON.stringify(b) : undefined })).status;

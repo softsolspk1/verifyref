@@ -49,8 +49,6 @@ const pairKey = (a, b) => [a, b].sort().join(' ');
 const inter = (a, b) => { const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y); return w > 0 && h > 0 ? w * h : 0; };
 const gtBox = b => ({ x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] });
 const hitsGt = (box, gts) => gts.some(g => { const G = gtBox(g); return inter(box, G) / Math.max(1, Math.min(box.w * box.h, G.w * G.h)) >= 0.25; });
-const pct = (k, n) => (n ? `${(100 * k / n).toFixed(1)}%` : 'n/a');
-function wilson(k, n) { if (!n) return '-'; const z = 1.96, p = k / n, d = 1 + z * z / n, c = p + z * z / (2 * n), m = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)); return `${(100 * Math.max(0, (c - m) / d)).toFixed(1)}-${(100 * Math.min(1, (c + m) / d)).toFixed(1)}%`; }
 const report = {};
 
 // ---------------------------------------------------------------- external duplication

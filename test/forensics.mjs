@@ -48,7 +48,6 @@ assert.strictEqual(pc.forensic.alterations.filter(a => a.code === 'noise' || a.c
 const blot = { width: 300, height: 120, data: new Uint8ClampedArray(300 * 120 * 4) };
 for (let y = 0; y < 120; y++) for (let x = 0; x < 300; x++) {
   let v = x < 150 ? 215 : 170;
-  const lane = Math.floor((x % 75) / 75 * 1);
   const band = Math.exp(-((y - 60) ** 2) / 60) * 110 * (x % 75 > 15 && x % 75 < 60 ? 1 : 0);
   v = v - band + gauss() * 2;
   const i = (y * 300 + x) * 4; blot.data[i] = blot.data[i + 1] = blot.data[i + 2] = v; blot.data[i + 3] = 255;

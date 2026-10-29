@@ -1,6 +1,6 @@
 // views/restyle.js - Module 2: PJPS style compliance check (rule by rule) and converter to PJPS format (Word document
 // with Track Changes, or a pasted list). Other styles remain available in the style picker.
-import { api, esc, $, $$, toast, dropzone, runJob, download, downloadJobFile, copyText, badge, ICONS, state } from '../core.js';
+import { api, esc, $, $$, toast, dropzone, runJob, download, downloadJobFile, copyText, badge, ICONS } from '../core.js';
 
 const STATUS = { matched: ['Matched record', 'good'], parsed: ['From the text as written', 'warn'], kept: ['Unchanged — check manually', 'bad'] };
 

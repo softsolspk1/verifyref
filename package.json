@@ -17,7 +17,8 @@
     "download:ebsco": "node scripts/download-ebsco.js",
     "datasets:push": "node scripts/sync-datasets-r2.js",
     "datasets:pull": "node scripts/sync-datasets-r2.js --pull",
-    "images:index": "node scripts/index-image-refs.js"
+    "images:index": "node scripts/index-image-refs.js",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",
@@ -40,5 +41,10 @@
   "author": "Softsols Pakistan",
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0"
   }
 }

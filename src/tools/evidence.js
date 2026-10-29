@@ -6,7 +6,7 @@ const ST = require('../styles');
 const M = require('./match');
 const FT = require('./fulltext');
 const { getJson } = require('../http');
-const { cleanDoi, splitName } = require('../text');
+const { cleanDoi } = require('../text');
 const { retractionsFor } = require('../datasets');
 
 const enc = encodeURIComponent;

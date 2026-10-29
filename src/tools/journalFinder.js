@@ -3,7 +3,7 @@
 // time to publication and risk signals. Filtering (the decision bar) happens in the browser on the returned attributes.
 const S = require('../sources');
 const D = require('../datasets');
-const { relevanceScores, normalize } = require('../text');
+const { relevanceScores } = require('../text');
 const { interpretLists, doajLookup, nlmCatalog } = require('../checks/journal');
 
 const enc = encodeURIComponent;

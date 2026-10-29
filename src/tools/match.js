@@ -52,7 +52,7 @@ function sentenceSpans(text) {
   const spans = [];
   const s = String(text || '');
   let start = 0;
-  const re = /([.!?])(["”’)\]]*)\s+(?=["“(\[]?[\p{Lu}\d])|\n+/gu;
+  const re = /([.!?])(["”’)\]]*)\s+(?=["“([]?[\p{Lu}\d])|\n+/gu;
   let m;
   while ((m = re.exec(s))) {
     const end = m.index + (m[0].startsWith('\n') ? 0 : m[1].length + m[2].length);

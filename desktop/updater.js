@@ -5,7 +5,7 @@
 //   Portable copy: the new portable .exe is downloaded next to the running one and swapped in when the app closes
 //     (a small detached script waits for the file to be released, replaces it and, on "Restart now", starts it).
 // The database and datasets live in the user profile, so an update never touches them.
-const { app, dialog, shell } = require('electron');
+const { app, dialog } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

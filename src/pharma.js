@@ -6,7 +6,6 @@
 
 const { getJson } = require('./http');
 const { fdaDrugLookup, fdaValidateDrug } = require('./datasets');
-const { normalize } = require('./text');
 
 const enc = encodeURIComponent;
 

@@ -5,7 +5,7 @@
 const S = require('../sources');
 const ST = require('../styles');
 const M = require('./match');
-const { relevanceScores, cleanDoi, normalize } = require('../text');
+const { relevanceScores, cleanDoi } = require('../text');
 
 const enc = encodeURIComponent;
 const short = id => String(id || '').replace('https://openalex.org/', '');

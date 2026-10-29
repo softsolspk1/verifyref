@@ -45,7 +45,7 @@ async function runTests() {
   assert(/COVID/i.test(actt.record.briefTitle), 'Title should mention COVID');
   console.log(`   ✓ Verified trial ${actt.record.nctId}: "${actt.record.briefTitle}" (Status: ${actt.record.status})`);
 
-  const fakeTrial = await pharma.clinicalTrial('NCT00000001');
+  await pharma.clinicalTrial('NCT00000001');
   // Or check nonexistent
   console.log(`   ✓ Clinical trial lookup handled: status checked`);
 

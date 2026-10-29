@@ -300,7 +300,7 @@ async function journalProfile(name) {
 // ------------------------------------------------------------------ classification
 
 // Pakistani and other regional journals that are often missing from Crossref/PubMed/OpenAlex: "Not indexed", not fake
-const REGIONAL = /(pak(istan)?|karachi|lahore|peshawar|islamabad|rawalpindi|sindh|punjab|khyber|balochistan|quetta|multan|faisalabad|hyderabad|ayub|jpma|jcpsp|liaquat|dow|isra|baqai|ziauddin|aga khan|nishtar|gomal|hamdard|bangladesh|nepal|sri lanka|iraq|iran|sudan|nigeria)/i;
+const REGIONAL = /\b(pak(istan)?|karachi|lahore|peshawar|islamabad|rawalpindi|sindh|punjab|khyber|balochistan|quetta|multan|faisalabad|hyderabad|ayub|jpma|jcpsp|liaquat|dow|isra|baqai|ziauddin|aga khan|nishtar|gomal|hamdard|bangladesh|nepal|sri lanka|iraq|iran|sudan|nigeria)\b/i;
 
 async function classify(v, retraction) {
   const { ref, record, issues } = v;

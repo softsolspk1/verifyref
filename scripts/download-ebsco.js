@@ -150,7 +150,7 @@ async function downloadAndCompileEbsco(log = console.log) {
     console.log('Database connected.');
 
     const start = Date.now();
-    const { count, csvContent } = await downloadAndCompileEbsco(msg => console.log(`[EBSCO] ${msg}`));
+    const { csvContent } = await downloadAndCompileEbsco(msg => console.log(`[EBSCO] ${msg}`));
 
     console.log('[EBSCO] Importing compiled title list into PostgreSQL…');
     const imported = await D.importJournalList('ebsco', 'ebsco.csv', csvContent);

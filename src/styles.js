@@ -8,7 +8,6 @@ const BOOK_TYPES = /^(book|monograph|edited-book|reference-book|book-chapter|cha
 
 const I = text => ({ t: String(text), i: true });
 const B = text => ({ t: String(text), b: true });
-const BI = text => ({ t: String(text), b: true, i: true });
 
 /** Flatten nested arrays, drop empties, tidy punctuation and spacing across segment borders */
 function tidy(parts) {
@@ -23,7 +22,7 @@ function tidy(parts) {
   }
   // whitespace and duplicated punctuation, applied on the joined text with the segment borders preserved
   let text = out.map(s => s.t).join('');
-  const fixed = text.replace(/\s+/g, ' ').replace(/\s+([,.;:)])/g, '$1').replace(/([(\[])\s+/g, '$1').replace(/\.\./g, '.').replace(/,,/g, ',').replace(/\?\./g, '?').replace(/!\./g, '!').trim();
+  const fixed = text.replace(/\s+/g, ' ').replace(/\s+([,.;:)])/g, '$1').replace(/([([])\s+/g, '$1').replace(/\.\./g, '.').replace(/,,/g, ',').replace(/\?\./g, '?').replace(/!\./g, '!').trim();
   if (fixed === text) return out;
   // Re-split the fixed text along the original style runs (character-level alignment)
   return realign(out, fixed);

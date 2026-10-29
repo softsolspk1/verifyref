@@ -141,7 +141,7 @@ function cellLineCandidates(text, skip = new Set()) {
 /** Zero-width characters and look-alike letters from other alphabets: used to slip past plagiarism software */
 function hiddenText(text) {
   // zero-width characters only: soft hyphens are ordinary typesetting in publisher files and not a disguise
-  const zero = (text.match(/[​-‍⁠﻿]/g) || []).length;
+  const zero = (text.match(/[\u200B-\u200D\u2060\uFEFF]/g) || []).length;
   const mixed = [];
   // Greek letters are routine in science (TNFα, ΔΔCt, NF-κB). Only Cyrillic letters, or Greek capitals that look like Latin ones
   // (Α Β Ε Ζ Η Ι Κ Μ Ν Ο Ρ Τ Υ Χ), inside an otherwise Latin word are used to slip past plagiarism software.

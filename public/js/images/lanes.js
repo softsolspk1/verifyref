@@ -16,7 +16,6 @@ const hann = (src, sigma) => {                       // small separable blur for
   return { w, h, g: out };
 };
 
-const median = a => { const s = Float32Array.from(a).sort(); return s[s.length >> 1]; };
 const percentile = (a, p) => { const s = Float32Array.from(a).sort(); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
 
 function backgroundOf(g) {

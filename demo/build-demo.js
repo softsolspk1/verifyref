@@ -113,7 +113,9 @@ function synthetic(w, h) {
 }
 
 // ------------------------------------------------------------------ the figures
-const T1 = field(170, 170), T2 = field(170, 170, { blobs: 60 }), T3 = field(170, 170, { blobs: 80 }), T4 = field(170, 170, { blobs: 66 });
+const T1 = field(170, 170);
+field(170, 170, { blobs: 60 });                           // unused, but drawn so the seeded figures below stay identical
+const T3 = field(170, 170, { blobs: 80 }), T4 = field(170, 170, { blobs: 66 });
 const BARS = [62, 118, 87, 154, 121, 176];                // the data of Figure 3 (and of the earlier submission)
 
 function figure1(first) {                                   // 4 microscopy panels: original, rotated copy, cloned area, unrelated

@@ -1,9 +1,8 @@
 // docs/build-audit-report.js - generates PJPS-Platform-Audit-Report.docx (project-manager audit of the five-module platform).
 const fs = require('fs');
 const path = require('path');
-const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ShadingType, HeadingLevel, AlignmentType, LevelFormat, BorderStyle, Footer, PageNumber, TableOfContents } = require('docx');
+const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ShadingType, HeadingLevel, AlignmentType, LevelFormat, BorderStyle, Footer, PageNumber } = require('docx');
 
-const W = 10466; // content width, A4 with 0.75" margins (DXA)
 const C = { ink: '1F2A37', muted: '5B6675', head: '0F4C5C', line: 'C9D1D9', band: 'EEF3F6',
   met: 'D9F0DF', part: 'FFF0C2', miss: 'F9D4D4', na: 'E5E7EB', hi: 'F9D4D4', med: 'FFF0C2', low: 'E5EEF9' };
 const FONT = 'Calibri';
@@ -11,7 +10,6 @@ const FONT = 'Calibri';
 const t = (text, o = {}) => new TextRun({ text, font: FONT, size: o.size || 21, bold: o.bold, italics: o.italics, color: o.color || C.ink });
 const p = (text, o = {}) => new Paragraph({ spacing: { after: o.after ?? 120, line: 288 }, alignment: o.align, children: Array.isArray(text) ? text : [t(text, o)] });
 const h1 = text => new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { before: 0, after: 200 }, children: [new TextRun({ text, font: FONT, size: 34, bold: true, color: C.head })] });
-const h1n = text => new Paragraph({ heading: HeadingLevel.HEADING_1, spacing: { before: 0, after: 200 }, children: [new TextRun({ text, font: FONT, size: 34, bold: true, color: C.head })] });
 const h2 = text => new Paragraph({ heading: HeadingLevel.HEADING_2, spacing: { before: 280, after: 120 }, children: [new TextRun({ text, font: FONT, size: 26, bold: true, color: C.head })] });
 const bullet = (text, o = {}) => new Paragraph({ numbering: { reference: 'b', level: 0 }, spacing: { after: 60, line: 276 }, children: Array.isArray(text) ? text : [t(text, o)] });
 const bt = (b, rest) => bullet([t(b, { bold: true }), t(rest)]);

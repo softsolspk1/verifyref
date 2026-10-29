@@ -95,9 +95,24 @@ function initials(given) {
  * Compare two person names. Returns 'exact' (family + first initial match, compatible given),
  * 'likely' (family + first initial), or null.
  */
+const NAME_SUFFIX = /^(?:jr|junior|sr|senior|filho|neto|sobrinho|ii|iii|iv)\.?$/i;
+/** Registry names stored oddly: "Goldstein, J.M." or "SADASHIVAIAH R" all in family; family "Junior" with given "Eduardo Abib" */
+function tidyName(n) {
+  let { given = '', family = '' } = n || {};
+  family = String(family).trim(); given = String(given).trim();
+  if (!given && family.includes(',')) [family, given] = [family.slice(0, family.indexOf(',')).trim(), family.slice(family.indexOf(',') + 1).trim()];
+  else if (!given) {
+    const m = family.match(/^(.+?)\s+((?:[\p{Lu}]\.?){1,3})$/u);
+    if (m) [family, given] = [m[1], m[2]];
+    else if (/^\p{Lu}\p{Ll}+(?:\s\p{Lu}\p{Ll}+){1,3}$/u.test(family)) { const w = family.split(' '); family = w.pop(); given = w.join(' '); } // "Jonathan Tinotenda Chanyandura"
+  }
+  if (NAME_SUFFIX.test(family) && given.includes(' ')) { const g = given.split(' '); family = g.pop(); given = g.join(' '); }
+  return { ...n, given, family };
+}
+
 function nameMatch(a, b) {
-  const A = typeof a === 'string' ? splitName(a) : a;
-  const B = typeof b === 'string' ? splitName(b) : b;
+  const A = tidyName(typeof a === 'string' ? splitName(a) : a);
+  const B = tidyName(typeof b === 'string' ? splitName(b) : b);
   const fa = surnameKey(A.family), fb = surnameKey(B.family);
   if (!fa || !fb) return null;
   // Allow swapped order for South-Asian names written either way ("Khan Muhammad" vs "Muhammad Khan")
@@ -107,7 +122,10 @@ function nameMatch(a, b) {
   const swappedInitial = !famMatch && !swapped && (
     (fa === surnameKey(B.given) && initials(A.given)[0] && initials(A.given)[0] === initials(B.family)[0]) ||
     (fb === surnameKey(A.given) && initials(B.given)[0] && initials(B.given)[0] === initials(A.family)[0]));
-  if (swappedInitial) return 'likely';
+  // registry with given/family swapped and a middle name: "Jonathan" / "Tinotenda Chanyandura" for J.T. Chanyandura
+  const swappedLast = !famMatch && !swapped && !swappedInitial && B.given && fa === surnameKey(String(B.given).split(' ').pop()) &&
+    initials(A.given)[0] && initials(A.given)[0] === (initials(B.family) || '')[0];
+  if (swappedInitial || swappedLast) return 'likely';
   if (!famMatch && !swapped) return null;
   if (swapped) return 'likely';
   const ia = initials(A.given), ib = initials(B.given);

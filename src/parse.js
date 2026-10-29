@@ -6,7 +6,11 @@ const NUMBERED_PREFIX = /^\s*(?:\[\d{1,4}\]|\(\d{1,4}\)|\d{1,4}[.)](?!\d))\s*/;
 const BULLET_PREFIX = /^\s*[•▪·*-]\s+/;
 const YEAR_RE = /\b(1[6-9]\d{2}|20\d{2})[a-z]?\b/;
 const REF_HEADING = /^\s*(?:\d+\.?\s*)?(references?|bibliography|literature cited|works cited|reference list|cited literature|kaynak[çc]a)\s*:?\s*$/im;
-const END_HEADINGS = /^\s*(?:appendix|appendices|tables?|figure legends|figure captions|supplementary (?:material|information)|author contributions|conflicts? of interest)\b/im;
+const END_HEADINGS = /^\s*(?:appendix|appendices|tables?|figure legends|figure captions|captions|list of (?:tables|figures)|supplementary (?:material|information)|author contributions|conflicts? of interest)\b/im;
+// A wrapped line that starts with the year ("2020. 46(11): p. 1819-1831.") is not a new numbered entry
+const YEAR_LINE = /^\s*(?:1[6-9]|20)\d{2}[a-z]?[.,;]\s/;
+// Back matter that runs on after the last reference when the list has no closing heading
+const BACK_MATTER = /\s+(?:Captions\b|List of (?:[Tt]ables|[Ff]igures)\b|(?:Table|Figure|Fig\.)\s*S?1\s*:\s)/;
 
 // ------------------------------------------------------------------ text repair
 
@@ -188,16 +192,28 @@ function splitReferences(rawText, strategy = 'auto') {
   if (strategy === 'blank-line') return { entries: splitBlank(text), strategy };
   if (strategy === 'numbered') return { entries: splitNumbered(lines), strategy };
 
-  const numberedLines = lines.filter(l => NUMBERED_PREFIX.test(l) || BULLET_PREFIX.test(l));
+  const numberedLines = lines.filter(l => (NUMBERED_PREFIX.test(l) && !YEAR_LINE.test(l)) || BULLET_PREFIX.test(l));
   const nums = numberedLines.map(l => parseInt((l.match(/\d{1,4}/) || [])[0], 10)).filter(n => !isNaN(n));
   const sequential = nums.length >= 2 && nums.filter((n, i) => i === 0 || n === nums[i - 1] + 1).length >= nums.length * 0.8;
   const bullets = numberedLines.length - nums.length;
-  if ((sequential && nums.length >= lines.length * 0.15) || bullets >= 2) return { entries: splitNumbered(lines), strategy: 'numbered' };
+  if ((sequential && nums.length >= lines.length * 0.15) || bullets >= 2) return { entries: trimBackMatter(splitNumbered(lines)), strategy: 'numbered' };
 
   const blank = splitBlank(text);
-  if (blank.length >= 2 && blank.length >= lines.length * 0.3) return { entries: blank, strategy: 'blank-line' };
+  if (blank.length >= 2 && blank.length >= lines.length * 0.3) return { entries: trimBackMatter(blank), strategy: 'blank-line' };
 
-  return { entries: splitContinuation(lines), strategy: 'line-with-continuation' };
+  return { entries: trimBackMatter(splitContinuation(lines)), strategy: 'line-with-continuation' };
+}
+
+/** Drop figure/table captions that ran on into the last entry (or became entries of their own) */
+function trimBackMatter(entries) {
+  const out = [];
+  for (const e of entries) {
+    if (/^(?:Captions\b|List of (?:tables|figures)\b)/i.test(e)) break;
+    const m = e.match(BACK_MATTER);
+    if (m) { const head = e.slice(0, m.index).trim(); if (head.length > 15) out.push(head); break; }
+    out.push(e);
+  }
+  return out;
 }
 
 function splitBlank(text) {
@@ -208,7 +224,7 @@ function splitNumbered(lines) {
   const entries = [];
   let cur = '';
   for (const line of lines) {
-    if (NUMBERED_PREFIX.test(line) || BULLET_PREFIX.test(line)) {
+    if ((NUMBERED_PREFIX.test(line) && !(cur && YEAR_LINE.test(line))) || BULLET_PREFIX.test(line)) {
       if (cur.trim()) entries.push(cur.trim());
       cur = line;
     } else {
@@ -229,7 +245,7 @@ function splitContinuation(lines) {
     const curDone = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /[.)\d]$/.test(cur);
     const strongEnd = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /(?:\d[.)]?|10\.\S+)$/.test(cur);
     if (!cur) cur = line;
-    else if (NUMBERED_PREFIX.test(line) || (startsEntry(line) && (curDone || cur.length > 60)) || (strongEnd && /^[\p{Lu}[]/u.test(line))) {
+    else if ((NUMBERED_PREFIX.test(line) && !YEAR_LINE.test(line)) || (startsEntry(line) && (curDone || cur.length > 60)) || (strongEnd && /^[\p{Lu}[]/u.test(line))) {
       entries.push(cur);
       cur = line;
     } else cur += ' ' + line;
@@ -296,7 +312,8 @@ function parseReferenceEntry(raw, index) {
     .replace(/\bdoi:?\s*10\.\S+/gi, ' ')
     .replace(DOI_REGEX, ' ')
     .replace(/\b(?:PMID|PMCID):?\s*\w+/gi, ' ')
-    .replace(/\[?(?:Accessed|Retrieved|Available)[^.\]]*[.\]]/gi, ' ')
+    // access notes ("Available from:", "Accessed 12 May 2020", "Retrieved from") - not the word "available" in a title
+    .replace(/\[?(?:(?:Accessed|Retrieved)(?:\s+on)?\s*:?\s*(?:\d|[A-Z][a-z]{2})|(?:Available|Retrieved)\s+(?:from|at|online)\b|(?:Accessed|Available)\s*:)[^.\]]*[.\]]/gi, ' ')
     .replace(/\s+/g, ' ').trim();
 
   // Year: prefer "(2020)" then ";2020" / ", 2020."
@@ -325,6 +342,20 @@ function parseReferenceEntry(raw, index) {
   } else {
     const pp = core.match(/\bpp?\.\s*([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)/i);
     if (pp) ref.pages = pp[1].replace(/\s+/g, '').replace(/[–—]/g, '-');
+  }
+
+  // Elsevier numbered: I. Surname, I. Surname, Title, Journal, Vol (Year) pages.
+  const elsevier = parseElsevierNumbered(core);
+  if (elsevier) {
+    Object.assign(ref, elsevier);
+    return finishEntry(ref, core, accessed);
+  }
+
+  // EndNote "Numbered": Surname, I., I. Surname, and I. Surname, Title. Journal, Year. Vol(Issue): p. pages.
+  const endnote = parseEndNote(core);
+  if (endnote) {
+    Object.assign(ref, endnote);
+    return finishEntry(ref, core, accessed);
   }
 
   // Title in quotes (IEEE / Harvard / MLA)
@@ -377,11 +408,16 @@ function parseReferenceEntry(raw, index) {
     ref.journal = journalFrom(rest.slice(rest.indexOf(ref.title) + ref.title.length));
   }
 
+  return finishEntry(ref, core, accessed);
+}
+
+/** Shared clean-up once the fields are in place: trim punctuation, flag books / web pages / edited-book chapters */
+function finishEntry(ref, core, accessed) {
   ref.title = ref.title.replace(/\s*\[[^\]]*\]\s*$/, '').replace(/^[\s"“'‘]+|[\s"”'’.,]+$/g, '').trim();
-  ref.journal = ref.journal.replace(/^[\s"“'‘]+|[\s"”'’.,]+$/g, '').replace(/\b(?:Retrieved|Available)\b.*$/i, '').trim();
+  ref.journal = ref.journal.replace(/\s*\[Internet\]/i, '').replace(/^[\s"“'‘]+|[\s"”'’.,]+$/g, '').replace(/\b(?:Retrieved|Available)\b.*$/i, '').trim();
   if (/^\d+$/.test(ref.journal)) ref.journal = '';
   ref.firstAuthorSurname = ref.authors[0]?.family || null;
-  ref.looksLikeBook = !!ref.isbn || (/\b(?:press|publisher|publishing|edition|ed\.|eds\.|books?)\b/i.test(core) && !ref.volume);
+  ref.looksLikeBook = !!ref.looksLikeBook || !!ref.isbn || (/\b(?:press|publisher|publishing|edition|ed\.|eds\.|books?)\b/i.test(core) && !ref.volume);
   ref.looksLikeWeb = ref.urls.length > 0 && !ref.doi && !ref.volume;
   if (ref.looksLikeWeb) { ref.type = 'webpage'; ref.url = ref.urls[0]; if (accessed) ref.accessed = accessed[1].trim(); }
   // Edited-book chapter: "Title. In: Gilman AG, Goodman LS (eds.), Book title, 7th ed., Publisher, Place, pp. 446-472."
@@ -395,6 +431,104 @@ function parseReferenceEntry(raw, index) {
     ref.journal = ref.bookTitle; ref.looksLikeBook = true;
   }
   return ref;
+}
+
+// EndNote "Numbered" output style: first author "Surname, I.", later authors "I. Surname", then ", Title. Journal, Year. Vol(Issue): p. pages."
+const EN_INIT = String.raw`(?:[\p{Lu}][\p{Ll}]?\.\s?-?\s?)+`;
+// Later authors' initials, where EndNote sometimes runs the journal abbreviation in ("D.J.E.j.o.m.c. Shin")
+const EN_INIT_LATER = String.raw`[\p{Lu}][\p{Ll}]?\.\s?-?\s?(?:[\p{L}][\p{Ll}]?\.\s?-?\s?)*`;
+const EN_FAM = String.raw`(?:(?:van|von|de|da|del|der|den|di|du|la|le|al|el|bin|ter)\s)*[\p{L}][\p{L}'’\-]*(?:\s(?:(?:van|von|de|da|del|der|den|di|du|dos|la|le)\s)?[\p{Lu}][\p{L}'’\-]*){0,2}`;
+const EN_AUTHORS = new RegExp(String.raw`^(${EN_FAM},\s?${EN_INIT}(?:(?:,\s*and\s+|\s+and\s+|,\s*)${EN_INIT_LATER}\s?${EN_FAM})*(?:,?\s*et\s+al\.?)?)(?:\s*,\s+|(?<=al\.)\s+)(?=\S)`, 'u');
+const EN_YEAR = String.raw`((?:1[6-9]|20)\d{2})([a-z])?`;
+// "61(9): p. 892-906" | "335: p. 141-151" | "78" | "p. 98-103" | "14, 57"
+const EN_LOCATOR = /^(?:(\d{1,5})(?:\s*\(\s*([^)]{1,15}?)\s*\))?)?(?:\s*[:,]?\s*(?:pp?\.\s*)?([A-Za-z]?\d[\w\-–—]*))?\s*\.?$/;
+
+// Elsevier numbered output style (Journal of Drug Delivery Science and Technology, Int J Pharm ...):
+// "U.K. Mandal, B. Chatterjee, F.G. Senjoti, Title, Journal, 11 (2016) 575-584."
+const ELS_AUTHOR = String.raw`${EN_INIT_LATER}\s?${EN_FAM}`;
+const ELS_AUTHORS = new RegExp(String.raw`^(${ELS_AUTHOR}(?:(?:,\s*(?:and\s+)?|\s+and\s+)${ELS_AUTHOR})*(?:,?\s*et\s+al\.?)?),\s+(?=\S)`, 'u');
+const ELS_TAIL = new RegExp(String.raw`^(.+),\s*(?:(\d{1,5}[A-Za-z]?)\s*(?:\(\s*([^)]{1,12}?)\s*\)\s*)?)?\(\s*${EN_YEAR}\s*\)\s*(?:(?:pp?\.\s*)?([A-Za-z]?\d[\w\-–—]*))?\s*\.?$`, 'u');
+
+// "..., Journal, 7 2020." (volume and year, no brackets)
+const ELS_TAIL_BARE = new RegExp(String.raw`^(.+),\s*(\d{1,5})\s+${EN_YEAR}\s*\.?$`, 'u');
+
+function parseElsevierNumbered(core) {
+  const am = core.match(ELS_AUTHORS);
+  if (!am) return null;
+  const rest = core.slice(am[0].length).trim();
+  const t = rest.match(ELS_TAIL) || (m => m && [m[0], m[1], m[2], '', m[3], m[4], ''])(rest.match(ELS_TAIL_BARE));
+  if (!t) return null;
+  const cut = t[1].lastIndexOf(',');
+  if (cut < 0) return null;
+  const title = t[1].slice(0, cut).trim(), journal = t[1].slice(cut + 1).trim();
+  if (title.length < 8 || !journal) return null;
+  const authors = am[1].replace(/,?\s*et\s+al\.?\s*$/, '').split(/\s*,\s*(?:and\s+)?|\s+and\s+/).map(p => {
+    const m = p.trim().match(new RegExp(String.raw`^(${EN_INIT_LATER})\s?(${EN_FAM})$`, 'u'));
+    return m ? { family: m[2].trim(), given: m[1].trim() } : null;
+  }).filter(Boolean);
+  if (!authors.length) return null;
+  return { authors, title, journal, volume: t[2] || '', issue: (t[3] || '').trim(), year: +t[4], ...(t[5] ? { yearSuffix: t[5] } : {}),
+    pages: (t[6] || '').replace(/\s+/g, '').replace(/[–—]/g, '-') };
+}
+
+/** "Surname, I., I. Surname, and I. Surname, et al." -> [{ family, given }] */
+function endNoteAuthors(seg) {
+  const s = seg.replace(/,?\s*et\s+al\.?\s*$/, '').trim();
+  const first = s.match(new RegExp(String.raw`^(${EN_FAM}),\s?(${EN_INIT})`, 'u'));
+  if (!first) return [];
+  const out = [{ family: first[1].trim(), given: first[2].trim() }];
+  const later = s.slice(first[0].length).replace(/^[\s,]*(?:and\s+)?/, '').split(/\s*,\s*(?:and\s+)?|\s+and\s+/).filter(Boolean);
+  for (const p of later) {
+    const m = p.trim().match(new RegExp(String.raw`^(${EN_INIT_LATER})\s?(${EN_FAM})$`, 'u'));
+    if (m) out.push({ family: m[2].trim(), given: m[1].trim() });
+  }
+  return out;
+}
+
+function parseEndNote(core) {
+  if (/\(\s*(?:1[6-9]|20)\d{2}[a-z]?\s*\)/.test(core)) return null; // APA / Harvard / Nature put the year in parentheses
+  const am = core.match(EN_AUTHORS);
+  if (!am) return null;
+  const authors = endNoteAuthors(am[1]);
+  if (!authors.length) return null;
+  const rest = core.slice(am[0].length).trim();
+  const pages = s => (s || '').replace(/\s+/g, '').replace(/[–—]/g, '-');
+
+  // Chapter: Title, in Book Title, I. Editor and I. Editor, Editors. Year, Publisher: Place. p. 275-313.
+  const ch = rest.match(new RegExp(String.raw`^(.+?),\s+in\s+(.+?),\s+(.+?),\s+(?:Editors?|Eds?)\.\s*${EN_YEAR},\s*([^.:]+?)(?::\s*([^.]+?))?\.\s*(?:pp?\.\s*([\w\-–—]+))?\.?$`, 'u'));
+  if (ch) {
+    return { authors, title: ch[1], type: 'book-chapter', bookTitle: ch[2], journal: ch[2], editors: ch[3], year: +ch[4], ...(ch[5] ? { yearSuffix: ch[5] } : {}),
+      publisher: ch[6].trim(), ...(ch[7] ? { place: ch[7].trim() } : {}), pages: pages(ch[8]), looksLikeBook: true };
+  }
+
+  // Article: Title. Journal, Year. Vol(Issue): p. pages.
+  const art = rest.match(new RegExp(String.raw`^(.+),\s*${EN_YEAR}(?:[.:]\s*(.*?))?\s*$`, 'u'));
+  if (art) {
+    const loc = (art[4] || '').match(EN_LOCATOR);
+    const segs = splitSentences(art[1]);
+    if (loc && segs.length >= 2) {
+      // Rejoin an abbreviated journal split on its full stops ("Int. J. Pharm")
+      const journal = [segs.pop()];
+      while (segs.length > 1 && /^[\p{Lu}][\p{L}&]{0,6}$/u.test(segs[segs.length - 1])) journal.unshift(segs.pop());
+      return { authors, title: segs.join('. '), journal: journal.join('. '), year: +art[2], ...(art[3] ? { yearSuffix: art[3] } : {}),
+        volume: loc[1] || '', issue: (loc[2] || '').trim(), pages: pages(loc[3]) };
+    }
+  }
+
+  // No journal given: Title. Year. Vol: p. pages.
+  const nj = rest.match(new RegExp(String.raw`^(.+?)\.\s+${EN_YEAR}[.:]\s*(.+?)\s*$`, 'u'));
+  const njLoc = nj && nj[4].match(EN_LOCATOR);
+  if (njLoc) return { authors, title: nj[1], year: +nj[2], ...(nj[3] ? { yearSuffix: nj[3] } : {}), volume: njLoc[1] || '', issue: (njLoc[2] || '').trim(), pages: pages(njLoc[3]) };
+
+  // Book or report: Title. Year, Publisher: Place.
+  const bk = rest.match(new RegExp(String.raw`^(.+?)\.\s+${EN_YEAR}(?:,\s*([^.:]+?)(?::\s*([^.]+?))?)?\.?$`, 'u'));
+  if (bk) {
+    return { authors, title: bk[1], year: +bk[2], ...(bk[3] ? { yearSuffix: bk[3] } : {}),
+      ...(bk[4] ? { publisher: bk[4].trim(), looksLikeBook: true, type: 'book' } : {}), ...(bk[5] ? { place: bk[5].trim() } : {}) };
+  }
+  // Title only (no year or source given)
+  if (splitSentences(rest).length === 1 && !YEAR_RE.test(rest)) return { authors, title: rest.replace(/\.$/, '') };
+  return null;
 }
 
 /** Journal / container name: text after the title up to volume, year or page information */

@@ -222,4 +222,4 @@ async function loadShared(user, id) {
   return shared ? loadCheck(row.user_id, id) : null;
 }
 
-module.exports = { runCheck, saveCheck, saveResult, loadCheck, loadShared, prepare, normalizeMeta };
+module.exports = { runCheck, saveCheck, saveResult, loadCheck, loadShared, prepare, normalizeMeta, screeningSummary };

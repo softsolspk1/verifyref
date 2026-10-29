@@ -1,7 +1,7 @@
 // checks/reference.js - Reference Check: verify each reference against 12 academic databases
 const S = require('../sources');
 const { request, isOnline } = require('../http');
-const { titleSimilarity, titleContains, nameMatch, journalSimilarity, normalize } = require('../text');
+const { titleSimilarity, titleContains, nameMatch, journalSimilarity, normalize, normalizeJournal } = require('../text');
 const { retractionsFor } = require('../datasets');
 const { formatReference, detectStyle } = require('../format');
 const { resolveJournal } = require('./journal');
@@ -17,7 +17,7 @@ const STATUS = {
 
 // ------------------------------------------------------------------ scoring
 
-function firstPage(p) { return (String(p || '').match(/[A-Za-z]?\d+/) || [''])[0].replace(/^[A-Za-z]/, ''); }
+function firstPage(p) { return (String(p || '').match(/[A-Za-z]?\d+/) || [''])[0].replace(/^[A-Za-z]/, '').replace(/^0+(?=\d)/, ''); }
 function lastPage(p) {
   const m = String(p || '').match(/[A-Za-z]?(\d+)\s*[-–—]\s*[A-Za-z]?(\d+)/);
   if (!m) return '';
@@ -113,7 +113,9 @@ function compare(ref, rec, s) {
     if (preprint) add('preprint', 'low', 'Matched the preprint version; the cited venue may be the published version — cite the published record', ref.journal, rec.journal);
     else add('journal', 'high', 'Real article attributed to the wrong journal', ref.journal, rec.journal);
   }
-  if (ref.volume && rec.volume && String(ref.volume) !== String(rec.volume)) add('volume', 'medium', 'Volume number is wrong', ref.volume, rec.volume);
+  // registries write "Volume 17" or "03"
+  const vol = v => (String(v).match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, '');
+  if (ref.volume && rec.volume && vol(rec.volume) && vol(ref.volume) !== vol(rec.volume)) add('volume', 'medium', 'Volume number is wrong', ref.volume, rec.volume);
   if (ref.issue && rec.issue && normalize(ref.issue) !== normalize(rec.issue) && !String(rec.issue).includes(ref.issue)) add('issue', 'low', 'Issue number differs', ref.issue, rec.issue);
   if (ref.pages && rec.pages) {
     const fp = firstPage(ref.pages), rfp = firstPage(rec.pages);
@@ -124,6 +126,21 @@ function compare(ref, rec, s) {
     }
   }
   return issues;
+}
+
+/** A same- or similar-title record that disagrees on authors / year / journal / volume is another publication, not this one */
+function differentWork(ref, rec, s) {
+  if (s.authorScore === 1) return false;
+  const vol = v => (String(v || '').match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, '');
+  const off = [
+    s.authorScore === 0,
+    s.yearScore !== null && s.yearScore < 0.75,
+    s.journalScore !== null && s.journalScore < 0.5,
+    !!(vol(ref.volume) && vol(rec.volume) && vol(ref.volume) !== vol(rec.volume))
+  ].filter(Boolean).length;
+  // with no author list to compare, a looser title needs some other agreement (journal) to count as the same work
+  if (s.tSim < 0.85 && s.authorScore === null && !(s.journalScore >= 0.8)) return true;
+  return s.tSim < 0.85 ? off >= 1 : off >= (s.authorScore === null ? 2 : 3);
 }
 
 // ------------------------------------------------------------------ links
@@ -266,6 +283,10 @@ async function verifyReference(ref, opts = {}) {
     if (openalexRecord.retracted && !record.notices.some(n => n.type === 'Retraction')) record.notices.push(...openalexRecord.notices);
   }
 
+  // checked after enrichment, which can swap in the fuller Crossref record (with authors)
+  let closest = null;
+  if (record && !(idRecord && idMatches) && differentWork(ref, record, scoreCandidate(ref, record))) { closest = record; record = null; openalexRecord = null; }
+
   const matchedIn = [];
   for (const c of candidates) {
     if (c.score >= 75 && !matchedIn.includes(c.rec.source)) matchedIn.push(c.rec.source);
@@ -275,7 +296,14 @@ async function verifyReference(ref, opts = {}) {
   // ---- 4. Compare
   if (record) {
     const s = scoreCandidate(ref, record);
-    issues.push(...compare(ref, record, s));
+    const found = compare(ref, record, s);
+    // Crossref sometimes carries the deposit year: another database matching the same work with the cited year settles it
+    // (and the odd wrong volume): another database matching the same work with the cited value settles it
+    const same = c => c.rec !== record && c.tSim >= 0.9 && c.authorScore !== 0 && (!c.rec.doi || !record.doi || c.rec.doi.toLowerCase() === record.doi.toLowerCase());
+    const num = v => (String(v || '').match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, '');
+    const yearOk = ref.year && candidates.some(c => same(c) && c.rec.year === ref.year);
+    const volOk = ref.volume && candidates.some(c => same(c) && num(c.rec.volume) === num(ref.volume));
+    issues.push(...found.filter(i => !(yearOk && i.code === 'year') && !(volOk && i.code === 'volume')));
     if (!ref.doi && record.doi) issues.push({ code: 'doi-missing', severity: 'info', message: 'DOI missing — verified DOI found', registered: record.doi });
     if (ref.doi && record.doi && ref.doi !== record.doi && !idMatches) {
       issues.push({ code: 'doi-wrong', severity: 'high', message: 'DOI is wrong — the correct DOI was found', cited: ref.doiAsWritten, registered: record.doi });
@@ -285,7 +313,7 @@ async function verifyReference(ref, opts = {}) {
   // Offline (desktop): nothing reachable and nothing cached — verify later instead of calling it fabricated
   const outcomes = [...checked.values()];
   const offline = !record && !isOnline() && outcomes.length > 0 && outcomes.every(o => o === 'error');
-  return { ref, record, openalexRecord, confidence, issues, matchedIn, checked: Object.fromEntries(checked), topScore: top?.score || 0, offline };
+  return { ref, record, closest, openalexRecord, confidence, issues, matchedIn: record ? matchedIn : [], checked: Object.fromEntries(checked), topScore: top?.score || 0, offline };
 }
 
 // ------------------------------------------------------------------ "well-indexed journal but article absent" check
@@ -298,6 +326,14 @@ async function journalProfile(name) {
 }
 
 // ------------------------------------------------------------------ classification
+
+/** Every word of the resolved journal name is in the cited one, allowing abbreviations ("Int J Pharm" = International Journal of Pharmaceutics) */
+function sameJournalName(cited, resolved) {
+  const stop = new Set(['and', 'of', 'the', 'for', 'in', 'on', '&']);
+  const tok = x => normalizeJournal(x).split(' ').filter(t => t && !stop.has(t));
+  const c = tok(cited);
+  return journalSimilarity(cited, resolved) >= 0.95 && tok(resolved).every(t => c.some(w => t.startsWith(w)));
+}
 
 // Pakistani and other regional journals that are often missing from Crossref/PubMed/OpenAlex: "Not indexed", not fake
 const REGIONAL = /\b(pak(istan)?|karachi|lahore|peshawar|islamabad|rawalpindi|sindh|punjab|khyber|balochistan|quetta|multan|faisalabad|hyderabad|ayub|jpma|jcpsp|liaquat|dow|isra|baqai|ziauddin|aga khan|nishtar|gomal|hamdard|bangladesh|nepal|sri lanka|iraq|iran|sudan|nigeria)\b/i;
@@ -316,11 +352,17 @@ async function classify(v, retraction) {
   } else if (anyFound && (record.retracted || (retraction && /retraction/i.test(retraction.nature)))) {
     status = 'retracted';
     reason = 'This work has been retracted';
+  } else if (!anyFound && v.closest) {
+    status = 'unverified';
+    const about = [v.closest.authors?.[0]?.family, v.closest.year, v.closest.journal].filter(Boolean).join(', ');
+    reason = `Not found — the closest record${about ? ` (${about})` : ''} is a different publication; check manually`;
   } else if (!anyFound) {
     const grey = ref.looksLikeWeb || (ref.looksLikeBook && !ref.doi) || (!ref.journal && !ref.doi && !ref.pmid);
     const idFailed = issues.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code));
     let journal = null;
     if (!grey && ref.journal) journal = await journalProfile(ref.journal);
+    if (journal && !sameJournalName(ref.journal, journal.name)) journal = null; // resolved to a different journal
+    // the resolved journal must really be the cited one ("World Journal of Pharmaceutical Sciences" is not "... and Life Sciences")
     const wellIndexed = journal && journal.works > 300 && (!ref.year || (ref.year >= (journal.first || 0) && ref.year <= (journal.last || 9999)));
     const regional = REGIONAL.test(ref.journal || '') && !idFailed;
     if (idFailed) { status = 'suspicious'; reason = 'Identifier does not exist and no matching record was found'; }
@@ -331,12 +373,16 @@ async function classify(v, retraction) {
     else {
       status = 'suspicious';
       reason = 'No match in any of the 13 scholarly databases';
-      // Is the journal itself real? A journal missing from OpenAlex, the NLM Catalog and the Crossref title list too is a stronger sign
+      // Is the journal itself indexed? An article in a journal that no index covers cannot be checked online: unverified, not fabricated
       if (ref.journal && !journal) {
         const D = require('../datasets');
         const [nlm, cr] = await Promise.all([D.nlmJournal({ name: ref.journal }).catch(() => null), D.crossrefJournal({ name: ref.journal }).catch(() => null)]);
         if (nlm || cr) reason += `; the journal exists (${nlm ? 'NLM Catalog' : 'Crossref title list'}) but this article was not found in it`;
-        else reason += '; the journal name itself is not found in OpenAlex, the NLM Catalog or the Crossref title list';
+        else {
+          status = 'unverified';
+          reason = `Not indexed — ${ref.journal} is not covered by OpenAlex, the NLM Catalog or Crossref, so the article cannot be checked online; check manually`;
+          v.notIndexed = true;
+        }
       }
     }
     v.journalProfile = journal;
@@ -420,6 +466,7 @@ async function checkReferences(refs, opts = {}) {
         id: v.openalexRecord.openalexId, journalId: v.openalexRecord.journalId, topics: v.openalexRecord.topics, keywords: v.openalexRecord.keywords,
         abstract: (v.openalexRecord.abstract || '').slice(0, 1500), authors: v.openalexRecord.authors.slice(0, 100).map(a => ({ name: `${a.given} ${a.family}`.trim(), id: a.openalexId, orcid: a.orcid, institutions: a.institutions }))
       } : null,
+      closest: v.closest ? { source: v.closest.source, title: v.closest.title, year: v.closest.year, journal: v.closest.journal, doi: v.closest.doi, url: v.closest.url } : null,
       matchedIn: v.matchedIn,
       checked: v.checked,
       suggestion: !rec || status === 'retracted' ? null

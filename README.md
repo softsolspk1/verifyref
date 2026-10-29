@@ -98,7 +98,7 @@ npm start                 # http://localhost:3005
 npm test                  # auth / Super Admin / permission smoke test (in-memory database)
 ```
 
-Deploys to Vercel as before (`server.js` exports the app; the daily cron at `/api/cron/daily` also runs alerts, retraction monitoring and the indexing of new PJPS articles into the image database). Set the `R2_*` variables so the platform reads its datasets from Cloudflare R2, and optionally `CORE_API_KEY` (free, core.ac.uk) — without it CORE allows about 10 requests a minute and is skipped while the limit is reached. Uploads are limited to about 4.5 MB on Vercel; a VPS has no such limit.
+Deploys to Vercel as before (`server.js` exports the app; the daily cron at `/api/cron/daily` also runs alerts, retraction monitoring and the indexing of new PJPS articles into the image database). Set the `R2_*` variables so the platform reads its datasets from Cloudflare R2, and optionally `CORE_API_KEY` (free, core.ac.uk) — without it CORE allows about 10 requests a minute and is skipped while the limit is reached. Set `OPENALEX_API_KEY` (free, openalex.org/settings/api) for the OpenAlex journal list on Admin > Data: run `npm run datasets:openalex` once (about 10 minutes, against the database in `.env`); afterwards the daily cron refreshes it monthly, a few minutes per run. Uploads are limited to about 4.5 MB on Vercel; a VPS has no such limit.
 
 ## Windows desktop application
 

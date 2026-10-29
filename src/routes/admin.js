@@ -253,7 +253,7 @@ router.post('/admin/datasets/refresh', wrap(async (req, res) => {
 }));
 
 defineJob('datasets', async (input, { update }) => {
-  update('Refreshing Retraction Watch, Beall\'s list, Problematic Paper Screener, FDA Orange Book, NLM Catalog, DOAJ, Crossref journals, LTWA and e-mail domain lists', 10);
+  update('Refreshing Retraction Watch, Beall\'s list, Problematic Paper Screener, FDA Orange Book, NLM Catalog, DOAJ, Crossref journals, LTWA, e-mail domain lists and the OpenAlex journal list (continued on later runs)', 10);
   return D.ensureDatasets({ force: true });
 });
 

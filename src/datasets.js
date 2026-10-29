@@ -4,7 +4,7 @@ const path = require('path');
 const JSZip = require('jszip');
 const db = require('./db');
 const { getMeta, setMeta, transaction, bulkInsert } = db;
-const { getText, getBuffer } = require('./http');
+const { getText, getBuffer, getJson } = require('./http');
 const { normalize, normalizeJournal, cleanIssn, cleanDoi } = require('./text');
 const cfg = require('./config');
 const store = require('./datasetStore');
@@ -668,6 +668,115 @@ async function crossrefJournal({ issns = [], name = '' } = {}) {
   return rows.length === 1 ? rows[0] : null;
 }
 
+// ------------------------------------------------------------------ OpenAlex journal list (Sources)
+
+// ~220,000 journals at 200 per request. Paging past the first page needs a (free) OpenAlex API key. The list is fetched in
+// six size bands at once, each with its own cursor; every page is stored in openalex_journals_stage together with its
+// band's cursor, so a run that stops (time budget, timeout, error) resumes where it left off. Only a complete download
+// replaces openalex_journals, so the previous copy stays in use meanwhile.
+const OAJ_SELECT = 'id,issn_l,issn,display_name,host_organization_name,homepage_url,country_code,is_oa,is_in_doaj,apc_usd,works_count,cited_by_count,summary_stats,first_publication_year,last_publication_year,counts_by_year';
+const OAJ_BANDS = ['works_count:0', 'works_count:1-20', 'works_count:21-100', 'works_count:101-400', 'works_count:401-1500', 'works_count:>1500'];
+const OAJ_COLS = [
+  ...['openalex_id', 'title', 'title_norm', 'issn_l', 'issns', 'publisher', 'homepage', 'country'].map(name => ({ name, type: 'text' })),
+  { name: 'is_oa', type: 'boolean' }, { name: 'in_doaj', type: 'boolean' }, { name: 'apc_usd', type: 'int' }, { name: 'works', type: 'int' },
+  { name: 'cited_by', type: 'bigint' }, { name: 'h_index', type: 'int' }, { name: 'mean_citedness', type: 'float8' },
+  { name: 'first_year', type: 'int' }, { name: 'last_year', type: 'int' }, { name: 'works_by_year', type: 'jsonb' }
+];
+
+function openalexJournalRow(s) {
+  const title = (s.display_name || '').trim();
+  if (!s.id || !title) return null;
+  const issns = [...new Set([s.issn_l, ...(s.issn || [])].map(cleanIssn).filter(Boolean))];
+  const years = (s.counts_by_year || []).map(c => [c.year, c.works_count]).sort((a, b) => b[0] - a[0]).slice(0, 8);
+  const st = s.summary_stats || {};
+  return [s.id.replace('https://openalex.org/', ''), title, normalizeJournal(title), cleanIssn(s.issn_l) || null, issns.join(' ') || null,
+    s.host_organization_name || null, s.homepage_url || null, s.country_code || null, s.is_oa ?? null, s.is_in_doaj ?? null,
+    Number.isFinite(s.apc_usd) ? Math.round(s.apc_usd) : null, s.works_count ?? null, s.cited_by_count ?? null, st.h_index ?? null,
+    Number.isFinite(st['2yr_mean_citedness']) ? st['2yr_mean_citedness'] : null, s.first_publication_year ?? null, s.last_publication_year ?? null,
+    JSON.stringify(years)];
+}
+
+async function loadOpenAlexJournals({ budgetMs = Infinity, log = console.log } = {}) {
+  if (!cfg.OPENALEX_API_KEY) throw new Error('an OpenAlex API key is needed to download the whole journal list - set OPENALEX_API_KEY (free at openalex.org/settings/api)');
+  const started = Date.now();
+  if (!(await getMeta('oaj_harvest'))) {
+    await db.query('TRUNCATE openalex_journals_stage');
+    for (let i = 0; i < OAJ_BANDS.length; i++) await setMeta(`oaj_band_${i}`, JSON.stringify({ cursor: '*', done: false }));
+    await setMeta('oaj_harvest', new Date().toISOString());
+  }
+  const bands = await Promise.all(OAJ_BANDS.map(async (filter, i) => ({ i, filter, ...JSON.parse((await getMeta(`oaj_band_${i}`)) || '{"cursor":"*","done":false}') })));
+  // pages are fetched in parallel, written one at a time (the embedded database has a single connection)
+  let writes = Promise.resolve();
+  const write = fn => (writes = writes.then(fn));
+  await Promise.all(bands.map(async band => {
+    while (!band.done && Date.now() - started < budgetMs) {
+      const url = `https://api.openalex.org/sources?filter=type:journal,${band.filter}&per-page=200&select=${OAJ_SELECT}&cursor=${encodeURIComponent(band.cursor)}&api_key=${encodeURIComponent(cfg.OPENALEX_API_KEY)}`;
+      const r = await getJson(url, { ttl: 0, timeout: 60000, retries: 3 });
+      if (!r.ok) throw new Error(`OpenAlex answered ${r.status || r.error}${r.data?.message ? `: ${r.data.message}` : ''}`);
+      const rows = (r.data.results || []).map(openalexJournalRow).filter(Boolean);
+      const next = r.data.meta?.next_cursor || null;
+      await write(() => transaction(async client => {
+        if (rows.length) await bulkInsert(client, 'openalex_journals_stage', OAJ_COLS, rows);
+        await client.query('INSERT INTO meta(key, value) VALUES($1, $2) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value',
+          [`oaj_band_${band.i}`, JSON.stringify({ cursor: next, done: !next || !rows.length })]);
+      }));
+      band.cursor = next;
+      band.done = !next || !rows.length;
+    }
+  }));
+  await writes;
+  const staged = (await db.one('SELECT COUNT(*)::int AS n FROM openalex_journals_stage')).n;
+  if (!bands.every(b => b.done)) {
+    log(`OpenAlex journal list: ${staged.toLocaleString()} journals downloaded so far, continuing on the next run`);
+    return `${staged} so far (in progress)`;
+  }
+  if (staged < 100000) throw new Error(`OpenAlex journal list download returned too few journals (${staged})`);
+  // a journal whose size changed during the download can appear in two bands: keep one row per journal
+  await transaction(async client => {
+    await client.query('TRUNCATE openalex_journals');
+    await client.query('INSERT INTO openalex_journals SELECT DISTINCT ON (openalex_id) * FROM openalex_journals_stage ORDER BY openalex_id, works DESC NULLS LAST');
+    await client.query('TRUNCATE openalex_journals_stage');
+    await client.query("DELETE FROM meta WHERE key = 'oaj_harvest' OR key LIKE 'oaj_band_%'");
+  });
+  const count = (await db.one('SELECT COUNT(*)::int AS n FROM openalex_journals')).n;
+  await setMeta('oaj_loaded_at', new Date().toISOString());
+  await setMeta('oaj_count', count);
+  return count;
+}
+
+/** Dataset status, with the progress of a download that is still running */
+async function openalexJournalStatus() {
+  const harvest = await getMeta('oaj_harvest');
+  return {
+    loadedAt: await getMeta('oaj_loaded_at'), count: parseInt((await getMeta('oaj_count')) || '0', 10), keyConfigured: !!cfg.OPENALEX_API_KEY,
+    downloading: harvest ? { since: harvest, journals: (await db.one('SELECT COUNT(*)::int AS n FROM openalex_journals_stage')).n } : null
+  };
+}
+
+/** A stored journal in the shape of an OpenAlex source record, so callers can use it in place of a live one */
+function asOpenAlexSource(r) {
+  return {
+    id: `https://openalex.org/${r.openalex_id}`, display_name: r.title, type: 'journal', issn_l: r.issn_l, issn: (r.issns || '').split(' ').filter(Boolean),
+    host_organization_name: r.publisher, homepage_url: r.homepage, country_code: r.country, is_oa: r.is_oa, is_in_doaj: r.in_doaj, apc_usd: r.apc_usd,
+    works_count: r.works, cited_by_count: r.cited_by == null ? null : Number(r.cited_by), summary_stats: { h_index: r.h_index, '2yr_mean_citedness': r.mean_citedness },
+    first_publication_year: r.first_year, last_publication_year: r.last_year,
+    counts_by_year: (typeof r.works_by_year === 'string' ? JSON.parse(r.works_by_year) : r.works_by_year || []).map(([year, works]) => ({ year, works_count: works })),
+    localCopy: true
+  };
+}
+
+/** Journal from the local OpenAlex list by any ISSN or exact (normalised) title; null when unknown or not loaded */
+async function openalexJournal({ issns = [], name = '' } = {}) {
+  const is = issns.map(cleanIssn).filter(Boolean);
+  if (is.length) {
+    const row = await db.one("SELECT * FROM openalex_journals WHERE issn_l = ANY($1::text[]) OR string_to_array(issns, ' ') && $1::text[] ORDER BY works DESC NULLS LAST LIMIT 1", [is]);
+    if (row) return asOpenAlexSource(row);
+  }
+  if (!name) return null;
+  const rows = await db.all('SELECT * FROM openalex_journals WHERE title_norm = $1 ORDER BY works DESC NULLS LAST LIMIT 2', [normalizeJournal(name)]);
+  return rows.length === 1 ? asOpenAlexSource(rows[0]) : null;
+}
+
 // ------------------------------------------------------------------ free-mail and disposable e-mail domains
 
 const FREEMAIL_URL = 'https://raw.githubusercontent.com/Kikobeats/free-email-domains/master/domains.json';
@@ -761,6 +870,7 @@ async function listStatus() {
     doaj: { loadedAt: await getMeta('doaj_loaded_at'), count: parseInt((await getMeta('doaj_count')) || '0', 10) },
     ltwa: { loadedAt: await getMeta('ltwa_loaded_at'), count: parseInt((await getMeta('ltwa_count')) || '0', 10) },
     crossrefJournals: { loadedAt: await getMeta('crj_loaded_at'), count: parseInt((await getMeta('crj_count')) || '0', 10) },
+    openalexJournals: await openalexJournalStatus(),
     emailDomains: { loadedAt: await getMeta('maildom_loaded_at'), count: parseInt((await getMeta('maildom_count')) || '0', 10) },
     iclac: { loadedAt: null, count: 581, builtIn: true }
   };
@@ -785,6 +895,7 @@ async function datasetHealth() {
     doaj: { count: parseInt((await getMeta('doaj_count')) || '0', 10), loadedAt: await getMeta('doaj_loaded_at') },
     ltwa: { count: parseInt((await getMeta('ltwa_count')) || '0', 10), loadedAt: await getMeta('ltwa_loaded_at') },
     crossrefJournals: { count: parseInt((await getMeta('crj_count')) || '0', 10), loadedAt: await getMeta('crj_loaded_at') },
+    openalexJournals: { count: parseInt((await getMeta('oaj_count')) || '0', 10), loadedAt: await getMeta('oaj_loaded_at') },
     emailDomains: { count: parseInt((await getMeta('maildom_count')) || '0', 10), loadedAt: await getMeta('maildom_loaded_at') },
     complete: !missing.length,
     warning: missing.length ? 'Reference datasets are still loading or failed to load: ' + missing.join('; ') + '. Results that depend on them may be incomplete - run the check again after the datasets have loaded (Admin > Data).' : null
@@ -808,14 +919,18 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
     ['doaj', 'doaj', 'DOAJ', loadDoaj],
     ['ltwa', 'ltwa', 'ISSN LTWA', loadLtwa],
     ['crj', 'crj', 'Crossref journal list', loadCrossrefJournals],
-    ['maildom', 'maildom', 'E-mail domain lists', loadEmailDomains]
+    ['maildom', 'maildom', 'E-mail domain lists', loadEmailDomains],
+    // monthly; a download in progress continues on every run with whatever time is left
+    // (on Vercel at most 3 minutes per run, so a request never outlives the function time limit)
+    ['oaj', 'openalexJournals', 'OpenAlex journal list', () => loadOpenAlexJournals({ budgetMs: Math.min(budgetMs - (Date.now() - started), process.env.VERCEL ? 180000 : Infinity), log }), 30]
   ];
   // v4 added author names: reload Retraction Watch once if the stored copy predates that column
   const noAuthors = !force && (await getMeta('rw_authors')) !== '2';
   const todo = [];
   for (const d of all) {
     const loaded = await time(`${d[0]}_loaded_at`);
-    if (force || !loaded || Date.now() - loaded > maxAgeDays * 86400000 || (d[0] === 'rw' && noAuthors)) todo.push({ d, order: Math.max(loaded, await time(`${d[0]}_tried_at`)) });
+    const inProgress = d[0] === 'oaj' && !!(await getMeta('oaj_harvest'));
+    if (force || inProgress || !loaded || Date.now() - loaded > (d[4] || maxAgeDays) * 86400000 || (d[0] === 'rw' && noAuthors)) todo.push({ d, order: Math.max(loaded, await time(`${d[0]}_tried_at`)) });
   }
   todo.sort((a, b) => a.order - b.order);
   const results = {};
@@ -831,6 +946,6 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
-  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
+  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
   importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf
 };

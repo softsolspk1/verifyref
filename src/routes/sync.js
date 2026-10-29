@@ -58,12 +58,15 @@ router.get('/sync/manifest', wrap(device), wrap(async (req, res) => {
 // Every dataset table the desktop copies, with a stable order for paging
 const TABLE_ORDER = {
   retractions: 'doi', predatory: 'id', journal_list_entries: 'list_type, title_norm, issn, eissn', pps_fingerprints: 'kind, terms', fda_orange_book: 'id',
-  nlm_journals: 'nlm_id', doaj_journals: 'title_norm, issn, eissn', ltwa_words: 'word, prefix, abbrev', crossref_journals: 'title_norm, crossref_id, issn', email_domains: 'domain'
+  nlm_journals: 'nlm_id', doaj_journals: 'title_norm, issn, eissn', ltwa_words: 'word, prefix, abbrev', crossref_journals: 'title_norm, crossref_id, issn', email_domains: 'domain',
+  openalex_journals: 'openalex_id'
 };
+// wide rows: smaller pages keep each response under the 4.5 MB Vercel limit (the desktop pages by what it receives)
+const PAGE_MAX = { openalex_journals: 3000 };
 router.get('/sync/table/:name', wrap(device), wrap(async (req, res) => {
   const order = TABLE_ORDER[req.params.name];
   if (!order) return res.status(404).json({ success: false, message: 'Unknown table.' });
-  const limit = Math.min(parseInt(req.query.limit || '10000', 10), 10000);
+  const limit = Math.min(parseInt(req.query.limit || '10000', 10), PAGE_MAX[req.params.name] || 10000);
   const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
   const total = (await db.one(`SELECT COUNT(*)::int AS n FROM ${req.params.name}`)).n;
   const rows = await db.all(`SELECT * FROM ${req.params.name} ORDER BY ${order} LIMIT $1 OFFSET $2`, [limit, offset]);

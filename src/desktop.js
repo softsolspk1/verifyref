@@ -115,6 +115,7 @@ const TABLES = {
   doaj_journals: { status: 'doaj', meta: 'doaj', label: 'DOAJ' },
   ltwa_words: { status: 'ltwa', meta: 'ltwa', label: 'ISSN LTWA' },
   crossref_journals: { status: 'crossrefJournals', meta: 'crj', label: 'Crossref journal list' },
+  openalex_journals: { status: 'openalexJournals', meta: 'oaj', label: 'OpenAlex journal list' },
   email_domains: { status: 'emailDomains', meta: 'maildom', label: 'e-mail domain lists' },
   journal_list_entries: { label: 'journal index lists' }
 };

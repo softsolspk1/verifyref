@@ -9,9 +9,14 @@ const enc = encodeURIComponent;
 
 // ------------------------------------------------------------------ resolution (name / abbreviation / ISSN -> OpenAlex source)
 
+// Offline, or when OpenAlex does not answer, the local copy of the OpenAlex journal list stands in for the live record
+// (without topics and listed-in data; output by year is kept for the last eight years)
 async function openalexSourceByIssn(issn) {
-  const r = await S.openalex(`sources?filter=issn:${enc(issn)}&per-page=1`);
-  return r.ok ? r.data.results?.[0] || null : null;
+  if (isOnline()) {
+    const r = await S.openalex(`sources?filter=issn:${enc(issn)}&per-page=1`);
+    if (r.ok) return r.data.results?.[0] || null;
+  }
+  return D.openalexJournal({ issns: [issn] }).catch(() => null);
 }
 
 async function nlmCatalog(name, issn) {
@@ -59,7 +64,7 @@ function resolveJournal({ name = '', issn = '' }) {
           s, sim: Math.max(journalSimilarity(name, s.display_name), ...(s.alternate_titles || []).map(t => journalSimilarity(name, t)), ...(s.abbreviated_title ? [journalSimilarity(name, s.abbreviated_title)] : []))
         })).sort((a, b) => b.sim - a.sim || b.s.works_count - a.s.works_count);
         if (ranked[0]?.sim >= 0.85) source = ranked[0].s;
-      }
+      } else source = await D.openalexJournal({ name }).catch(() => null);
     }
     if (!source || is) nlm = await nlmCatalog(name, is);
     if (!source && nlm?.issns?.length) {
@@ -301,6 +306,7 @@ async function checkJournal(input) {
       twoYearMeanCitedness: src.summary_stats?.['2yr_mean_citedness'],
       firstYear: src.first_publication_year,
       lastYear: src.last_publication_year,
+      localCopy: !!src.localCopy,
       isOa: src.is_oa,
       apcUsd: src.apc_usd,
       listedIn,

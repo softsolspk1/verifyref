@@ -198,6 +198,33 @@ CREATE INDEX IF NOT EXISTS idx_crj_title ON crossref_journals(title_norm);
 CREATE INDEX IF NOT EXISTS idx_crj_issn ON crossref_journals(issn);
 CREATE INDEX IF NOT EXISTS idx_crj_eissn ON crossref_journals(eissn);
 
+-- OpenAlex journal list (api.openalex.org/sources, type journal): identity, every ISSN, publisher, open-access and DOAJ
+-- status, output and citation metrics. Filled page by page into the _stage copy, which replaces it once complete.
+CREATE TABLE IF NOT EXISTS openalex_journals (
+  openalex_id TEXT NOT NULL,             -- S... without the https://openalex.org/ prefix
+  title TEXT NOT NULL,
+  title_norm TEXT NOT NULL,
+  issn_l TEXT,
+  issns TEXT,                            -- every ISSN, space-separated
+  publisher TEXT,
+  homepage TEXT,
+  country TEXT,
+  is_oa BOOLEAN,
+  in_doaj BOOLEAN,
+  apc_usd INTEGER,
+  works INTEGER,
+  cited_by BIGINT,
+  h_index INTEGER,
+  mean_citedness DOUBLE PRECISION,       -- 2-year mean citedness
+  first_year INTEGER,
+  last_year INTEGER,
+  works_by_year JSONB                    -- [[year, works], ...] for the last eight years
+);
+CREATE INDEX IF NOT EXISTS idx_oaj_title ON openalex_journals(title_norm);
+CREATE INDEX IF NOT EXISTS idx_oaj_issnl ON openalex_journals(issn_l);
+CREATE INDEX IF NOT EXISTS idx_oaj_issns ON openalex_journals USING gin (string_to_array(issns, ' '));
+CREATE TABLE IF NOT EXISTS openalex_journals_stage (LIKE openalex_journals);
+
 -- Free-mail and disposable (throw-away) e-mail domains, Module 4 author and reviewer checks
 CREATE TABLE IF NOT EXISTS email_domains (
   domain TEXT PRIMARY KEY,

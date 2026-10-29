@@ -18,7 +18,8 @@
     "datasets:push": "node scripts/sync-datasets-r2.js",
     "datasets:pull": "node scripts/sync-datasets-r2.js --pull",
     "images:index": "node scripts/index-image-refs.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "datasets:openalex": "node scripts/load-openalex-journals.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

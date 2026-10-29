@@ -71,6 +71,13 @@ export async function renderAdmin(view) {
             <td>${d?.loadedAt ? fmtDate(d.loadedAt) : badge('not loaded', 'warn')}</td>
             <td>${d?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
           </tr>`).join('')}
+          ${(o => `<tr>
+            <td><b>OpenAlex journal list</b><div class="muted">Every journal in OpenAlex (about 220,000) with all ISSNs, publisher, country, open-access and DOAJ status, APC, output and citation metrics (Journal Check when offline or when OpenAlex does not answer). Refreshed monthly.</div></td>
+            <td>Journal index</td>
+            <td class="num">${o.count ? Number(o.count).toLocaleString() : '0'}</td>
+            <td>${o.loadedAt ? fmtDate(o.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${o.downloading ? `${badge('downloading', 'info')}<div class="muted">${Number(o.downloading.journals).toLocaleString()} journals so far</div>` : o.count ? badge('active', 'good') : !desk && !o.keyConfigured ? `${badge('needs API key', 'warn')}<div class="muted">Set OPENALEX_API_KEY (free at openalex.org)</div>` : badge('pending', 'warn')}</td>
+          </tr>`)(ds.openalexJournals || {})}
           <tr>
             <td><b>ICLAC Register of Misidentified Cell Lines</b><div class="muted">Cross-contaminated and misidentified human cell lines (ICLAC v14)</div></td>
             <td>Integrity</td>

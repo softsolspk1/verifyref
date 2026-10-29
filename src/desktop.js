@@ -340,9 +340,12 @@ function startSyncTimer() {
   const tick = async () => {
     if (!isOnline()) return;
     const users = await db.all("SELECT DISTINCT u.id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.expires_at > now() AND u.status = 'active'").catch(() => []);
+    // Datasets are checked hourly (one manifest request; only changed tables and files are downloaded), timed from the
+    // last dataset sync, not from the 30-minute account sync, which would otherwise always look recent
+    const age = at => (at ? Date.now() - new Date(at).getTime() : Infinity);
+    const datasets = age(await db.getMeta('datasets_synced_at')) > 3600000;
     for (const u of users) {
-      const last = await db.getMeta(`last_sync:${u.id}`);
-      if (!last || Date.now() - new Date(last).getTime() > 30 * 60000) syncInBackground(u.id, { datasets: !last || Date.now() - new Date(last).getTime() > 24 * 3600000 });
+      if (datasets || age(await db.getMeta(`last_sync:${u.id}`)) > 30 * 60000) syncInBackground(u.id, { datasets });
     }
   };
   setInterval(() => tick().catch(() => {}), 5 * 60000).unref();

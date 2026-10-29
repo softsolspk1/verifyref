@@ -52,23 +52,60 @@ async function articlesOf(author) {
   return (r.data?.resultList?.result || []).filter(x => x.pmcid).map(x => ({ pmcid: x.pmcid, title: x.title, year: x.pubYear, doi: x.doi, journal: x.journalTitle || '', author: `${author.given || ''} ${author.family || ''}`.trim() }));
 }
 
-/** Figure list of an open-access article, from its PMC page: [{ label, caption, url }] */
-async function figuresOf(pmcid) {
-  const r = await download(`https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`);
-  if (!r.ok || !r.buffer) return [];
-  const html = r.buffer.toString('utf8');
+/** Figures from the PMC article page: [{ label, caption, url }], or null when the page did not come (throttled, blocked) */
+async function pmcPageFigures(pmcid) {
+  for (const wait of [0, 2000, 6000]) {
+    if (wait) await new Promise(r => setTimeout(r, wait));
+    const r = await download(`https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`);
+    if (!r.ok || !r.buffer) { if (r.status === 404) return []; continue; }
+    const html = r.buffer.toString('utf8');
+    // a bot check or error page answers 200 too: only a real article page counts
+    if (!/citation_title|<article\b/i.test(html)) continue;
+    const figs = [];
+    const seen = new Set();
+    for (const m of html.matchAll(/<figure\b[^>]*>([\s\S]*?)<\/figure>/g)) {
+      const url = (m[1].match(/<img\b[^>]*\bsrc="(https:\/\/cdn\.ncbi\.nlm\.nih\.gov\/pmc\/blobs\/[^"]+)"/) || [])[1];
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      const label = (m[1].match(/<h4\b[^>]*>([\s\S]*?)<\/h4>/) || [])[1]?.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() || `Figure ${figs.length + 1}`;
+      const caption = (m[1].match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/) || [])[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || '';
+      figs.push({ label: label.slice(0, 60), caption, url });
+      if (figs.length >= MAX_FIGS_PER_ARTICLE) break;
+    }
+    return figs;
+  }
+  return null;
+}
+
+/** Figures from the Europe PMC full-text XML (<fig> with <graphic xlink:href>), served from europepmc.org/articles/<PMCID>/bin */
+async function epmcFigures(pmcid) {
+  const r = await download(`${EPMC}/${pmcid}/fullTextXML`);
+  if (!r.ok || !r.buffer) return null;
+  const xml = r.buffer.toString('utf8');
   const figs = [];
-  const seen = new Set();
-  for (const m of html.matchAll(/<figure\b[^>]*>([\s\S]*?)<\/figure>/g)) {
-    const url = (m[1].match(/<img\b[^>]*\bsrc="(https:\/\/cdn\.ncbi\.nlm\.nih\.gov\/pmc\/blobs\/[^"]+)"/) || [])[1];
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    const label = (m[1].match(/<h4\b[^>]*>([\s\S]*?)<\/h4>/) || [])[1]?.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() || `Figure ${figs.length + 1}`;
-    const caption = (m[1].match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/) || [])[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || '';
-    figs.push({ label: label.slice(0, 60), caption, url });
+  for (const m of xml.matchAll(/<fig\b[^>]*>([\s\S]*?)<\/fig>/g)) {
+    const href = (m[1].match(/<graphic\b[^>]*xlink:href="([^"]+)"/) || [])[1];
+    if (!href) continue;
+    const label = (m[1].match(/<label>([\s\S]*?)<\/label>/) || [])[1]?.replace(/<[^>]+>/g, '').trim() || `Figure ${figs.length + 1}`;
+    const caption = (m[1].match(/<caption>([\s\S]*?)<\/caption>/) || [])[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || '';
+    figs.push({ label: label.slice(0, 60), caption, url: `https://europepmc.org/articles/${pmcid}/bin/${/\.\w{3,4}$/.test(href) ? href : href + '.jpg'}` });
     if (figs.length >= MAX_FIGS_PER_ARTICLE) break;
   }
   return figs;
+}
+
+/**
+ * Figure list of an open-access article: [{ label, caption, url }]. The PMC page first (with retries, PMC throttles
+ * parallel requests), else the Europe PMC full text. Throws when neither answered, so the paper is retried later
+ * instead of being recorded as having no figures.
+ */
+async function figuresOf(pmcid) {
+  const page = await pmcPageFigures(pmcid);
+  if (page && page.length) return page;
+  const ft = await epmcFigures(pmcid);
+  if (ft && ft.length) return ft;
+  if (page === null && ft === null) throw new Error('PMC and Europe PMC did not answer (throttled) - retried on the next run');
+  return [];
 }
 
 /** Download a figure and decode it to { width, height, data(RGBA) } (PNG, JPEG, and WebP as PMC now serves) */

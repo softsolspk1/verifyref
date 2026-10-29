@@ -4,8 +4,11 @@
 //        published PJPS papers from pjps.pk (default: articles newer than the newest indexed one)
 //   --source retracted [--limit 500] [--force]
 //        open-access papers retracted / corrected for image problems (needs data/public-images/retracted_image_cases.json)
-//   --source pmc [--limit 500] [--restart]
-//        open-access PubMed Central papers in pharmacy / pharmacology / medicinal plants (continues where it stopped)
+//   --source pmc [--limit 500] [--band pharmacy|biomedical] [--restart]
+//        open-access PubMed Central papers in pharmacy / pharmacology / medicinal plants, and biomedical papers with
+//        blots / histology / microscopy (the two bands take turns; continues where it stopped)
+//   --source publisher [--limit 500] [--restart]
+//        open-access papers of the major publishers (MDPI, Elsevier, Springer Nature, Wiley, Frontiers, PLOS, ...)
 //   --source rsiid | biofors | binder [--limit N] [--force]
 //        public research datasets from the data folder (RSIID pristine figures, BioFors panels, BINDER patches)
 //   --file <path> [--file <path>] --title "..." [--doi ...] [--note ...]
@@ -38,9 +41,11 @@ const log = (step) => { if (Date.now() - last > 1000) { last = Date.now(); conso
     const fn = { rsiid: REFS.indexRsiid, biofors: REFS.indexBiofors, binder: REFS.indexBinder }[opt('source')];
     out = await fn({ limit: int('limit', Infinity), force: argv.includes('--force') }, log);
   } else if (opt('source') === 'pmc') {
-    out = await REFS.indexPmc({ limit: int('limit', 500), concurrency: int('concurrency', 3), restart: argv.includes('--restart') }, log);
+    out = await REFS.indexPmc({ limit: int('limit', 500), band: opt('band'), concurrency: int('concurrency', 3), restart: argv.includes('--restart') }, log);
+  } else if (opt('source') === 'publisher') {
+    out = await REFS.indexPublisherOa({ limit: int('limit', 500), concurrency: int('concurrency', 3), restart: argv.includes('--restart') }, log);
   } else {
-    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 14).join('\n').replace(/^\/\/ ?/gm, ''));
+    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 17).join('\n').replace(/^\/\/ ?/gm, ''));
     return db.close();
   }
   console.log(JSON.stringify(out, null, 2));

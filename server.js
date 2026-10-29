@@ -105,6 +105,12 @@ if (cfg.DESKTOP) {
     const pjpsFigures = await require('./src/imageRefs').indexPjps({ limit: 40, budgetMs: 120000 }).catch(e => ({ error: e.message }));
     res.json({ success: true, datasets, alerts, monitoring, pjpsFigures });
   }));
+  // Second daily cron: grows the Module 5 image databases (retracted cases, publishers' open access, PubMed Central)
+  app.get('/api/cron/images', wrap(async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ success: false, message: 'Unauthorized.' });
+    res.json({ success: true, images: await require('./src/imageRefs').growImageDatabases({ budgetMs: 240000 }) });
+  }));
 }
 
 // ------------------------------------------------------------------ errors & startup

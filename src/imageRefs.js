@@ -10,13 +10,14 @@
 const crypto = require('crypto');
 const db = require('./db');
 const R2 = require('./uploads');
-const { USER_AGENT } = require('./http');
+const { USER_AGENT, getJson } = require('./http');
 const { figuresOfFile, decodeImage, decodeAny } = require('./figureFiles');
 
 const SOURCES = {
   pjps: { name: 'Published PJPS papers', short: 'PJPS published' },
   retracted: { name: 'Papers retracted or corrected for image problems (open access)', short: 'Retracted / corrected' },
-  pmc: { name: 'PubMed Central open-access papers (pharmacy, pharmacology, medicinal plants)', short: 'PubMed Central' },
+  pmc: { name: 'PubMed Central open-access papers (pharmacy, pharmacology, medicinal plants; blots, histology, microscopy)', short: 'PubMed Central' },
+  publisher: { name: 'Open-access papers of the major publishers (MDPI, Elsevier, Springer Nature / BMC, Wiley, Frontiers, PLOS, Taylor & Francis, SAGE, OUP, CUP, Wolters Kluwer, ACS, Dove, Hindawi)', short: 'Publisher open access' },
   rsiid: { name: 'RSIID — pristine scientific figures (Recod.ai, CC-BY; includes BBBC microscopy)', short: 'RSIID' },
   biofors: { name: 'BioFors — biomedical figure panels with expert duplication annotations (ICCV 2021)', short: 'BioFors' },
   binder: { name: 'BINDER — bio-image near-duplicate examples (Harvard Dataverse, CC0)', short: 'BINDER' },
@@ -246,13 +247,14 @@ async function indexRetracted({ limit = 100, force = false, budgetMs = Infinity,
   const started = Date.now();
   await require('./datasetStore').ensureLocal('public-images/');
   const PUB = require('./publicImageData');
-  const AF = require('./authorFigures');
   const all = PUB.cases({ oa: true, per: 1e6 }).cases.filter(c => c.pmcid && c.reasons.some(r => IMAGE_REASONS.test(r)));
   if (!all.length) throw new Error('The list of retracted papers with image problems is not available (data/public-images/retracted_image_cases.json - run scripts/fetch-public-image-data.js or sync the data folder to R2).');
   // strongest cases first: duplication / manipulation / fabrication, retractions before corrections, newest first
   const rank = c => (c.reasons.some(r => /Duplication|Manipulation|Falsification|Plagiarism of Image/.test(r)) ? 0 : 1) * 2 + (/Retraction/i.test(c.nature) ? 0 : 1);
   all.sort((a, b) => rank(a) - rank(b) || String(b.date).localeCompare(String(a.date)));
-  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'retracted' AND status = 'done'")).map(r => r.source_key));
+  // done, or confirmed without figures; failures and pre-fallback "no figures" are retried once a day at most
+  const rows = force ? [] : await db.all("SELECT source_key, status, error, indexed_at > now() - interval '1 day' AS recent FROM image_ref_docs WHERE source = 'retracted'");
+  const done = new Set(rows.filter(r => r.status === 'done' || (r.status === 'no-figures' && r.error === NO_FIGURES) || r.recent).map(r => r.source_key));
   const list = all.filter(c => !done.has(c.pmcid)).slice(0, limit);
   const out = { available: all.length, indexedBefore: done.size, queued: list.length, papers: 0, figures: 0, panels: 0, errors: [], stoppedEarly: false };
   let next = 0;
@@ -261,21 +263,7 @@ async function indexRetracted({ limit = 100, force = false, budgetMs = Infinity,
       if (Date.now() - started > budgetMs) { out.stoppedEarly = true; return; }
       const c = list[next++];
       const meta = { doi: c.doi, title: c.title, journal: c.journal, year: String(c.date || '').slice(0, 4), url: `https://pmc.ncbi.nlm.nih.gov/articles/${c.pmcid}/`, note: `${c.nature} (${c.date}): ${c.reasons.join('; ')}` };
-      try {
-        let figs = await AF.figuresOf(c.pmcid);
-        if (!figs.length) { await new Promise(r => setTimeout(r, 3000)); figs = await AF.figuresOf(c.pmcid); }   // PMC throttles parallel page requests
-        const images = [];
-        for (const f of figs) {
-          const r = await download(f.url, { timeout: 45000, max: 30e6 });
-          const img = r.ok ? await decodeAny(r.buffer) : null;
-          if (img && img.width >= 80 && img.height >= 80) images.push({ ...img, label: f.label });
-        }
-        const doc = await storeDoc('retracted', c.pmcid, meta, images, figs.length ? {} : { status: 'no-figures', error: 'No figures on the PMC page' });
-        out.papers++; out.figures += images.length; out.panels += doc.panels;
-      } catch (e) {
-        out.errors.push(`${c.pmcid}: ${e.message}`);
-        await markDoc('retracted', c.pmcid, 'error', meta, e.message).catch(() => {});
-      }
+      await indexPmcPaper('retracted', c.pmcid, meta, out);
       update(`${c.pmcid}: ${out.papers} papers, ${out.panels} panels indexed (${next}/${list.length})`, 5 + next / Math.max(1, list.length) * 93);
     }
   };
@@ -287,6 +275,12 @@ async function indexRetracted({ limit = 100, force = false, budgetMs = Infinity,
 // ------------------------------------------------------------------ source 4: PubMed Central open-access papers in PJPS's field
 
 const PMC_QUERY = '(pharmacology[MeSH Terms] OR pharmaceutical[tiab] OR pharmaceutics[tiab] OR "medicinal plants"[tiab] OR phytochemical[tiab] OR "drug delivery"[tiab]) AND open access[filter]';
+// biomedical papers with the figure types where duplication is found most (blots, histology, microscopy, flow cytometry)
+const PMC_BIOMED_QUERY = '("western blot"[tiab] OR "western blotting"[tiab] OR immunohistochemistry[tiab] OR histopathology[tiab] OR immunofluorescence[tiab] OR "flow cytometry"[tiab] OR "electrophoretic mobility"[tiab]) AND open access[filter]';
+const PMC_BANDS = [
+  { id: 'pharmacy', query: PMC_QUERY, offsetKey: 'imgref_pmc_offset' },
+  { id: 'biomedical', query: PMC_BIOMED_QUERY, offsetKey: 'imgref_pmc_offset_biomed' }
+];
 const eutils = (tool, params) => {
   const key = require('./config').NCBI_API_KEY;
   return `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/${tool}.fcgi?${new URLSearchParams({ ...params, retmode: 'json', tool: 'pjps-integrity', ...(key ? { api_key: key } : {}) })}`;
@@ -296,12 +290,24 @@ const eutils = (tool, params) => {
  * Open-access figures of PubMed Central papers in pharmacy, pharmacology and medicinal plants (newest first), the
  * openly available part of the corpus ImageTwin / Proofig compare against. Continues where the last run stopped.
  */
-async function indexPmc({ limit = 100, query = PMC_QUERY, force = false, budgetMs = Infinity, concurrency = 3, restart = false } = {}, update = () => {}) {
+async function indexPmc({ limit = 100, band = null, force = false, budgetMs = Infinity, concurrency = 3, restart = false } = {}, update = () => {}) {
   const started = Date.now();
-  const AF = require('./authorFigures');
-  let offset = restart ? 0 : parseInt((await db.getMeta('imgref_pmc_offset')) || '0', 10);
-  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'pmc' AND status = 'done'")).map(r => r.source_key));
-  const out = { query, papers: 0, figures: 0, panels: 0, skipped: 0, errors: [], stoppedEarly: false, total: null };
+  // the two search bands take turns (pharmacy first); each keeps its own position in the result list
+  const turn = parseInt((await db.getMeta('imgref_pmc_turn')) || '0', 10);
+  const b = PMC_BANDS.find(x => x.id === band) || PMC_BANDS[turn % PMC_BANDS.length];
+  if (!band) await db.setMeta('imgref_pmc_turn', turn + 1);
+  const query = b.query;
+  let offset = restart ? 0 : parseInt((await db.getMeta(b.offsetKey)) || '0', 10);
+  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'pmc' AND status IN ('done', 'no-figures', 'error')")).map(r => r.source_key));
+  const out = { band: b.id, query, papers: 0, figures: 0, panels: 0, skipped: 0, retried: 0, errors: [], stoppedEarly: false, total: null };
+  // earlier failures and pre-fallback "no figures" first
+  const retries = await retryList('pmc', Math.floor(limit / 4));
+  out.retried = retries.length;
+  for (const r of retries) {
+    if (Date.now() - started > budgetMs) { out.stoppedEarly = true; break; }
+    await indexPmcPaper('pmc', r.source_key, r, out);
+  }
+  limit -= retries.length;
   const list = [];
   while (list.length < limit) {
     const r = await download(eutils('esearch', { db: 'pmc', term: query, retstart: offset, retmax: 200, sort: 'pub_date' }), { timeout: 30000 });
@@ -330,27 +336,13 @@ async function indexPmc({ limit = 100, query = PMC_QUERY, force = false, budgetM
       if (Date.now() - started > budgetMs) { out.stoppedEarly = true; return; }
       const id = list[next++], pmcid = `PMC${id}`;
       const m = { ...(meta.get(id) || {}), url: `https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`, note: 'PubMed Central open-access subset' };
-      try {
-        let figs = await AF.figuresOf(pmcid);
-        if (!figs.length) { await new Promise(r => setTimeout(r, 3000)); figs = await AF.figuresOf(pmcid); }   // PMC throttles parallel page requests
-        const images = [];
-        for (const f of figs) {
-          const r = await download(f.url, { timeout: 45000, max: 30e6 });
-          const img = r.ok ? await decodeAny(r.buffer) : null;
-          if (img && img.width >= 80 && img.height >= 80) images.push({ ...img, label: f.label });
-        }
-        const doc = await storeDoc('pmc', pmcid, m, images, figs.length ? {} : { status: 'no-figures', error: 'No figures on the PMC page' });
-        out.papers++; out.figures += images.length; out.panels += doc.panels;
-      } catch (e) {
-        out.errors.push(`${pmcid}: ${e.message}`);
-        await markDoc('pmc', pmcid, 'error', m, e.message).catch(() => {});
-      }
+      await indexPmcPaper('pmc', pmcid, m, out);
       update(`${pmcid}: ${out.papers} papers, ${out.panels} panels indexed (${next}/${list.length})`, 5 + next / Math.max(1, list.length) * 93);
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, list.length || 1) }, worker));
   // papers not reached because of the time budget are picked up next time
-  await db.setMeta('imgref_pmc_offset', Math.max(0, offset - (list.length - next)));
+  await db.setMeta(b.offsetKey, Math.max(0, offset - (list.length - next)));
   out.errors = out.errors.slice(0, 30);
   return out;
 }
@@ -712,10 +704,120 @@ async function listDocs({ source = '', q = '', status: st = '', page = 1, per = 
   return { total, page, per, docs };
 }
 
+// ------------------------------------------------------------------ source 7: open-access papers of the major publishers
+
+/** Figures of one open-access PMC paper into the database (shared by the PubMed Central and publisher sources) */
+async function indexPmcPaper(source, pmcid, meta, out) {
+  const AF = require('./authorFigures');
+  try {
+    const figs = await AF.figuresOf(pmcid);   // retries PMC, falls back to Europe PMC; throws when neither answered
+    const images = [];
+    for (const f of figs) {
+      const r = await download(f.url, { timeout: 45000, max: 30e6 });
+      const img = r.ok ? await decodeAny(r.buffer) : null;
+      if (img && img.width >= 80 && img.height >= 80) images.push({ ...img, label: f.label });
+    }
+    const doc = await storeDoc(source, pmcid, meta, images, figs.length ? {} : { status: 'no-figures', error: NO_FIGURES });
+    out.papers++; out.figures += images.length; out.panels += doc.panels;
+  } catch (e) {
+    out.errors.push(`${pmcid}: ${e.message}`);
+    await markDoc(source, pmcid, 'error', meta, e.message).catch(() => {});
+  }
+}
+// recorded when PMC and Europe PMC both answered and the paper really has no figures (not retried)
+const NO_FIGURES = 'No figures in the article (PMC and Europe PMC)';
+
+/**
+ * Papers recorded as failed, or as figure-less before figure fetching retried and fell back to Europe PMC (PMC throttling
+ * made many look empty). At most `limit`, oldest attempt first; a paper retried today is left for later.
+ */
+async function retryList(source, limit) {
+  if (limit <= 0) return [];
+  return db.all(`SELECT source_key, doi, title, journal, year, url, note FROM image_ref_docs
+    WHERE source = $1 AND (status = 'error' OR (status = 'no-figures' AND error IS DISTINCT FROM $2)) AND indexed_at < now() - interval '1 day'
+    ORDER BY indexed_at LIMIT $3`, [source, NO_FIGURES, limit]);
+}
+
+// Europe PMC PUBLISHER field; IEEE has almost no papers in PMC and is checked through Crossref only
+const OA_PUBLISHERS = ['MDPI', 'Elsevier', 'Springer', 'Nature', 'BioMed Central', 'Wiley', 'Frontiers Media', 'Public Library of Science', 'Taylor & Francis',
+  'SAGE', 'Oxford University Press', 'Cambridge University Press', 'Wolters Kluwer', 'American Chemical Society', 'Dove Medical Press', 'Hindawi'];
+const OA_TOPICS = '(pharmacology OR pharmaceutical OR pharmaceutics OR "drug delivery" OR "medicinal plant" OR phytochemical OR "western blot" OR immunohistochemistry OR histopathology OR "flow cytometry")';
+
+/**
+ * Open-access figures from the journals of the major publishers (MDPI, Elsevier, Springer Nature / BMC, Wiley, Frontiers,
+ * PLOS, Taylor & Francis, SAGE, OUP, CUP, Wolters Kluwer, ACS, Dove, Hindawi) in pharmacy and biomedicine, newest first.
+ * The publishers take turns; each keeps its own Europe PMC cursor, so a run continues where the last one stopped.
+ */
+async function indexPublisherOa({ limit = 100, publishers = OA_PUBLISHERS, budgetMs = Infinity, concurrency = 3, restart = false } = {}, update = () => {}) {
+  const started = Date.now();
+  const state = restart ? {} : JSON.parse((await db.getMeta('imgref_pub_cursors')) || '{}');
+  const done = new Set((await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'publisher' AND status IN ('done', 'no-figures')")).map(r => r.source_key));
+  const out = { papers: 0, figures: 0, panels: 0, skipped: 0, retried: 0, errors: [], stoppedEarly: false, byPublisher: {} };
+  const list = (await retryList('publisher', Math.floor(limit / 4))).map(r => ({ pmcid: r.source_key, meta: r }));
+  out.retried = list.length;
+  const perPublisher = Math.max(1, Math.ceil((limit - list.length) / publishers.length));
+  for (const p of publishers) {
+    const st = state[p] || { cursor: '*', done: false, total: null };
+    let taken = 0;
+    while (!st.done && taken < perPublisher && list.length < limit && Date.now() - started < budgetMs) {
+      const q = `PUBLISHER:"${p}" AND OPEN_ACCESS:y AND IN_PMC:y AND HAS_FT:y AND ${OA_TOPICS}`;
+      const r = await getJson(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&resultType=core&pageSize=100&sort=P_PDATE_D%20desc&cursorMark=${encodeURIComponent(st.cursor)}&query=${encodeURIComponent(q)}`, { ttl: 0, timeout: 45000, retries: 2 });
+      if (!r.ok) { out.errors.push(`${p}: Europe PMC search failed (${r.status || r.error})`); break; }
+      st.total = r.data?.hitCount ?? st.total;
+      const results = r.data?.resultList?.result || [];
+      const nextCursor = r.data?.nextCursorMark;
+      let used = 0;
+      for (const x of results) {
+        used++;
+        if (!x.pmcid || done.has(x.pmcid) || list.some(l => l.pmcid === x.pmcid)) { out.skipped++; continue; }
+        list.push({ pmcid: x.pmcid, meta: { doi: x.doi || null, title: x.title, journal: x.journalInfo?.journal?.title || x.journalTitle || null, year: x.pubYear || null, url: `https://pmc.ncbi.nlm.nih.gov/articles/${x.pmcid}/`, note: `Open access, ${p} (${x.license || 'licence on the article page'})` } });
+        if (++taken >= perPublisher || list.length >= limit) break;
+      }
+      // the cursor moves on only when the whole page was used, so nothing on it is skipped
+      if (used >= results.length) {
+        const end = !results.length || !nextCursor || nextCursor === st.cursor;
+        st.cursor = nextCursor || st.cursor;
+        st.done = end;
+      } else break;
+    }
+    state[p] = st;
+    out.byPublisher[p] = taken;
+  }
+  await db.setMeta('imgref_pub_cursors', JSON.stringify(state));
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length) {
+      if (Date.now() - started > budgetMs) { out.stoppedEarly = true; return; }
+      const { pmcid, meta } = list[next++];
+      await indexPmcPaper('publisher', pmcid, meta, out);
+      update(`${pmcid}: ${out.papers} papers, ${out.panels} panels indexed (${next}/${list.length})`, 5 + next / Math.max(1, list.length) * 93);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, list.length || 1) }, worker));
+  out.available = Object.fromEntries(publishers.map(p => [p, state[p]?.total ?? null]));
+  out.errors = out.errors.slice(0, 30);
+  return out;
+}
+
+/**
+ * Daily growth of the image databases on the web platform (second cron): retracted cases first (until all are in),
+ * then the publishers' open-access papers, then PubMed Central, each with part of the time budget.
+ */
+async function growImageDatabases({ budgetMs = 240000 } = {}) {
+  const started = Date.now();
+  const left = share => Math.max(0, Math.min(share, budgetMs - (Date.now() - started)));
+  const out = {};
+  out.retracted = await indexRetracted({ limit: 60, budgetMs: left(budgetMs * 0.4) }).catch(e => ({ error: e.message }));
+  out.publisher = await indexPublisherOa({ limit: 50, budgetMs: left(budgetMs * 0.3) }).catch(e => ({ error: e.message }));
+  out.pmc = await indexPmc({ limit: 40, budgetMs: left(budgetMs) }).catch(e => ({ error: e.message }));
+  const brief = o => (o && !o.error ? { papers: o.papers, panels: o.panels, errors: (o.errors || []).length } : o);
+  return { retracted: brief(out.retracted), publisher: brief(out.publisher), pmc: brief(out.pmc), seconds: Math.round((Date.now() - started) / 1000) };
+}
+
 const panelsOf = docId => db.all('SELECT id, figure, panel, type, w, h, (thumb_key IS NOT NULL) AS has_thumb FROM image_refs WHERE doc_id = $1 ORDER BY id', [docId]);
 const thumbKey = async id => (await db.one('SELECT thumb_key FROM image_refs WHERE id = $1', [id]))?.thumb_key || null;
 
 module.exports = {
-  SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, latestPjpsId, indexRetracted, indexPmc, indexUpload,
+  SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, latestPjpsId, indexRetracted, indexPmc, indexPublisherOa, growImageDatabases, indexUpload,
   matchManuscript, candidates, loadIndex, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
 };

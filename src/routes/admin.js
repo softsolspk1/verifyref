@@ -224,6 +224,14 @@ router.post('/admin/image-databases/pmc', webOnly, wrap(async (req, res) => {
 }));
 defineJob('imgref-pmc', (input, { update }) => REFS.indexPmc({ ...input, budgetMs: process.env.VERCEL ? 270000 : Infinity }, update));
 
+/** Open-access papers of the major publishers via Europe PMC (the publishers take turns; continues where the last run stopped) */
+router.post('/admin/image-databases/publisher', webOnly, wrap(async (req, res) => {
+  const job = await createJob(req.user.id, 'imgref-publisher', { limit: intOr(req.body?.limit, 100, 2000), restart: !!req.body?.restart });
+  await auth.audit(req, 'image-database-publisher', String(req.body?.limit || 100));
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('imgref-publisher', (input, { update }) => REFS.indexPublisherOa({ ...input, budgetMs: process.env.VERCEL ? 270000 : Infinity }, update));
+
 /** Public image-integrity research datasets in the data folder: RSIID, BioFors, BINDER (resumes where it stopped) */
 const DATASET_INDEXERS = { rsiid: REFS.indexRsiid, biofors: REFS.indexBiofors, binder: REFS.indexBinder };
 router.post('/admin/image-databases/dataset/:name', webOnly, wrap(async (req, res) => {

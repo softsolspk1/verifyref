@@ -15,7 +15,8 @@ export async function renderImageDatabases(el, { desk = false } = {}) {
     <div class="table-wrap"><table class="t"><thead><tr><th>Database</th><th class="num">Papers</th><th class="num">Figures</th><th class="num">Panels</th><th>Updated</th></tr></thead><tbody>
       ${row('pjps', `Article PDFs from pjps.pk; new articles are added every day${st.newestPjpsId ? ` (newest indexed: article ${st.newestPjpsId})` : ''}`)}
       ${row('retracted', 'Retraction Watch notices naming image problems, open-access figures from PubMed Central')}
-      ${row('pmc', 'Newest first; each run continues where the previous one stopped')}
+      ${row('pmc', 'Two searches take turns (pharmacy / pharmacology / medicinal plants, and biomedical papers with blots, histology, microscopy); newest first, each run continues where the previous one stopped')}
+      ${row('publisher', 'Europe PMC open-access papers in pharmacy and biomedicine from each publisher in turn; grows every day')}
       ${row('rsiid', 'Pristine figures and figure templates of the RSIID benchmark (Zenodo)')}
       ${row('biofors', 'Panels of 1,031 papers; panels the experts marked as duplicated or spliced are labelled')}
       ${row('binder', 'Near-duplicate patches; the archive must be downloaded by hand (Dataverse guestbook)')}
@@ -28,8 +29,8 @@ export async function renderImageDatabases(el, { desk = false } = {}) {
         <button class="btn btn-sm" id="pj-run" style="margin-top:6px">Index PJPS articles</button></div>
       <div class="field"><label>Other open-access figures</label>
         <div class="row" style="flex-wrap:wrap">Papers per run <input id="oa-limit" type="number" min="1" max="2000" value="100" style="width:80px"></div>
-        <div class="hint">Retracted / corrected papers: strongest cases (duplication, manipulation, fabrication) first. PubMed Central: pharmacy, pharmacology and medicinal-plant papers, newest first.</div>
-        <div class="row" style="margin-top:6px"><button class="btn btn-sm" id="rt-run">Index retracted papers</button><button class="btn btn-sm" id="pmc-run">Index PubMed Central papers</button></div>
+        <div class="hint">Retracted / corrected papers: strongest cases (duplication, manipulation, fabrication) first. PubMed Central: pharmacy, pharmacology and medicinal-plant papers, and biomedical papers with blots / histology / microscopy, newest first. Publishers: open-access papers of MDPI, Elsevier, Springer Nature / BMC, Wiley, Frontiers, PLOS, Taylor &amp; Francis, SAGE, OUP, CUP, Wolters Kluwer, ACS, Dove and Hindawi. All three also grow by themselves every night.</div>
+        <div class="row" style="margin-top:6px"><button class="btn btn-sm" id="rt-run">Index retracted papers</button><button class="btn btn-sm" id="pmc-run">Index PubMed Central papers</button><button class="btn btn-sm" id="pub-run">Index publishers' open-access papers</button></div>
         <div class="hint" style="margin-top:8px">Research datasets in the data folder (read from the archives on the server that holds them):</div>
         <div class="row" style="margin-top:4px"><button class="btn btn-sm" data-ds="rsiid">Index RSIID</button><button class="btn btn-sm" data-ds="biofors">Index BioFors</button><button class="btn btn-sm" data-ds="binder">Index BINDER</button></div></div>
     </div>
@@ -64,6 +65,7 @@ export async function renderImageDatabases(el, { desk = false } = {}) {
     $('#pj-run', el).onclick = () => job('/api/admin/image-databases/pjps', { from: $('#pj-from', el).value, to: $('#pj-to', el).value, limit: $('#pj-limit', el).value }, 'Indexing published PJPS papers');
     $('#rt-run', el).onclick = () => job('/api/admin/image-databases/retracted', { limit: $('#oa-limit', el).value }, 'Indexing papers retracted for image problems');
     $('#pmc-run', el).onclick = () => job('/api/admin/image-databases/pmc', { limit: $('#oa-limit', el).value }, 'Indexing PubMed Central open-access papers');
+    $('#pub-run', el).onclick = () => job('/api/admin/image-databases/publisher', { limit: $('#oa-limit', el).value }, "Indexing the publishers' open-access papers");
     $$('[data-ds]', el).forEach(b => (b.onclick = () => job(`/api/admin/image-databases/dataset/${b.dataset.ds}`, {}, `Indexing ${st.sources[b.dataset.ds].short}`)));
     $('#ref-form', el).onsubmit = async e => {
       e.preventDefault();

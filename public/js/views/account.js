@@ -14,7 +14,7 @@ export function renderAccount(view) {
           <tr><td>E-mail</td><td>${esc(u.email)}</td></tr>
           <tr><td>Role</td><td>${esc(u.roleLabel)}${u.designation ? ` · ${esc(u.designation)}` : ''}</td></tr>
           <tr><td>Journal</td><td>${esc(u.journal || '—')}</td></tr>
-          <tr><td>Access</td><td>${u.role === 'super_admin' || u.allowWeb ? badge('Web', 'good') : ''} ${state.app.desktop && (u.role === 'super_admin' || u.allowDesktop) ? badge('Desktop', 'good') : ''}</td></tr>
+          <tr><td>Access</td><td>${u.role === 'super_admin' || u.allowWeb ? badge('Web', 'good') : ''} ${u.role === 'super_admin' || u.allowDesktop ? badge('Desktop', 'good') : ''}</td></tr>
           <tr><td>Tools</td><td class="muted" style="font-size:12.5px">${u.permissions.map(k => esc(labels[k] || k)).join(' · ')}</td></tr>
         </table>
         <form id="orcid" class="row" style="margin-top:12px"><input name="orcid" type="text" placeholder="ORCID 0000-0000-0000-0000" value="${esc(u.orcid || '')}" style="flex:1"><button class="btn btn-sm">Save ORCID</button></form>

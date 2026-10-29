@@ -59,7 +59,7 @@ router.post('/admin/users', webOnly, wrap(async (req, res) => {
       must_change_password, created_by, approved_at)
     VALUES($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now()) RETURNING *`,
   [email, String(b.name).trim(), auth.hashPassword(password), role, (b.journal || cfg.HOME_JOURNAL.name).trim(), (b.editorRole || ROLES[role].label).trim(), (b.designation || '').trim() || null,
-    b.orcid || null, JSON.stringify(cleanPermissions(b.permissions, role)), b.allowWeb !== false, !!b.allowDesktop, Math.min(Math.max(parseInt(b.offlineDays || '14', 10), 1), 90),
+    b.orcid || null, JSON.stringify(cleanPermissions(b.permissions, role)), b.allowWeb !== false, b.allowDesktop !== false, Math.min(Math.max(parseInt(b.offlineDays || '14', 10), 1), 90),
     b.mustChangePassword !== false, req.user.id]);
   await auth.audit(req, 'user-created', email, { role, allowWeb: u.allow_web, allowDesktop: u.allow_desktop });
   res.json({ success: true, user: auth.publicUser(u), password: b.password ? undefined : password });

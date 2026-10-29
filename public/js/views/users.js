@@ -19,7 +19,7 @@ export async function renderUsers(view) {
       ${users.map(u => `<tr data-search="${esc(`${u.name} ${u.email} ${u.journal || ''}`.toLowerCase())}">
         <td><b>${esc(u.name)}</b><div class="muted">${esc(u.email)}</div>${u.designation || u.journal ? `<div class="muted" style="font-size:12px">${esc([u.designation, u.journal].filter(Boolean).join(' · '))}</div>` : ''}</td>
         <td>${badge(META.roles[u.role]?.label || u.role, u.role === 'super_admin' ? 'info' : 'neutral')}</td>
-        <td>${u.role === 'super_admin' || u.allow_web ? badge('Web', 'good') : ''} ${state.app.desktop && (u.role === 'super_admin' || u.allow_desktop) ? badge(`Desktop · ${u.offline_days} d offline`, 'good') : ''}${u.devices ? `<div class="muted" style="font-size:12px">${u.devices} device(s)</div>` : ''}</td>
+        <td>${u.role === 'super_admin' || u.allow_web ? badge('Web', 'good') : ''} ${u.role === 'super_admin' || u.allow_desktop ? badge(`Desktop · ${u.offline_days} d offline`, 'good') : ''}${u.devices ? `<div class="muted" style="font-size:12px">${u.devices} device(s)</div>` : ''}</td>
         <td class="muted" style="font-size:12.5px">${u.role === 'super_admin' ? 'All' : Array.isArray(u.permissions) ? `${u.permissions.filter(k => k[0] !== "_").length} of ${META.modules.length} (custom)` : 'Role default'}</td>
         <td>${u.last_login_at ? fmtDate(u.last_login_at) : '<span class="muted">never</span>'}${u.must_change_password ? `<div>${badge('must change password', 'warn')}</div>` : ''}</td>
         <td class="num">${u.runs_30d}</td>
@@ -83,7 +83,8 @@ function userForm(u, done) {
       <div class="card" style="padding:14px;margin-bottom:12px">
         <label>Access</label>
         <label class="check"><input type="checkbox" name="allowWeb" ${!u || u.allow_web ? 'checked' : ''}> Web platform</label>
-        <div hidden><input type="checkbox" name="allowDesktop" ${u?.allow_desktop ? 'checked' : ''}><input name="offlineDays" type="number" value="${u?.offline_days || 14}"></div>
+        <label class="check"><input type="checkbox" name="allowDesktop" ${!u || u.allow_desktop ? 'checked' : ''}> Desktop application (Windows)</label>
+        <div class="row" style="margin-top:6px"><label style="margin:0;font-weight:500">Offline use allowed for</label><input name="offlineDays" type="number" min="1" max="90" value="${u?.offline_days || 14}" style="width:80px"> <span class="muted">days without reconnecting</span></div>
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px" id="perm-card">
         <div class="row" style="justify-content:space-between"><label style="margin:0">Tools this user may use</label><button type="button" class="btn btn-sm btn-ghost" id="defaults">Reset to role defaults</button></div>

@@ -30,6 +30,10 @@ const assert = require('assert');
   assert.ok(r.data.success && r.data.password, 'create researcher'); const resPw = r.data.password; const resId = r.data.user.id;
   r = await call('admin', 'POST', '/api/admin/users', { email: 'ed@test.local', name: 'Erum Editor', role: 'editor', allowWeb: false, allowDesktop: true, password: 'editor-pass-1' });
   assert.ok(r.data.success, 'create editor');
+  // Every account type gets the desktop application unless the Super Admin unticks it
+  r = await call('admin', 'POST', '/api/admin/users', { email: 'rev@test.local', name: 'Rafia Reviewer', role: 'reviewer' });
+  assert.ok(r.data.success && r.data.user.allowDesktop !== false, 'desktop access by default');
+  assert.strictEqual((await require('../src/db').one("SELECT allow_desktop FROM users WHERE email = 'rev@test.local'")).allow_desktop, true, 'desktop access stored');
   // Duplicate e-mail rejected
   assert.strictEqual((await call('admin', 'POST', '/api/admin/users', { email: 'res@test.local', name: 'Dup User' })).status, 409);
   // Researcher signs in on the web, must change password, has no editor tools

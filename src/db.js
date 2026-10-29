@@ -255,6 +255,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB;              -- module keys; NULL = role defaults
 ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_web BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_desktop BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ALTER COLUMN allow_desktop SET DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS offline_days INTEGER NOT NULL DEFAULT 14;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS designation TEXT;
@@ -527,6 +528,11 @@ function init() {
       if ((await rawQuery("SELECT value FROM meta WHERE key = 'schema_v3'")).rows.length === 0) {
         if (lite) await lite.exec(MIGRATE); else await pool.query(MIGRATE);
         await rawQuery("INSERT INTO meta(key, value) VALUES('schema_v3', now()::text) ON CONFLICT(key) DO NOTHING");
+      }
+      // 3.1: desktop application for every account type (once; the Super Admin can still remove it per user afterwards)
+      if ((await rawQuery("SELECT value FROM meta WHERE key = 'desktop_all_v1'")).rows.length === 0) {
+        await rawQuery('UPDATE users SET allow_desktop = true WHERE allow_desktop = false');
+        await rawQuery("INSERT INTO meta(key, value) VALUES('desktop_all_v1', now()::text) ON CONFLICT(key) DO NOTHING");
       }
       // Trigram index for the author-name search in Retraction Watch (ILIKE '%surname%' would otherwise scan every row).
       // Optional: skipped where the pg_trgm extension is unavailable

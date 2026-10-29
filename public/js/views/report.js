@@ -55,6 +55,8 @@ export function renderReport(el, result, { kind } = {}) {
   if (result.pattern) tabs.push(['pattern', 'Citation pattern', result.pattern.flags?.length]);
   if (result.papermill && hasModule('papermill')) tabs.push(['papermill', 'Paper mill', result.papermill.signals.length]);
   if (result.images && hasModule('images')) tabs.push(['images', 'Images', result.images.summary.findings]);
+  if (result.plagiarism) tabs.push(['plagiarism', 'Plagiarism', result.plagiarism.error ? null : `${result.plagiarism.summary.similarity}%`]);
+  if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', result.novelty.error ? null : result.novelty.summary.score]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
 
   el.innerHTML = `
@@ -96,6 +98,8 @@ export function renderReport(el, result, { kind } = {}) {
     else if (k === 'journals') journalsTab(body, result.journals);
     else if (k === 'pattern') patternTab(body, result.pattern, refs);
     else if (k === 'editor') editorTab(body, result);
+    else if (k === 'plagiarism') plagiarismTab(body, result.plagiarism);
+    else if (k === 'novelty') noveltyTab(body, result.novelty);
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
   $$('.kpi.clickable', el).forEach(k => (k.onclick = () => { show('references'); const f = $(`.filter[data-f="${k.dataset.f}"]`, el); if (f) f.click(); }));
@@ -149,11 +153,53 @@ function summaryTab(body, r) {
       ${row(3, 'Citations', sc.lines.citations, !c ? '' : c.missing || c.uncited > 3 ? 'warn' : 'good')}
       ${hasModule('papermill') ? row(4, 'Paper mill risk', sc.lines.papermill, !pm ? '' : pm.level === 'HIGH' ? 'bad' : pm.level === 'MEDIUM' ? 'warn' : 'good') : ''}
       ${hasModule('images') ? row(5, 'Image integrity', sc.lines.images, !im ? '' : im.level === 'HIGH' ? 'bad' : im.level === 'MEDIUM' ? 'warn' : 'good') : ''}
+      ${r.plagiarism ? row(6, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
+      ${r.novelty ? row(7, 'Novelty &amp; citation outlook', r.novelty.error || sc.lines.novelty || '', r.novelty.error ? '' : r.novelty.summary.band === 'low' ? 'warn' : 'good') : ''}
     </table>
     <p class="muted" style="margin:10px 0 0">Author version: Modules 1–3 only, after your approval. Editor version: all modules. Claim support (does each source support its claim?) is checked in Module 3.</p></div>
     ${r.indicators?.flags?.length ? `<div class="card"><h3>Bibliography indicators</h3>${r.indicators.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.message)}</div></div>`).join('')}</div>` : ''}
     <div id="scr-decision"></div>`;
   decisionCard($('#scr-decision', body), r, 'manuscript');
+}
+
+function plagiarismTab(body, pl) {
+  if (pl.error) { body.innerHTML = `<div class="card"><h3>Plagiarism</h3><p class="muted">${esc(pl.error)}</p></div>`; return; }
+  const s = pl.summary;
+  const tone = { ok: 'low', warn: 'medium', bad: 'high' }[s.level];
+  body.innerHTML = `
+    <div class="risk-banner risk-${tone}"><div class="risk-level">${s.similarity}%</div><div><b>Text overlap with published papers: ${s.similarity}% of the manuscript</b>
+      <div class="muted">${s.sources} source(s) with overlapping text${s.sources ? `; largest single source ${s.largestSource}%` : ''}. ${pl.checked.passages} distinctive passages searched (${pl.checked.queries} searches, ${pl.checked.candidates} candidate papers) in ${pl.checked.databases.map(esc).join(' and ')}.</div></div></div>
+    ${pl.earlierSubmissions?.length ? `<div class="alert alert-bad"><b>Earlier PJPS submission with the same text:</b> ${pl.earlierSubmissions.map(esc).join('; ')}</div>` : ''}
+    <div class="card"><h3>Sources</h3>${pl.sources.length ? pl.sources.map(x => `
+      <div class="flag ${x.similarity >= 15 ? 'high' : x.similarity >= 5 ? 'medium' : 'low'}" style="margin-bottom:10px">
+        <div class="msg"><b>${x.similarity}%</b> — ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || 'Source')}</a>` : esc(x.title || 'Source')}${x.journal ? ` · <i>${esc(x.journal)}</i>` : ''}${x.year ? ` · ${x.year}` : ''} <span class="muted">(${esc(x.compared)}, ${esc(x.via)})</span></div>
+        ${x.passages.map(p => `<div class="muted" style="margin-top:4px;border-left:3px solid var(--line, #ccd);padding-left:8px">${p.words} words: “${esc(p.text)}”</div>`).join('')}
+      </div>`).join('') : '<p class="muted">No overlapping text was found in the searched literature.</p>'}
+      ${pl.selfMatches?.length ? `<p class="muted">Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => esc(x.title)).join('; ')}</p>` : ''}
+      <p class="muted" style="margin-top:10px">${esc(pl.method)}</p></div>`;
+}
+
+function noveltyTab(body, nv) {
+  if (nv.error) { body.innerHTML = `<div class="card"><h3>Novelty &amp; citation outlook</h3><p class="muted">${esc(nv.error)}</p></div>`; return; }
+  const s = nv.summary, f = nv.forecast;
+  const bar = (label, v) => `<div style="margin:6px 0"><div class="row" style="justify-content:space-between"><span>${label}</span><b>${v ?? '—'}</b></div><div style="height:8px;background:var(--bg-soft,#eef2f5);border-radius:4px"><div style="height:8px;width:${Math.max(0, Math.min(100, v || 0))}%;background:var(--brand,#0f4c5c);border-radius:4px"></div></div></div>`;
+  const years = nv.momentum?.worksByYear || [];
+  const maxW = Math.max(1, ...years.map(y => y.works));
+  body.innerHTML = `
+    <div class="risk-banner risk-${s.band === 'high' ? 'low' : s.band === 'moderate' ? 'medium' : 'high'}"><div class="risk-level">${s.score}</div><div><b>Novelty ${s.score}/100 — ${esc(s.band)}</b>
+      <div class="muted">Closest published work: similarity ${s.maxSimilarity}; ${s.closeRecent} close work(s) in the last five years; ${nv.checked.works} related works compared (${esc(nv.checked.database)}). 5-year citation outlook: <b>${esc(s.outlook)}</b>.</div></div></div>
+    <div class="grid grid-2">
+      <div class="card"><h3>Novelty components</h3>${bar('Distance from the closest published work', nv.components.distance)}${bar('Uncrowded field (last 5 years)', 100 - nv.components.crowding)}${nv.components.rarity === null ? '' : bar('Rare combination of the key concepts', nv.components.rarity)}
+        ${nv.concepts?.pairs?.length ? `<table class="t" style="margin-top:10px"><tr><th>Concepts studied together</th><th class="num">Works</th></tr>${nv.concepts.pairs.map(p => `<tr><td>${esc(p.a)} + ${esc(p.b)}</td><td class="num">${p.works === null || p.works === undefined ? '—' : Number(p.works).toLocaleString()}</td></tr>`).join('')}</table>` : ''}</div>
+      <div class="card"><h3>Citation outlook</h3>
+        <table class="t"><tr><th>After</th><th class="num">Median</th><th class="num">Likely range</th><th class="num">Basis</th></tr>${f.horizon.map(h => `<tr><td>${h.years} year${h.years > 1 ? 's' : ''}</td><td class="num">${h.median ?? '—'}</td><td class="num">${h.median === null ? '—' : `${h.low} – ${h.high}`}</td><td class="num">${h.basis}</td></tr>`).join('')}</table>
+        ${f.journalNote ? `<p class="muted" style="margin-top:8px">${esc(f.journalNote)}</p>` : ''}
+        ${nv.momentum ? `<h3 style="margin-top:14px">${esc(nv.momentum.topic)}</h3><div class="muted">${esc(nv.momentum.trend)}${nv.momentum.growthPerYear !== null ? ` (${nv.momentum.growthPerYear > 0 ? '+' : ''}${nv.momentum.growthPerYear}% works per year)` : ''}</div>
+          <div class="row" style="align-items:flex-end;gap:4px;height:90px;margin-top:8px">${years.map(y => `<div title="${y.year}: ${y.works.toLocaleString()} works" style="flex:1;text-align:center"><div style="height:${Math.round(y.works / maxW * 70)}px;background:var(--brand,#0f4c5c);border-radius:3px 3px 0 0"></div><div class="muted" style="font-size:11px">${String(y.year).slice(2)}</div></div>`).join('')}</div>` : ''}</div>
+    </div>
+    <div class="card"><h3>Closest published works</h3><table class="t"><tr><th>Work</th><th class="num">Year</th><th class="num">Similarity</th><th class="num">Cited by</th></tr>
+      ${nv.closest.map(w => `<tr><td><a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.title)}</a>${w.journal ? `<div class="muted">${esc(w.journal)}</div>` : ''}</td><td class="num">${w.year || ''}</td><td class="num">${w.similarity}</td><td class="num">${w.citedBy}</td></tr>`).join('')}</table>
+      <p class="muted" style="margin-top:10px">${esc(nv.method)} ${esc(f.method)}</p></div>`;
 }
 
 function styleTab(body, cp) {

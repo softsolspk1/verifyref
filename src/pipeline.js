@@ -126,6 +126,19 @@ async function screening(result, { input, body, refs, meta, update }) {
   delete pm._shingles;
   result.papermill = pm;
   if (images) result.images = { checkId: images.checkId, summary: images.summary };
+
+  // Plagiarism (text overlap with the literature) and novelty / citation outlook; neither may stop the report
+  update('Plagiarism: comparing the text with published papers (Europe PMC, CORE)', 98);
+  if (body && body.trim().length > 1500) {
+    result.plagiarism = await require('./checks/plagiarism').checkPlagiarism({ body, meta }).catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
+    // an earlier PJPS submission with the same text (Module 4 fingerprints) belongs in the overlap report too
+    const dup = (pm.signals || []).find(x => x.code === 'duplicate');
+    if (dup && result.plagiarism && !result.plagiarism.error) result.plagiarism.earlierSubmissions = (dup.evidence || []).map(e => e.text);
+  } else result.plagiarism = { kind: 'plagiarism', error: 'Upload the full manuscript text to check for plagiarism (only a reference list was provided).' };
+  update('Novelty and citation outlook (OpenAlex)', 99);
+  result.novelty = await require('./checks/novelty').checkNovelty({ meta, journal: { name: cfg.HOME_JOURNAL.name, issn: cfg.HOME_JOURNAL.issn[0] } })
+    .catch(e => ({ kind: 'novelty', error: `The novelty assessment could not be completed: ${e.message}` }));
+
   result.screening = screeningSummary(result);
 }
 
@@ -136,6 +149,8 @@ function screeningSummary(r) {
   const cp = r.compliance?.summary;
   const pm = r.papermill?.risk;
   const im = r.images?.summary;
+  const pl = r.plagiarism && !r.plagiarism.error ? r.plagiarism.summary : null;
+  const nv = r.novelty && !r.novelty.error ? r.novelty.summary : null;
   const reasons = [];
   let rec = 'proceed';
   const escalate = (level, why) => { reasons.push(why); if (level === 'investigate' || (level === 'return' && rec === 'proceed')) rec = level; };
@@ -149,6 +164,8 @@ function screeningSummary(r) {
   if (c && (c.missing >= 3 || c.uncited >= 5)) escalate('return', `${c.missing} citation(s) missing from the list, ${c.uncited} reference(s) never cited`);
   if (cp && cp.score < 60) escalate('return', `Only ${cp.score}% of references follow PJPS style`);
   if (s.miscited >= 5) escalate('return', `${s.miscited} references with wrong details`);
+  if (pl?.level === 'bad') escalate('investigate', `Text overlap ${pl.similarity}% with published papers (largest single source ${pl.largestSource}%)`);
+  else if (pl?.level === 'warn') escalate('return', `Text overlap ${pl.similarity}% with published papers — check the matching passages`);
   const label = { proceed: 'Proceed to peer review', return: 'Return to the authors for corrections', investigate: 'Investigate before any further processing' }[rec];
   return {
     recommendation: rec, recommendationLabel: label, reasons,
@@ -157,6 +174,8 @@ function screeningSummary(r) {
       style: cp ? `${cp.score}% PJPS compliant (${cp.nonCompliant} reference(s) to fix${cp.inTextIssues ? `, ${cp.inTextIssues} in-text problem(s)` : ''})` : 'not checked',
       citations: c ? `${c.missing} missing, ${c.uncited} uncited, ${(c.yearMismatch || 0) + (c.etAlIssues || 0)} year / “et al.” problem(s)` : 'manuscript text not available',
       papermill: pm ? `${pm.level} (score ${pm.score})` : 'not checked',
+      plagiarism: pl ? `${pl.similarity}% overlap with ${pl.sources} published source(s)${pl.sources ? ` (largest ${pl.largestSource}%)` : ''}` : 'not checked',
+      novelty: nv ? `Novelty ${nv.score}/100 (${nv.band}); ${nv.closeRecent} close work(s) in the last 5 years; 5-year citation outlook ${nv.outlook}${Number.isFinite(nv.fiveYearMedian) ? ` (median ${nv.fiveYearMedian})` : ''}` : 'not assessed',
       images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : 'not checked (run Module 5 and attach the report)'
     }
   };

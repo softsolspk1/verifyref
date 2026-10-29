@@ -316,9 +316,44 @@ function screeningScorecard(r) {
     { module: '4. Paper mill signals', result: sc.lines.papermill || 'not checked', level: lvl(pm?.level) },
     { module: '5. Image integrity', result: sc.lines.images || 'not checked', level: lvl(im?.level) }
   ];
-  if (r.plagiarism) rows.push({ module: 'Plagiarism (text overlap)', result: sc.lines.plagiarism || `${r.plagiarism.summary.similarity}% overlap`, level: r.plagiarism.summary.level });
-  if (r.novelty) rows.push({ module: 'Novelty & citation outlook', result: sc.lines.novelty || `novelty ${r.novelty.summary.score}/100`, level: r.novelty.summary.level });
+  if (r.plagiarism) rows.push({ module: '6. Plagiarism (text overlap)', result: r.plagiarism.error || sc.lines.plagiarism || `${r.plagiarism.summary.similarity}% overlap`, level: r.plagiarism.error ? 'na' : r.plagiarism.summary.level });
+  if (r.novelty) rows.push({ module: '7. Novelty & citation outlook', result: r.novelty.error || sc.lines.novelty || `novelty ${r.novelty.summary.score}/100`, level: r.novelty.error ? 'na' : r.novelty.summary.level, verdict: r.novelty.error ? null : `${r.novelty.summary.band[0].toUpperCase()}${r.novelty.summary.band.slice(1)}` });
   return rows;
+}
+
+/** Module 6: text overlap with published papers */
+function plagiarismBlocks(pl) {
+  const blocks = [{ h2: '6. Plagiarism — text overlap with published papers' }];
+  if (!pl || pl.error) return [...blocks, { p: pl?.error || 'Not checked.' }];
+  const s = pl.summary;
+  blocks.push({ kv: [['Overall similarity', `${s.similarity}% of the manuscript's words`], ['Largest single source', `${s.largestSource}%`], ['Sources with overlap', String(s.sources)],
+    ['Passages searched', `${pl.checked.passages} (${pl.checked.queries} searches; ${pl.checked.candidates} candidate papers)`], ['Databases', pl.checked.databases.join('; ')]] });
+  if (pl.sources.length) {
+    blocks.push({ table: { headers: ['Similarity', 'Source', 'Compared', 'Longest matching passage'], rows: pl.sources.map(x => [`${x.similarity}%`, `${x.title || '—'}${x.journal ? ` — ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : ''}`, x.compared, x.passages[0] ? `${x.passages[0].words} words: "${x.passages[0].text.slice(0, 300)}${x.passages[0].text.length > 300 ? '...' : ''}"` : '']) } });
+  } else blocks.push({ p: 'No overlapping text was found in the searched literature.' });
+  if (pl.selfMatches?.length) blocks.push({ p: `Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => `${x.title}${x.year ? ` (${x.year})` : ''}`).join('; ')}`, italics: true });
+  if (pl.earlierSubmissions?.length) blocks.push({ p: `Earlier PJPS submissions with the same text: ${pl.earlierSubmissions.join('; ')}`, bold: true });
+  blocks.push({ p: pl.method, italics: true });
+  return blocks;
+}
+
+/** Module 7: novelty and citation outlook (OpenAlex data model) */
+function noveltyBlocks(nv) {
+  const blocks = [{ h2: '7. Novelty and citation outlook' }];
+  if (!nv || nv.error) return [...blocks, { p: nv?.error || 'Not assessed.' }];
+  const s = nv.summary, f = nv.forecast;
+  blocks.push({ kv: [['Novelty score', `${s.score}/100 (${s.band})`], ['Components', `distance from closest work ${nv.components.distance}, uncrowded field ${100 - nv.components.crowding}${nv.components.rarity === null ? '' : `, rare concept combination ${nv.components.rarity}`}`],
+    ['Closest published work', nv.closest[0] ? `${nv.closest[0].title} (${nv.closest[0].year}) — similarity ${nv.closest[0].similarity}` : '—'],
+    ['Close works (last 5 years)', `${s.closeRecent} of ${s.closeWorks} close works`],
+    ['Research topic', nv.momentum ? `${nv.momentum.topic}: ${nv.momentum.trend}${nv.momentum.growthPerYear !== null ? ` (${nv.momentum.growthPerYear > 0 ? '+' : ''}${nv.momentum.growthPerYear}% works per year)` : ''}` : '—'],
+    ['Works compared', `${nv.checked.works} (${nv.checked.database})`]] });
+  if (nv.concepts?.pairs?.length) blocks.push({ table: { headers: ['Concepts studied together', 'Published works'], rows: nv.concepts.pairs.map(p => [`${p.a} + ${p.b}`, p.works === null || p.works === undefined ? '—' : Number(p.works).toLocaleString()]) } });
+  blocks.push({ table: { headers: ['Closest published works', 'Year', 'Similarity', 'Cited by'], rows: nv.closest.slice(0, 8).map(w => [`${w.title}${w.journal ? ` — ${w.journal}` : ''}${w.doi ? ` (doi:${w.doi})` : ''}`, String(w.year || ''), String(w.similarity), String(w.citedBy)]) } });
+  blocks.push({ p: 'Citation outlook (if published in the journal):', bold: true });
+  blocks.push({ table: { headers: ['After', 'Expected citations (median)', 'Likely range (25-75%)', 'Similar works used'], rows: f.horizon.map(h => [`${h.years} year${h.years > 1 ? 's' : ''}`, h.median === null ? 'insufficient data' : String(h.median), h.median === null ? '—' : `${h.low} - ${h.high}`, String(h.basis)]) } });
+  if (f.journalNote) blocks.push({ p: f.journalNote, italics: true });
+  blocks.push({ p: `${nv.method} ${f.method}`, italics: true });
+  return blocks;
 }
 
 function screeningBlocks(r, version = 'editor') {
@@ -357,12 +392,14 @@ function screeningBlocks(r, version = 'editor') {
     if (r.pattern?.flags?.length) blocks.push({ h2: 'Citation pattern' }, { bullets: r.pattern.flags.map(f => f.message) });
     if (r.papermill) blocks.push(...papermillBlocks(r.papermill).map(b => (b.h1 ? { h2: '4. Paper mill screening (confidential)' } : b)));
     blocks.push({ h2: '5. Image integrity' }, { p: r.images ? `Image risk ${r.images.summary.level}: ${r.images.summary.findings} finding(s) in ${r.images.summary.panels} panels${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0) ? `, ${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0)} figure(s) matching published PJPS / retracted-paper figures` : ''} — see the separate confidential image report.` : 'Not checked — run Module 5 and attach its report.' });
+    if (r.plagiarism) blocks.push(...plagiarismBlocks(r.plagiarism));
+    if (r.novelty) blocks.push(...noveltyBlocks(r.novelty));
   }
   return blocks;
 }
 
 module.exports = {
-  complianceBlocks, citationsBlocks, papermillBlocks, imagesBlocks, screeningBlocks,
+  complianceBlocks, citationsBlocks, papermillBlocks, imagesBlocks, screeningBlocks, plagiarismBlocks, noveltyBlocks,
   buildDocx, decisionSummaryBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks,
   verifyBlocks, evidenceBlocks, assistantBlocks, journalFinderBlocks, conferenceBlocks, restyleBlocks, formatBlocks, authorBlocks
 };

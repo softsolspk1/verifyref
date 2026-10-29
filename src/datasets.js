@@ -867,6 +867,40 @@ async function publisherJournalStatus() {
   };
 }
 
+// ------------------------------------------------------------------ read-only browsing of the stored datasets (Admin > Data, View)
+
+// Columns shown and searched for each dataset table (fixed lists: table and column names never come from the request)
+const DATASET_VIEWS = {
+  retractions: { label: 'Retraction Watch', cols: ['doi', 'title', 'journal', 'nature', 'retraction_date', 'reason', 'country'], search: ['title', 'journal', 'doi', 'authors'], order: 'retraction_date DESC NULLS LAST' },
+  predatory: { label: "Beall's list", cols: ['kind', 'name', 'url', 'genuine_url', 'source'], search: ['name', 'url', 'domain'], order: 'kind, name_norm' },
+  pps_fingerprints: { label: 'Problematic Paper Screener', cols: ['kind', 'terms', 'expected', 'papers'], search: ['terms', 'expected'], order: 'papers DESC NULLS LAST' },
+  fda_orange_book: { label: 'FDA Orange Book', cols: ['ingredient', 'trade_name', 'dosage_form_route', 'strength', 'applicant', 'appl_type', 'appl_no', 'approval_date', 'te_code'], search: ['ingredient', 'trade_name', 'applicant', 'appl_no'], order: 'ingredient_norm, trade_name_norm' },
+  nlm_journals: { label: 'NLM Catalog', cols: ['title', 'med_abbr', 'iso_abbr', 'issn', 'eissn', 'nlm_id', 'pubmed'], search: ['title', 'med_abbr', 'iso_abbr', 'issn', 'eissn'], order: 'title_norm' },
+  doaj_journals: { label: 'DOAJ', cols: ['title', 'publisher', 'country', 'issn', 'eissn', 'apc', 'license', 'review'], search: ['title', 'publisher', 'issn', 'eissn'], order: 'title_norm' },
+  ltwa_words: { label: 'ISSN LTWA', cols: ['word', 'abbrev', 'langs', 'prefix'], search: ['word', 'abbrev'], order: 'word' },
+  crossref_journals: { label: 'Crossref journal title list', cols: ['title', 'publisher', 'issn', 'eissn', 'doi'], search: ['title', 'publisher', 'issn', 'eissn'], order: 'title_norm' },
+  openalex_journals: { label: 'OpenAlex journal list', cols: ['title', 'publisher', 'issns', 'country', 'works', 'h_index', 'is_oa', 'in_doaj', 'first_year', 'last_year'], search: ['title', 'publisher', 'issns'], order: 'works DESC NULLS LAST' },
+  publisher_journals: { label: 'Major publisher journal lists', cols: ['title', 'publisher', 'imprint', 'issns', 'works', 'source', 'homepage'], search: ['title', 'imprint', 'issns'], order: 'works DESC NULLS LAST, title_norm' },
+  email_domains: { label: 'E-mail domain lists', cols: ['domain', 'kind'], search: ['domain'], order: 'kind, domain' }
+};
+
+/** One page of a dataset table: { label, cols, rows, total, page, size }; publisher_journals can be narrowed to one publisher */
+async function datasetRows(name, { q = '', page = 1, size = 50, publisher = '' } = {}) {
+  const v = DATASET_VIEWS[name];
+  if (!v) return null;
+  size = Math.min(Math.max(parseInt(size, 10) || 50, 1), 200);
+  page = Math.max(parseInt(page, 10) || 1, 1);
+  const args = [], where = [];
+  if (name === 'publisher_journals' && publisher) { args.push(publisher); where.push(`publisher_key = $${args.length}`); }
+  const term = String(q || '').trim().slice(0, 200);
+  if (term) { args.push(`%${term}%`); where.push(`(${v.search.map(c => `${c}::text ILIKE $${args.length}`).join(' OR ')})`); }
+  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const total = (await db.one(`SELECT COUNT(*)::int AS n FROM ${name} ${w}`, args)).n;
+  const rows = await db.all(`SELECT ${v.cols.join(', ')} FROM ${name} ${w} ORDER BY ${v.order} LIMIT ${size} OFFSET ${(page - 1) * size}`, args);
+  const pub = name === 'publisher_journals' && publisher ? PUBLISHERS.find(p => p.key === publisher) : null;
+  return { label: pub ? pub.name : v.label, cols: v.cols, rows, total, page, size };
+}
+
 // ------------------------------------------------------------------ free-mail and disposable e-mail domains
 
 const FREEMAIL_URL = 'https://raw.githubusercontent.com/Kikobeats/free-email-domains/master/domains.json';
@@ -1039,6 +1073,6 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
-  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
+  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
   importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf
 };

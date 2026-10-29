@@ -2,9 +2,26 @@
 import { api, esc, $, $$, badge, toast, fmtDate, runJob, modal, state } from '../core.js';
 import { renderImageDatabases, renderStorage } from './imageDatabases.js';
 
+// imprints that each publisher list includes
+const PUB_NOTE = {
+  elsevier: 'Elsevier journals, incl. Cell Press, Academic Press, Pergamon, Saunders, Mosby',
+  springer: 'Springer Nature journals, incl. Springer, Nature Portfolio, BioMed Central (BMC), Palgrave, Adis',
+  wiley: 'John Wiley & Sons journals, incl. Wiley-Blackwell, Wiley-VCH, Hindawi',
+  tandf: 'Taylor & Francis journals, incl. Routledge, CRC Press, Dove Medical Press',
+  sage: 'SAGE Publications journals',
+  mdpi: 'MDPI AG journals',
+  oup: 'Oxford University Press journals',
+  cup: 'Cambridge University Press journals',
+  wkh: 'Wolters Kluwer Health journals, incl. Lippincott Williams & Wilkins and Medknow',
+  acs: 'American Chemical Society (ACS) Publications journals',
+  ieee: 'IEEE journals and transactions'
+};
+
 export async function renderAdmin(view) {
   const ds = await api('/api/admin/datasets');
   const desk = state.app.desktop;
+  // View button for a dataset that has rows (read-only, searchable table)
+  const viewBtn = (table, count, publisher = '') => (count ? ` <button class="btn btn-sm" data-dsview="${table}"${publisher ? ` data-pub="${publisher}"` : ''}>View</button>` : '');
   view.innerHTML = `
     <div class="page-head"><div><h1>Datasets, journal lists &amp; PJPS rules</h1><p>Integrity datasets used by every check, and the licensed journal index lists used by Journal Check and Find a Journal.${desk ? ' On the desktop these are copies synchronised from the web platform, which is what makes the offline checks possible.' : ' Desktop computers download copies of all of these at synchronisation for offline use.'}</p></div></div>
 
@@ -35,56 +52,63 @@ export async function renderAdmin(view) {
             <td>Integrity</td>
             <td class="num">${ds.retractionWatch?.count ? Number(ds.retractionWatch.count).toLocaleString() : '0'}</td>
             <td>${ds.retractionWatch?.loadedAt ? fmtDate(ds.retractionWatch.loadedAt) : badge('not loaded', 'warn')}</td>
-            <td>${ds.retractionWatch?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+            <td>${ds.retractionWatch?.count ? badge('active', 'good') : badge('pending', 'warn')}${viewBtn('retractions', ds.retractionWatch?.count)}</td>
           </tr>
           <tr>
             <td><b>Beall's list</b><div class="muted">Potential predatory publishers, standalone journals and hijacked journals</div></td>
             <td>Integrity</td>
             <td class="num">${ds.beall?.count ? Number(ds.beall.count).toLocaleString() : '0'}</td>
             <td>${ds.beall?.loadedAt ? fmtDate(ds.beall.loadedAt) : badge('not loaded', 'warn')}</td>
-            <td>${ds.beall?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+            <td>${ds.beall?.count ? badge('active', 'good') : badge('pending', 'warn')}${viewBtn('predatory', ds.beall?.count)}</td>
           </tr>
           <tr>
             <td><b>Problematic Paper Screener</b><div class="muted">Tortured phrases and scientific fingerprint detection (Cabanac et al.)</div></td>
             <td>Integrity</td>
             <td class="num">${ds.screener?.count ? Number(ds.screener.count).toLocaleString() : '0'}</td>
             <td>${ds.screener?.loadedAt ? fmtDate(ds.screener.loadedAt) : badge('not loaded', 'warn')}</td>
-            <td>${ds.screener?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+            <td>${ds.screener?.count ? badge('active', 'good') : badge('pending', 'warn')}${viewBtn('pps_fingerprints', ds.screener?.count)}</td>
           </tr>
           <tr>
             <td><b>FDA Orange Book</b><div class="muted">Approved Drug Products with Therapeutic Equivalence Evaluations (active ingredients, dosage forms, routes, NDA/ANDA numbers)</div></td>
             <td>Integrity</td>
             <td class="num">${(ds.fdaOrangeBook?.count || 0).toLocaleString()}</td>
             <td>${ds.fdaOrangeBook?.loadedAt ? fmtDate(ds.fdaOrangeBook.loadedAt) : badge('not loaded', 'warn')}</td>
-            <td>${ds.fdaOrangeBook?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+            <td>${ds.fdaOrangeBook?.count ? badge('active', 'good') : badge('pending', 'warn')}${viewBtn('fda_orange_book', ds.fdaOrangeBook?.count)}</td>
           </tr>
           ${[
-            ['NLM Catalog journal list', 'NCBI list of journals in PubMed and the NCBI databases: full titles, NLM / ISO abbreviations and ISSNs (journal resolution, Module 2 abbreviation check)', ds.nlm],
-            ['DOAJ journal list', 'Directory of Open Access Journals: every DOAJ-listed journal with publisher, APC, licence and review process (Journal Check, predatory screening)', ds.doaj],
-            ['Crossref journal title list', 'Every journal that registers DOIs with Crossref, with ISSNs and publisher (Module 1: is the cited journal real?)', ds.crossrefJournals],
-            ['ISSN List of Title Word Abbreviations (LTWA)', 'Official ISO 4 word abbreviations (Module 2: expected abbreviation for journals not in the NLM Catalog)', ds.ltwa],
-            ['Free-mail &amp; disposable e-mail domains', 'Public free-mail providers and throw-away mailbox domains (Module 4: author and suggested-reviewer addresses)', ds.emailDomains]
-          ].map(([name, desc, d]) => `<tr>
+            ['NLM Catalog journal list', 'NCBI list of journals in PubMed and the NCBI databases: full titles, NLM / ISO abbreviations and ISSNs (journal resolution, Module 2 abbreviation check)', ds.nlm, 'nlm_journals'],
+            ['DOAJ journal list', 'Directory of Open Access Journals: every DOAJ-listed journal with publisher, APC, licence and review process (Journal Check, predatory screening)', ds.doaj, 'doaj_journals'],
+            ['Crossref journal title list', 'Every journal that registers DOIs with Crossref, with ISSNs and publisher (Module 1: is the cited journal real?)', ds.crossrefJournals, 'crossref_journals'],
+            ['ISSN List of Title Word Abbreviations (LTWA)', 'Official ISO 4 word abbreviations (Module 2: expected abbreviation for journals not in the NLM Catalog)', ds.ltwa, 'ltwa_words'],
+            ['Free-mail &amp; disposable e-mail domains', 'Public free-mail providers and throw-away mailbox domains (Module 4: author and suggested-reviewer addresses)', ds.emailDomains, 'email_domains']
+          ].map(([name, desc, d, table]) => `<tr>
             <td><b>${name}</b><div class="muted">${desc}</div></td>
             <td>Journal index</td>
             <td class="num">${d?.count ? Number(d.count).toLocaleString() : '0'}</td>
             <td>${d?.loadedAt ? fmtDate(d.loadedAt) : badge('not loaded', 'warn')}</td>
-            <td>${d?.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+            <td>${d?.count ? badge('active', 'good') : badge('pending', 'warn')}${viewBtn(table, d?.count)}</td>
           </tr>`).join('')}
           ${(o => `<tr>
             <td><b>OpenAlex journal list</b><div class="muted">Every journal in OpenAlex (about 220,000) with all ISSNs, publisher, country, open-access and DOAJ status, APC, output and citation metrics (Journal Check when offline or when OpenAlex does not answer). Refreshed monthly.</div></td>
             <td>Journal index</td>
             <td class="num">${o.count ? Number(o.count).toLocaleString() : '0'}</td>
             <td>${o.loadedAt ? fmtDate(o.loadedAt) : badge('not loaded', 'warn')}</td>
-            <td>${o.downloading ? `${badge('downloading', 'info')}<div class="muted">${Number(o.downloading.journals).toLocaleString()} journals so far</div>` : o.count ? badge('active', 'good') : !desk && !o.keyConfigured ? `${badge('needs API key', 'warn')}<div class="muted">Set OPENALEX_API_KEY (free at openalex.org)</div>` : badge('pending', 'warn')}</td>
+            <td>${o.downloading ? `${badge('downloading', 'info')}<div class="muted">${Number(o.downloading.journals).toLocaleString()} journals so far</div>` : o.count ? badge('active', 'good') : !desk && !o.keyConfigured ? `${badge('needs API key', 'warn')}<div class="muted">Set OPENALEX_API_KEY (free at openalex.org)</div>` : badge('pending', 'warn')}${o.downloading ? '' : viewBtn('openalex_journals', o.count)}</td>
           </tr>`)(ds.openalexJournals || {})}
           ${(p => `<tr>
-            <td><b>Major publisher journal lists</b><div class="muted">Every journal of Elsevier, Springer Nature, Wiley, Taylor &amp; Francis, SAGE, MDPI, Oxford University Press, Cambridge University Press, Wolters Kluwer Health, ACS and IEEE, imprints included (OpenAlex publisher hierarchy + Crossref title list). Confirms the publisher of a cited journal; these publishers register every article with Crossref, so an article missing there is a stronger warning. Refreshed monthly.</div>${p.count ? `<div class="muted">${(p.publishers || []).map(x => `${esc(x.name)}: ${Number(x.count).toLocaleString()}`).join(' · ')}</div>` : ''}</td>
+            <td><b>Major publisher journal lists</b><div class="muted">Every journal of the 11 major publishers, imprints included (OpenAlex publisher hierarchy + Crossref title list). Confirms the publisher of a cited journal; these publishers register every article with Crossref, so an article missing there is a stronger warning. Refreshed monthly.</div></td>
             <td>Journal index</td>
             <td class="num">${p.count ? Number(p.count).toLocaleString() : '0'}</td>
             <td>${p.loadedAt ? fmtDate(p.loadedAt) : badge('not loaded', 'warn')}</td>
-            <td>${p.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
-          </tr>`)(ds.publisherJournals || {})}
+            <td>${p.count ? badge('active', 'good') : badge('pending', 'warn')}${viewBtn('publisher_journals', p.count)}${desk ? '' : ` <button class="btn btn-sm" id="pubj-load">${p.count ? 'Reload' : 'Load now'}</button>`}</td>
+          </tr>
+          ${(p.publishers || []).map(x => `<tr>
+            <td style="padding-left:28px">&#8627; <b>${esc(x.name)}</b><div class="muted">${esc(PUB_NOTE[x.key] || `Journals of ${x.name}`)}</div></td>
+            <td>Publisher list</td>
+            <td class="num">${Number(x.count || 0).toLocaleString()}</td>
+            <td>${p.loadedAt ? fmtDate(p.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${x.count ? badge('active', 'good') : badge('pending', 'warn')}${viewBtn('publisher_journals', x.count, x.key)}</td>
+          </tr>`).join('')}`)(ds.publisherJournals || {})}
           <tr>
             <td><b>ICLAC Register of Misidentified Cell Lines</b><div class="muted">Cross-contaminated and misidentified human cell lines (ICLAC v14)</div></td>
             <td>Integrity</td>
@@ -240,6 +264,55 @@ export async function renderAdmin(view) {
     renderAdmin(view);
   }));
   $$('[data-view]', view).forEach(b => (b.onclick = () => viewList(ds.lists.find(l => l.type === b.dataset.view))));
+  $$('[data-dsview]', view).forEach(b => (b.onclick = () => viewDataset(b.dataset.dsview, b.dataset.pub || '')));
+  if ($('#pubj-load', view)) $('#pubj-load', view).onclick = async () => {
+    try {
+      const { jobId } = await api('/api/admin/datasets/publishers/load', { body: {} });
+      const r = await runJob(jobId, $('#refresh-progress', view), 'Downloading the major publisher journal lists (about 2 minutes)');
+      toast(`${Number(r.count).toLocaleString()} journals loaded`);
+      renderAdmin(view);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+}
+
+/** Read-only, searchable, paged view of a stored dataset (Retraction Watch, NLM, DOAJ, publisher lists ...) */
+function viewDataset(table, publisher) {
+  const head = c => c.replace(/_/g, ' ').replace(/^\w/, x => x.toUpperCase());
+  const cell = (c, v) => {
+    if (v === null || v === undefined || v === '') return '<span class="muted">&mdash;</span>';
+    if (typeof v === 'boolean') return v ? 'yes' : 'no';
+    const t = String(v);
+    if (c === 'doi') return `<a href="https://doi.org/${encodeURI(t)}" target="_blank" rel="noopener">${esc(t)}</a>`;
+    if (/url|homepage/.test(c) && /^https?:\/\//.test(t)) return `<a href="${esc(t)}" target="_blank" rel="noopener">${esc(t.replace(/^https?:\/\//, '').slice(0, 50))}</a>`;
+    return esc(t.slice(0, 160)) + (t.length > 160 ? '&hellip;' : '');
+  };
+  modal(`<div class="card-head"><div><h2 style="margin:0" id="dv-title">Dataset</h2><div class="muted" id="dv-sub"></div></div><button class="btn btn-sm btn-ghost" data-close>&#10005;</button></div>
+    <div class="row" style="margin:12px 0"><input type="search" id="dv-q" placeholder="Search" style="flex:1"><button class="btn btn-sm" id="dv-go">Search</button></div>
+    <div id="dv-body"><div class="progress">Loading&hellip;</div></div>`, {
+    onMount: el => {
+      let page = 1, q = '';
+      const body = $('#dv-body', el);
+      const load = async () => {
+        try {
+          const d = await api(`/api/admin/datasets/${table}/rows?page=${page}&q=${encodeURIComponent(q)}${publisher ? `&publisher=${encodeURIComponent(publisher)}` : ''}`);
+          $('#dv-title', el).textContent = d.label;
+          const pages = Math.max(1, Math.ceil(d.total / d.size));
+          $('#dv-sub', el).textContent = `${d.total.toLocaleString()} ${q ? 'matching ' : ''}rows`;
+          body.innerHTML = d.rows.length ? `<div class="table-wrap"><table class="t"><tr>${d.cols.map(c => `<th>${esc(head(c))}</th>`).join('')}</tr>
+            ${d.rows.map(r => `<tr>${d.cols.map(c => `<td>${cell(c, r[c])}</td>`).join('')}</tr>`).join('')}</table></div>
+            <div class="row" style="justify-content:space-between;margin-top:10px"><span class="muted">Page ${page.toLocaleString()} of ${pages.toLocaleString()}</span>
+            <span class="row"><button class="btn btn-sm" id="dv-prev" ${page <= 1 ? 'disabled' : ''}>Previous</button><button class="btn btn-sm" id="dv-next" ${page >= pages ? 'disabled' : ''}>Next</button></span></div>`
+            : '<p class="muted">No rows match.</p>';
+          if ($('#dv-prev', el)) $('#dv-prev', el).onclick = () => { page--; load(); };
+          if ($('#dv-next', el)) $('#dv-next', el).onclick = () => { page++; load(); };
+        } catch (e) { body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+      };
+      const search = () => { q = $('#dv-q', el).value.trim(); page = 1; load(); };
+      $('#dv-go', el).onclick = search;
+      $('#dv-q', el).onkeydown = e => { if (e.key === 'Enter') search(); };
+      load();
+    }
+  });
 }
 
 /** Read-only, searchable, paged view of an uploaded journal list */

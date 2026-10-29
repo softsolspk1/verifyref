@@ -255,6 +255,25 @@ router.post('/admin/image-databases/upload', webOnly, upload.fields([{ name: 'fi
   res.json({ success: true, ...out });
 }));
 
+/** View: a searchable page of one stored dataset (publisher_journals: ?publisher=elsevier ...) */
+router.get('/admin/datasets/:name/rows', wrap(async (req, res) => {
+  const out = await D.datasetRows(req.params.name, req.query);
+  if (!out) return res.status(404).json({ success: false, message: 'Unknown dataset.' });
+  res.json({ success: true, ...out });
+}));
+
+/** Download the major publisher journal lists now (about 2 minutes) instead of waiting for the monthly refresh */
+router.post('/admin/datasets/publishers/load', webOnly, wrap(async (req, res) => {
+  const job = await createJob(req.user.id, 'publisher-journals', {});
+  await auth.audit(req, 'dataset-load', 'publisher journal lists');
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('publisher-journals', async (input, { update }) => {
+  update('Downloading the journal lists of Elsevier, Springer Nature, Wiley, Taylor & Francis, SAGE, MDPI, OUP, CUP, Wolters Kluwer Health, ACS and IEEE (about 2 minutes)', 10);
+  const count = await D.loadPublisherJournals({ log: m => update(m, 50) });
+  return { count };
+});
+
 router.post('/admin/datasets/refresh', wrap(async (req, res) => {
   const job = await createJob(req.user.id, 'datasets', {});
   res.json({ success: true, jobId: job.id });

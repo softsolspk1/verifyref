@@ -97,7 +97,8 @@ if (cfg.DESKTOP) {
     const secret = process.env.CRON_SECRET;
     if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ success: false, message: 'Unauthorized.' });
     await purgeJobs();
-    const datasets = await D.ensureDatasets();
+    // time-boxed: the stalest datasets first, the rest on the following days (all of them at once exceeded the function time limit)
+    const datasets = await D.ensureDatasets({ budgetMs: 60000 });
     const alerts = await require('./src/alerts').runAlerts();
     const monitoring = await require('./src/integrity/monitoring').runMonitor({ limit: 150 }).catch(e => ({ error: e.message }));
     // Module 5: newly published PJPS papers into the image reference database (time-boxed; the rest follows tomorrow)

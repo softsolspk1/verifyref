@@ -791,43 +791,39 @@ async function datasetHealth() {
   };
 }
 
-/** Load/refresh downloadable datasets when missing or older than maxAgeDays */
-async function ensureDatasets({ force = false, maxAgeDays = 7, log = console.log } = {}) {
-  const stale = async key => {
-    const at = await getMeta(key);
-    return force || !at || Date.now() - new Date(at).getTime() > maxAgeDays * 86400000;
-  };
-  const results = {};
-  // v4 added author names: reload once if the stored copy predates that column
+/**
+ * Load/refresh downloadable datasets when missing or older than maxAgeDays. The stalest go first (by last load or last
+ * attempt), and with budgetMs no new download starts once the budget is used: the Vercel cron refreshes a few per day
+ * instead of timing out halfway through the list, and a source that keeps failing does not block the others.
+ */
+async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infinity, log = console.log } = {}) {
+  const started = Date.now();
+  const time = async key => { const at = await getMeta(key); return at ? new Date(at).getTime() : 0; };
+  const all = [
+    ['rw', 'retractionWatch', 'Retraction Watch', loadRetractionWatch],
+    ['pps', 'screener', 'Problematic Paper Screener', loadProblematicScreener],
+    ['beall', 'beall', "Beall's list", loadBeall],
+    ['fda_ob', 'fdaOrangeBook', 'FDA Orange Book', () => loadFdaOrangeBook({ log })],
+    ['nlm', 'nlm', 'NLM Catalog', loadNlmCatalog],
+    ['doaj', 'doaj', 'DOAJ', loadDoaj],
+    ['ltwa', 'ltwa', 'ISSN LTWA', loadLtwa],
+    ['crj', 'crj', 'Crossref journal list', loadCrossrefJournals],
+    ['maildom', 'maildom', 'E-mail domain lists', loadEmailDomains]
+  ];
+  // v4 added author names: reload Retraction Watch once if the stored copy predates that column
   const noAuthors = !force && (await getMeta('rw_authors')) !== '2';
-  if (noAuthors || await stale('rw_loaded_at')) {
-    try { results.retractionWatch = await loadRetractionWatch(); log(`Retraction Watch: ${results.retractionWatch} records loaded`); }
-    catch (e) { results.retractionWatchError = e.message; log(`Retraction Watch load failed: ${e.message}`); }
+  const todo = [];
+  for (const d of all) {
+    const loaded = await time(`${d[0]}_loaded_at`);
+    if (force || !loaded || Date.now() - loaded > maxAgeDays * 86400000 || (d[0] === 'rw' && noAuthors)) todo.push({ d, order: Math.max(loaded, await time(`${d[0]}_tried_at`)) });
   }
-  if (await stale('pps_loaded_at')) {
-    try { results.screener = await loadProblematicScreener(); log(`Problematic Paper Screener: ${results.screener} fingerprints loaded`); }
-    catch (e) { results.screenerError = e.message; log(`Problematic Paper Screener load failed: ${e.message}`); }
-  }
-  if (await stale('beall_loaded_at')) {
-    try { results.beall = await loadBeall(); log(`Beall's list: ${results.beall} entries loaded`); }
-    catch (e) { results.beallError = e.message; log(`Beall's list load failed: ${e.message}`); }
-  }
-  if (await stale('fda_ob_loaded_at')) {
-    try { results.fdaOrangeBook = await loadFdaOrangeBook({ log }); log(`FDA Orange Book: ${results.fdaOrangeBook} records loaded`); }
-    catch (e) { results.fdaOrangeBookError = e.message; log(`FDA Orange Book load failed: ${e.message}`); }
-  }
-  if (await stale('nlm_loaded_at')) {
-    try { results.nlm = await loadNlmCatalog(); log(`NLM Catalog: ${results.nlm} journals loaded`); }
-    catch (e) { results.nlmError = e.message; log(`NLM Catalog load failed: ${e.message}`); }
-  }
-  if (await stale('doaj_loaded_at')) {
-    try { results.doaj = await loadDoaj(); log(`DOAJ: ${results.doaj} journals loaded`); }
-    catch (e) { results.doajError = e.message; log(`DOAJ load failed: ${e.message}`); }
-  }
-  for (const [key, label, fn] of [['ltwa', 'ISSN LTWA', loadLtwa], ['crj', 'Crossref journal list', loadCrossrefJournals], ['maildom', 'E-mail domain lists', loadEmailDomains]]) {
-    if (!(await stale(`${key}_loaded_at`))) continue;
-    try { results[key] = await fn(); log(`${label}: ${results[key]} rows loaded`); }
-    catch (e) { results[`${key}Error`] = e.message; log(`${label} load failed: ${e.message}`); }
+  todo.sort((a, b) => a.order - b.order);
+  const results = {};
+  for (const { d: [key, name, label, fn] } of todo) {
+    if (Date.now() - started > budgetMs) { (results.deferred = results.deferred || []).push(label); continue; }
+    await setMeta(`${key}_tried_at`, new Date().toISOString());
+    try { results[name] = await fn(); log(`${label}: ${results[name]} rows loaded`); }
+    catch (e) { results[`${name}Error`] = e.message; log(`${label} load failed: ${e.message}`); }
   }
   return results;
 }

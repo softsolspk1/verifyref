@@ -282,6 +282,17 @@ async function checkJournal(input) {
   if (isJournal && growth && growth >= 3) flag(indexed.length ? 'low' : 'medium', `Output grew ${growth.toFixed(1)}× in recent years — check editorial standards`);
   if (src && src.last_publication_year && src.last_publication_year < thisYear - 2) flag('low', `No publications indexed since ${src.last_publication_year} (possibly ceased)`);
 
+  // Major publisher (Elsevier, Springer Nature, Wiley ... journal lists). A typed ISSN that is not an ISSN of the
+  // publisher's journal with that exact title is a same-title journal elsewhere or a clone / hijacked copy.
+  const byIssn = issns.length ? await D.publisherJournal({ issns }).catch(() => null) : null;
+  const byName = name ? await D.publisherJournal({ name }).catch(() => null) : null;
+  const majorPublisher = byIssn || byName;
+  const typedIssn = cleanIssn(input.issn || '');
+  const typedHit = typedIssn && byName && !byName.issns.includes(typedIssn) ? await D.publisherJournal({ issns: [typedIssn] }).catch(() => null) : null;
+  if (typedIssn && byName && !byName.issns.includes(typedIssn) && !(typedHit && typedHit.key === byName.key)) {
+    flag('medium', `“${byName.title}” is a ${byName.publisher} journal (ISSN ${byName.issns.join(' / ')}); ISSN ${typedIssn} is not one of its ISSNs — a different journal with the same title, or a clone / hijacked copy: check the ISSN on the publisher's site`);
+  }
+
   let verdict = 'ok';
   if (flags.some(f => f.severity === 'high')) verdict = 'high-risk';
   else if (flags.some(f => f.severity === 'medium') || (isJournal && !indexed.length && resolved)) verdict = 'caution';
@@ -294,6 +305,7 @@ async function checkJournal(input) {
     title: name,
     type: src?.type || 'journal',
     publisher: resolved?.publisher || doaj.publisher || null,
+    majorPublisher: majorPublisher ? { key: majorPublisher.key, name: majorPublisher.publisher, imprint: majorPublisher.imprint } : null,
     country: src?.country_code || resolved?.nlm?.country || null,
     homepage: src?.homepage_url || doaj.url || null,
     issns,

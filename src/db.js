@@ -225,6 +225,24 @@ CREATE INDEX IF NOT EXISTS idx_oaj_issnl ON openalex_journals(issn_l);
 CREATE INDEX IF NOT EXISTS idx_oaj_issns ON openalex_journals USING gin (string_to_array(issns, ' '));
 CREATE TABLE IF NOT EXISTS openalex_journals_stage (LIKE openalex_journals);
 
+-- Journal lists of the major publishers (Elsevier, Springer Nature, Wiley, Taylor & Francis, SAGE, MDPI, OUP, CUP,
+-- Wolters Kluwer Health, ACS, IEEE): OpenAlex publisher hierarchy (imprints included) plus the Crossref title list
+CREATE TABLE IF NOT EXISTS publisher_journals (
+  publisher_key TEXT NOT NULL,           -- elsevier | springer | wiley | tandf | sage | mdpi | oup | cup | wkh | acs | ieee
+  publisher TEXT NOT NULL,               -- group name, e.g. Elsevier
+  imprint TEXT,                          -- registered publisher / imprint, e.g. Cell Press
+  title TEXT NOT NULL,
+  title_norm TEXT NOT NULL,
+  issns TEXT,                            -- every ISSN, space-separated
+  openalex_id TEXT,
+  homepage TEXT,
+  works INTEGER,
+  source TEXT NOT NULL                   -- openalex | crossref
+);
+CREATE INDEX IF NOT EXISTS idx_pubj_title ON publisher_journals(title_norm);
+CREATE INDEX IF NOT EXISTS idx_pubj_issns ON publisher_journals USING gin (string_to_array(issns, ' '));
+CREATE INDEX IF NOT EXISTS idx_pubj_key ON publisher_journals(publisher_key);
+
 -- Free-mail and disposable (throw-away) e-mail domains, Module 4 author and reviewer checks
 CREATE TABLE IF NOT EXISTS email_domains (
   domain TEXT PRIMARY KEY,

@@ -39,7 +39,7 @@ export function journalCard(j) {
   return `
     <div class="card">
       <div class="card-head">
-        <div><h2>${esc(j.title)}</h2><div class="muted">${esc(j.publisher || '')}${j.country ? ` · ${esc(j.country)}` : ''}${j.issns.length ? ` · ISSN ${esc(j.issns.join(', '))}` : ''}</div></div>
+        <div><h2>${esc(j.title)}</h2><div class="muted">${esc(j.publisher || '')}${j.country ? ` · ${esc(j.country)}` : ''}${j.issns.length ? ` · ISSN ${esc(j.issns.join(', '))}` : ''}${j.majorPublisher ? ` ${badge(esc(j.majorPublisher.name), 'good')}` : ''}</div></div>
         <div class="row">${badge(verdict[0], verdict[1])}<button class="btn btn-sm" id="j-copy">${ICONS.copy} Copy report</button></div>
       </div>
       ${j.offline ? '<div class="alert alert-info"><b>Offline check.</b> Compared with the local copies of the uploaded journal lists, Beall’s list, hijacked journals and Retraction Watch only. DOAJ, MEDLINE, the ISSN registry and the publication profile need a connection.</div>' : ''}
@@ -77,7 +77,7 @@ function journalText(j) {
   const ix = j.indexing;
   return [
     `Journal Check — ${j.title}`,
-    `Publisher: ${j.publisher || '—'} | ISSN: ${j.issns.join(', ') || '—'}`,
+    `Publisher: ${j.publisher || '—'}${j.majorPublisher ? ` (${j.majorPublisher.name} journal list)` : ''} | ISSN: ${j.issns.join(', ') || '—'}`,
     `Verdict: ${j.verdict}`,
     `Scopus: ${ix.scopus.indexed ? 'indexed' : ix.scopus.indexed === false ? 'no' : 'unknown'}${ix.scopus.quartile ? ` (${ix.scopus.quartile})` : ''}`,
     `Web of Science: ${ix.wos.collections.map(c => c.index).join(', ') || '—'}${ix.wos.jcrQuartile ? ` (JCR ${ix.wos.jcrQuartile})` : ''}`,

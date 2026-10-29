@@ -367,7 +367,13 @@ async function classify(v, retraction) {
     const regional = REGIONAL.test(ref.journal || '') && !idFailed;
     if (idFailed) { status = 'suspicious'; reason = 'Identifier does not exist and no matching record was found'; }
     else if (regional) { status = 'unverified'; reason = `Not indexed — ${ref.journal} is a regional journal that the scholarly databases do not cover fully; check manually (not a sign of fabrication)`; v.notIndexed = true; }
-    else if (wellIndexed) { status = 'suspicious'; reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles)`; }
+    else if (wellIndexed) {
+      status = 'suspicious';
+      reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles)`;
+      // the major publishers register every article with Crossref, so a missing article there weighs more
+      const major = await require('../datasets').publisherJournal({ issns: journal.issn || [], name: journal.name }).catch(() => null);
+      if (major && (!ref.year || ref.year >= 2002)) reason += `; it is a ${major.publisher} journal, and ${major.publisher} registers every article with Crossref`;
+    }
     else if (errors >= 4) { status = 'unverified'; reason = 'Verification could not be completed (several databases did not respond)'; }
     else if (grey) { status = 'unverified'; reason = 'Book, report or web source — not found in scholarly databases; check manually'; }
     else {

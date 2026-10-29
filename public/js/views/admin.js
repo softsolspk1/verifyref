@@ -78,6 +78,13 @@ export async function renderAdmin(view) {
             <td>${o.loadedAt ? fmtDate(o.loadedAt) : badge('not loaded', 'warn')}</td>
             <td>${o.downloading ? `${badge('downloading', 'info')}<div class="muted">${Number(o.downloading.journals).toLocaleString()} journals so far</div>` : o.count ? badge('active', 'good') : !desk && !o.keyConfigured ? `${badge('needs API key', 'warn')}<div class="muted">Set OPENALEX_API_KEY (free at openalex.org)</div>` : badge('pending', 'warn')}</td>
           </tr>`)(ds.openalexJournals || {})}
+          ${(p => `<tr>
+            <td><b>Major publisher journal lists</b><div class="muted">Every journal of Elsevier, Springer Nature, Wiley, Taylor &amp; Francis, SAGE, MDPI, Oxford University Press, Cambridge University Press, Wolters Kluwer Health, ACS and IEEE, imprints included (OpenAlex publisher hierarchy + Crossref title list). Confirms the publisher of a cited journal; these publishers register every article with Crossref, so an article missing there is a stronger warning. Refreshed monthly.</div>${p.count ? `<div class="muted">${(p.publishers || []).map(x => `${esc(x.name)}: ${Number(x.count).toLocaleString()}`).join(' · ')}</div>` : ''}</td>
+            <td>Journal index</td>
+            <td class="num">${p.count ? Number(p.count).toLocaleString() : '0'}</td>
+            <td>${p.loadedAt ? fmtDate(p.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${p.count ? badge('active', 'good') : badge('pending', 'warn')}</td>
+          </tr>`)(ds.publisherJournals || {})}
           <tr>
             <td><b>ICLAC Register of Misidentified Cell Lines</b><div class="muted">Cross-contaminated and misidentified human cell lines (ICLAC v14)</div></td>
             <td>Integrity</td>

@@ -777,6 +777,96 @@ async function openalexJournal({ issns = [], name = '' } = {}) {
   return rows.length === 1 ? asOpenAlexSource(rows[0]) : null;
 }
 
+// ------------------------------------------------------------------ journal lists of the major publishers
+
+// OpenAlex publisher ids (the hierarchy includes imprints: Cell Press under Elsevier, Routledge under Taylor & Francis,
+// Lippincott and Medknow under Wolters Kluwer Health) and the Crossref publisher names that complete the list
+const PUBLISHERS = [
+  { key: 'elsevier', name: 'Elsevier', ids: ['P4310320990'], crossref: /elsevier|cell press|academic press|pergamon|w\.?b\.? saunders|mosby|churchill livingstone/i },
+  { key: 'springer', name: 'Springer Nature', ids: ['P4310319965'], crossref: /springer|nature publishing|nature portfolio|biomed central|\bbmc\b|palgrave|\badis\b/i },
+  { key: 'wiley', name: 'Wiley (John Wiley & Sons)', ids: ['P4310320595'], crossref: /wiley|blackwell|hindawi/i },
+  { key: 'tandf', name: 'Taylor & Francis', ids: ['P4310320547'], crossref: /taylor\s*(?:&|and)\s*francis|informa|routledge|crc press|dove medical/i },
+  { key: 'sage', name: 'SAGE Publications', ids: ['P4310320017'], crossref: /\bsage\b/i },
+  { key: 'mdpi', name: 'MDPI AG', ids: ['P4310310987'], crossref: /\bmdpi\b|multidisciplinary digital publishing/i },
+  { key: 'oup', name: 'Oxford University Press', ids: ['P4310311648'], crossref: /oxford university press/i },
+  { key: 'cup', name: 'Cambridge University Press', ids: ['P4310311721'], crossref: /cambridge university press/i },
+  { key: 'wkh', name: 'Wolters Kluwer Health', ids: ['P4310315860', 'P4310315671', 'P4310320448'], crossref: /wolters kluwer|lippincott|ovid technologies|medknow/i },
+  { key: 'acs', name: 'American Chemical Society (ACS) Publications', ids: ['P4310320006'], crossref: /american chemical society/i },
+  { key: 'ieee', name: 'Institute of Electrical and Electronics Engineers (IEEE)', ids: ['P4310319808', 'P4322697011'], crossref: /\bieee\b|institute of electrical and electronics engineers/i }
+];
+const PUBJ_COLS = ['publisher_key', 'publisher', 'imprint', 'title', 'title_norm', 'issns', 'openalex_id', 'homepage', 'works', 'source']
+  .map(name => ({ name, type: name === 'works' ? 'int' : 'text' }));
+
+/** About 21,000 journals from OpenAlex (~110 requests) plus the Crossref title-list rows not already covered (from the stored copy) */
+async function loadPublisherJournals({ log = console.log } = {}) {
+  const key = cfg.OPENALEX_API_KEY ? `&api_key=${encodeURIComponent(cfg.OPENALEX_API_KEY)}` : '';
+  const rows = [];
+  const seen = new Set(); // every ISSN already listed
+  for (const p of PUBLISHERS) {
+    let cursor = '*', n = 0;
+    while (cursor) {
+      const url = `https://api.openalex.org/sources?filter=type:journal,host_organization_lineage:${p.ids.join('|')}&per-page=200&select=id,display_name,issn_l,issn,host_organization_name,homepage_url,works_count&cursor=${encodeURIComponent(cursor)}${key}`;
+      const r = await getJson(url, { ttl: 0, timeout: 60000, retries: 3 });
+      if (!r.ok) throw new Error(`OpenAlex answered ${r.status || r.error} for ${p.name}`);
+      for (const s of r.data.results || []) {
+        const title = (s.display_name || '').trim();
+        if (!title) continue;
+        const issns = [...new Set([s.issn_l, ...(s.issn || [])].map(cleanIssn).filter(Boolean))];
+        issns.forEach(i => seen.add(i));
+        rows.push([p.key, p.name, s.host_organization_name || null, title, normalizeJournal(title), issns.join(' ') || null, s.id.replace('https://openalex.org/', ''), s.homepage_url || null, s.works_count ?? null, 'openalex']);
+        n++;
+      }
+      cursor = (r.data.results || []).length ? r.data.meta?.next_cursor || null : null;
+    }
+    log(`${p.name}: ${n} journals in OpenAlex`);
+  }
+  if (rows.length < 10000) throw new Error(`publisher journal lists returned too few journals (${rows.length})`);
+  // Crossref title list: journals of the same publishers that OpenAlex files elsewhere or does not have
+  const cr = await db.all('SELECT title, title_norm, publisher, issn, eissn FROM crossref_journals WHERE publisher IS NOT NULL');
+  let added = 0;
+  for (const c of cr) {
+    const p = PUBLISHERS.find(x => x.crossref.test(c.publisher));
+    if (!p) continue;
+    const issns = [c.issn, c.eissn].map(cleanIssn).filter(Boolean);
+    if (!issns.length || issns.some(i => seen.has(i))) continue;
+    issns.forEach(i => seen.add(i));
+    rows.push([p.key, p.name, c.publisher, c.title, c.title_norm, issns.join(' '), null, null, null, 'crossref']);
+    added++;
+  }
+  log(`Crossref title list: ${added} more journals`);
+  await transaction(async client => {
+    await client.query('TRUNCATE publisher_journals');
+    await bulkInsert(client, 'publisher_journals', PUBJ_COLS, rows);
+  });
+  const byPublisher = Object.fromEntries(PUBLISHERS.map(p => [p.key, rows.filter(r => r[0] === p.key).length]));
+  await setMeta('pubj_loaded_at', new Date().toISOString());
+  await setMeta('pubj_count', rows.length);
+  await setMeta('pubj_by_publisher', JSON.stringify(byPublisher));
+  return rows.length;
+}
+
+/** The major publisher of a journal by any ISSN or exact (normalised) title: { key, publisher, imprint, title, issns } or null */
+async function publisherJournal({ issns = [], name = '' } = {}) {
+  const is = issns.map(cleanIssn).filter(Boolean);
+  const shape = r => r && { key: r.publisher_key, publisher: r.publisher, imprint: r.imprint, title: r.title, issns: (r.issns || '').split(' ').filter(Boolean), homepage: r.homepage, source: r.source };
+  if (is.length) {
+    const row = await db.one("SELECT * FROM publisher_journals WHERE string_to_array(issns, ' ') && $1::text[] ORDER BY works DESC NULLS LAST LIMIT 1", [is]);
+    if (row) return shape(row);
+  }
+  if (!name) return null;
+  const rows = await db.all('SELECT * FROM publisher_journals WHERE title_norm = $1 ORDER BY works DESC NULLS LAST LIMIT 3', [normalizeJournal(name)]);
+  // one title can exist at two publishers (a journal that moved): answer only when they agree
+  return rows.length && rows.every(r => r.publisher_key === rows[0].publisher_key) ? shape(rows[0]) : null;
+}
+
+async function publisherJournalStatus() {
+  const by = JSON.parse((await getMeta('pubj_by_publisher')) || '{}');
+  return {
+    loadedAt: await getMeta('pubj_loaded_at'), count: parseInt((await getMeta('pubj_count')) || '0', 10),
+    publishers: PUBLISHERS.map(p => ({ key: p.key, name: p.name, count: by[p.key] || 0 }))
+  };
+}
+
 // ------------------------------------------------------------------ free-mail and disposable e-mail domains
 
 const FREEMAIL_URL = 'https://raw.githubusercontent.com/Kikobeats/free-email-domains/master/domains.json';
@@ -871,6 +961,7 @@ async function listStatus() {
     ltwa: { loadedAt: await getMeta('ltwa_loaded_at'), count: parseInt((await getMeta('ltwa_count')) || '0', 10) },
     crossrefJournals: { loadedAt: await getMeta('crj_loaded_at'), count: parseInt((await getMeta('crj_count')) || '0', 10) },
     openalexJournals: await openalexJournalStatus(),
+    publisherJournals: await publisherJournalStatus(),
     emailDomains: { loadedAt: await getMeta('maildom_loaded_at'), count: parseInt((await getMeta('maildom_count')) || '0', 10) },
     iclac: { loadedAt: null, count: 581, builtIn: true }
   };
@@ -896,6 +987,7 @@ async function datasetHealth() {
     ltwa: { count: parseInt((await getMeta('ltwa_count')) || '0', 10), loadedAt: await getMeta('ltwa_loaded_at') },
     crossrefJournals: { count: parseInt((await getMeta('crj_count')) || '0', 10), loadedAt: await getMeta('crj_loaded_at') },
     openalexJournals: { count: parseInt((await getMeta('oaj_count')) || '0', 10), loadedAt: await getMeta('oaj_loaded_at') },
+    publisherJournals: { count: parseInt((await getMeta('pubj_count')) || '0', 10), loadedAt: await getMeta('pubj_loaded_at') },
     emailDomains: { count: parseInt((await getMeta('maildom_count')) || '0', 10), loadedAt: await getMeta('maildom_loaded_at') },
     complete: !missing.length,
     warning: missing.length ? 'Reference datasets are still loading or failed to load: ' + missing.join('; ') + '. Results that depend on them may be incomplete - run the check again after the datasets have loaded (Admin > Data).' : null
@@ -920,6 +1012,7 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
     ['ltwa', 'ltwa', 'ISSN LTWA', loadLtwa],
     ['crj', 'crj', 'Crossref journal list', loadCrossrefJournals],
     ['maildom', 'maildom', 'E-mail domain lists', loadEmailDomains],
+    ['pubj', 'publisherJournals', 'Major publisher journal lists', () => loadPublisherJournals({ log }), 30],
     // monthly; a download in progress continues on every run with whatever time is left
     // (on Vercel at most 3 minutes per run, so a request never outlives the function time limit)
     ['oaj', 'openalexJournals', 'OpenAlex journal list', () => loadOpenAlexJournals({ budgetMs: Math.min(budgetMs - (Date.now() - started), process.env.VERCEL ? 180000 : Infinity), log }), 30]
@@ -946,6 +1039,6 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
-  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
+  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
   importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf
 };

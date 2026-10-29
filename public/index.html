@@ -44,9 +44,15 @@
             <div>
               <b>Desktop application for Windows</b>
               <div class="muted" id="dl-meta">The same five modules, with offline use.</div>
-              <div class="row" style="margin-top:8px">
-                <a class="btn btn-sm btn-primary" id="dl-setup" href="/api/desktop-app/download/setup">Download installer</a>
-                <a class="btn btn-sm" id="dl-portable" href="/api/desktop-app/download/portable">Portable</a>
+              <div class="dl-options">
+                <div class="dl-option" id="dl-setup">
+                  <a class="btn btn-sm btn-primary" href="/api/desktop-app/download/setup">Download installer</a>
+                  <small>Recommended. Installs with Start-menu and desktop shortcuts; updates in place.</small>
+                </div>
+                <div class="dl-option" id="dl-portable">
+                  <a class="btn btn-sm" href="/api/desktop-app/download/portable">Portable</a>
+                  <small>No installation or admin rights needed; runs from one file or a USB drive.</small>
+                </div>
               </div>
             </div>
           </div>

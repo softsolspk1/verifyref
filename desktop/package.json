@@ -1,7 +1,7 @@
 {
   "name": "pjps-reference-checker-desktop",
   "productName": "PJPS Data Integrity System",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "PJPS Data Integrity System for Windows — the five PJPS modules with offline mode, by Softsols Pakistan",
   "author": "Softsols Pakistan",
   "private": true,
@@ -20,12 +20,38 @@
     "appId": "pk.softsols.pjps-reference-checker",
     "productName": "PJPS Data Integrity System",
     "copyright": "© Softsols Pakistan",
-    "directories": { "app": "app", "output": "dist", "buildResources": "build" },
+    "directories": {
+      "app": "app",
+      "output": "dist",
+      "buildResources": "build"
+    },
     "asar": true,
-    "asarUnpack": ["node_modules/@electric-sql/pglite/**", "node_modules/sharp/**", "node_modules/@img/**"],
-    "extraResources": [{ "from": "desktop-config.json", "to": "desktop-config.json" }],
+    "asarUnpack": [
+      "node_modules/@electric-sql/pglite/**",
+      "node_modules/sharp/**",
+      "node_modules/@img/**"
+    ],
+    "extraResources": [
+      {
+        "from": "desktop-config.json",
+        "to": "desktop-config.json"
+      }
+    ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico",
       "artifactName": "PJPS-Data-Integrity-${version}-${arch}-${target}.${ext}"
     },
@@ -40,6 +66,17 @@
       "deleteAppDataOnUninstall": false,
       "artifactName": "PJPS-Data-Integrity-Setup-${version}.${ext}"
     },
-    "portable": { "artifactName": "PJPS-Data-Integrity-Portable-${version}.${ext}" }
+    "portable": {
+      "artifactName": "PJPS-Data-Integrity-Portable-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://verifyref.vercel.app/api/desktop-app/update"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }

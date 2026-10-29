@@ -348,6 +348,7 @@ function startSyncTimer() {
       if (datasets || age(await db.getMeta(`last_sync:${u.id}`)) > 30 * 60000) syncInBackground(u.id, { datasets });
     }
   };
+  setTimeout(() => tick().catch(() => {}), 20000).unref(); // shortly after start, not only after the first 5 minutes
   setInterval(() => tick().catch(() => {}), 5 * 60000).unref();
   require('./http').onConnectivity(online => { if (online) setTimeout(() => tick().catch(() => {}), 3000); });
 }

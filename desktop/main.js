@@ -79,18 +79,10 @@ function buildMenu() {
   ]));
 }
 
-/** Tell the user when the web platform runs a newer version */
-async function checkForUpdate() {
-  const remote = process.env.REMOTE_URL;
-  if (!remote) return;
-  try {
-    const r = await fetch(`${remote.replace(/\/+$/, '')}/api/app`, { signal: AbortSignal.timeout(8000) });
-    const { version } = await r.json();
-    const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
-    if (version && newer(version, app.getVersion())) {
-      dialog.showMessageBox(win, { type: 'info', title: 'Update available', message: `Version ${version} of ${APP_NAME} is available.`, detail: 'Ask your administrator for the new installer. Your data is kept when you install it.' });
-    }
-  } catch (e) { /* offline or no platform */ }
+/** Automatic updates from the web platform (desktop/updater.js): downloaded in the background, installed on close */
+function startUpdates() {
+  const remoteUrl = () => require(path.join(path.dirname(serverPath), 'src', 'desktop.js')).remoteUrl().catch(() => process.env.REMOTE_URL || '');
+  require('./updater').start({ getWindow: () => win, remoteUrl, log, appName: APP_NAME });
 }
 
 app.whenReady().then(async () => {
@@ -108,7 +100,7 @@ app.whenReady().then(async () => {
   }
   buildMenu();
   createWindow();
-  setTimeout(checkForUpdate, 15000);
+  startUpdates();
 });
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
@@ -120,5 +112,6 @@ app.on('before-quit', e => {
   closing = true;
   e.preventDefault();
   const db = require(path.join(path.dirname(serverPath), 'src', 'db.js'));
-  Promise.race([db.close(), new Promise(r => setTimeout(r, 5000))]).catch(() => {}).finally(() => app.exit(0));
+  // then quit normally (not app.exit), so the quit events run: they install a downloaded update
+  Promise.race([db.close(), new Promise(r => setTimeout(r, 5000))]).catch(() => {}).finally(() => app.quit());
 });

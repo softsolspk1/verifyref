@@ -111,7 +111,7 @@ npm start                 # run from source
 npm run dist              # installer + portable exe in desktop/dist/
 ```
 
-From the project root: `REMOTE_URL=https://your-platform npm run desktop:dist` builds with the platform address pre-set (otherwise it is entered on the sign-in screen at first launch), and `npm run desktop:publish -- --notes "…"` uploads the installer and portable version to Cloudflare R2. Signed-in users then download them from **Desktop application** in the web portal's menu (each download is written to the audit log).
+From the project root: `REMOTE_URL=https://your-platform npm run desktop:dist` builds with the platform address pre-set (otherwise it is entered on the sign-in screen at first launch), and `npm run desktop:publish -- --notes "…"` uploads the installer and portable version to Cloudflare R2. Every installed and portable desktop then **updates itself**: it checks the platform at start and every 4 hours (`/api/desktop-app/update/latest.yml` for installed copies, `/api/desktop-app/latest` + SHA-512 for portable ones), downloads the new version in the background and installs it when the app closes (or at once with *Restart now*); the database and datasets in the user profile are kept. Bump the version in `desktop/package.json` before each build. Signed-in users download it from **Desktop application** in the web portal's menu (each download is written to the audit log).
 
 **How it works**
 

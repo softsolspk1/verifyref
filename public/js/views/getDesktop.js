@@ -8,6 +8,7 @@ const SAME = [
   ['Five PJPS modules', 'Check Bibliography, Reference Style & PJPS, Citations, Paper Mill Detection and Image Integrity, and the Full Screening Report.'],
   ['Same accounts', 'Sign in with your web platform e-mail and password. The Super Admin decides who may use the desktop application.'],
   ['Your reports everywhere', 'Reports made on the desktop are uploaded to the platform, and web reports appear on the desktop.'],
+  ['Always up to date', 'The application updates itself in the background from this platform and installs the new version when it is closed; datasets and reports synchronise automatically. Nobody needs to reinstall.'],
   ['Datasets on the computer', 'Retraction Watch, Beall’s list, PPS, NLM Catalog, DOAJ, LTWA, Crossref journals, journal index lists and the image-integrity knowledge base are copied to the computer.']
 ];
 

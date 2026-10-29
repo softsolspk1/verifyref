@@ -179,7 +179,19 @@ router.get('/desktop-app', auth.requireUser, wrap(async (req, res) => {
 // Public: the sign-in page offers the download (signing in to the desktop still needs an account with desktop access)
 router.get('/desktop-app/latest', wrap(async (req, res) => {
   const r = await release();
-  res.json({ success: true, release: r && R2.enabled() ? { version: r.version, publishedAt: r.publishedAt, files: (r.files || []).map(f => ({ kind: f.kind, name: f.name, size: f.size })) } : null });
+  res.json({ success: true, release: r && R2.enabled() ? { version: r.version, publishedAt: r.publishedAt, files: (r.files || []).map(f => ({ kind: f.kind, name: f.name, size: f.size, sha512: f.sha512 || null })) } : null });
+}));
+
+// Automatic updates of installed desktops (electron-updater, generic provider): latest.yml, then the installer it names
+router.get('/desktop-app/update/latest.yml', wrap(async (req, res) => {
+  const r = await release();
+  if (!r?.updateYml || !R2.enabled()) return res.status(404).type('text/plain').send('No desktop release published.');
+  res.set({ 'Content-Type': 'text/yaml; charset=utf-8', 'Cache-Control': 'no-store' }).send(r.updateYml);
+}));
+router.get('/desktop-app/update/:file', wrap(async (req, res) => {
+  const f = ((await release())?.files || []).find(x => x.name === req.params.file);
+  if (!f || !R2.enabled()) return res.status(404).type('text/plain').send('Not found.');
+  res.set('Cache-Control', 'no-store').redirect(302, R2.presign('GET', f.key, { expires: 3600 }));
 }));
 
 router.get('/desktop-app/download/:kind', wrap(async (req, res) => {

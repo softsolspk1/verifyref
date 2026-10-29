@@ -16,6 +16,7 @@ copy('server.js');
 copy('src');
 copy('public');
 fs.copyFileSync(path.join(__dirname, 'main.js'), path.join(OUT, 'main.js'));
+fs.copyFileSync(path.join(__dirname, 'updater.js'), path.join(OUT, 'updater.js'));
 fs.mkdirSync(path.join(OUT, 'build'), { recursive: true });
 fs.copyFileSync(path.join(__dirname, 'build', 'icon.ico'), path.join(OUT, 'build', 'icon.ico'));
 
@@ -29,7 +30,7 @@ if (!fs.existsSync(cfgFile) || process.env.REMOTE_URL) {
 fs.copyFileSync(cfgFile, path.join(OUT, 'desktop-config.json'));
 
 // Runtime dependencies only; pg and the Vercel helper are not used by the embedded database but are required lazily
-const deps = { ...rootPkg.dependencies };
+const deps = { ...rootPkg.dependencies, ...(deskPkg.dependencies || {}) }; // + electron-updater (automatic updates)
 fs.writeFileSync(path.join(OUT, 'package.json'), JSON.stringify({
   name: deskPkg.name, productName: deskPkg.productName, version: deskPkg.version, description: deskPkg.description,
   author: deskPkg.author, main: 'main.js', dependencies: deps

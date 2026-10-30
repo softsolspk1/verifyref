@@ -66,6 +66,58 @@ async function sourceText(name, download, { log = console.log } = {}) {
   throw new Error(`${name} download failed (${r.status || r.error})`);
 }
 
+// ------------------------------------------------------------------ dataset tables on R2
+// After every successful refresh the finished lookup table is saved to R2 (tables/<table>.ndjson.gz, one row per line,
+// with the dataset's meta values in the first line). A new database or server is filled straight from these snapshots,
+// without contacting any source website or parsing source files again; the database keeps the indexed copy that
+// lookups need (a reference checked against 64,000 retractions has to be an index query, not a file scan).
+
+/** Save a dataset table (and its meta values) to R2 */
+async function snapshotTable(table, metaKeys = []) {
+  if (!enabled()) return { stored: false, reason: 'R2 not configured' };
+  const zlib = require('zlib');
+  const cols = await db.all('SELECT column_name, data_type, udt_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position', [table]);
+  if (!cols.length) return { stored: false, reason: 'no such table' };
+  const meta = {};
+  for (const k of metaKeys) meta[k] = await db.getMeta(k);
+  const lines = [JSON.stringify({ table, columns: cols.map(c => ({ name: c.column_name, type: c.data_type === 'ARRAY' ? `${c.udt_name.replace(/^_/, '')}[]` : c.udt_name })), meta, at: new Date().toISOString() })];
+  let rows = 0;
+  for (let offset = 0; ; offset += 20000) {
+    const part = await db.all(`SELECT * FROM ${table} ORDER BY 1 LIMIT 20000 OFFSET ${offset}`);
+    for (const r of part) lines.push(JSON.stringify(cols.map(c => r[c.column_name] ?? null)));
+    rows += part.length;
+    if (part.length < 20000) break;
+  }
+  const r = await put(`tables/${table}.ndjson.gz`, zlib.gzipSync(lines.join('\n')), { source: 'snapshot', contentType: 'application/gzip' });
+  return { ...r, rows };
+}
+
+/** Fill a dataset table (and its meta values) from its R2 snapshot. Returns the number of rows, or null without a snapshot */
+async function restoreTable(table) {
+  const buf = await get(`tables/${table}.ndjson.gz`);
+  if (!buf) return null;
+  const lines = require('zlib').gunzipSync(buf).toString('utf8').split('\n');
+  const head = JSON.parse(lines[0]);
+  const json = new Set(['json', 'jsonb']);
+  // json and array columns travel as JSON text and are converted back inside the INSERT (unnest would flatten arrays)
+  const special = c => json.has(c.type) || c.type.endsWith('[]');
+  // columns as they exist now; a column added since the snapshot is left empty
+  const now = new Set((await db.all('SELECT column_name FROM information_schema.columns WHERE table_name = $1', [table])).map(c => c.column_name));
+  const keep = head.columns.map((c, i) => ({ ...c, i })).filter(c => now.has(c.name));
+  const rows = lines.slice(1).filter(Boolean).map(l => { const v = JSON.parse(l); return keep.map(c => (special(c) && v[c.i] !== null ? JSON.stringify(v[c.i]) : v[c.i])); });
+  const expr = (c, ci) => (json.has(c.type) ? `c${ci}::${c.type}` : c.type.endsWith('[]') ? `CASE WHEN c${ci} IS NULL THEN NULL ELSE ARRAY(SELECT jsonb_array_elements_text(c${ci}::jsonb))::${c.type} END` : `c${ci}`);
+  const argType = c => (special(c) ? 'text' : c.type);
+  await db.transaction(async client => {
+    await client.query(`TRUNCATE ${table}`);
+    for (let i = 0; i < rows.length; i += 5000) {
+      const part = rows.slice(i, i + 5000);
+      await client.query(`INSERT INTO ${table}(${keep.map(c => c.name).join(', ')}) SELECT ${keep.map(expr).join(', ')} FROM unnest(${keep.map((c, ci) => `$${ci + 1}::${argType(c)}[]`).join(', ')}) AS t(${keep.map((_, ci) => `c${ci}`).join(', ')})`, keep.map((_, ci) => part.map(r => r[ci])));
+    }
+  });
+  for (const [k, v] of Object.entries(head.meta || {})) if (v !== null && v !== undefined) await db.setMeta(k, v);
+  return rows.length;
+}
+
 /** Same for binary downloads (download() -> { ok, buffer }) */
 async function sourceBuffer(name, download, { log = console.log } = {}) {
   const r = await download().catch(e => ({ ok: false, error: e.message }));
@@ -200,4 +252,4 @@ async function status() {
   return { enabled: enabled(), bucket: cfg.R2.bucket || null, files: s.files, bytes: Number(s.bytes), updated: s.updated, groups: groups.map(g => ({ ...g, bytes: Number(g.bytes) })) };
 }
 
-module.exports = { put, putFile, get, remove, list, status, sourceText, sourceBuffer, pushDataDir, pullDataDir, ensureLocal, enabled, PREFIX };
+module.exports = { put, putFile, get, remove, list, status, sourceText, sourceBuffer, snapshotTable, restoreTable, pushDataDir, pullDataDir, ensureLocal, enabled, PREFIX };

@@ -129,7 +129,8 @@ async function retractionMonitor() {
     WHERE result IS NOT NULL AND kind IN ('manuscript', 'references', 'verify') AND created_at > now() - interval '3 years' ORDER BY id DESC LIMIT 3000`);
   let notices = 0;
   for (const row of rows) {
-    const refs = row.result?.references?.results || [];
+    // stubs of reports kept on R2 carry the reference DOIs, so no report has to be fetched from R2
+    const refs = row.result?._r2 ? (row.result.refDois || []).map(x => ({ index: x.index, raw: x.raw, status: x.retracted ? 'retracted' : '', parsed: { doi: x.doi } })) : row.result?.references?.results || [];
     const map = new Map();
     for (const r of refs) {
       const doi = (r.record?.doi || r.parsed?.doi || '').toLowerCase();

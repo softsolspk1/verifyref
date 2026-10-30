@@ -7,19 +7,26 @@ export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 export const state = { user: null, app: null, issues: [] };
 
 const MAX_UPLOAD_MB = 500;
-const DIRECT_MAX = 4 * 1024 * 1024; // Vercel refuses request bodies over 4.5 MB, so larger files go to R2
+const DIRECT_MAX = 4 * 1024 * 1024; // Vercel refuses request bodies over 4.5 MB
 
-/** Send large files in a form straight to Cloudflare R2; the form then carries "r2:<field>" references instead */
+/**
+ * Every uploaded file goes straight to Cloudflare R2 when the server has R2 (the web platform); the form then carries
+ * "r2:<field>" references and every module reads the file from R2. Without R2 (the desktop, a local install), files up to
+ * 4 MB are sent in the form as before.
+ */
 async function viaStorage(form, onUpload) {
-  const big = [...form.entries()].filter(([, v]) => v instanceof File && v.size > DIRECT_MAX);
-  if (!big.length) return form;
-  for (const [, f] of big) if (f.size > MAX_UPLOAD_MB * 1024 * 1024) throw new Error(`${f.name} is too large (limit ${MAX_UPLOAD_MB} MB).`);
-  const total = big.reduce((a, [, f]) => a + f.size, 0);
+  const files = [...form.entries()].filter(([, v]) => v instanceof File && v.size > 0);
+  if (!files.length) return form;
+  for (const [, f] of files) if (f.size > MAX_UPLOAD_MB * 1024 * 1024) throw new Error(`${f.name} is too large (limit ${MAX_UPLOAD_MB} MB).`);
+  const total = files.reduce((a, [, f]) => a + f.size, 0);
   let sent = 0;
   const refs = new Map();
-  for (const [, f] of big) {
+  for (const [, f] of files) {
     const slot = await api('/api/uploads', { body: { name: f.name, size: f.size, type: f.type } });
-    if (!slot.enabled) throw new Error(`${f.name} is ${(f.size / 1048576).toFixed(1)} MB. Files over 4 MB need large-file storage (Cloudflare R2), which is not configured on this server - ask the administrator to set the R2_* environment variables.`);
+    if (!slot.enabled) {
+      if (f.size > DIRECT_MAX) throw new Error(`${f.name} is ${(f.size / 1048576).toFixed(1)} MB. Files over 4 MB need large-file storage (Cloudflare R2), which is not configured on this server - ask the administrator to set the R2_* environment variables.`);
+      continue; // no R2 here: sent in the form
+    }
     await new Promise((resolve, reject) => {
       const x = new XMLHttpRequest();
       x.open('PUT', slot.url);
@@ -32,6 +39,7 @@ async function viaStorage(form, onUpload) {
     sent += f.size;
     refs.set(f, JSON.stringify({ key: slot.key, name: f.name, type: f.type, size: f.size }));
   }
+  if (!refs.size) return form;
   const out = new FormData();
   for (const [k, v] of form.entries()) refs.has(v) ? out.append(`r2:${k}`, refs.get(v)) : out.append(k, v);
   return out;

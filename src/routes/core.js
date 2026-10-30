@@ -172,10 +172,11 @@ router.patch('/checks/:id', user, wrap(async (req, res) => {
   if ('manuscriptCode' in b || 'title' in b) {
     await db.query('UPDATE checks SET manuscript_code = COALESCE($1, manuscript_code), title = COALESCE($2, title) WHERE id = $3', [b.manuscriptCode ?? null, b.title ?? null, row.id]);
     if (row.result?.meta) {
-      const r = row.result;
+      const r = await require('../reportStore').load(row.result);
       if (b.manuscriptCode !== undefined) r.meta.manuscriptCode = b.manuscriptCode;
       if (b.title !== undefined) r.meta.title = b.title;
       await db.query('UPDATE checks SET result = $1 WHERE id = $2', [JSON.stringify(r), row.id]);
+      await require('../reportStore').offload(row.id, r);
     }
   }
   res.json({ success: true });
@@ -305,8 +306,9 @@ defineJob('reviewer-report', async ({ b, manuscript }, { userId, update }) => {
   });
   out.manuscript = manuscript;
   if (b.save !== false) {
-    await db.query(`INSERT INTO checks(user_id, kind, manuscript_code, title, ref_total, problems, result, origin) VALUES($1, 'reviewer-report', $2, $3, $4, $5, $6, $7)`,
+    const saved = await db.one(`INSERT INTO checks(user_id, kind, manuscript_code, title, ref_total, problems, result, origin) VALUES($1, 'reviewer-report', $2, $3, $4, $5, $6, $7) RETURNING id`,
       [userId, b.manuscriptCode || null, `Reviewer report${b.reviewerName ? ' — ' + b.reviewerName : ''}${manuscript.title ? ': ' + manuscript.title : ''}`.slice(0, 300), out.items.length, JSON.stringify(out.flags.map(f => f.message)), JSON.stringify(out), cfg.DESKTOP ? 'desktop' : 'web']);
+    await require('../reportStore').offload(saved.id, out);
   }
   return out;
 });

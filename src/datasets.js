@@ -1080,6 +1080,22 @@ async function datasetHealth() {
  * attempt), and with budgetMs no new download starts once the budget is used: the Vercel cron refreshes a few per day
  * instead of timing out halfway through the list, and a source that keeps failing does not block the others.
  */
+// dataset key -> its lookup table on R2 (src/datasetStore.js snapshotTable / restoreTable) and the meta values that go with it
+const DATASET_TABLES = { rw: ['retractions', ['rw_authors']], pps: ['pps_fingerprints', []], beall: ['predatory', []], fda_ob: ['fda_orange_book', []], nlm: ['nlm_journals', []],
+  doaj: ['doaj_journals', []], ltwa: ['ltwa_words', []], crj: ['crossref_journals', []], maildom: ['email_domains', []], pubj: ['publisher_journals', ['pubj_by_publisher']], oaj: ['openalex_journals', []] };
+const tableMeta = key => [`${key}_loaded_at`, `${key}_count`, ...(DATASET_TABLES[key]?.[1] || [])];
+
+/** Fill every dataset table straight from its snapshot on R2 (no source website is contacted). Returns rows per table. */
+async function rebuildFromR2({ log = console.log } = {}) {
+  const out = {};
+  for (const [table] of Object.values(DATASET_TABLES)) {
+    try { const n = await store.restoreTable(table); out[table] = n; log(`${table}: ${n === null ? 'no snapshot on R2' : `${n} rows restored from R2`}`); }
+    catch (e) { out[table] = null; log(`${table}: restore failed - ${e.message}`); }
+  }
+  ppsCache = null; millJournalCache = null;
+  return out;
+}
+
 async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infinity, log = console.log } = {}) {
   const started = Date.now();
   const time = async key => { const at = await getMeta(key); return at ? new Date(at).getTime() : 0; };
@@ -1111,8 +1127,17 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
   for (const { d: [key, name, label, fn] } of todo) {
     if (Date.now() - started > budgetMs) { (results.deferred = results.deferred || []).push(label); continue; }
     await setMeta(`${key}_tried_at`, new Date().toISOString());
-    try { results[name] = await fn(); log(`${label}: ${results[name]} rows loaded`); }
-    catch (e) { results[`${name}Error`] = e.message; log(`${label} load failed: ${e.message}`); }
+    // never loaded into this database: take the table from its R2 snapshot first (no source download)
+    if (!force && !(await time(`${key}_loaded_at`)) && DATASET_TABLES[key]) {
+      const n = await store.restoreTable(DATASET_TABLES[key][0]).catch(() => null);
+      if (n) { results[name] = n; log(`${label}: ${n} rows restored from R2`); continue; }
+    }
+    try {
+      results[name] = await fn();
+      log(`${label}: ${results[name]} rows loaded`);
+      // the finished table goes to R2, so every other database / server is filled from it
+      if (DATASET_TABLES[key] && !(key === 'oaj' && await getMeta('oaj_harvest'))) await store.snapshotTable(DATASET_TABLES[key][0], tableMeta(key)).catch(e => log(`${label}: R2 snapshot failed - ${e.message}`));
+    } catch (e) { results[`${name}Error`] = e.message; log(`${label} load failed: ${e.message}`); }
   }
   return results;
 }
@@ -1121,5 +1146,5 @@ module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
-  importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf
+  importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
 };

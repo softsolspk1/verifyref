@@ -34,6 +34,7 @@ async function recheck(item) {
   const s = c.result.references.summary;
   await db.query(`UPDATE checks SET result = $1, verified = $2, suspicious = $3, unverified = $4, miscited = $5, retracted = $6, pending_online = $7, synced_at = NULL WHERE id = $8`,
     [JSON.stringify(c.result), s.verified, s.suspicious, s.unverified, s.miscited, s.retracted, s.pending || 0, item.check_id]);
+  await require('./reportStore').offload(item.check_id, c.result);
   return { updated: pending.length - (s.pending || 0), stillPending: s.pending || 0, summary: s, title: c.row.manuscript_code || c.row.title || `check #${c.row.id}` };
 }
 

@@ -212,6 +212,7 @@ async function saveCheck(userId, result, { issueId = null, saveMode = 'full' } =
     s.miscited || 0, s.retracted || 0, result.citations?.summary?.missing || 0, result.citations?.summary?.uncited || 0, result.journals?.summary?.highRisk || 0,
     result.pattern?.summary?.selfCitationRate || 0, JSON.stringify(problems), saveMode === 'counts' ? null : JSON.stringify(result),
     cfg.DESKTOP ? 'desktop' : 'web', s.pending || 0]);
+  if (saveMode !== 'counts') await require('./reportStore').offload(row.id, result);
   result.id = row.id;
   result.createdAt = row.created_at;
   return row.id;
@@ -226,6 +227,7 @@ async function saveResult(userId, kind, result, fields = {}) {
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id, created_at`,
   [userId, kind, fields.manuscriptCode || null, String(fields.title || kind).slice(0, 300), fields.refTotal || 0, c.verified || 0, c.suspicious || 0, c.unverified || 0, c.miscited || 0, c.retracted || 0,
     JSON.stringify(fields.problems || []), JSON.stringify(result), cfg.DESKTOP ? 'desktop' : 'web', fields.pending || 0]);
+  await require('./reportStore').offload(row.id, result);
   result.id = row.id;
   result.createdAt = row.created_at;
   return row.id;
@@ -234,7 +236,7 @@ async function saveResult(userId, kind, result, fields = {}) {
 async function loadCheck(userId, id) {
   const row = await db.one('SELECT * FROM checks WHERE id = $1 AND user_id = $2', [id, userId]);
   if (!row) return null;
-  const result = row.result || null;
+  const result = row.result ? await require('./reportStore').load(row.result) : null;
   if (result) { result.id = row.id; result.createdAt = row.created_at; result.issueId = row.issue_id; }
   return { row, result };
 }

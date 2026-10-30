@@ -142,6 +142,7 @@ defineJob('author-figures', async (input, { userId, update }) => {
       delete c.result.id; delete c.result.createdAt; delete c.result.issueId;
       c.result.summary = { ...c.result.summary, authorFigureMatches: out.matches.length };
       await db.query('UPDATE checks SET result = $1 WHERE id = $2 AND user_id = $3', [JSON.stringify(c.result), c.row.id, userId]);
+      await require('../reportStore').offload(c.row.id, c.result);
     }
   }
   return out;
@@ -186,7 +187,7 @@ router.put('/checks/:id/decision', auth.requireUser, wrap(async (req, res) => {
   if (!row?.result) return res.status(404).json({ success: false, message: 'Report not found.' });
   const b = req.body || {};
   if (b.decision && !DECISIONS[b.decision]) return res.status(400).json({ success: false, message: 'Unknown decision.' });
-  const r = row.result;
+  const r = await require('../reportStore').load(row.result);
   const notes = String(b.notes || '').slice(0, 5000);
   let entry = r.decision || null;
   // Only a changed decision or note is a new entry in the history (saving finding marks alone is not)
@@ -197,6 +198,7 @@ router.put('/checks/:id/decision', auth.requireUser, wrap(async (req, res) => {
   }
   if (Array.isArray(b.findingMarks)) r.findingMarks = b.findingMarks.slice(0, 500);
   await db.query('UPDATE checks SET result = $1 WHERE id = $2', [JSON.stringify(r), row.id]);
+  await require('../reportStore').offload(row.id, r);
   await auth.audit(req, 'decision', `check ${row.id}`, { kind: row.kind, decision: entry?.decision || null });
   res.json({ success: true, decision: entry });
 }));

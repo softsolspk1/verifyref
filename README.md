@@ -39,6 +39,19 @@ The in-house counterpart of Turnitin's own database (`src/corpus.js`). Full text
 
 The similarity report itself (`src/checks/plagiarism.js`) follows Turnitin's pattern: Similarity Index with Internet sources / Publications / Submitted to PJPS, numbered primary sources adding up to the index, highlighted manuscript text, and Turnitin's filters (bibliography, quotes, matches under 8 words). Nothing is sent to Turnitin or any other outside service. `test/plagiarism-accuracy.js` measures it against planted copies from a real paper.
 
+### Running from Cloudflare R2
+
+With the `R2_*` variables set, the web platform keeps its working data on R2:
+
+| What | On R2 | In the database |
+|---|---|---|
+| Uploaded files | every upload goes from the browser straight to R2 (`uploads/…`), whatever its size; the modules read it from there | — |
+| Saved reports | full result of every saved check (`reports/<id>.json.gz`, `src/reportStore.js`) | a small stub (kind, meta, summary, risk level, R2 key, reference DOIs for the retraction monitor) |
+| Text repository | full texts of submissions and source papers (`corpus/…`) | catalogue and fingerprint index |
+| Datasets | the last good source download (`datasets/raw/…`) and a snapshot of every finished lookup table (`datasets/tables/<table>.ndjson.gz`) | the indexed lookup tables, filled from R2 |
+
+A new database or server is filled from R2 without contacting any source website: `npm run datasets:rebuild`; the daily refresh also restores a table that was never loaded from its snapshot, and saves a new snapshot after every dataset it reloads (`npm run datasets:snapshot` saves all tables once). Reports saved before this change are moved with `npm run reports:to-r2` (`-- --dry-run` to see what would move). The desktop has no R2: it keeps everything in its local database and reaches the platform's R2 data through the device API.
+
 ### Datasets on Cloudflare R2
 
 `data/` is not deployed; it is mirrored on R2 (`src/datasetStore.js`, catalogue table `dataset_files`): `datasets/files/…` (the data folder: journal lists, ImageTwin / Proofig knowledge base, public image data, RSIID, BioFors, ICLAC, benchmarks), `datasets/raw/…` (the last good download of every refreshable dataset — Retraction Watch, DOAJ, NLM Catalog, Crossref titles, LTWA, Beall, PPS, FDA Orange Book, e-mail domains — used automatically when a source is down) and `datasets/lists/…` (uploaded journal lists). On Vercel the files a module needs are copied from R2 into `/tmp` on first use.

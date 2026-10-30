@@ -21,9 +21,11 @@ const DISCLAIMER = 'Screening aid only. Every signal points to something an edit
 /** Latest saved Module 1 / 4 / 5 results for this manuscript ID (any editor: integrity work is shared within the journal) */
 async function linkedReports(code, { imagesCheckId } = {}) {
   const out = {};
-  const latest = kinds => db.one(`SELECT id, kind, result FROM checks WHERE manuscript_code = $1 AND kind = ANY($2::text[]) AND result IS NOT NULL ORDER BY created_at DESC LIMIT 1`, [code, kinds]);
+  const RS = require('../reportStore');
+  const full = async row => { if (row?.result) row.result = await RS.load(row.result); return row; };
+  const latest = async kinds => full(await db.one(`SELECT id, kind, result FROM checks WHERE manuscript_code = $1 AND kind = ANY($2::text[]) AND result IS NOT NULL ORDER BY created_at DESC LIMIT 1`, [code, kinds]));
   if (imagesCheckId) {
-    const r = await db.one("SELECT id, kind, result FROM checks WHERE id = $1 AND kind = 'images'", [imagesCheckId]);
+    const r = await full(await db.one("SELECT id, kind, result FROM checks WHERE id = $1 AND kind = 'images'", [imagesCheckId]));
     if (r) out.images = { checkId: r.id, summary: r.result.summary, earlier: r.result.earlier || [] };
   }
   if (!code) return out;

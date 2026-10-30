@@ -82,6 +82,7 @@ router.get('/sync/checks/uids', wrap(device), wrap(async (req, res) => {
 router.post('/sync/checks/pull', wrap(device), wrap(async (req, res) => {
   const uids = (req.body?.uids || []).slice(0, 50).map(String);
   const rows = await db.all(`SELECT c.*, i.label AS issue_label FROM checks c LEFT JOIN issues i ON i.id = c.issue_id WHERE c.user_id = $1 AND c.uid = ANY($2::text[])`, [req.user.id, uids]);
+  await require('../reportStore').loadRows(rows); // the desktop keeps full reports locally
   res.json({ success: true, checks: rows.map(r => ({ ...Object.fromEntries(CHECK_COLS.map(c => [c, r[c]])), issueLabel: r.issue_label })) });
 }));
 
@@ -95,8 +96,9 @@ router.post('/sync/checks', wrap(device), wrap(async (req, res) => {
       issueId = i ? i.id : (await db.one('INSERT INTO issues(user_id, label) VALUES($1, $2) RETURNING id', [req.user.id, c.issueLabel])).id;
     }
     const r = await db.query(`INSERT INTO checks(user_id, issue_id, ${CHECK_COLS.join(', ')}, synced_at) VALUES($1, $2, ${CHECK_COLS.map((_, k) => `$${k + 3}`).join(', ')}, now())
-      ON CONFLICT (uid) DO NOTHING`, [req.user.id, issueId, ...CHECK_COLS.map(col => (['problems', 'result'].includes(col) && c[col] ? JSON.stringify(c[col]) : col === 'origin' ? 'desktop' : c[col]))]);
+      ON CONFLICT (uid) DO NOTHING RETURNING id`, [req.user.id, issueId, ...CHECK_COLS.map(col => (['problems', 'result'].includes(col) && c[col] ? JSON.stringify(c[col]) : col === 'origin' ? 'desktop' : c[col]))]);
     saved += r.rowCount || 0;
+    if (r.rows?.[0]?.id && c.result) await require('../reportStore').offload(r.rows[0].id, c.result);
   }
   res.json({ success: true, saved });
 }));

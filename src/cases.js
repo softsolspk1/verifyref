@@ -114,7 +114,7 @@ async function draftQuery(id) {
   const items = [];
   for (const r of c.reports) {
     const full = await db.one('SELECT kind, result FROM checks WHERE id = $1', [r.id]);
-    const res = full?.result || {};
+    const res = (full?.result && await require('./reportStore').load(full.result)) || {};
     if (res.risk?.contributions) items.push(...res.risk.contributions.filter(x => x.severity !== 'low').map(x => x.title));
     else if (res.signals) items.push(...res.signals.filter(x => x.severity !== 'low').map(x => x.title));
     else if (res.findings) items.push(...res.findings.filter(f => f.level === 'high').map(f => `${f.a?.label || 'Figure'}: ${f.description}`));

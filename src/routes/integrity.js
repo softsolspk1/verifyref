@@ -230,7 +230,7 @@ router.get('/cases/:id/report', mod('papermill'), wrap(async (req, res) => {
   const reports = [];
   for (const r of c.reports) {
     const full = await db.one('SELECT result FROM checks WHERE id = $1', [r.id]);
-    reports.push({ row: r, result: full?.result || null });
+    reports.push({ row: r, result: full?.result ? await require('../reportStore').load(full.result) : null });
   }
   const targets = [`case ${c.id}`, ...c.reports.map(r => `check ${r.id}`)];
   const audit = await db.all('SELECT created_at, actor_email, action, target FROM audit_log WHERE target = ANY($1::text[]) ORDER BY created_at LIMIT 500', [targets]);

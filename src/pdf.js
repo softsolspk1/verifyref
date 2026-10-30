@@ -92,6 +92,22 @@ function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
         }
         doc.moveDown(0.6);
       } else if (b.table) table(doc, b.table.headers, b.table.rows);
+      else if (b.marked) {
+        // similarity report text: matched runs in their source's colour, prefixed with the source number
+        const COLORS = ['#E6194B', '#3CB44B', '#4363D8', '#F58231', '#911EB4', '#42A5A5', '#F032E6', '#9A6324', '#808000', '#000075', '#E6A700', '#008080', '#800000', '#469990', '#AA6E28'];
+        const paras = [[]];
+        for (const seg of b.marked) String(seg.t).split(/\n+/).forEach((line, i) => { if (i > 0) paras.push([]); if (line) paras[paras.length - 1].push({ t: line, s: i === 0 ? seg.s : seg.s && -seg.s }); });
+        for (const parts of paras.filter(x => x.length)) {
+          ensure(30);
+          doc.font('Helvetica').fontSize(9);
+          parts.forEach((p, i) => {
+            const no = Math.abs(p.s || 0), last = i === parts.length - 1;
+            if (no) doc.font('Helvetica-Bold').fillColor(COLORS[(no - 1) % COLORS.length]).text(`${p.s > 0 ? `[${no}] ` : ''}${safe(p.t)}`, { continued: !last, width: width() });
+            else doc.font('Helvetica').fillColor(INK).text(safe(p.t), { continued: !last, width: width() });
+          });
+          doc.moveDown(0.4);
+        }
+      }
       else if (b.images) {
         for (const im of b.images) {
           const m = String(im.src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/);

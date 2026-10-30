@@ -129,7 +129,7 @@ async function screening(result, { input, body, refs, meta, update }) {
   if (images) result.images = { checkId: images.checkId, summary: images.summary };
 
   // Plagiarism (text overlap with the literature) and novelty / citation outlook; neither may stop the report
-  update('Plagiarism: comparing the text with published papers (Europe PMC, CORE)', 98);
+  update('Similarity report: comparing the text with published papers, the web and earlier PJPS submissions', 98);
   if (body && body.trim().length > 1500) {
     result.plagiarism = await require('./checks/plagiarism').checkPlagiarism({ body, meta }).catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
     // an earlier PJPS submission with the same text (Module 4 fingerprints) belongs in the overlap report too
@@ -183,7 +183,9 @@ function screeningSummary(r) {
       style: cp ? `${cp.score}% PJPS compliant (${cp.nonCompliant} reference(s) to fix${cp.inTextIssues ? `, ${cp.inTextIssues} in-text problem(s)` : ''})` : 'not checked',
       citations: c ? `${c.missing} missing, ${c.uncited} uncited, ${(c.yearMismatch || 0) + (c.etAlIssues || 0)} year / “et al.” problem(s)` : 'manuscript text not available',
       papermill: pm ? `${pm.level} (score ${pm.score})` : 'not checked',
-      plagiarism: pl ? `${pl.similarity}% overlap with ${pl.sources} published source(s)${pl.sources ? ` (largest ${pl.largestSource}%)` : ''}` : 'not checked',
+      plagiarism: pl ? (pl.internet !== undefined
+        ? `Similarity Index ${Math.round(pl.similarity)}% (internet ${Math.round(pl.internet)}%, publications ${Math.round(pl.publications)}%, submitted to PJPS ${Math.round(pl.submissions)}%; ${pl.sources} source(s)${pl.sources ? `, largest ${Math.round(pl.largestSource)}%` : ''})`
+        : `${pl.similarity}% overlap with ${pl.sources} published source(s)`) : 'not checked',
       novelty: nv ? `Novelty ${nv.score}/100 (${nv.band}); ${nv.closeRecent} close work(s) in the last 5 years; 5-year citation outlook ${nv.outlook}${Number.isFinite(nv.fiveYearMedian) ? ` (median ${nv.fiveYearMedian})` : ''}` : 'not assessed',
       authors: ai ? `${ai.summary.verified} of ${ai.summary.authors} author(s) identified in ORCID${ai.summary.flags ? `; ${ai.summary.flags} problem(s)` : ''}` : 'not checked',
       images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : 'not checked (run Module 5 and attach the report)'

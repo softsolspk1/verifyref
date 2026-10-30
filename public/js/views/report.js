@@ -55,7 +55,7 @@ export function renderReport(el, result, { kind } = {}) {
   if (result.pattern) tabs.push(['pattern', 'Citation pattern', result.pattern.flags?.length]);
   if (result.papermill && hasModule('papermill')) tabs.push(['papermill', 'Paper mill', result.papermill.signals.length]);
   if (result.images && hasModule('images')) tabs.push(['images', 'Images', result.images.summary.findings]);
-  if (result.plagiarism) tabs.push(['plagiarism', 'Plagiarism', result.plagiarism.error ? null : `${result.plagiarism.summary.similarity}%`]);
+  if (result.plagiarism) tabs.push(['plagiarism', 'Similarity report', result.plagiarism.error ? null : `${Math.round(result.plagiarism.summary.similarity)}%`]);
   if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', result.novelty.error ? null : result.novelty.summary.score]);
   if (result.authorIdentity) tabs.push(['authors', 'Authors (ORCID)', result.authorIdentity.error ? null : `${result.authorIdentity.summary.verified}/${result.authorIdentity.summary.authors}`]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
@@ -165,21 +165,61 @@ function summaryTab(body, r) {
   decisionCard($('#scr-decision', body), r, 'manuscript');
 }
 
+// Turnitin-style similarity report colours: one per primary source (cycled), readable on light and dark backgrounds
+const SRC_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42a5a5', '#f032e6', '#9a6324', '#808000', '#000075', '#e6a700', '#008080', '#800000', '#469990', '#aa6e28'];
+const srcColor = no => SRC_COLORS[(no - 1) % SRC_COLORS.length];
+const pctText = p => (p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`);
+const TYPE_LABEL = { internet: 'Internet source', publication: 'Publication', submission: 'Submitted to PJPS' };
+
 function plagiarismTab(body, pl) {
-  if (pl.error) { body.innerHTML = `<div class="card"><h3>Plagiarism</h3><p class="muted">${esc(pl.error)}</p></div>`; return; }
+  if (pl.error) { body.innerHTML = `<div class="card"><h3>Similarity report</h3><p class="muted">${esc(pl.error)}</p></div>`; return; }
   const s = pl.summary;
   const tone = { ok: 'low', warn: 'medium', bad: 'high' }[s.level];
+  // reports saved before version 2 (no primary-source attribution or highlighted text)
+  if (!pl.version) {
+    body.innerHTML = `<div class="risk-banner risk-${tone}"><div class="risk-level">${s.similarity}%</div><div><b>Text overlap with published papers: ${s.similarity}% of the manuscript</b><div class="muted">Report made with the earlier method; run the screening again for the full similarity report.</div></div></div>
+      <div class="card"><h3>Sources</h3>${(pl.sources || []).map(x => `<p><b>${x.similarity}%</b> ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || 'Source')}</a>` : esc(x.title || 'Source')}</p>`).join('') || '<p class="muted">No overlapping text found.</p>'}</div>`;
+    return;
+  }
+  const typeBox = (label, v) => `<div class="kpi"><div class="n">${pctText(v)}</div><div class="l">${label}</div></div>`;
   body.innerHTML = `
-    <div class="risk-banner risk-${tone}"><div class="risk-level">${s.similarity}%</div><div><b>Text overlap with published papers: ${s.similarity}% of the manuscript</b>
-      <div class="muted">${s.sources} source(s) with overlapping text${s.sources ? `; largest single source ${s.largestSource}%` : ''}. ${pl.checked.passages} distinctive passages searched (${pl.checked.queries} searches, ${pl.checked.candidates} candidate papers) in ${pl.checked.databases.map(esc).join(' and ')}.</div></div></div>
-    ${pl.earlierSubmissions?.length ? `<div class="alert alert-bad"><b>Earlier PJPS submission with the same text:</b> ${pl.earlierSubmissions.map(esc).join('; ')}</div>` : ''}
-    <div class="card"><h3>Sources</h3>${pl.sources.length ? pl.sources.map(x => `
-      <div class="flag ${x.similarity >= 15 ? 'high' : x.similarity >= 5 ? 'medium' : 'low'}" style="margin-bottom:10px">
-        <div class="msg"><b>${x.similarity}%</b> — ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || 'Source')}</a>` : esc(x.title || 'Source')}${x.journal ? ` · <i>${esc(x.journal)}</i>` : ''}${x.year ? ` · ${x.year}` : ''} <span class="muted">(${esc(x.compared)}, ${esc(x.via)})</span></div>
-        ${x.passages.map(p => `<div class="muted" style="margin-top:4px;border-left:3px solid var(--line, #ccd);padding-left:8px">${p.words} words: “${esc(p.text)}”</div>`).join('')}
-      </div>`).join('') : '<p class="muted">No overlapping text was found in the searched literature.</p>'}
-      ${pl.selfMatches?.length ? `<p class="muted">Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => esc(x.title)).join('; ')}</p>` : ''}
-      <p class="muted" style="margin-top:10px">${esc(pl.method)}</p></div>`;
+    <div class="card">
+      <div class="card-head"><h3>Originality report — Similarity Index</h3>${badge(`${s.sources} primary source(s)`, s.sources ? 'warn' : 'good')}</div>
+      <div class="row" style="gap:24px;align-items:center;flex-wrap:wrap">
+        <div class="risk-banner risk-${tone}" style="margin:0;min-width:180px"><div class="risk-level">${pctText(s.similarity)}</div><div><b>Similarity Index</b><div class="muted">${s.words.toLocaleString()} words compared</div></div></div>
+        <div class="kpis" style="flex:1;margin:0">${typeBox('Internet sources', s.internet)}${typeBox('Publications', s.publications)}${typeBox('Submitted to PJPS', s.submissions)}</div>
+      </div>
+      <p class="muted" style="margin:10px 0 0">Filters: bibliography ${esc(pl.filters.bibliography)} · quotes ${esc(pl.filters.quotes)} · small matches ${esc(pl.filters.smallMatches)}</p>
+    </div>
+    ${pl.earlierSubmissions?.length ? `<div class="alert alert-bad"><b>Earlier PJPS submission with the same text (Module 4):</b> ${pl.earlierSubmissions.map(esc).join('; ')}</div>` : ''}
+    <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:16px;align-items:start">
+      <div class="card"><h3>Match overview — manuscript text</h3>
+        <div id="pl-doc" style="max-height:640px;overflow:auto;white-space:pre-wrap;line-height:1.7;font-size:14px;padding-right:8px">${(pl.document || []).map(seg => seg.s
+          ? `<span class="pl-m" data-src="${seg.s}" style="background:${srcColor(seg.s)}26;border-bottom:2px solid ${srcColor(seg.s)}"><sup style="color:${srcColor(seg.s)};font-weight:700">${seg.s}</sup>${esc(seg.t)}</span>`
+          : esc(seg.t)).join('')}</div></div>
+      <div class="card"><h3>Primary sources</h3>${pl.sources.length ? `<ol style="list-style:none;padding:0;margin:0">${pl.sources.map(x => `
+        <li class="pl-src" data-src="${x.no}" style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line,#e3e8ee);cursor:pointer">
+          <span style="flex:none;width:26px;height:26px;border-radius:4px;background:${srcColor(x.no)};color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center">${x.no}</span>
+          <span style="flex:1;min-width:0"><b>${pctText(x.percent)}</b> <span class="muted">${esc(TYPE_LABEL[x.type] || x.type)}</span><br>
+            ${x.checkId ? `<a href="#/check/${x.checkId}">${esc(x.title || 'Earlier submission')}</a>` : x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || 'Source')}</a>` : esc(x.title || 'Source')}
+            <div class="muted" style="font-size:12px">${[x.journal, x.year, x.via, x.compared ? `compared: ${x.compared}` : ''].filter(Boolean).map(esc).join(' · ')}</div></span>
+        </li>`).join('')}</ol>` : '<p class="muted">No matching text was found in the sources searched.</p>'}
+        ${pl.selfMatches?.length ? `<p class="muted" style="margin-top:10px">Not counted — the manuscript's own published version or preprint: ${pl.selfMatches.map(x => esc(x.title)).join('; ')}</p>` : ''}
+      </div>
+    </div>
+    <div class="card"><h3>What was searched</h3>
+      <p class="muted" style="margin-top:0">${pl.checked.passages} passages searched (${pl.checked.queries} searches${pl.checked.webSearches ? `, ${pl.checked.webSearches} on the web` : ''}), ${pl.checked.candidates} candidate sources, ${pl.checked.sourcesCompared} compared in full; ${pl.checked.submissionsCompared} earlier PJPS submissions compared.${pl.checked.searchErrors ? ` ${pl.checked.searchErrors} search(es) failed.` : ''}</p>
+      <p class="muted">Repositories: ${pl.checked.databases.map(esc).join('; ')}.</p>
+      <p class="muted">${esc(pl.method)}</p><p class="muted"><b>Coverage:</b> ${esc(pl.coverage)}</p></div>`;
+  // clicking a source highlights only its matches in the text and scrolls to the first one
+  let active = null;
+  $$('.pl-src', body).forEach(li => li.addEventListener('click', () => {
+    const no = li.dataset.src;
+    active = active === no ? null : no;
+    $$('.pl-m', body).forEach(m => { m.style.opacity = !active || m.dataset.src === active ? '1' : '0.25'; });
+    $$('.pl-src', body).forEach(x => { x.style.background = active && x.dataset.src === active ? 'var(--bg-soft,#eef2f5)' : ''; });
+    if (active) $(`.pl-m[data-src="${no}"]`, body)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }));
 }
 
 function noveltyTab(body, nv) {

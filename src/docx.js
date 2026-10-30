@@ -39,6 +39,25 @@ function table(headers, rows, rtl) {
   });
 }
 
+// Similarity report text: runs of the manuscript highlighted in their source's colour, with the source number (Turnitin style)
+const MARK_COLORS = ['E6194B', '3CB44B', '4363D8', 'F58231', '911EB4', '42A5A5', 'F032E6', '9A6324', '808000', '000075', 'E6A700', '008080', '800000', '469990', 'AA6E28'];
+const markColor = no => MARK_COLORS[(no - 1) % MARK_COLORS.length];
+const lighten = hex => hex.match(/../g).map(c => Math.round(255 - (255 - parseInt(c, 16)) * 0.22).toString(16).padStart(2, '0')).join('').toUpperCase();
+function markedParagraphs(segments) {
+  const paras = [[]];
+  for (const seg of segments) {
+    const lines = String(seg.t).split(/\n+/);
+    lines.forEach((line, i) => {
+      if (i > 0) paras.push([]);
+      if (!line) return;
+      const cur = paras[paras.length - 1];
+      if (seg.s && i === 0) cur.push(new TextRun({ text: String(seg.s), superScript: true, bold: true, color: markColor(seg.s), font: 'Calibri', size: 17 }));
+      cur.push(new TextRun({ text: line, font: 'Calibri', size: 19, ...(seg.s ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: lighten(markColor(seg.s)) } } : {}) }));
+    });
+  }
+  return paras.filter(r => r.length).map(r => new Paragraph({ children: r, spacing: { after: 100, line: 276 } }));
+}
+
 async function buildDocx(blocks, { rtl = false, title = cfg.APP_NAME } = {}) {
   const children = [];
   for (const b of blocks) {
@@ -48,6 +67,7 @@ async function buildDocx(blocks, { rtl = false, title = cfg.APP_NAME } = {}) {
     else if (b.bullets) for (const t of b.bullets) children.push(para(t, { rtl, bullet: true }));
     else if (b.kv) for (const [k, v] of b.kv) children.push(para([run(`${k}: `, { bold: true, rtl }), run(v, { rtl })], { rtl }));
     else if (b.table) { children.push(table(b.table.headers, b.table.rows, rtl)); children.push(para('', { after: 120 })); }
+    else if (b.marked) children.push(...markedParagraphs(b.marked));
     else if (b.callout) {
       const color = { ok: '1E6B34', warn: '8A5300', bad: '9B1C1C' }[b.callout.level] || '5B6675';
       children.push(para(b.callout.title, { rtl, bold: true, color }));
@@ -324,17 +344,29 @@ function screeningScorecard(r) {
 
 /** Module 6: text overlap with published papers */
 function plagiarismBlocks(pl) {
-  const blocks = [{ h2: '6. Plagiarism — text overlap with published papers' }];
+  const blocks = [{ h2: '6. Similarity report (originality)' }];
   if (!pl || pl.error) return [...blocks, { p: pl?.error || 'Not checked.' }];
   const s = pl.summary;
-  blocks.push({ kv: [['Overall similarity', `${s.similarity}% of the manuscript's words`], ['Largest single source', `${s.largestSource}%`], ['Sources with overlap', String(s.sources)],
-    ['Passages searched', `${pl.checked.passages} (${pl.checked.queries} searches; ${pl.checked.candidates} candidate papers)`], ['Databases', pl.checked.databases.join('; ')]] });
+  const pt = v => (v > 0 && v < 1 ? '<1%' : `${Math.round(v)}%`);
+  if (!pl.version) {
+    blocks.push({ kv: [['Overall similarity', `${s.similarity}%`], ['Sources with overlap', String(s.sources)]] });
+    if (pl.sources.length) blocks.push({ table: { headers: ['Similarity', 'Source'], rows: pl.sources.map(x => [`${x.similarity}%`, `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}`]) } });
+    return [...blocks, { p: 'Report made with the earlier method; run the screening again for the full similarity report.', italics: true }];
+  }
+  const TYPE = { internet: 'Internet source', publication: 'Publication', submission: 'Submitted to PJPS' };
+  blocks.push({ kv: [['Similarity Index', pt(s.similarity)], ['Internet sources', pt(s.internet)], ['Publications', pt(s.publications)], ['Submitted to PJPS', pt(s.submissions)],
+    ['Words compared', s.words.toLocaleString()], ['Filters', `bibliography ${pl.filters.bibliography}; quotes ${pl.filters.quotes}; small matches ${pl.filters.smallMatches}`]] });
   if (pl.sources.length) {
-    blocks.push({ table: { headers: ['Similarity', 'Source', 'Compared', 'Longest matching passage'], rows: pl.sources.map(x => [`${x.similarity}%`, `${x.title || '—'}${x.journal ? ` — ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : ''}`, x.compared, x.passages[0] ? `${x.passages[0].words} words: "${x.passages[0].text.slice(0, 300)}${x.passages[0].text.length > 300 ? '...' : ''}"` : '']) } });
-  } else blocks.push({ p: 'No overlapping text was found in the searched literature.' });
+    blocks.push({ p: 'Primary sources', bold: true });
+    blocks.push({ table: { headers: ['No.', 'Match', 'Source', 'Type'], rows: pl.sources.map(x => [String(x.no), pt(x.percent), `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : x.url && !x.checkId ? ` (${x.url})` : ''}`, TYPE[x.type] || x.type]) } });
+  } else blocks.push({ p: 'No matching text was found in the sources searched.' });
   if (pl.selfMatches?.length) blocks.push({ p: `Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => `${x.title}${x.year ? ` (${x.year})` : ''}`).join('; ')}`, italics: true });
   if (pl.earlierSubmissions?.length) blocks.push({ p: `Earlier PJPS submissions with the same text: ${pl.earlierSubmissions.join('; ')}`, bold: true });
-  blocks.push({ p: pl.method, italics: true });
+  if (pl.sources.length && pl.document?.length) {
+    blocks.push({ p: 'Match overview: matched text is highlighted in the colour of its source, with the source number', bold: true });
+    blocks.push({ marked: pl.document });
+  }
+  blocks.push({ p: `${pl.method} Coverage: ${pl.coverage}`, italics: true });
   return blocks;
 }
 

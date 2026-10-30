@@ -7,7 +7,7 @@
 //   --source pmc [--limit 500] [--band pharmacy|biomedical] [--restart]
 //        open-access PubMed Central papers in pharmacy / pharmacology / medicinal plants, and biomedical papers with
 //        blots / histology / microscopy (the two bands take turns; continues where it stopped)
-//   --source publisher [--limit 500] [--restart]
+//   --source publisher [--limit 500] [--restart] [--publisher "Dove Medical Press" (repeatable; default: all)]
 //        open-access papers of the major publishers (MDPI, Elsevier, Springer Nature, Wiley, Frontiers, PLOS, ...)
 //   --source rsiid | biofors | binder [--limit N] [--force]
 //        public research datasets from the data folder (RSIID pristine figures, BioFors panels, BINDER patches)
@@ -43,7 +43,7 @@ const log = (step) => { if (Date.now() - last > 1000) { last = Date.now(); conso
   } else if (opt('source') === 'pmc') {
     out = await REFS.indexPmc({ limit: int('limit', 500), band: opt('band'), concurrency: int('concurrency', 3), restart: argv.includes('--restart') }, log);
   } else if (opt('source') === 'publisher') {
-    out = await REFS.indexPublisherOa({ limit: int('limit', 500), concurrency: int('concurrency', 3), restart: argv.includes('--restart') }, log);
+    out = await REFS.indexPublisherOa({ limit: int('limit', 500), concurrency: int('concurrency', 3), restart: argv.includes('--restart'), ...(all('publisher').length ? { publishers: all('publisher') } : {}) }, log);
   } else {
     console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 17).join('\n').replace(/^\/\/ ?/gm, ''));
     return db.close();

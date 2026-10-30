@@ -827,7 +827,9 @@ const PUBLISHERS = [
   { key: 'elsevier', name: 'Elsevier', ids: ['P4310320990'], crossref: /elsevier|cell press|academic press|pergamon|w\.?b\.? saunders|mosby|churchill livingstone/i },
   { key: 'springer', name: 'Springer Nature', ids: ['P4310319965'], crossref: /springer|nature publishing|nature portfolio|biomed central|\bbmc\b|palgrave|\badis\b/i },
   { key: 'wiley', name: 'Wiley (John Wiley & Sons)', ids: ['P4310320595'], crossref: /wiley|blackwell|hindawi/i },
-  { key: 'tandf', name: 'Taylor & Francis', ids: ['P4310320547'], crossref: /taylor\s*(?:&|and)\s*francis|informa|routledge|crc press|dove medical/i },
+  // Dovepress: open-access medical and pharmaceutical journals, a Taylor & Francis imprint; listed first so its journals carry it
+  { key: 'dove', name: 'Dove Medical Press (Taylor & Francis Group)', ids: ['P4310320348'], crossref: /dove medical|dovepress/i },
+  { key: 'tandf', name: 'Taylor & Francis', ids: ['P4310320547'], crossref: /taylor\s*(?:&|and)\s*francis|informa|routledge|crc press/i },
   { key: 'sage', name: 'SAGE Publications', ids: ['P4310320017'], crossref: /\bsage\b/i },
   { key: 'mdpi', name: 'MDPI AG', ids: ['P4310310987'], crossref: /\bmdpi\b|multidisciplinary digital publishing/i },
   { key: 'oup', name: 'Oxford University Press', ids: ['P4310311648'], crossref: /oxford university press/i },
@@ -854,6 +856,7 @@ async function loadPublisherJournals({ log = console.log } = {}) {
         const title = (s.display_name || '').trim();
         if (!title) continue;
         const issns = [...new Set([s.issn_l, ...(s.issn || [])].map(cleanIssn).filter(Boolean))];
+        if (issns.length && issns.every(i => seen.has(i))) continue; // already listed under an imprint (Dove under Taylor & Francis)
         issns.forEach(i => seen.add(i));
         rows.push([p.key, p.name, s.host_organization_name || null, title, normalizeJournal(title), issns.join(' ') || null, s.id.replace('https://openalex.org/', ''), s.homepage_url || null, s.works_count ?? null, 'openalex']);
         n++;
@@ -876,6 +879,19 @@ async function loadPublisherJournals({ log = console.log } = {}) {
     added++;
   }
   log(`Crossref title list: ${added} more journals`);
+  // dovepress.com lists the journals Dove publishes now: mark them current and add any the other sources file elsewhere
+  try {
+    const html = await store.sourceText('dovepress-journals.html', () => getText('https://www.dovepress.com/journals', { ttl: 0, timeout: 60000, retries: 2 }));
+    const current = [...new Map([...String(html).matchAll(/<a[^>]*href="\/([a-z0-9-]+-journal)"[^>]*title="([^"]+)"/g)].map(m => [m[2].replace(/&amp;/g, '&').trim(), `https://www.dovepress.com/${m[1]}`])).entries()];
+    const loose = t => normalizeJournal(t).replace(/\band\b/g, '').replace(/\s+/g, ' ').trim();
+    let marked = 0, addedDove = 0;
+    for (const [title, url] of current) {
+      const row = rows.find(r => r[0] === 'dove' && loose(r[3]) === loose(title)) || rows.find(r => r[0] === 'tandf' && loose(r[3]) === loose(title));
+      if (row) { row[0] = 'dove'; row[1] = 'Dove Medical Press (Taylor & Francis Group)'; row[7] = row[7] || url; row[9] = `${row[9] || 'openalex'}+dovepress`; marked++; }
+      else { rows.push(['dove', 'Dove Medical Press (Taylor & Francis Group)', 'Dove Medical Press', title, normalizeJournal(title), null, null, url, null, 'dovepress']); addedDove++; }
+    }
+    log(`dovepress.com: ${current.length} journals published now (${marked} matched, ${addedDove} added)`);
+  } catch (e) { log(`dovepress.com journal list not read: ${e.message}`); }
   await transaction(async client => {
     await client.query('TRUNCATE publisher_journals');
     await bulkInsert(client, 'publisher_journals', PUBJ_COLS, rows);

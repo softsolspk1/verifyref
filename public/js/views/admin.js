@@ -96,7 +96,7 @@ export async function renderAdmin(view) {
             <td>${o.downloading ? `${badge('downloading', 'info')}<div class="muted">${Number(o.downloading.journals).toLocaleString()} journals so far</div>` : o.count ? badge('active', 'good') : !desk && !o.keyConfigured ? `${badge('needs API key', 'warn')}<div class="muted">Set OPENALEX_API_KEY (free at openalex.org)</div>` : badge('pending', 'warn')}${o.downloading ? '' : viewBtn('openalex_journals', o.count)}</td>
           </tr>`)(ds.openalexJournals || {})}
           ${(p => `<tr>
-            <td><b>Major publisher journal lists</b><div class="muted">Every journal of the 11 major publishers, imprints included (OpenAlex publisher hierarchy + Crossref title list). Confirms the publisher of a cited journal; these publishers register every article with Crossref, so an article missing there is a stronger warning. Refreshed monthly.</div></td>
+            <td><b>Major publisher journal lists</b><div class="muted">Every journal of the 11 major publishers and of Dove Medical Press (Dovepress, Taylor &amp; Francis Group: 137 journals, the 68 it publishes now taken from dovepress.com), imprints included (OpenAlex publisher hierarchy + Crossref title list). Confirms the publisher of a cited journal; these publishers register every article with Crossref, so an article missing there is a stronger warning. Refreshed monthly.</div></td>
             <td>Journal index</td>
             <td class="num">${p.count ? Number(p.count).toLocaleString() : '0'}</td>
             <td>${p.loadedAt ? fmtDate(p.loadedAt) : badge('not loaded', 'warn')}</td>

@@ -130,6 +130,13 @@ export async function renderAdmin(view) {
             <td>${badge('Live API', 'good')}</td>
             <td>${badge('active', 'good')}</td>
           </tr>
+          <tr>
+            <td><b>Google Scholar (via SerpApi)</b><div class="muted">Last resort for references that none of the 13 free databases could verify (books, theses, regional journals). Each search uses one SerpApi credit; results are cached for 30 days. Scholar "[CITATION]" entries are not accepted as proof that a work exists.${!ds.scholar?.configured ? ' Not configured: add <span class="mono">SERPAPI_KEY</span> to the Vercel environment variables (and to <span class="mono">.env</span> for the desktop) and redeploy.' : ''}</div></td>
+            <td>References</td>
+            <td class="num">${!ds.scholar?.configured ? '—' : ds.scholar.error ? 'Live API' : `${ds.scholar.left ?? '?'} searches left${ds.scholar.searchesPerMonth ? ` of ${Number(ds.scholar.searchesPerMonth).toLocaleString()}/month` : ''}${ds.scholar.used != null ? ` · ${ds.scholar.used} used this month` : ''}`}</td>
+            <td>${badge(ds.scholar?.plan ? `SerpApi ${ds.scholar.plan}` : 'Live API (paid)', ds.scholar?.configured ? 'good' : 'neutral')}</td>
+            <td>${!ds.scholar?.configured ? badge('no key', 'neutral') : ds.scholar.error ? badge('key error', 'bad') + `<div class="muted">${esc(ds.scholar.error)}</div>` : ds.scholar.left === 0 ? badge('no searches left', 'warn') : badge('active', 'good')}</td>
+          </tr>
           ${ds.lists.map(l => {
             const parts = (l.label || '').split(' — ');
             const title = parts[0];

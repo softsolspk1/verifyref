@@ -41,6 +41,8 @@ module.exports = {
   GOOGLE_BOOKS_API_KEY: env.GOOGLE_BOOKS_API_KEY || '',
   // CORE (core.ac.uk): optional free key - higher rate limit and open-access full texts
   CORE_API_KEY: env.CORE_API_KEY || '',
+  // Google Scholar through SerpApi (serpapi.com, paid): last resort for references no free database could verify
+  SERPAPI_KEY: env.SERPAPI_KEY || '',
   MAX_REFERENCES: parseInt(env.MAX_REFERENCES || '250', 10),
   // Uploads: files larger than Vercel's 4.5 MB request limit go from the browser straight to Cloudflare R2
   MAX_UPLOAD_MB: parseInt(env.MAX_UPLOAD_MB || '500', 10),

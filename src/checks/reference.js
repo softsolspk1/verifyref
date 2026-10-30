@@ -275,6 +275,20 @@ async function verifyReference(ref, opts = {}) {
     const r2 = await Promise.all(wave2.map(([, p]) => p));
     wave2.forEach(([n], i) => take(n, r2[i]));
   }
+  // ---- 2b. Google Scholar (SerpApi, paid per search): only when nothing free could verify the reference
+  if (!confident() && S.scholarEnabled() && (ref.title || '').length >= 12) {
+    const gs = await S.googleScholarSearch(ref).catch(e => ({ error: e.message }));
+    if (!gs.skipped) {
+      take('Google Scholar', gs);
+      // a Scholar hit with a DOI is confirmed against Crossref, which carries the full record (volume, pages, retractions)
+      for (const rec of gs.records || []) {
+        if (!rec.doi || scoreCandidate(ref, rec).tSim < 0.85) continue;
+        const cr = await S.crossrefDoi(rec.doi).catch(() => null);
+        if (cr?.record) take('Crossref', { record: cr.record });
+        break;
+      }
+    }
+  }
 
   let top = best();
   let record = idRecord && idMatches ? idRecord : top && top.score >= 50 ? top.rec : null;
@@ -556,7 +570,7 @@ function summarize(results) {
     olderThan10: results.filter(r => r.age !== null && r.age > 10).map(r => r.index),
     links,
     problemCounts,
-    databases: S.DATABASES
+    databases: S.databases()
   };
 }
 

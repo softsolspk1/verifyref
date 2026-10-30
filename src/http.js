@@ -25,7 +25,8 @@ const HOST_LIMITS = {
   'portal.issn.org': 2,
   'archive.org': 2,
   'pubchem.ncbi.nlm.nih.gov': 4,
-  'clinicaltrials.gov': 4
+  'clinicaltrials.gov': 4,
+  'serpapi.com': 2
 };
 const DEFAULT_LIMIT = 4;
 const active = new Map();

@@ -10,7 +10,7 @@ const MODES = {
   },
   references: {
     title: 'Module 1 — Check Bibliography',
-    intro: 'Confirms that every reference is real, correct and not retracted: 13 databases (PubMed and Europe PMC first, then Crossref, the DOI registry, DataCite, OpenAlex, Semantic Scholar, arXiv, DBLP, Open Library, Google Books, ERIC, CORE), Retraction Watch, fabrication checks, link checks, reference age against the PJPS rule, self-citation, PJPS citations, predatory / hijacked journals and duplicate references. Regional journals that the databases do not cover are shown as “Not indexed”, not as fake.',
+    intro: 'Confirms that every reference is real, correct and not retracted: 13 databases (PubMed and Europe PMC first, then Crossref, the DOI registry, DataCite, OpenAlex, Semantic Scholar, arXiv, DBLP, Open Library, Google Books, ERIC, CORE; Google Scholar as a last resort when a SerpApi key is configured), Retraction Watch, fabrication checks, link checks, reference age against the PJPS rule, self-citation, PJPS citations, predatory / hijacked journals and duplicate references. Regional journals that the databases do not cover are shown as “Not indexed”, not as fake.',
     needsBody: false, meta: false, authors: true
   },
   citations: {

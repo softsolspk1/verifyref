@@ -87,7 +87,7 @@ if (process.argv[2] === 'platform') {
     assert.ok(r.data.success, `image check saved: ${r.data.message || ''}`);
     const result = r.data.result || (await call('GET', `/api/checks/${r.data.id}`)).data.check?.result;
     assert.ok(result, 'image result');
-    assert.strictEqual(result.referencesError, null, 'platform databases searched');
+    assert.strictEqual(result.referencesError, null, `platform databases searched: ${result.referencesError}`);
     assert.strictEqual(result.references.length, 1, 'published PJPS figure found from the desktop');
     assert.strictEqual(result.references[0].source, 'pjps');
     assert.strictEqual(result.referencesSearched.refs, 1);

@@ -548,13 +548,93 @@ async function coreSearch(ref) {
   return coreQuery(words.map(w => `title:"${w}"`).join(' AND '), 4);
 }
 
+// ---------------------------------------------------------------- 14. Google Scholar (SerpApi, optional, paid)
+// Google offers no Scholar API; SerpApi runs the search for us and returns the result list as JSON. Each search costs a
+// credit, so it is asked last (only for references the 13 free databases could not verify) and cached for 30 days.
+
+const scholarEnabled = () => !!cfg.SERPAPI_KEY;
+let scholarBlockedUntil = 0;   // after "out of searches" / invalid key, Google Scholar is skipped for an hour
+
+/**
+ * "R Rahbari, L Francis, OJ Guy… - Pharmaceutics, 2023 - mdpi.com" -> authors, venue, year, host.
+ * Google shortens long author lists and venues with "…".
+ */
+function parseScholarSummary(summary) {
+  const parts = String(summary || '').replace(/\u2026|…/g, '...').split(/\s+-\s+/);
+  const authorPart = parts.length >= 2 ? parts[0] : '';
+  const venuePart = parts.length >= 3 ? parts.slice(1, -1).join(' - ') : parts.length === 2 ? parts[1] : '';
+  const host = parts.length >= 3 ? parts[parts.length - 1].trim() : '';
+  const year = parseInt((venuePart.match(/\b(1[89]\d{2}|20\d{2})\b/) || [])[1], 10) || null;
+  const venue = venuePart.replace(/,?\s*\b(1[89]\d{2}|20\d{2})\b\s*$/, '').replace(/\.\.\.$/, '').trim();
+  const authors = authorPart.split(/\s*,\s*/).map(a => a.replace(/\.\.\.$/, '').trim()).filter(a => a && !/^\.+$/.test(a))
+    .map(a => { const w = a.split(/\s+/); return w.length >= 2 && /^[A-Z]{1,3}$/.test(w[0]) ? { given: w[0].split('').join('. ') + '.', family: w.slice(1).join(' ') } : splitName(a); });
+  return { authors, venue: /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(venue) ? '' : venue, year, host, truncatedAuthors: /\.\.\./.test(authorPart) };
+}
+
+function fromScholar(o) {
+  const info = parseScholarSummary(o.publication_info?.summary);
+  const named = (o.publication_info?.authors || []).map(a => a.name).filter(Boolean);
+  const kind = (String(o.title || '').match(/^\s*\[(BOOK|CITATION|PDF|HTML|B)\]\s*/i) || [])[1];
+  const link = o.link || '';
+  const doi = cleanDoi((link.match(/(?:doi\.org\/|\/doi\/(?:abs\/|full\/|pdf\/)?)(10\.\d{4,9}\/[^?#\s]+)/i) || [])[1] || '') || null;
+  return {
+    source: 'Google Scholar',
+    sourceId: o.result_id || null,
+    doi,
+    title: String(o.title || '').replace(/^(?:\s*\[[A-Z]+\]\s*)+/i, '').trim(),
+    authors: info.authors.length ? info.authors : named.map(splitName),
+    authorsTruncated: info.truncatedAuthors,
+    year: info.year,
+    journal: kind && /book|b/i.test(kind) ? '' : info.venue,
+    publisher: info.host,
+    issn: [], volume: '', issue: '', pages: '',
+    type: o.type === 'Book' || (kind && /^b/i.test(kind)) ? 'book' : kind && /citation/i.test(kind) ? 'citation' : 'article',
+    url: link || (o.result_id ? `https://scholar.google.com/scholar?cluster=${enc(o.result_id)}` : ''),
+    citedBy: o.inline_links?.cited_by?.total ?? null,
+    snippet: o.snippet || '',
+    retracted: false, notices: []
+  };
+}
+
+async function googleScholarSearch(ref) {
+  if (!scholarEnabled()) return { skipped: true };
+  if (Date.now() < scholarBlockedUntil) return { error: 'Google Scholar paused (SerpApi searches used up or key rejected)' };
+  const title = q(ref.title || '').slice(0, 250);
+  if (title.length < 12) return { records: [] };
+  const fam = ref.authors?.[0]?.family ? ` author:"${q(ref.authors[0].family)}"` : '';
+  const url = `https://serpapi.com/search.json?engine=google_scholar&q=${enc(`"${title}"${fam}`)}&num=5&hl=en&api_key=${enc(cfg.SERPAPI_KEY)}`;
+  let r = await getJson(url, { ttl: 30 * 86400, timeout: 30000, retries: 1 });
+  // an exact phrase plus the author can be too strict (title variants, author spelled differently): one looser search
+  if (r.ok && !(r.data?.organic_results || []).length && fam) r = await getJson(url.replace(enc(`"${title}"${fam}`), enc(title)), { ttl: 30 * 86400, timeout: 30000, retries: 1 });
+  if (r.status === 401 || r.status === 429 || /run out of searches|invalid api key/i.test(r.data?.error || '')) {
+    scholarBlockedUntil = Date.now() + 3600000;
+    return { error: r.data?.error || `SerpApi HTTP ${r.status}` };
+  }
+  if (!r.ok) return { error: r.data?.error || r.error || r.status };
+  if (r.data?.error && !/hasn't returned any results/i.test(r.data.error)) return { error: r.data.error };
+  // "[CITATION]" entries are assembled from other papers' reference lists, not from the work itself: they cannot show
+  // that a reference exists (a fabricated reference copied by several papers would have one), so they are left out
+  return { records: (r.data?.organic_results || []).slice(0, 5).map(fromScholar).filter(x => x.type !== 'citation') };
+}
+
+/** SerpApi account: plan and searches left this month (Admin > Data) */
+async function scholarAccount() {
+  if (!scholarEnabled()) return { configured: false };
+  const r = await getJson(`https://serpapi.com/account.json?api_key=${enc(cfg.SERPAPI_KEY)}`, { ttl: 0, timeout: 15000, retries: 1 });
+  if (!r.ok) return { configured: true, error: r.data?.error || r.error || `HTTP ${r.status}` };
+  const a = r.data || {};
+  return { configured: true, plan: a.plan_name || a.plan_id || null, searchesPerMonth: a.searches_per_month ?? null, used: a.this_month_usage ?? null,
+    left: a.total_searches_left ?? a.plan_searches_left ?? null, hourlyLimit: a.account_rate_limit_per_hour ?? null };
+}
+
 const DATABASES = [
   'Crossref', 'DOI Foundation (Handle)', 'DataCite', 'OpenAlex', 'PubMed', 'Europe PMC',
   'Semantic Scholar', 'arXiv', 'DBLP', 'Open Library', 'Google Books', 'ERIC', 'CORE'
 ];
+const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (SerpApi)'] : DATABASES);
 
 module.exports = {
-  DATABASES,
+  DATABASES, databases, scholarEnabled, googleScholarSearch, scholarAccount, fromScholar, parseScholarSummary,
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,
   pubmedPmid, pubmedSearch, europepmcSearch, s2Doi, s2Search,

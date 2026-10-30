@@ -273,20 +273,6 @@ function papermillBlocks(r) {
   ];
 }
 
-/** Module 5.7: the ImageTwin scan, if the editor sent the manuscript (otherwise the report says it was not checked) */
-function vendorBlocks(v) {
-  if (!v) return [{ h2: 'ImageTwin (external database of published figures)' }, { p: 'Not checked: the manuscript was not sent to ImageTwin.' }];
-  const head = { h2: `ImageTwin (external database of published figures)${v.sandbox ? ' - SANDBOX TEST RESULT, NOT A REAL CHECK' : ''}` };
-  const sent = `Sent ${String(v.createdAt || '').slice(0, 10)}${v.files ? ` (${v.files})` : ''}.`;
-  if (v.status === 'running') return [head, { p: `${sent} The scan had not finished when this report was produced.` }];
-  if (v.status !== 'finished') return [head, { p: `${sent} The scan failed: ${v.error || 'no reason given'}.` }];
-  const r = v.result;
-  return [head, { kv: [['Risk (ImageTwin confidence bands)', v.level], ['Matches with published figures', String(r.externalDuplicates)], ['Duplicates inside the manuscript', String(r.localDuplicates)], ['Alterations', String(r.alterations)],
-    ['Possible AI-generated images', String(r.aiImages)], ['Highest confidence', `${Math.round(r.highestScore * 100)}% (0-32% low, 33-65% fair, 66-100% high)`], ['Findings counted from', `${Math.round(r.minScore * 100)}% confidence`],
-    ['Findings at ImageTwin', r.resultUrl || '-'], ['ImageTwin PDF report', r.pdfReport || '-']] },
-  { p: `${sent} ImageTwin keeps these links for 90 days; download its PDF report for the editorial file.`, italics: true }];
-}
-
 function imagesBlocks(r) {
   const s = r.summary;
   const marks = new Map((r.findingMarks || []).map(m => [m.id, m.mark]));
@@ -306,7 +292,6 @@ function imagesBlocks(r) {
     ...((r.references || []).length ? [{ h2: 'Figures matching published PJPS papers and reference databases' }, { table: { headers: ['This manuscript', 'Database', 'Source paper', 'Figure / how', 'Match'], rows: r.references.map(m => [m.panelLabel, m.sourceName, `${m.title || ''}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}${m.doi ? ` doi:${m.doi}` : ''}${m.note ? ` [${m.note}]` : ''}`, `${m.figure}: ${m.description}`, `${m.level === 'high' ? 'Strong' : 'Check'} · distance ${m.distance}${m.correlation !== null ? ` · correlation ${m.correlation}` : ''}`]) } }] : []),
     ...((r.referenceCharts || []).length ? [{ h2: 'Chart data matching published / reference charts' }, { table: { headers: ['This manuscript', 'Database', 'Source paper', 'Correlation'], rows: r.referenceCharts.map(c => [c.chart, c.sourceName, `${c.title || ''}${c.doi ? ` doi:${c.doi}` : ''}`, String(c.correlation)]) } }] : []),
     ...((r.earlier || []).length ? [{ h2: 'Figures matching earlier PJPS manuscripts' }, { table: { headers: ['This manuscript', 'Earlier manuscript', 'Earlier figure', 'Distance'], rows: r.earlier.map(e => [e.panelLabel, `${e.manuscriptCode || 'check #' + e.checkId}: ${e.title || ''}`, e.label || '', String(e.distance)]) } }] : []),
-    ...vendorBlocks(r.vendorScan),
     ...(r.decision ? [{ h2: 'Editor decision' }, { kv: [['Decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—'], ['By', `${r.decision.by}, ${r.decision.at.slice(0, 10)}`]] }] : [])
   ];
 }

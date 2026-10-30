@@ -58,11 +58,7 @@ export function renderImages(view) {
 
   renderPublicData($('#public-data', view));
   api('/api/images/databases').then(d => { $('#databases', view).innerHTML = databasesCard(d); }).catch(() => {});
-  api('/api/images/vendor').then(v => {
-    $('#vendor', view).innerHTML = vendorCard(v);
-    const send = $('#v-send', view);
-    if (send) send.onchange = () => { $('#v-opts', view).hidden = !send.checked; };
-  }).catch(() => {});
+  api('/api/images/vendor').then(v => { $('#vendor', view).innerHTML = vendorCard(v); }).catch(() => {});
 
   $('#run', view).onclick = async () => {
     const prog = $('#progress', view);
@@ -70,9 +66,6 @@ export function renderImages(view) {
     prog.innerHTML = `<div class="progress"><h3>Analysing figures</h3><div class="progress-bar"><span style="width:2%"></span></div><div class="muted step">Reading the manuscript…</div></div>`;
     const bar = $('.progress-bar span', prog), step = $('.step', prog);
     const set = (s, p) => { if (s) step.textContent = s; if (p !== undefined) bar.style.width = `${Math.max(2, Math.min(99, p))}%`; };
-    const vendorP = $('#v-send', view)?.checked
-      ? startVendorScan(files, { manuscriptCode: $('#m-code', view).value.trim(), minScore: $('#v-min', view).value, excludeIdenticalPaper: $('#v-exclude', view).checked }).catch(e => ({ status: 'failed', error: e.message }))
-      : null;
     try {
       const { images, skipped } = await extractFigures(files, s => set(s, 5));
       if (!images.length) throw new Error(`No figures could be read. ${skipped.map(s => `${s.name}: ${s.reason}`).join(' · ')}`);
@@ -86,10 +79,6 @@ export function renderImages(view) {
       const result = saved.result;
       result.id = saved.id;
       result.authorLines = $('#m-authors', view).value.split('\n').map(s => s.trim()).filter(Boolean);
-      if (vendorP) {
-        const scan = await vendorP;
-        result.vendorScan = scan.id && result.id ? await api(`/api/images/vendor/scans/${scan.id}/link`, { body: { checkId: result.id } }).then(d => d.scan).catch(() => scan) : scan;
-      }
       renderImagesResult($('#result', view), result, { live: new Map(images.map(im => [im.id, im])) });
       toast(result.summary.findings ? `${result.summary.findings} finding(s) to check` : 'No image problems found');
       // authors given: compare with their open-access papers right away (background job)
@@ -184,87 +173,8 @@ function databasesCard(d) {
 }
 
 function vendorCard(v) {
-  const head = `<div class="card-head"><h3>ImageTwin — published figures and AI images (external)</h3>${badge(v.connected ? (v.sandbox ? 'Connected · sandbox' : 'Connected') : 'Not checked', v.connected ? (v.sandbox ? 'warn' : 'good') : 'neutral')}</div>`;
-  if (!v.connected) return `<div class="card">${head}<p class="muted" style="margin:0">${esc(v.note)}</p></div>`;
-  return `<div class="card">${head}<p class="muted" style="margin-top:0">${esc(v.note)}</p>
-    <label class="check"><input type="checkbox" id="v-send"> <b>Also send this manuscript to ImageTwin</b></label>
-    <div id="v-opts" hidden style="margin:8px 0 0 24px">
-      <div class="alert alert-warn" style="margin:0 0 8px">The file(s) you selected leave PJPS systems and the scan is charged to the PJPS ImageTwin account. ${esc(v.limits || '')}.</div>
-      <div class="grid grid-2">
-        <div class="field"><label for="v-min">Findings to include</label><select id="v-min"><option value="0.33" selected>Fair and high confidence (33%+, ImageTwin default)</option><option value="0.66">High confidence only (66%+)</option><option value="0">All, including low confidence</option></select></div>
-        <div class="field"><label class="check" style="margin-top:24px"><input type="checkbox" id="v-exclude"> Ignore matches with this paper itself, if already published</label></div>
-      </div>
-    </div></div>`;
+  return `<div class="card"><div class="card-head"><h3>Figures stay inside PJPS</h3>${badge(v.inHouseOnly ? 'In-house only' : v.connected ? 'Connected' : 'Not checked', v.inHouseOnly ? 'good' : v.connected ? 'good' : 'neutral')}</div><p class="muted" style="margin:0">${esc(v.note)}</p></div>`;
 }
-
-/** Start an ImageTwin scan of these files (the editor confirmed the transfer) */
-function startVendorScan(files, { checkId = null, manuscriptCode = '', minScore = '0.33', excludeIdenticalPaper = false } = {}) {
-  const fd = new FormData();
-  for (const f of files) fd.append('file', f);
-  fd.append('confirm', 'true');
-  if (checkId) fd.append('checkId', String(checkId));
-  fd.append('manuscriptCode', manuscriptCode || '');
-  fd.append('minScore', String(minScore));
-  fd.append('excludeIdenticalPaper', excludeIdenticalPaper ? 'true' : 'false');
-  return api('/api/images/vendor/scan', { form: fd }).then(d => d.scan);
-}
-
-const VENDOR_ROWS = [
-  ['externalDuplicates', 'Matches with published figures', "Figures found in ImageTwin's database of published literature"],
-  ['localDuplicates', 'Duplicates inside the manuscript', 'Within and between the figures of this manuscript'],
-  ['alterations', 'Alterations', 'e.g. spliced or edited images'],
-  ['aiImages', 'Possible AI-generated images', 'Indicators to check, not proof']
-];
-
-/** Result panel of an ImageTwin scan; polls while the scan runs, and offers to send the manuscript when none was sent */
-function vendorScanPanel(el, result) {
-  if (!el) return;
-  const scan = result.vendorScan;
-  if (!scan) {
-    if (!result.vendor?.connected || !result.id) { el.innerHTML = ''; return; }
-    el.innerHTML = `<div class="card no-print"><div class="card-head"><h3>ImageTwin — published figures and AI images</h3>${badge('Not sent', 'neutral')}</div>
-      <p class="muted" style="margin-top:0">Not checked against ImageTwin's database of published figures. To check, select the manuscript (PDF or Word) or up to 25 figure files. ${esc(result.vendor.limits || '')}.</p>
-      <div class="row"><input type="file" id="v-file" accept=".pdf,.docx,.png,.jpg,.jpeg,.gif,.bmp,.tif,.tiff,.webp" multiple>
-      <label class="check"><input type="checkbox" id="v-ok"> I confirm the file(s) may leave PJPS systems; the scan is charged to the PJPS account</label>
-      <button class="btn btn-sm btn-primary" id="v-go">Send to ImageTwin</button></div></div>`;
-    $('#v-go', el).onclick = async () => {
-      const files = [...$('#v-file', el).files];
-      if (!files.length) return toast('Select the manuscript or the figure files first.', 'error');
-      if (!$('#v-ok', el).checked) return toast('Confirm that the file(s) may be sent to ImageTwin.', 'error');
-      $('#v-go', el).disabled = true;
-      try {
-        result.vendorScan = await startVendorScan(files, { checkId: result.id, manuscriptCode: result.meta?.manuscriptCode });
-        vendorScanPanel(el, result);
-        toast('Sent to ImageTwin — the result appears here when the scan is finished');
-      } catch (e) { $('#v-go', el).disabled = false; toast(e.message, 'error'); }
-    };
-    return;
-  }
-  const r = scan.result;
-  const tone = { HIGH: 'bad', MEDIUM: 'warn', LOW: 'good' };
-  const state = scan.status === 'finished' ? badge(`Risk ${scan.level}`, tone[scan.level] || 'neutral') : scan.status === 'running' ? badge('Scan running', 'neutral') : badge('Failed', 'bad');
-  const head = `<div class="card-head"><h3>ImageTwin — published figures and AI images</h3><span>${scan.sandbox ? badge('Sandbox test result — not a real check', 'warn') : ''} ${state}</span></div>`;
-  const sent = scan.createdAt ? `<p class="muted" style="margin-top:0">Sent ${fmtDate(scan.createdAt)}${scan.files ? ` · ${esc(scan.files)}` : ''}${scan.vendor && scan.vendor !== 'ImageTwin' ? ` · ${esc(scan.vendor)}` : ''}</p>` : '';
-  if (scan.status === 'running') {
-    el.innerHTML = `<div class="card">${head}${sent}<p>ImageTwin is analysing the figures (usually a few minutes). This panel updates by itself.${scan.pollError ? ` <span class="muted">Last check: ${esc(scan.pollError)}</span>` : ''}</p></div>`;
-    setTimeout(async () => {
-      if (!document.contains(el)) return;
-      try { result.vendorScan = await api(`/api/images/vendor/scans/${scan.id}`).then(d => d.scan); } catch (e) { result.vendorScan = { ...scan, pollError: e.message }; }
-      vendorScanPanel(el, result);
-    }, 15000);
-    return;
-  }
-  if (scan.status !== 'finished') {
-    el.innerHTML = `<div class="card">${head}${sent}<div class="alert alert-bad" style="margin:0">${esc(scan.error || 'The scan failed.')}</div></div>`;
-    return;
-  }
-  el.innerHTML = `<div class="card">${head}${sent}
-    <table class="table"><tbody>${VENDOR_ROWS.map(([k, label, hint]) => `<tr><td><b>${label}</b><div class="muted">${hint}</div></td><td class="num"><b class="${r[k] ? 'txt-bad' : ''}">${r[k]}</b></td></tr>`).join('')}
-      <tr><td><b>Highest confidence</b><div class="muted">ImageTwin bands: 0–32% low · 33–65% fair · 66–100% high</div></td><td class="num">${Math.round(r.highestScore * 100)}%</td></tr></tbody></table>
-    <div class="row" style="margin-top:8px">${r.resultUrl ? `<a class="btn btn-sm" href="${esc(r.resultUrl)}" target="_blank" rel="noopener">Open the findings at ImageTwin ↗</a>` : ''}${r.pdfReport ? `<a class="btn btn-sm" href="${esc(r.pdfReport)}" target="_blank" rel="noopener">ImageTwin PDF report ↗</a>` : ''}<span class="muted">Findings below ${Math.round(r.minScore * 100)}% confidence are not counted. ImageTwin keeps the result for 90 days.</span></div>
-  </div>`;
-}
-
 
 export function renderImagesResult(el, result, { live = null } = {}) {
   const s = result.summary;
@@ -290,7 +200,6 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       <div class="kpi ${refTotal(s) ? 'bad' : ''}"><div class="n">${result.references ? refTotal(s) : '—'}</div><div class="l">Published / reference matches</div></div>
       <div class="kpi"><div class="n">${s.skipped || 0}</div><div class="l">Not readable</div></div>
     </div>
-    <div id="vendor-scan"></div>
     <div class="cat-strip">${CATS.map(([k, l, name]) => { const n = (result.findings || []).filter(f => (f.category || 'duplication') === k).length; const st = (result.coverage || {})[k]; return `<button class="cat ${catFilter === k ? 'active' : ''} ${n ? 'has' : ''}" data-cat="${k}"><span class="cat-l">${l})</span><b>${name}</b><span class="cat-n">${n ? n + ' finding' + (n > 1 ? 's' : '') : 'none found'}</span><small>${esc(st?.note || '')}</small></button>`; }).join('')}</div>
     <div class="alert alert-info">${esc(result.disclaimer)}</div>
     ${result.guidance?.available ? `<div class="alert alert-${s.level === 'HIGH' ? 'bad' : s.level === 'MEDIUM' ? 'warn' : 'good'}"><b>Suggested handling — ${esc(result.guidance.decision.action)}.</b> ${esc(result.guidance.decision.desk)}</div>` : ''}
@@ -469,7 +378,6 @@ export function renderImagesResult(el, result, { live = null } = {}) {
   if (ex) ex.onclick = () => download(`/api/checks/${result.id}/confidential`).catch(e => toast(e.message, 'error'));
   const exp = $('#export-pdf', el);
   if (exp) exp.onclick = () => download(`/api/checks/${result.id}/confidential?format=pdf`).catch(e => toast(e.message, 'error'));
-  vendorScanPanel($('#vendor-scan', el), result);
   decisionCard($('#decision', el), result, 'images', { getExtra: () => ({ findingMarks: result.findingMarks || [] }) });
 }
 

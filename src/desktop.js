@@ -249,33 +249,6 @@ async function remoteImageDatabases(userId) {
   return remote('/api/sync/images/databases', { token, timeout: 20000 }).catch(() => null);
 }
 
-/** Module 5.7: ImageTwin is used through the web platform, which holds the API key */
-async function remoteVendor(userId, method, path, body) {
-  const token = await deviceToken(userId);
-  if (!token || !isOnline()) throw new RemoteError('ImageTwin is used through the PJPS web platform; this computer is offline.', 0, true);
-  return remote(path, { method, body, token, timeout: 60000 });
-}
-
-/** Send files to ImageTwin through the platform: each file goes straight to its storage (R2) with a presigned upload slot, so
- * the platform's 4.5 MB request limit does not apply; without R2 on the platform, small files are sent inline. */
-async function remoteVendorScan(userId, files, opts = {}) {
-  const token = await deviceToken(userId);
-  if (!token || !isOnline()) throw new RemoteError('ImageTwin is used through the PJPS web platform; this computer is offline.', 0, true);
-  const refs = [];
-  for (const f of files) {
-    const slot = await remote('/api/sync/uploads', { method: 'POST', token, body: { name: f.name, size: f.buffer.length, type: f.type || 'application/octet-stream' } });
-    if (slot.enabled) {
-      const put = await fetch(slot.url, { method: 'PUT', body: f.buffer, headers: { 'Content-Length': String(f.buffer.length) } });
-      if (!put.ok) throw new RemoteError(`The file could not be uploaded to the web platform (${put.status}).`, put.status);
-      refs.push({ key: slot.key, name: f.name, type: f.type });
-    } else {
-      if (files.reduce((a, x) => a + x.buffer.length, 0) > 3 * 1024 * 1024) throw new RemoteError('The web platform has no large-file storage; send files under 3 MB in total, or use the web portal.', 413);
-      refs.push({ base64: f.buffer.toString('base64'), name: f.name, type: f.type });
-    }
-  }
-  return remote('/api/sync/images/vendor/scan', { method: 'POST', token, timeout: 180000, body: { files: refs, manuscriptCode: opts.manuscriptCode || null, minScore: opts.minScore, excludeIdenticalPaper: !!opts.excludeIdenticalPaper } });
-}
-
 const CHECK_COLS = ['uid', 'kind', 'manuscript_code', 'version', 'title', 'ref_total', 'verified', 'suspicious', 'unverified', 'miscited', 'retracted', 'missing_citations', 'uncited_references', 'journal_flags', 'self_citation_rate', 'problems', 'result', 'created_at', 'origin', 'pending_online'];
 
 async function pushChecks(userId, token) {
@@ -393,4 +366,4 @@ async function status(userId) {
   };
 }
 
-module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases, remoteVendor, remoteVendorScan };
+module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases };

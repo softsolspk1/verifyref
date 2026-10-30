@@ -549,24 +549,6 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- Module 5.7: manuscripts sent to the ImageTwin API (figures leave PJPS systems: who sent what, and the result)
-CREATE TABLE IF NOT EXISTS vendor_scans (
-  id SERIAL PRIMARY KEY,
-  vendor TEXT NOT NULL,
-  scan_id TEXT NOT NULL,
-  sandbox BOOLEAN NOT NULL DEFAULT false,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  check_id INTEGER,
-  manuscript_code TEXT,
-  files TEXT,
-  status TEXT NOT NULL DEFAULT 'running',
-  result JSONB,
-  error TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  finished_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_vendor_scans_user ON vendor_scans(user_id, created_at DESC);
 `;
 
 // One-off data migrations from the editor-approval model (v2) to Super Admin management (v3)

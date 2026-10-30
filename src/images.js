@@ -14,7 +14,7 @@ const COVERAGE = {
   ai: { done: true, note: 'File markers (C2PA, generator tags) + statistical traces; indicators, not proof' },
   chart: { done: true, note: 'Bar heights and curves read from graphs and compared with other graphs, earlier manuscripts and the reference databases' },
   references: { done: true, note: 'PJPS image databases: published PJPS papers (pjps.pk), open-access papers retracted or corrected for image problems, and reference figures held by the editorial office' },
-  published: { done: false, note: 'Comparison with all published figures (ImageTwin database): only when the editor sends the manuscript to ImageTwin (Module 5.7); otherwise not checked' }
+  published: { done: false, note: 'Commercial databases of all published figures (ImageTwin, Proofig) are not searched: by PJPS policy figures never leave the PJPS system' }
 };
 const METHOD = 'Analysed in the editor browser. (a) Duplication: figures were split into panels; every pair was compared with perceptual hashes in 8 orientations and ORB keypoint matching with RANSAC (rotated, mirrored, resized, cropped or partly overlapping copies), and with the figures of all earlier PJPS manuscripts. (b) Alteration / manipulation: cloned areas (keypoint self-matching and DCT block matching), noise-level and JPEG-grid inconsistency, noise-free retouched areas, sharp background steps between blot lanes, combed histograms and saturated bands. (c) AI-generated images: provenance markers in the image files (C2PA / IPTC, generator names, generation parameters) and statistical traces (spectral peaks, missing or uniform sensor noise); statistics alone are shown only as indicators to check. (d) Graphs and charts: bar heights and curves were read from the pixels and compared across charts - also re-coloured, re-scaled or reversed - and with earlier manuscripts. (e) Reference databases: every panel and chart was also compared - in all orientations, as a crop and as an enlargement - with the figures of published PJPS papers, of open-access papers retracted or corrected for image problems and of the reference figures held by the editorial office; each candidate was verified by correlating the aligned thumbnails.';
 
@@ -125,7 +125,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     images: (input.images || []).slice(0, 200).map(im => ({ id: String(im.id), label: String(im.label || '').slice(0, 160), width: im.width | 0, height: im.height | 0, panels: im.panels | 0, source: String(im.source || '') })),
     panels, findings, earlier, earlierCharts, references: refs.matches, referenceCharts: refs.charts, referencesSearched: refs.searched, referencesError: refs.error || null, coverage: COVERAGE, provenanceChecked: Number(input.provenance) || 0,
     skipped: (input.skipped || []).slice(0, 100).map(s => ({ name: String(s.name || '').slice(0, 160), reason: String(s.reason || '').slice(0, 200) })),
-    vendor: await vendorStatus(userId),
+    vendor: await vendorStatus(),
     guidance: KB.guidance(level),
     method: METHOD,
     disclaimer: 'Screening aid only. Repeated textures (cells, tissue, gel background), legitimately re-used control images and heavily processed or denoised pictures can look like copies, edits or AI images; AI-image statistics are indicators only, and a missing marker does not prove an image is genuine; every finding must be checked by the editor, and original images requested where needed. Confidential — not for authors or reviewers.'
@@ -141,93 +141,17 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
   return { id, result, earlier };
 }
 
-// ------------------------------------------------------------------ 5.7 ImageTwin API (optional, per manuscript)
-
-const IT = require('./vendors/imagetwin');
-const NOT_CONNECTED = 'Not connected. Comparison with ImageTwin’s database of published figures and its AI-image detection are reported as “not checked”. Duplication, manipulation, AI-image indicators and chart duplication are checked inside PJPS, and every figure is compared with the PJPS image databases (published PJPS papers, papers retracted for image problems, reference figures). To connect, the Super Admin sets IMAGETWIN_API_KEY on the web platform (key from the PJPS ImageTwin account: Account > API Access, after ImageTwin activates API access).';
-
 /**
- * Whether the ImageTwin API can be used. The key is held by the web platform only; the desktop asks the platform.
+ * PJPS policy: figures are analysed inside the PJPS system only (in the editor's browser and on the PJPS server) and
+ * are never sent to an outside service such as ImageTwin or Proofig. The report states this, and what that leaves out.
  */
-async function vendorStatus(userId = null) {
-  if (cfg.DESKTOP) {
-    const r = userId ? await require('./desktop').remoteVendor(userId, 'GET', '/api/sync/images/vendor').catch(() => null) : null;
-    if (r?.connected) return { ...r, success: undefined, viaPlatform: true };
-    return { connected: false, vendor: null, note: r ? NOT_CONNECTED : 'ImageTwin is used through the PJPS web platform, which could not be reached (offline). ' + NOT_CONNECTED };
-  }
-  if (!IT.configured()) return { connected: false, vendor: null, note: NOT_CONNECTED };
+async function vendorStatus() {
   return {
-    connected: true, vendor: 'ImageTwin', sandbox: IT.sandbox(),
-    note: `ImageTwin API connected${IT.sandbox() ? ' in SANDBOX mode (free, predefined test results - not a real check)' : ''}. Sending is off by default and chosen per manuscript: the manuscript file leaves PJPS systems and each scan is charged to the PJPS ImageTwin account. ImageTwin compares the figures with its database of published figures and checks for AI-generated images, alterations and duplicates; results stay available at ImageTwin for 90 days.`,
-    limits: 'One PDF or Word file under 30 MB with fewer than 50 pages, or up to 25 image files under 20 MB each'
+    connected: false,
+    vendor: null,
+    inHouseOnly: true,
+    note: 'PJPS policy: figures are checked within the PJPS system only and are never sent to an outside service (ImageTwin, Proofig). Duplication, manipulation, AI-image indicators and chart duplication are checked here, and every figure is compared with all earlier PJPS manuscripts and the PJPS image databases (published PJPS papers, papers retracted for image problems, PubMed Central open-access figures, reference figures). Commercial databases of all published figures are therefore not searched.'
   };
 }
 
-const scanRow = r => r && ({ id: r.id, vendor: r.vendor, scanId: r.scan_id, sandbox: r.sandbox, checkId: r.check_id, manuscriptCode: r.manuscript_code, files: r.files, status: r.status,
-  result: r.result, level: IT.level(r.result), error: r.error, createdAt: r.created_at, finishedAt: r.finished_at });
-
-/** Copy a finished (or failed) scan into the saved Module 5 report, so exports and later views show it */
-async function attachVendorScan(userId, row) {
-  if (!row.check_id) return;
-  const c = await require('./pipeline').loadCheck(userId, row.check_id).catch(() => null);
-  if (!c?.result || c.row.kind !== 'images') return;
-  c.result.vendorScan = scanRow(row);
-  delete c.result.id; delete c.result.createdAt; delete c.result.issueId;
-  await db.query('UPDATE checks SET result = $1 WHERE id = $2 AND user_id = $3', [JSON.stringify(c.result), c.row.id, userId]);
-}
-
-/**
- * Send a manuscript (or figure files) to ImageTwin. files: [{ name, buffer, type }]. opts: { checkId, manuscriptCode,
- * minScore, excludeIdenticalPaper, req (for the audit log) }. The desktop forwards through the web platform.
- */
-async function startVendorScan(userId, files, opts = {}) {
-  const names = files.map(f => f.name).join(', ').slice(0, 500);
-  let scanId, sandbox = false, vendor = 'ImageTwin';
-  if (cfg.DESKTOP) {
-    const r = await require('./desktop').remoteVendorScan(userId, files, opts);
-    scanId = String(r.scan.id); sandbox = !!r.scan.sandbox; vendor = 'ImageTwin (via web platform)';
-  } else {
-    const r = await IT.scan(files, { minScore: opts.minScore, excludeIdenticalPaper: opts.excludeIdenticalPaper });
-    scanId = r.scanId; sandbox = r.sandbox;
-  }
-  const row = await db.one(`INSERT INTO vendor_scans(vendor, scan_id, sandbox, user_id, check_id, manuscript_code, files) VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [vendor, scanId, sandbox, userId, opts.checkId ? Number(opts.checkId) || null : null, opts.manuscriptCode || null, names]);
-  require('./auth').audit(opts.req, 'vendor.imagetwin.scan', opts.manuscriptCode || names, { scan: row.id, files: names, sandbox });
-  await attachVendorScan(userId, row);
-  return scanRow(row);
-}
-
-/** Current state of a scan; asks ImageTwin (or the platform) while it is still running */
-async function vendorScan(userId, id) {
-  let row = await db.one('SELECT * FROM vendor_scans WHERE id = $1 AND user_id = $2', [Number(id) || 0, userId]);
-  if (!row) return null;
-  if (row.status !== 'running') return scanRow(row);
-  let status = 'running', result = null, error = null;
-  try {
-    if (cfg.DESKTOP) {
-      const r = await require('./desktop').remoteVendor(userId, 'GET', `/api/sync/images/vendor/scans/${encodeURIComponent(row.scan_id)}`);
-      ({ status, result, error } = r.scan);
-    } else {
-      result = await IT.result(row.scan_id);
-      status = result.status;
-      if (status === 'running') result = null;
-    }
-  } catch (e) {
-    // a failed scan (HTTP 500) or an expired one (404) is final; a network problem is retried at the next poll
-    if (e.status === 404 || /could not process/i.test(e.message)) { status = 'failed'; error = e.message; }
-    else return { ...scanRow(row), pollError: e.message };
-  }
-  if (status === 'running') return scanRow(row);
-  row = await db.one('UPDATE vendor_scans SET status = $1, result = $2, error = $3, finished_at = now() WHERE id = $4 RETURNING *', [status, result ? JSON.stringify(result) : null, error || null, row.id]);
-  await attachVendorScan(userId, row);
-  return scanRow(row);
-}
-
-/** Link a scan started before the report was saved to that report */
-async function linkVendorScan(userId, id, checkId) {
-  const row = await db.one('UPDATE vendor_scans SET check_id = $1 WHERE id = $2 AND user_id = $3 RETURNING *', [Number(checkId) || null, Number(id) || 0, userId]);
-  if (row) await attachVendorScan(userId, row);
-  return scanRow(row);
-}
-
-module.exports = { compareWithEarlier, compareChartsWithEarlier, saveImageCheck, vendorStatus, startVendorScan, vendorScan, linkVendorScan, MATCH_DISTANCE };
+module.exports = { compareWithEarlier, compareChartsWithEarlier, saveImageCheck, vendorStatus, MATCH_DISTANCE };

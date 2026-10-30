@@ -156,30 +156,6 @@ router.post('/sync/images/match', wrap(device), wrap(async (req, res) => {
   res.json({ success: true, earlier, earlierCharts, refs });
 }));
 
-/** Module 5.7 from the desktop: ImageTwin through the platform (the API key never leaves the platform) */
-const imagesAllowed = (req, res, next) => (require('../modules').permissionsOf(req.user).includes('images') ? next() : res.status(403).json({ success: false, message: 'Your account does not have access to Image Integrity.' }));
-router.get('/sync/images/vendor', wrap(device), imagesAllowed, wrap(async (req, res) => res.json({ success: true, ...(await require('../images').vendorStatus(req.user.id)) })));
-router.post('/sync/uploads', wrap(device), imagesAllowed, wrap(async (req, res) => res.json({ success: true, ...require('../uploads').createUpload(req.user.id, req.body || {}) })));
-router.post('/sync/images/vendor/scan', wrap(device), imagesAllowed, wrap(async (req, res) => {
-  const U = require('../uploads');
-  const list = Array.isArray(req.body?.files) ? req.body.files.slice(0, 25) : [];
-  const own = k => typeof k === 'string' && k.startsWith(`uploads/${req.user.id}/`) && !k.includes('..');
-  if (list.some(f => f.key && !own(f.key))) return res.status(400).json({ success: false, message: 'Invalid upload reference.' });
-  try {
-    const files = await Promise.all(list.map(async f => ({ name: String(f.name || 'file').slice(0, 160), type: String(f.type || ''), buffer: f.key ? await U.getObject(f.key) : Buffer.from(String(f.base64 || ''), 'base64') })));
-    const scan = await require('../images').startVendorScan(req.user.id, files, { manuscriptCode: req.body.manuscriptCode, minScore: req.body.minScore, excludeIdenticalPaper: req.body.excludeIdenticalPaper, req });
-    res.json({ success: true, scan });
-  } finally {
-    for (const f of list) if (f.key) U.deleteObject(f.key);
-  }
-}));
-// the desktop polls with the platform's scan row id (stored as its own scan_id)
-router.get('/sync/images/vendor/scans/:id', wrap(device), imagesAllowed, wrap(async (req, res) => {
-  const scan = await require('../images').vendorScan(req.user.id, req.params.id);
-  if (!scan) return res.status(404).json({ success: false, message: 'Scan not found.' });
-  res.json({ success: true, scan });
-}));
-
 router.get('/sync/images/refs/:id/thumb', wrap(device), wrap(async (req, res) => {
   const REFS = require('../imageRefs');
   const buf = await REFS.refThumb(await REFS.thumbKey(parseInt(req.params.id, 10) || 0));

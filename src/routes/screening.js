@@ -175,7 +175,28 @@ router.get('/images/public/figures/:pmcid', mod('images'), wrap(async (req, res)
   try { res.json({ success: true, ...(await PUB.figures(req.params.pmcid)) }); } catch (e) { res.status(404).json({ success: false, message: e.message }); }
 }));
 
-router.get('/images/vendor', mod('images'), wrap(async (req, res) => res.json({ success: true, ...(await IMG.vendorStatus()) })));
+router.get('/images/vendor', mod('images'), wrap(async (req, res) => res.json({ success: true, ...(await IMG.vendorStatus(req.user.id)) })));
+
+/** 5.7 - send the manuscript (or up to 25 figure files) to ImageTwin; only on the editor's explicit request */
+router.post('/images/vendor/scan', mod('images'), upload.fields([{ name: 'file', maxCount: 25 }]), wrap(async (req, res) => {
+  const b = req.body || {};
+  if (b.confirm !== 'true') return res.status(400).json({ success: false, message: 'Confirm that the manuscript may be sent to ImageTwin (it leaves PJPS systems and is charged to the PJPS account).' });
+  const files = (req.files?.file || []).map(f => ({ name: f.originalname, type: f.mimetype, buffer: f.buffer }));
+  const scan = await IMG.startVendorScan(req.user.id, files, { checkId: b.checkId, manuscriptCode: b.manuscriptCode, minScore: b.minScore !== undefined && b.minScore !== '' ? Number(b.minScore) : undefined, excludeIdenticalPaper: b.excludeIdenticalPaper === 'true', req });
+  res.json({ success: true, scan });
+}));
+
+router.get('/images/vendor/scans/:id', mod('images'), wrap(async (req, res) => {
+  const scan = await IMG.vendorScan(req.user.id, req.params.id);
+  if (!scan) return res.status(404).json({ success: false, message: 'Scan not found.' });
+  res.json({ success: true, scan });
+}));
+
+router.post('/images/vendor/scans/:id/link', mod('images'), wrap(async (req, res) => {
+  const scan = await IMG.linkVendorScan(req.user.id, req.params.id, req.body?.checkId);
+  if (!scan) return res.status(404).json({ success: false, message: 'Scan not found.' });
+  res.json({ success: true, scan });
+}));
 
 // ------------------------------------------------------------------ editor decision record (Modules 4, 5, Full Screening Report)
 

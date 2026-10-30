@@ -18,6 +18,15 @@ if (process.argv[2] === 'platform') {
   delete process.env.APP_MODE;
   delete process.env.DATABASE_URL;
   for (const k of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET']) process.env[k] = '';
+  // Module 5.7: only the platform holds the ImageTwin key; api.imagetwin.ai is stubbed with its documented responses
+  process.env.IMAGETWIN_API_KEY = 'it-test-key';
+  const realFetch = global.fetch;
+  global.fetch = async (url, init) => {
+    if (!String(url).startsWith('https://api.imagetwin.ai/')) return realFetch(url, init);
+    const body = String(url).endsWith('/v1/scan') ? { scanId: 'scan-from-desktop-1', message: 'ok' }
+      : { scanId: 'scan-from-desktop-1', alterationCount: 0, localDuplicateCount: 1, externDuplicateCount: 2, aiImageCount: 0, minScore: 0.33, highestScore: 0.7, pdfReport: 'https://x/r.pdf', resultUrl: 'https://x/r' };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
   (async () => {
     const server = require('../server');
     const db = require('../src/db');
@@ -94,6 +103,23 @@ if (process.argv[2] === 'platform') {
     r = await call('GET', '/api/images/databases');
     assert.ok(r.data.onPlatform && r.data.bySource.pjps.papers === 1, 'database counts come from the platform');
     console.log('  ✓ Module 5 on the desktop searches the platform image databases');
+
+    // Module 5.7: ImageTwin from the desktop goes through the platform (the desktop has no key)
+    delete process.env.IMAGETWIN_API_KEY;
+    r = await call('GET', '/api/images/vendor');
+    assert.ok(r.data.connected && r.data.viaPlatform, 'ImageTwin connected through the platform');
+    const fd = new FormData();
+    fd.append('file', new Blob([Buffer.from('%PDF-1.4 test manuscript')], { type: 'application/pdf' }), 'PJPS-2026-0001.pdf');
+    fd.append('confirm', 'true');
+    fd.append('manuscriptCode', 'PJPS-2026-0001');
+    let v = await (await fetch(`${base}/api/images/vendor/scan`, { method: 'POST', headers: { Cookie: cookie }, body: fd })).json();
+    assert.ok(v.success && v.scan.status === 'running' && /via web platform/.test(v.scan.vendor), `desktop scan started through the platform: ${v.message || ''}`);
+    v = (await call('GET', `/api/images/vendor/scans/${v.scan.id}`)).data;
+    assert.ok(v.scan.status === 'finished' && v.scan.result.externalDuplicates === 2 && v.scan.level === 'HIGH', 'desktop receives the ImageTwin result');
+    const unconfirmed = new FormData();
+    unconfirmed.append('file', new Blob([Buffer.from('x')]), 'a.pdf');
+    assert.strictEqual((await fetch(`${base}/api/images/vendor/scan`, { method: 'POST', headers: { Cookie: cookie }, body: unconfirmed })).status, 400, 'nothing is sent without the editor confirming');
+    console.log('  ✓ ImageTwin from the desktop through the platform (key stays on the platform; confirmation required)');
 
     // Offline: the check still runs and says what was not searched
     process.env.SIMULATE_OFFLINE = '1';

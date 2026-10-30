@@ -467,7 +467,7 @@ BUILD STATUS (25 Oct 2026) - web portal only
                    5.1 panel letters (A, B, C) read from corners,
                    5.5 blot lane-by-lane comparison,
                    5.6 Europe PMC author figures (background job) DONE (26 Oct)
-                   5.7 vendor API (needs contract + API docs)  OPEN
+                   5.7 ImageTwin API (needs the PJPS key)      DONE (30 Oct)
    Audit fixes     D1-D20 fixed, S1 reuse upload, S2 .doc/.odt/.rtf,
                    S5 server PDF, dataset-status banner        DONE (26 Oct)
    Full Screening  summary, recommendation, editor/author Word DONE

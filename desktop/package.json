@@ -1,7 +1,7 @@
 {
   "name": "pjps-reference-checker-desktop",
   "productName": "PJPS Data Integrity System",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "PJPS Data Integrity System for Windows — the five PJPS modules with offline mode, by Softsols Pakistan",
   "author": "Softsols Pakistan",
   "private": true,

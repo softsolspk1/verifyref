@@ -1,6 +1,6 @@
 {
   "name": "pjps-reference-checker",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "description": "PJPS Data Integrity System by Softsols Pakistan — manuscript screening and research-integrity platform (five PJPS modules and the Integrity Suite)",
   "main": "server.js",
   "type": "commonjs",

@@ -214,7 +214,8 @@ function authorsTab(body, ai) {
       <div class="muted">${s.idsInManuscript} ORCID iD(s) written in the manuscript; ${s.flags} problem(s). A missing ORCID record is not evidence of misconduct.</div></div></div>
     ${ai.flags.length ? `<div class="card"><h3>Problems</h3>${ai.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.text)}</div></div>`).join('')}</div>` : ''}
     <div class="card"><h3>Authors</h3><table class="t"><tr><th>Author</th><th>ORCID</th><th>Institutions (ORCID)</th><th class="num">Publications</th><th>Field</th></tr>
-      ${ai.authors.map(a => `<tr><td><b>${esc(a.author)}</b><div class="muted">${esc(a.status === 'verified' ? a.source : a.note || a.status)}</div></td>
+      ${ai.authors.map(a => `<tr><td><b>${esc(a.author)}</b><div class="muted">${esc(a.status === 'verified' ? a.source : a.note || a.status)}</div>
+          <div style="font-size:12px;margin-top:3px"><a href="https://scholar.google.com/citations?view_op=search_authors&mauthors=${encodeURIComponent(a.author)}" target="_blank" rel="noopener">Scholar profile ↗</a>${a.orcid ? '' : ` · <a href="https://orcid.org/orcid-search/search?searchQuery=${encodeURIComponent(a.author)}" target="_blank" rel="noopener">ORCID search ↗</a>`}</div></td>
         <td>${a.orcid ? orcidLink(a.orcid) : a.candidates?.length ? `<span class="muted">candidates:</span><br>${a.candidates.map(c => `${orcidLink(c.id)}${c.institutions.length ? ` <span class="muted">${esc(c.institutions[0])}</span>` : ''}`).join('<br>')}` : '—'}
           ${a.record ? `<div class="muted">record since ${a.record.created || '?'}${a.record.verifiedEmail ? ' · verified e-mail' : ''}</div>` : ''}</td>
         <td>${a.record ? esc([...new Set(a.record.employments.map(e => `${e.organization}${e.end ? ` (to ${e.end})` : ''}`))].slice(0, 3).join('; ') || '—') : '—'}${a.institutionAgrees === false ? ' ' + badge('differs', 'warn') : a.institutionAgrees ? ' ' + badge('agrees', 'good') : ''}</td>
@@ -311,6 +312,27 @@ function referencesTab(body, refs, s, indicators) {
   draw('all');
 }
 
+// Free one-click searches opened in the editor's own browser (Google Scholar has no free API; ORCID search is public)
+const enc = encodeURIComponent;
+function scholarQuery(r) {
+  const p = r.parsed || {};
+  const title = (p.title || '').replace(/["“”]/g, '').trim();
+  if (title.length >= 12) return `"${title}"${p.authors?.[0]?.family ? ` author:"${p.authors[0].family}"` : ''}`;
+  return String(r.raw || '').replace(/^\s*\[?\d+[\].)]?\s*/, '').slice(0, 250);
+}
+function manualSearch(r) {
+  const p = r.parsed || {};
+  const q = scholarQuery(r);
+  const plain = (p.title || r.raw || '').slice(0, 250);
+  const links = [
+    ['Google Scholar', `https://scholar.google.com/scholar?q=${enc(q)}`],
+    ['Google Books', `https://www.google.com/search?tbm=bks&q=${enc(plain)}`],
+    ['PubMed', `https://pubmed.ncbi.nlm.nih.gov/?term=${enc(plain)}`],
+    ['Google', `https://www.google.com/search?q=${enc(`"${plain}"`)}`]
+  ];
+  return `<div style="margin-top:10px"><div class="muted" style="font-size:12px;margin-bottom:4px">Search manually (opens in your browser)</div><div class="row" style="gap:6px;flex-wrap:wrap">${links.map(([l, u]) => `<a class="btn btn-sm btn-ghost" href="${esc(u)}" target="_blank" rel="noopener">${esc(l)} ↗</a>`).join('')}</div></div>`;
+}
+
 function refRow(r) {
   const rec = r.record;
   const authors = list => (list || []).slice(0, 8).map(a => `${a.family}${a.given ? ' ' + a.given : ''}`).join(', ') + ((list || []).length > 8 ? ', et al.' : '');
@@ -344,6 +366,7 @@ function refRow(r) {
       ${(r.links || []).length ? `<p>${r.links.map(l => `${badge(l.status === 'works' ? 'Link works' : l.status === 'broken' ? 'Broken link' : 'Not checked', l.status === 'works' ? 'good' : l.status === 'broken' ? 'bad' : 'neutral')} <a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.url.slice(0, 80))}</a>${l.archived ? ` · <a href="${esc(l.archived)}" target="_blank" rel="noopener">archived copy</a>` : ''}`).join('<br>')}</p>` : ''}
       ${r.suggestion ? `<div class="suggest"><b>Suggested reference:</b> ${esc(r.suggestion)} <button class="btn btn-sm btn-ghost" data-copy="${esc(r.suggestion)}">${ICONS.copy}</button></div>` : ''}
       ${chips ? `<div style="margin-top:10px"><div class="muted" style="font-size:12px;margin-bottom:4px">Databases checked</div><div class="chips">${chips}</div></div>` : ''}
+      ${r.status !== 'verified' ? manualSearch(r) : `<div style="margin-top:8px"><a class="muted" style="font-size:12px" href="https://scholar.google.com/scholar?q=${enc(scholarQuery(r))}" target="_blank" rel="noopener">Find in Google Scholar ↗</a></div>`}
     </div>
   </div>`;
 }

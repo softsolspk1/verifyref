@@ -23,7 +23,7 @@ module.exports = {
   PORT: parseInt(env.PORT || '3005', 10),
   APP_NAME: 'PJPS Data Integrity System',
   APP_VENDOR: 'Softsols Pakistan',
-  APP_VERSION: '3.1.4',
+  APP_VERSION: '3.2.0',
   // Desktop edition: local server on 127.0.0.1 with an embedded database, synchronised with the web platform
   DESKTOP,
   REMOTE_URL: (env.REMOTE_URL || '').replace(/\/+$/, ''),

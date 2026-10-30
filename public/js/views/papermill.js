@@ -90,7 +90,8 @@ export function renderPaperMillResult(el, r) {
     <div class="card"><h3>What was checked</h3><ul class="checked">
       <li>${c.references ? '✓' : '—'} References (${r.details?.references?.total || 0}: ${r.details?.references?.fabricated || 0} not found, ${r.details?.references?.retracted || 0} retracted)</li>
       <li>${c.authors ? '✓' : '—'} Authors against Retraction Watch${c.authors ? '' : ' (no author names found — enter them above)'}</li>
-      <li>${c.orcid ? '✓' : '—'} ORCID iDs (${(r.details?.orcids || []).length})</li>
+      <li>${c.orcid ? '✓' : '—'} ORCID iDs (${(r.details?.orcids || []).length}${c.orcid ? `; their publications checked against Retraction Watch: ${(r.details?.orcidRetractions || []).length} retracted` : ''})</li>
+      <li>${c.references ? '✓' : '—'} Cited journals against the journals with 20 or more paper-mill retractions in Retraction Watch (${(r.details?.millJournals || []).reduce((n, j) => n + j.refs.length, 0)} reference(s))</li>
       <li>${c.statistics ? '✓' : '—'} Statistics recalculated (${c.statistics || 0} p-values and percentages found, ${(r.details?.statistics?.findings || []).length} inconsistent)</li>
       <li>${c.primers ? '✓' : '—'} Primer sequences (${c.primers || 0} found${c.primersBlasted ? `, ${c.primersBlasted} checked against NCBI BLAST` : c.primers ? ', NCBI BLAST not run' : ''})</li>
       <li>${(r.details?.emails || []).length ? '✓' : '—'} E-mail addresses (${(r.details?.emails || []).length})</li>
@@ -98,7 +99,6 @@ export function renderPaperMillResult(el, r) {
       <li>${c.previousVersion ? '✓ Compared with the earlier version' : '— No earlier version with this manuscript ID'}</li>
       <li>✓ Compared with ${c.earlierSubmissions || 0} earlier PJPS submission(s)</li>
       <li>${c.images ? '✓' : '—'} Image Integrity (Module 5)</li>
-      <li>Not yet covered: primer / gene sequences, statistics consistency (planned phase 3)</li>
     </ul></div>
     <div id="decision" class="no-print"></div>`;
   const ex = $('#export', el);

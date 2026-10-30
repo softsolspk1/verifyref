@@ -127,7 +127,7 @@ async function filePages(buffer, name) {
   if (/\.pdf$/i.test(name)) {
     const pdfParse = require('pdf-parse');
     const pages = [];
-    await pdfParse(buffer, {
+    await pdfParse(new Uint8Array(buffer), { // Uint8Array, not Buffer: see extractDocument in src/parse.js
       pagerender: pageData => pageData.getTextContent({ normalizeWhitespace: true }).then(tc => {
         let last, text = '';
         for (const item of tc.items) {

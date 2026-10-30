@@ -1,0 +1,242 @@
+PJPS DATA INTEGRITY SYSTEM
+Modules 1-3 (Check Bibliography, Reference Style & PJPS Converter, Citations) - Audit Report
+Date: 30 October 2026
+=====================================================================================
+
+SUMMARY
+-------
+All three modules are fully built against the specification
+(docs/PJPS-Final-5-Modules.txt): every listed feature exists in the code and works
+end to end.
+
+Accuracy was measured with the four ground-truth audits in the repository. They run
+the live engine (real databases, internet) on test cases whose correct answer is
+known in advance:
+
+  Module 1  25 of 27 references judged correctly
+  Module 2  14 of 14 compliance cases, 6 of 6 in-text rules, conversion from
+            7 styles, Word Track Changes - all correct
+  Module 3  every planted citation/list problem found; pattern flags all fired
+
+Three defects were found (section 5): two Module 1 accuracy problems and one gap in
+the audit itself. Nothing was changed in the code during this audit.
+
+
+1. HOW THE AUDIT WAS DONE
+-------------------------
+a) Feature check: every item of the specification for Modules 1-3 was looked up in
+   the code.
+b) Accuracy check: the repository's audit tests were run against the live engine:
+     test/audit-m1.js   Module 1 - 27 references with known verdicts
+     test/audit-m1b.js  Module 1 - regional journals, self-citation, garbled PDF text,
+                        .bib/.ris import, file formats
+     test/audit-m23.js  Modules 2 and 3.A - planted style errors and citation errors
+     test/audit-m3b.js  Modules 3.B and 3.C - claims with known support, pattern flags
+c) Not run: test/audit-m3c.js (claim support with a real published PDF) - its PDF
+   file (vaswani.pdf) is not in the repository.
+
+Note: the first attempt crashed with "out of memory: Zone". Drive C: has only
+934 MB free (Windows page file). Run one at a time, the audits completed normally.
+Free space on C: before running the audits or building the desktop app.
+
+
+2. MODULE 1 - CHECK BIBLIOGRAPHY
+--------------------------------
+Feature check
+
+  Spec item                                              Status
+  -----------------------------------------------------  ----------------------
+  1.1 Upload or paste; .bib/.ris import                  Built, tested OK
+  1.1 Edit list before checking (split/merge)            Built
+  1.1 Clean garbled PDF text                             Built, tested OK (4/4)
+  1.2 12 databases (Crossref, DOI, DataCite, OpenAlex,   Built (plus CORE and
+      PubMed, Europe PMC, Semantic Scholar, arXiv,       Google Scholar as a
+      DBLP, Open Library, Google Books, ERIC)            last resort)
+  1.3 Verdict, 0-100 confidence, differing fields,       Built, tested OK
+      corrected PJPS reference, link
+  1.4 Fabrication checks                                 Built - see defect D2
+  1.5 Retraction Watch, reason and date, later-          Built, tested OK
+      retraction monitoring
+  1.6 Link check, separate from the verdict              Built, tested OK
+  1.7 Reference-age chart and PJPS rule (5 yrs / 30%)    Built, tested OK
+  1.8 Self-citation, PJPS citations, predatory /         Built; self-citation
+      hijacked journals, duplicates                      tested OK (50% found)
+  1.9 Summary, filter, Word/PDF/CSV/BibTeX/RIS/          Built; all 5 exports
+      corrected list, Re-check                           tested OK; Re-check OK
+
+Accuracy (test/audit-m1.js, 73 seconds for 27 references)
+
+  Case type                         Result
+  --------------------------------  -------------------------------------------
+  Genuine, correctly cited (11)     11/11 Verified (confidence 95-100)
+  DOI with junk appended (1)        Found the right paper, but marked Miscited
+                                    because the DOI was not repaired (defect D2)
+  Miscited - wrong details (4)      2/4 caught - 2 passed as Verified (defect D1)
+  Fabricated (4)                    4/4 Suspicious, with the reason
+  Real title, invented words (1)    Miscited, the inserted words named
+  DOI of a different paper (1)      Miscited, "identifier belongs to a different
+                                    publication"
+  Retracted (2)                     2/2 Retracted (Wakefield 1998, Seralini 2012)
+  Pakistani regional journal (2)    2/2 Unverified/Not indexed - never Suspicious
+  Duplicate in other format (1)     Verified
+
+  Total: 25 of 27 correct. No genuine reference was called fake, and no fake one
+  passed as genuine.
+
+Other Module 1 results (test/audit-m1b.js)
+  - PJPS references: one shown as "Not indexed" (regional journal), the rest found
+    and verified.
+  - .bib and .ris import: both read correctly.
+  - File formats: .docx, .txt, .rtf read; broken .odt / .doc / .pdf files refused
+    with a clear message (as intended).
+  - Predatory / hijacked list: not testable in this audit (the in-memory test
+    database has no Beall list loaded). It is covered by the live datasets.
+
+
+3. MODULE 2 - REFERENCE STYLE & PJPS CONVERTER
+---------------------------------------------
+Feature check
+
+  Spec item                                              Status
+  -----------------------------------------------------  ----------------------
+  2.1 Rule-by-rule compliance (authors, et al., year,    Built, tested OK
+      title, journal abbreviation, vol(issue): pages,
+      missing fields, order, a/b suffixes, % score)
+  2.1 In-text citation format (comma, et al., "and",     Built, tested OK
+      semicolons, chronological order)
+  2.2 Convert any style to PJPS (23 styles), in-text     Built, tested OK
+      and list, numbered -> (Author, Year), re-sorted
+  2.2 Fill missing fields from Module 1; flag unmatched  Built
+  2.3 Before/after view, Word Track Changes, download,   Built, tested OK
+      report of changes
+
+Accuracy (test/audit-m23.js)
+  - Compliance: 14 of 14 references judged correctly; no false alarms, nothing
+    missed.
+  - Order and a/b suffix rules: both detected.
+  - In-text rules: 6 of 6 planted errors found, with the expected form shown.
+  - Conversion to PJPS from APA, Vancouver, Harvard, IEEE, AMA and Chicago: exact.
+    From Nature: correct except the issue number, which the Nature form does not
+    contain (filled only when the online lookup is on) - expected behaviour.
+  - Word output: 4 in-text citations converted; with Track Changes on, 19
+    insertions and 7 deletions recorded, the rest of the sentence left untouched.
+
+  The official PJPS examples from the Instructions for Authors are also read and
+  re-formatted exactly (test/pjps-style.js, part of npm test).
+
+
+4. MODULE 3 - CITATIONS
+-----------------------
+Feature check
+
+  Spec item                                              Status
+  -----------------------------------------------------  ----------------------
+  3.A Missing / uncited / year / spelling / ambiguous /  Built, tested OK
+      et al. / numbering; tables, captions, footnotes
+  3.B Claim vs uploaded PDF, open-access full text       Built; uploaded-PDF
+      (Europe PMC, Unpaywall, OpenAlex, CORE), abstract;  path NOT measured
+      retracted evidence flagged; runs locally            (defect D3)
+  3.C Self-citation, citation stacking, citation blocks  Built, tested OK
+  3.D Combined report, Word/PDF/CSV, author letter EN/UR Built, tested OK
+
+Accuracy
+  3.A (test/audit-m23.js) - every planted problem found:
+      3 missing references, 1 uncited, 1 year mismatch, 1 spelling mismatch,
+      1 ambiguous citation (2020a/2020b), 1 wrong "et al."; numbered version:
+      missing, uncited and out-of-order numbers found.
+  3.B (test/audit-m3b.js)
+      - Citing the retracted Wakefield paper as evidence: flagged Unsupported and
+        Retracted (correct).
+      - Invented claim with an invented source: "Could not verify" (correct).
+      - The 5 claims meant to be checked against uploaded PDFs could not be
+        checked - see defect D3.
+  3.C - all pattern flags fired on the planted case: self-citation (100%),
+      irrelevant self-citation, author concentration, citation stacking,
+      off-topic references, citation blocks (2).
+  3.D - English author letter generated; exports work.
+
+
+5. DEFECTS FOUND
+----------------
+D1  Module 1 - two miscited references passed as Verified        (accuracy)
+    - Hanahan & Weinberg cited as 2012, pages 646-700 (correct: 2011, 646-674).
+      The tool accepts a one-year difference as "online-first vs print year" and
+      treats a wrong last page as a note, so the combination passes as Verified.
+    - PRISMA 2020 statement cited as 2020, BMJ volume 370 (correct: 2021, 372).
+      Verified with "year matches" - most likely matched against an earlier
+      2020 version of the same paper (preprint) instead of the BMJ article.
+    Effect: an author's wrong year/volume/pages is not reported to them.
+    Suggested fix: when the year differs AND another field (volume or pages)
+    also differs, report Miscited; prefer the journal version over a preprint
+    when the cited journal is named.
+
+D2  Module 1 - DOI with junk appended is not repaired                  (minor)
+    "10.1038/nature14539.pp436-444" is kept as-is (cleanDoi in src/text.js does
+    not strip the ".pp436-444" tail). The paper is still found by its title, but
+    the verdict becomes Miscited ("DOI does not exist") instead of Verified with
+    a repaired DOI, as the specification (1.4) requires.
+    Suggested fix: strip trailing page/junk segments from a DOI when the cleaned
+    DOI resolves.
+
+D3  PDF reading - valid PDFs rejected as "damaged"                    (app defect)
+    First reported as a fault in the audit's PDF generator. That was WRONG: on
+    closer testing the generated PDFs are valid (every xref offset correct).
+    The fault is in the app's PDF reader (pdf-parse 1.1.1 with its old pdf.js).
+    Given a Node Buffer, it keeps state from the previous document, and then
+    rejects about one valid PDF in three with "bad XRef entry". The same file
+    reads fine in a fresh process.
+    Effect: once the server has read one PDF, a later valid PDF (a manuscript in
+    any module, or a source PDF in Module 3.B) could be refused as "damaged,
+    password-protected or a scan".
+
+
+D4  Module 3.B - a source that negates the claim counted as support  (accuracy)
+    Found once D3 was fixed and uploaded PDFs could be read. Claim: the extract
+    "was also active against E. coli and P. aeruginosa"; source: "No activity was
+    observed against Escherichia coli or Pseudomonas aeruginosa". Verdict: Full
+    support. Negation was only noticed for claims using words such as
+    "significant" or "effect".
+
+
+5a. FIXES APPLIED (30 October 2026)
+-----------------------------------
+D1  src/checks/reference.js
+    - A one-year difference stays a note only when volume and pages agree; with
+      a wrong volume or pages it is reported as a wrong year (Miscited).
+    - A reference that names a journal is matched to the published article, not
+      to a preprint of the same paper (OSF, bioRxiv, medRxiv, Research Square,
+      SSRN, arXiv ...). When only a preprint exists, it is used with a note.
+    - Volume, issue and pages missing from a Crossref record (BMJ deposits no
+      volume) are taken from another database's record of the same DOI.
+D2  src/checks/reference.js - when a DOI is not registered, text stuck on the
+    end (".pp436-444", "/full", "/pdf", "/abstract", ".pdf") is removed and the
+    shortened DOI is tried; the repair is reported as a note.
+D3  src/parse.js, src/tools/fulltext.js - the PDF reader is given a plain
+    Uint8Array copy instead of a Node Buffer: 30 of 30 valid PDFs in a row are
+    now read (before: about 1 in 3 refused).
+D4  src/tools/match.js - a source sentence that negates a word of the claim
+    ("no activity", "did not inhibit", "failed to reduce") is a contradiction;
+    when it covers the claim at least as well as the best supporting sentence,
+    it decides the verdict (Unsupported). A correctly reported negative finding
+    ("showed no activity against E. coli") is still Full support.
+
+Results after the fixes
+  - Module 1 audit: 27 of 27 correct (was 25 of 27).
+  - Module 3.B audit: uploaded source PDF now read and linked to its reference;
+    supported claim = Full, contradicted claim = Unsupported, claim with a
+    figure not in the source = Unsupported, claims whose source was not
+    uploaded = Could not verify (correct), retracted evidence flagged.
+  - Regression tests added to test/remediation.js (npm test): DOI repair (4),
+    30 PDFs in a row, 3 claim verdicts.
+
+
+6. CONCLUSION
+-------------
+  - Modules 1, 2 and 3 are complete against the specification.
+  - Module 2 and Module 3.A/3.C were correct on every test case.
+  - Module 1 never called a genuine reference fake and never passed a fake one,
+    but missed 2 of 4 miscited references (D1) and does not repair junk DOIs (D2).
+  - Claim support from uploaded PDFs (3.B) needs a working audit before an
+    accuracy figure can be given (D3).
+  - Recommended next step: fix D1 and D2 (small, contained changes in the
+    Module 1 matching), then repair the 3.B audit and run it again.

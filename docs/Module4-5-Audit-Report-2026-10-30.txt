@@ -1,0 +1,118 @@
+PJPS DATA INTEGRITY SYSTEM
+Paper Mill Detection (Module 4) and Image Integrity (Module 5) - Audit and Update Report
+Date: 30 October 2026
+=====================================================================================
+
+SUMMARY
+-------
+I have added the missing Module 4 signals. Module 5 (Image Integrity) is unchanged,
+because nothing in it can be honestly "completed" right now. All tests and lint pass.
+The changes are not yet committed.
+
+"100% authentic" is not reachable for either module. No paper-mill or image detector
+reaches that, ImageTwin and Proofig included. What could be done is to make sure every
+signal comes from a real dataset and is tested against real retracted papers.
+
+
+1. WHERE THINGS STOOD
+---------------------
+Both modules were checked against the specification (docs/PJPS-Final-5-Modules.txt).
+Almost everything was already built and uses real data:
+  - Problematic Paper Screener (tortured phrases, SCIgen, suspect expressions)
+  - Retraction Watch
+  - ICLAC register of misidentified cell lines, and Cellosaurus
+  - NCBI BLAST (primer check)
+  - Image reference databases: RSIID, BioFors, BINDER, PubMed Central open access,
+    published PJPS papers, papers retracted for image problems
+
+Two Module 4 items were only partly done:
+  - Spec 4.2: citations to journals known to be affected by paper mills
+  - Spec 4.3: author retractions "by name + ORCID" (only name matching existed)
+
+
+2. MODULE 4 - WHAT WAS ADDED
+----------------------------
+a) Journals with many paper-mill retractions (spec 4.2)
+   - The list is built from Retraction Watch: 85 journals with 20 or more paper-mill
+     retractions.
+   - It updates with the daily Retraction Watch refresh.
+   - Short journal names (e.g. "Evid Based Complement Alternat Med") are matched to
+     their full names.
+   - Full and short forms of one journal are grouped under one entry in the evidence.
+
+b) Retractions found through ORCID (spec 4.3)
+   - The publications on each ORCID record given in the manuscript are checked
+     against Retraction Watch by exact DOI.
+   - This confirms identity, unlike name matching.
+   - A paper found this way is not counted again by the name match.
+
+c) Correction on the results screen
+   - The "What was checked" list still said primer and statistics checks were
+     "not yet covered". Both were finished on 26 October; the line was removed.
+   - The list now also shows the ORCID-retraction and mill-journal checks.
+
+
+3. TESTED BEFORE ADDING
+-----------------------
+The new signals were scored on the existing benchmark set: 150 papers retracted for
+paper-mill reasons and 126 ordinary papers from the same journals and years.
+Script: scripts/benchmark-papermill-refs.js
+
+  Signal                                              Mill papers   Ordinary papers
+  --------------------------------------------------  ------------  ---------------
+  Reference list built largely on these journals      16/150        3/126
+    (at least 3 references and 15% of the list; weak)
+  Same, stronger threshold                            9/150         1/126
+    (at least 5 references and 20%; moderate)
+  Title resembles paper-mill retracted titles         9/150         4/126
+    (REJECTED - too weak)
+
+  - This separates the two groups better than any existing text signal, which
+    caught about 5% of mill papers.
+  - The weights are still low, because pharmacy papers legitimately cite journals
+    such as Evidence-Based Complementary and Alternative Medicine.
+  - The thresholds were chosen on these same papers, so a fresh sample would be a
+    fairer test.
+  - The ORCID check could not be benchmarked, because the retracted papers' ORCID
+    records were not collected. A new automated test (test/papermill-signals.js,
+    13 checks) covers it with sample data.
+
+
+4. MODULE 5 - WHERE THE REAL GAPS ARE
+-------------------------------------
+a) Vendor connection (spec 5.7)
+   Searching the 155-160 million published figures needs an ImageTwin or Proofig
+   contract and their API documentation. Writing a connector without those would
+   be guesswork.
+
+b) Detection accuracy (existing benchmarks)
+
+  What is detected                                     Found
+  ---------------------------------------------------  -----
+  Whole, rotated or mirrored copies                    100%
+  Partial (cropped) copies                             72%
+  Copy-pasted areas inside one image                   64%
+  BioFors duplications inside one image                30%
+  BioFors cut-and-joined blot lanes                    12%
+
+   Raising the last two is real algorithm work; adding more datasets will not fix
+   it. Recommended as a separate task, starting with the joined-lanes detector.
+
+
+5. DESKTOP APPLICATION
+----------------------
+The desktop app uses the same engine and already syncs the Retraction Watch table,
+so it gets the new signals at its next version build. No desktop build has been made
+or published yet.
+
+
+6. FILES CHANGED
+----------------
+  src/datasets.js                       mill-journal index from Retraction Watch
+  src/papermill/index.js                new signals: mill-journals,
+                                        orcid-mill-retraction, orcid-retraction
+  public/js/views/papermill.js          "What was checked" list updated
+  scripts/benchmark-papermill-refs.js   new, reproducible benchmark
+  test/papermill-signals.js             new test (13 checks), added to npm test
+  docs/benchmark-papermill-notes.md     benchmark results recorded
+  README.md                             Module 4 description updated

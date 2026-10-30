@@ -25,3 +25,30 @@ change with `node scripts/benchmark-papermill.js 150 --rescore`.
   same papers that exposed them. Run a fresh sample (`node scripts/benchmark-papermill.js 150`) to check.
 - With a realistic 2% share of mill papers, a MEDIUM/HIGH flag from the text signals alone is mostly a false alarm:
   report it as "worth a look", never as a finding.
+
+## Reference and ORCID signals (added 30 Oct 2026)
+
+`node scripts/benchmark-papermill-refs.js [--titles]` scores the same 150 + 126 papers on their reference lists (read
+from the cached JATS files) against Retraction Watch (`data/public-images/retractionwatch.csv`).
+
+| Signal | Mill-retracted | Control |
+|---|---|---|
+| References to journals with >= 20 paper-mill retractions: >= 3 refs and >= 15% of the list (low, weight 1) | 16/150 | 3/126 |
+| Same, >= 5 refs and >= 20% (medium, weight 2) | 9/150 | 1/126 |
+| Cites a paper retracted for paper-mill reasons (already in Module 4) | 8/150 | 2/126 |
+| Cites 2+ such papers | 4/150 | 0/126 |
+| Title similarity >= 0.6 to a paper-mill-retracted title (**not used**) | 9/150 | 4/126 |
+
+- **Mill-affected journals** (spec 4.2) is now a Module 4 signal (`mill-journals`). The journal index is computed from
+  the Retraction Watch table on each server (85 journals at the 20-retraction threshold), so it follows the daily
+  Retraction Watch refresh. Abbreviated journal names in reference lists are matched word by word to the full names.
+  Legitimate pharmacy papers cite several of these journals (e.g. Evid Based Complement Alternat Med, Oxid Med Cell
+  Longev), so only a reference list built largely on them counts, and the weight is low.
+- **ORCID + Retraction Watch** (spec 4.3 "by name + ORCID"): the DOIs on every ORCID record given in the manuscript are
+  matched exactly against Retraction Watch (`orcid-mill-retraction`, `orcid-retraction`). This is identity-confirmed,
+  unlike the name match, and a paper found this way is not counted again by the name match. It cannot be benchmarked on
+  these papers (the retracted papers' ORCID records were not collected).
+- **Title templates** were tested and rejected: mill titles are formulaic, but so are ordinary titles in the same
+  journals, and the separation (about 2:1 at 0.6, none above 0.7) is too weak to show editors.
+- Same caveat as above: thresholds were chosen on these papers; with mill papers at about 2% of submissions, the low
+  level of this signal is a pointer, not a finding.

@@ -68,6 +68,7 @@ async function loadRetractionWatch() {
     await bulkInsert(client, 'retractions', ['doi', 'retraction_doi', 'retraction_date', 'nature', 'reason', 'title', 'journal', 'journal_norm', 'authors', 'institution', 'country'].map(name => ({ name, type: 'text' })), data);
   });
   await setMeta('rw_loaded_at', new Date().toISOString());
+  millJournalCache = null;
   await setMeta('rw_count', data.length);
   await setMeta('rw_authors', '2');
   return data.length;
@@ -101,6 +102,37 @@ async function journalRetractionCounts(journalName) {
     else out.corrections += r.n;
   }
   return out;
+}
+
+// Retraction Watch reasons that point to a paper mill (one list for Module 4 and the mill-journal index)
+const MILL_REASON = 'paper mill|fake peer review|peer review manipul|randomly generated|computer-aided content';
+const MILL_REASON_RE = new RegExp(MILL_REASON, 'i');
+const JOURNAL_STOP = new Set(['of', 'and', 'the', 'in', 'for', 'on', '&']);
+
+let millJournalCache = null;
+/**
+ * Journals with at least 20 retractions for paper-mill reasons in Retraction Watch: [{ norm, name, mill, total, words }].
+ * The threshold was chosen on the Module 4 benchmark (docs/benchmark-papermill-notes.md).
+ */
+async function millJournals() {
+  if (!millJournalCache || Date.now() - millJournalCache.at > 3600000) {
+    const rows = await db.all(`SELECT journal_norm AS norm, MIN(journal) AS name, COUNT(*) FILTER (WHERE reason ~* $1)::int AS mill, COUNT(*)::int AS total
+      FROM retractions WHERE nature ILIKE '%retraction%' AND journal_norm <> '' GROUP BY journal_norm HAVING COUNT(*) FILTER (WHERE reason ~* $1) >= 20`, [MILL_REASON]);
+    millJournalCache = { at: Date.now(), list: rows.map(r => ({ ...r, words: r.norm.split(' ').filter(w => !JOURNAL_STOP.has(w)) })) };
+  }
+  return millJournalCache.list;
+}
+
+/** Mill-journal record for a journal name, full ("Evidence-Based Complementary and Alternative Medicine") or abbreviated ("Evid Based Complement Alternat Med"). */
+async function millJournalFor(name) {
+  const norm = normalizeJournal(name || '');
+  if (!norm) return null;
+  const list = await millJournals();
+  const exact = list.find(j => j.norm === norm);
+  if (exact) return exact;
+  const words = norm.split(' ').filter(w => !JOURNAL_STOP.has(w));
+  if (words.length < 2) return null;
+  return list.find(j => j.words.length === words.length && words.every((w, i) => j.words[i].startsWith(w))) || null;
 }
 
 // ------------------------------------------------------------------ Problematic Paper Screener fingerprints
@@ -1086,7 +1118,7 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
 }
 
 module.exports = {
-  parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
+  parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
   importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, datasetHealth, LIST_TYPES, domainOf

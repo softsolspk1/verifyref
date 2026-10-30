@@ -180,6 +180,24 @@ async function checkLink(url) {
 
 // ------------------------------------------------------------------ verification of one reference
 
+// Preprint servers (Crossref "posted-content"; OSF/MetaArXiv, bioRxiv/medRxiv, Research Square, Preprints.org, SSRN, arXiv)
+const PREPRINT_DOI = /^10\.(?:3122[0-9]|3123[0-9]|31730|1101|21203|20944|2139|48550|26434|36227|22541|32942|35542)\//;
+const PREPRINT_VENUE = /arxiv|biorxiv|medrxiv|chemrxiv|ssrn|preprint|research square|zenodo|\bosf\b|metaarxiv|psyarxiv/i;
+const isPreprint = rec => /posted-content|preprint/i.test(rec.type || '') || PREPRINT_DOI.test(String(rec.doi || '').toLowerCase()) || PREPRINT_VENUE.test(`${rec.journal || ''} ${rec.source || ''}`);
+
+/** Repaired forms of a DOI with text stuck on the end (".pp436-444", "/full", "/pdf", "/abstract"), most specific first */
+function doiRepairs(doi) {
+  const out = [];
+  let d = String(doi || '');
+  for (let i = 0; i < 3; i++) {
+    const next = d.replace(/[./_-]?(?:pp?|pages?)\.?\s*\d+(?:\s*[-–]\s*\d+)?$/i, '').replace(/\/(?:full|abstract|pdf|epdf|html|meta|references)$/i, '').replace(/\.(?:pdf|html?)$/i, '').replace(/[.,;:)\]}>]+$/, '');
+    if (next === d || !/^10\.\d{4,9}\/\S+$/.test(next)) break;
+    out.push(next);
+    d = next;
+  }
+  return out;
+}
+
 async function verifyReference(ref, opts = {}) {
   const checked = new Map(); // source -> outcome
   const mark = (name, outcome) => { if (!checked.has(name) || checked.get(name) !== 'found') checked.set(name, outcome); };
@@ -197,7 +215,19 @@ async function verifyReference(ref, opts = {}) {
 
   // ---- 1. Identifier checks (DOI / PMID / arXiv)
   if (ref.doi) {
-    const [handle, cr] = await Promise.all([S.doiHandle(ref.doi), S.crossrefDoi(ref.doi)]);
+    let [handle, cr] = await Promise.all([S.doiHandle(ref.doi), S.crossrefDoi(ref.doi)]);
+    // a DOI with page numbers or a link suffix stuck on the end: repaired when the shortened DOI is registered
+    if (handle.exists === false && !cr.record) {
+      for (const fixed of doiRepairs(ref.doi)) {
+        const h = await S.doiHandle(fixed);
+        if (!h.exists) continue;
+        issues.push({ code: 'doi-repaired', severity: 'info', message: 'DOI had extra text on the end - repaired', cited: ref.doiAsWritten || ref.doi, registered: fixed });
+        ref.doi = fixed;
+        handle = h;
+        cr = await S.crossrefDoi(fixed);
+        break;
+      }
+    }
     mark('DOI Foundation (Handle)', handle.error ? 'error' : handle.exists ? 'found' : 'not-found');
     if (cr.record) { take('Crossref', cr); idRecord = cr.record; }
     else {
@@ -239,14 +269,16 @@ async function verifyReference(ref, opts = {}) {
   }
 
   // Rank by score; near-ties go to the record agreeing on year/journal (avoids late duplicate deposits)
-  const rank = c => c.score + (c.yearScore ?? 0.5) * 4 + (c.journalScore ?? 0.5) * 3 + (c.rec.doi ? 1 : 0);
+  // a reference that names a journal is matched to the published article, not to an earlier preprint of the same paper
+  const avoidPreprint = rec => !!ref.journal && !PREPRINT_VENUE.test(ref.journal) && isPreprint(rec);
+  const rank = c => c.score + (c.yearScore ?? 0.5) * 4 + (c.journalScore ?? 0.5) * 3 + (c.rec.doi ? 1 : 0) - (avoidPreprint(c.rec) ? 8 : 0);
   const best = () => candidates.filter(c => !(idRecord && c.rec === idRecord && !idMatches)).sort((a, b) => rank(b) - rank(a))[0];
 
   // ---- 2. Bibliographic search cascade (stop early once a confident match agreeing on the year exists)
   const confident = () => {
     if (idRecord && idMatches) return true;
     const b = best();
-    return !!b && b.score >= 85 && (b.yearScore === null || b.yearScore >= 0.75);
+    return !!b && !avoidPreprint(b.rec) && b.score >= 85 && (b.yearScore === null || b.yearScore >= 0.75);
   };
   if (!confident()) {
     const wave1 = [
@@ -323,6 +355,13 @@ async function verifyReference(ref, opts = {}) {
   if (record && !matchedIn.includes(record.source)) matchedIn.unshift(record.source);
 
   // ---- 4. Compare
+  // some publishers deposit no volume / issue / pages with Crossref (BMJ): take them from another database's record of the same DOI
+  if (record?.doi && (!record.volume || !record.pages)) {
+    const sameDoi = r => r && r !== record && r.doi && r.doi.toLowerCase() === record.doi.toLowerCase();
+    const alt = [openalexRecord, ...candidates.map(c => c.rec)].filter(sameDoi);
+    const pick = k => record[k] || alt.map(r => r[k]).find(Boolean) || record[k];
+    record = { ...record, volume: pick('volume'), issue: pick('issue'), pages: pick('pages') };
+  }
   if (record) {
     const s = scoreCandidate(ref, record);
     const found = compare(ref, record, s);
@@ -332,7 +371,12 @@ async function verifyReference(ref, opts = {}) {
     const num = v => (String(v || '').match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, '');
     const yearOk = ref.year && candidates.some(c => same(c) && c.rec.year === ref.year);
     const volOk = ref.volume && candidates.some(c => same(c) && num(c.rec.volume) === num(ref.volume));
-    issues.push(...found.filter(i => !(yearOk && i.code === 'year') && !(volOk && i.code === 'volume')));
+    const kept = found.filter(i => !(yearOk && i.code === 'year') && !(volOk && i.code === 'volume'));
+    // a one-year difference is often online-first vs print, but not when the volume or pages are also different
+    const yearByOne = kept.find(i => i.code === 'year' && i.severity === 'low');
+    if (yearByOne && kept.some(i => ['volume', 'pages', 'last-page'].includes(i.code))) Object.assign(yearByOne, { severity: 'medium', message: 'Publication year is wrong (and the volume or pages differ too)' });
+    issues.push(...kept);
+    if (avoidPreprint(record) && !issues.some(i => i.code === 'preprint')) issues.push({ code: 'preprint', severity: 'low', message: 'Only the preprint version was found; check that the cited journal version exists', cited: ref.journal, registered: record.doi });
     if (!ref.doi && record.doi) issues.push({ code: 'doi-missing', severity: 'info', message: 'DOI missing — verified DOI found', registered: record.doi });
     if (ref.doi && record.doi && ref.doi !== record.doi && !idMatches) {
       issues.push({ code: 'doi-wrong', severity: 'high', message: 'DOI is wrong — the correct DOI was found', cited: ref.doiAsWritten, registered: record.doi });
@@ -574,4 +618,4 @@ function summarize(results) {
   };
 }
 
-module.exports = { checkReferences, verifyReference, scoreCandidate, summarize, STATUS };
+module.exports = { checkReferences, verifyReference, scoreCandidate, summarize, STATUS, doiRepairs };

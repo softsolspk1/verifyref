@@ -201,7 +201,8 @@ async function orcidProfile(id) {
   if (!works.ok) return { id, error: works.error || `HTTP ${works.status}` };
   const name = rec.ok ? `${rec.data?.name?.['given-names']?.value || ''} ${rec.data?.name?.['family-name']?.value || ''}`.trim() : '';
   const created = rec.ok ? rec.data?.['last-modified-date']?.value : null;
-  return { id, exists: true, works: (works.data?.group || []).length, name, lastModified: created ? new Date(created).toISOString().slice(0, 10) : null };
+  const dois = [...new Set((works.data?.group || []).flatMap(g => (g['external-ids']?.['external-id'] || []).filter(x => x['external-id-type'] === 'doi').map(x => String(x['external-id-value'] || '').toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, '').trim())).filter(Boolean))];
+  return { id, exists: true, works: (works.data?.group || []).length, name, dois, lastModified: created ? new Date(created).toISOString().slice(0, 10) : null };
 }
 
 function emailsOf(text) {
@@ -233,7 +234,7 @@ async function authorRetractions(authors, affiliations = []) {
       const sharedAff = [...myAff].filter(t => theirAff.has(t));
       const sameCountry = myPk && /pakistan/i.test(r.country || '');
       const confidence = fullFirst && (sharedAff.length >= 1 || (sameCountry && !r.institution)) ? 'high' : fullFirst ? 'medium' : 'low';
-      out.push({ confidence, institutionMatch: sharedAff.slice(0, 3), sameCountry, institution: (r.institution || '').slice(0, 160), author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: /paper mill|fake peer review|peer review manipul|randomly generated|computer-aided content/i.test(r.reason || '') });
+      out.push({ confidence, institutionMatch: sharedAff.slice(0, 3), sameCountry, institution: (r.institution || '').slice(0, 160), author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: D.MILL_REASON_RE.test(r.reason || '') });
     }
   }
   return out;
@@ -408,7 +409,7 @@ async function detectPaperMill(input, update = () => {}) {
   update('Checking reference signals', 25);
   const fake = refs.filter(r => r.status === 'suspicious');
   if (fake.length) sig('references', 'fabricated', `${fake.length} reference(s) not found in any database (possibly fabricated)`, fake.length >= 3 ? 'high' : 'medium', fake.length >= 3 ? 4 : 2, fake.slice(0, 10).map(r => ({ text: `[${r.index}] ${r.raw.slice(0, 160)}`, note: r.reason })));
-  const millRetracted = refs.filter(r => r.retraction && /paper mill|fake peer review|peer review manipul|randomly generated/i.test(r.retraction.reason || ''));
+  const millRetracted = refs.filter(r => r.retraction && D.MILL_REASON_RE.test(r.retraction.reason || ''));
   if (millRetracted.length) sig('references', 'mill-retraction', `${millRetracted.length} cited paper(s) retracted for paper-mill reasons`, 'high', Math.min(8, 4 * millRetracted.length), millRetracted.map(r => ({ text: `[${r.index}] ${r.record?.title || r.raw.slice(0, 140)}`, note: r.retraction.reason?.split(';').slice(0, 3).join('; ') })));
   const otherRetracted = refs.filter(r => r.status === 'retracted' && !millRetracted.includes(r));
   if (otherRetracted.length) sig('references', 'retracted', `${otherRetracted.length} retracted paper(s) cited`, 'low', 1, otherRetracted.map(r => ({ text: `[${r.index}] ${r.record?.title || r.raw.slice(0, 140)}` })));
@@ -425,10 +426,57 @@ async function detectPaperMill(input, update = () => {}) {
   for (const f of (input.pattern?.flags || []).filter(f => ['citation-stacking', 'author-concentration', 'journal-concentration', 'irrelevant-self-citation', 'citation-blocks'].includes(f.code))) {
     sig('references', 'stacking', f.message, f.severity === 'high' ? 'medium' : 'low', f.severity === 'high' ? 2 : 1, [], f.guidance);
   }
+  // Journals with many paper-mill retractions (Retraction Watch). Benchmark (150 mill-retracted vs 126 ordinary papers):
+  // >= 3 references and >= 15% of the list: 16/150 vs 3/126; >= 5 and >= 20%: 9/150 vs 1/126 (scripts/benchmark-papermill-refs.js).
+  const millByJournal = new Map();   // full and abbreviated forms of one journal are grouped under its Retraction Watch name
+  for (const j of [...journals.values()].slice(0, 80)) {
+    const m = await D.millJournalFor(j.name).catch(() => null);
+    if (!m) continue;
+    if (!millByJournal.has(m.norm)) millByJournal.set(m.norm, { name: m.name, refs: [], mill: m.mill, total: m.total });
+    millByJournal.get(m.norm).refs.push(...j.refs);
+  }
+  const millJ = [...millByJournal.values()];
+  const millJRefs = millJ.reduce((a, j) => a + j.refs.length, 0);
+  const millJShare = refs.length ? millJRefs / refs.length : 0;
+  if (millJRefs >= 3 && millJShare >= 0.15) {
+    const strongJ = millJRefs >= 5 && millJShare >= 0.2;
+    sig('references', 'mill-journals', `${millJRefs} reference(s) (${Math.round(millJShare * 100)}%) to journals with many paper-mill retractions`, strongJ ? 'medium' : 'low', strongJ ? 2 : 1,
+      millJ.sort((a, b) => b.refs.length - a.refs.length).map(j => ({ text: `${j.name} - ${j.mill} paper-mill retractions in Retraction Watch - refs ${j.refs.map(i => `[${i}]`).join(' ')}` })),
+      'These journals published large numbers of paper-mill articles that were later retracted (Retraction Watch). Citing them is not wrong in itself; a reference list built largely on them is a pattern seen in mill papers. Check that the cited papers are sound and relevant.');
+  }
 
   update('Checking authors (retractions, ORCID, e-mail addresses)', 40);
   const authors = (meta.authors || []).filter(a => a.family);
-  const retr = await authorRetractions(authors, meta.affiliations);
+  const orcids = [...new Set([...text.slice(0, 15000).matchAll(ORCID_RE)].map(m => m[1]))];
+  const orcidResults = [];
+  if (!orcids.length) sig('authors', 'no-orcid', 'No ORCID iD given for any author', 'low', 1);
+  for (const id of orcids.slice(0, 10)) {
+    if (!orcidValid(id)) { orcidResults.push({ id, valid: false }); continue; }
+    const p = await orcidProfile(id).catch(e => ({ id, error: e.message }));
+    orcidResults.push({ ...p, valid: true });
+  }
+  const badOrcid = orcidResults.filter(o => o.valid === false || o.exists === false);
+  const emptyOrcid = orcidResults.filter(o => o.exists && o.works === 0);
+  if (badOrcid.length) sig('authors', 'orcid-invalid', `${badOrcid.length} ORCID iD(s) invalid or not registered`, 'medium', 2, badOrcid.map(o => ({ text: o.id })));
+  if (emptyOrcid.length) sig('authors', 'orcid-empty', `${emptyOrcid.length} ORCID record(s) with no publications`, 'low', 1, emptyOrcid.map(o => ({ text: `${o.id}${o.name ? ' — ' + o.name : ''}`, link: `https://orcid.org/${o.id}` })));
+  // Retracted papers on the authors' own ORCID records: exact DOI match with Retraction Watch (identity confirmed by ORCID)
+  const orcidRetr = [];
+  const ownDois = orcidResults.flatMap(o => (o.dois || []).map(doi => ({ doi, o })));
+  if (ownDois.length) {
+    const rw = await D.retractionsFor(ownDois.map(x => x.doi)).catch(() => new Map());
+    for (const { doi, o } of ownDois) {
+      const r = rw.get(doi);
+      if (r && /retraction/i.test(r.nature || '') && !orcidRetr.some(x => x.doi === doi)) orcidRetr.push({ orcid: o.id, name: o.name, doi, title: r.title, journal: r.journal, date: r.retraction_date, reason: r.reason, mill: D.MILL_REASON_RE.test(r.reason || '') });
+    }
+  }
+  const orcidEv = r => ({ text: `${r.name || r.orcid} (ORCID ${r.orcid}): “${r.title}” (${r.journal}, retracted ${r.date})`, note: r.reason?.split(';').slice(0, 3).join('; '), link: `https://doi.org/${r.doi}` });
+  const orcidMill = orcidRetr.filter(r => r.mill);
+  if (orcidMill.length) sig('authors', 'orcid-mill-retraction', `ORCID record(s) list paper(s) retracted for paper-mill or fake-peer-review reasons (${orcidMill.length})`, 'high', 5, orcidMill.map(orcidEv), "The DOI on the author's own ORCID record matches a Retraction Watch entry exactly. Confirm that the ORCID iD belongs to the author named in the manuscript.");
+  const orcidOther = orcidRetr.filter(r => !r.mill);
+  if (orcidOther.length) sig('authors', 'orcid-retraction', `ORCID record(s) list retracted paper(s) (${orcidOther.length})`, 'medium', 2, orcidOther.map(orcidEv), "Exact DOI match between the author's ORCID record and Retraction Watch. Retractions for honest error happen; read the reason.");
+  // Name matching in Retraction Watch; a paper already found through an ORCID record is not counted twice
+  const orcidRetrDois = new Set(orcidRetr.map(r => r.doi));
+  const retr = (await authorRetractions(authors, meta.affiliations)).filter(r => !orcidRetrDois.has(String(r.doi || '').toLowerCase()));
   const sure = r => r.confidence !== 'low';
   const millRetr = retr.filter(r => r.mill && sure(r));
   const confNote = r => `${r.confidence} confidence${r.institutionMatch?.length ? ` (institution matches: ${r.institutionMatch.join(', ')})` : r.confidence === 'low' ? ' - surname and initial only, may be a different person' : ''}`;
@@ -442,19 +490,6 @@ async function detectPaperMill(input, update = () => {}) {
   if (disposable.length) sig('authors', 'disposable-mail', `Disposable (throw-away) e-mail address(es) given for authors (${disposable.length})`, 'medium', 2, disposable.map(e => ({ text: e })), 'Throw-away mailboxes expire after minutes or days, so the author cannot be reached later. Domain listed in the disposable-email-domains register.');
   const free = emails.filter(e => FREE_MAIL.test(e));
   if (emails.length && free.length === emails.length) sig('authors', 'free-mail', `All author e-mail addresses are free-mail accounts (${free.length})`, 'low', 1, free.map(e => ({ text: e })), 'Common and often legitimate in Pakistan; counts only together with other signals.');
-
-  const orcids = [...new Set([...text.slice(0, 15000).matchAll(ORCID_RE)].map(m => m[1]))];
-  const orcidResults = [];
-  if (!orcids.length) sig('authors', 'no-orcid', 'No ORCID iD given for any author', 'low', 1);
-  for (const id of orcids.slice(0, 10)) {
-    if (!orcidValid(id)) { orcidResults.push({ id, valid: false }); continue; }
-    const p = await orcidProfile(id).catch(e => ({ id, error: e.message }));
-    orcidResults.push({ ...p, valid: true });
-  }
-  const badOrcid = orcidResults.filter(o => o.valid === false || o.exists === false);
-  const emptyOrcid = orcidResults.filter(o => o.exists && o.works === 0);
-  if (badOrcid.length) sig('authors', 'orcid-invalid', `${badOrcid.length} ORCID iD(s) invalid or not registered`, 'medium', 2, badOrcid.map(o => ({ text: o.id })));
-  if (emptyOrcid.length) sig('authors', 'orcid-empty', `${emptyOrcid.length} ORCID record(s) with no publications`, 'low', 1, emptyOrcid.map(o => ({ text: `${o.id}${o.name ? ' — ' + o.name : ''}`, link: `https://orcid.org/${o.id}` })));
 
   const offTopicAff = (meta.affiliations || []).filter(a => NON_BIOMED.test(a));
   if (offTopicAff.length && (meta.affiliations || []).length) sig('authors', 'affiliation', 'Affiliation(s) unrelated to a pharmaceutical/biomedical topic', 'low', 1, offTopicAff.map(a => ({ text: a })), 'Interdisciplinary teams are common; check that each author\'s contribution is plausible.');
@@ -511,7 +546,7 @@ async function detectPaperMill(input, update = () => {}) {
     signals: signals.sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group) || b.weight - a.weight),
     details: {
       tortured, aiLeftovers: ai, templates: tmpl, methods, cellLines: cells, statistics: { findings: stats.findings.slice(0, 30), checked: stats.checked }, primers: { found: primers.length, issues: primerIssues.length, blast: blast.map(b => ({ gene: b.primer.gene, direction: b.primer.direction, sequence: b.primer.sequence, checked: b.checked, matches: b.matches ?? null, hits: b.hits || [], error: b.error || null })) }, affiliationSpread: spread, emails, freeMail: free, orcids: orcidResults,
-      authorRetractions: retr, duplicates: { compared: dup.compared, matches: dup.matches }, publishedElsewhere: pub, hiddenText: hid,
+      authorRetractions: retr, orcidRetractions: orcidRetr, millJournals: millJ.map(j => ({ name: j.name, refs: j.refs, mill: j.mill })), duplicates: { compared: dup.compared, matches: dup.matches }, publishedElsewhere: pub, hiddenText: hid,
       references: { total: refs.length, fabricated: fake.length, retracted: refs.filter(r => r.status === 'retracted').length, millRetracted: millRetracted.length, riskyJournals: risky }
     },
     checked: {

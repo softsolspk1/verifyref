@@ -42,6 +42,21 @@ const CAUSAL = /\b(causes?|caused|leads? to|led to|results? in|resulted in|prove
 const HEDGED = /\b(associated|association|correlat|linked|related|may|might|suggest|possibl|potential)/i;
 const ABSOLUTE = /\b(all|always|never|every|completely|entirely|universally|undoubtedly|clearly|certainly)\b/i;
 
+/**
+ * A claim term that the passage negates: "no activity was observed against E. coli" for a claim that the extract "was active
+ * against E. coli". A negation word followed within three words by a term of the claim (same 5-letter stem).
+ */
+const NEG_WORD = new Set(['no', 'not', 'without', 'never', 'neither', 'nor', 'none', 'lack', 'lacked', 'lacks', 'absence', 'failed', 'fail', 'fails']);
+function negatedClaimTerm(passageText, claimTerms) {
+  const keys = new Set(claimTerms.filter(t => t.length >= 5).map(t => t.slice(0, 5)));
+  const words = normalize(passageText).split(' ');
+  for (let i = 0; i < words.length; i++) {
+    if (!NEG_WORD.has(words[i])) continue;
+    for (const w of words.slice(i + 1, i + 4)) if (w.length >= 5 && keys.has(stem(w).slice(0, 5))) return w;
+  }
+  return null;
+}
+
 function polarity(text) {
   const up = UP.test(text), down = DOWN.test(text);
   return { up: up && !down, down: down && !up, neg: NEG.test(text) };
@@ -133,7 +148,8 @@ function scorePassage(rawClaim, passage, idf) {
   const cn = numbersIn(claim), pn = numbersIn(passage.text);
   const numbersFound = cn.filter(n => pn.includes(n));
   const cp = polarity(claim), pp = polarity(passage.text);
-  const conflict = (cp.up && pp.down) || (cp.down && pp.up) || (cp.neg !== pp.neg && /signific|effect|differ|associat|chang/i.test(claim) && coverage > 0.4);
+  const conflict = (cp.up && pp.down) || (cp.down && pp.up) || (cp.neg !== pp.neg && /signific|effect|differ|associat|chang/i.test(claim) && coverage > 0.4)
+    || (!cp.neg && coverage > 0.4 && !!negatedClaimTerm(passage.text, ctl));
   let score = coverage * 0.8 + bigram * 0.2;
   if (cn.length) score *= 0.75 + 0.25 * (numbersFound.length / cn.length);
   if (conflict) score *= 0.6;
@@ -146,9 +162,14 @@ function scorePassage(rawClaim, passage, idf) {
 function bestPassages(claim, passages, n = 3) {
   if (!passages.length) return [];
   const idf = idfOf(passages);
-  return passages.map(p => ({ ...p, ...scorePassage(claim, p, idf) }))
-    .sort((a, b) => b.score - a.score || (a.pair ? 1 : -1))
-    .slice(0, n);
+  const ranked = passages.map(p => ({ ...p, ...scorePassage(claim, p, idf) }))
+    .sort((a, b) => b.score - a.score || (a.pair ? 1 : -1));
+  // a passage that covers the claim at least as well as the best one and contradicts it decides the verdict: the source
+  // speaks to this claim and says the opposite (its score was lowered by the conflict, so it would otherwise rank below)
+  const top = ranked[0];
+  const against = ranked.filter(p => p.conflict && p.coverage > 0.5 && p.coverage >= top.coverage).sort((a, b) => b.coverage - a.coverage)[0];
+  if (against && against !== top) ranked.splice(ranked.indexOf(against), 1), ranked.unshift(against);
+  return ranked.slice(0, n);
 }
 
 /** Verdict for a claim given its best passage and whether full text was available */
@@ -160,7 +181,7 @@ function verdictOf(best, { fullText }) {
   if (!fullText) notes.push('Compared with the abstract only');
   let verdict;
   if (best.score >= 0.58 && !best.conflict && !(best.numbers?.claim?.length && !best.numbers.found.length)) verdict = 'full';
-  else if (best.conflict && best.score >= 0.45) { verdict = 'unsupported'; notes.push('The source contradicts the claim: it reports the opposite direction or a negative finding'); }
+  else if (best.conflict && (best.score >= 0.45 || best.coverage > 0.5)) { verdict = 'unsupported'; notes.push('The source contradicts the claim: it reports the opposite direction or a negative finding'); }
   else if (best.score >= 0.33) verdict = 'partial';
   else verdict = fullText ? 'unsupported' : 'unsupported';
   if (verdict === 'unsupported' && !fullText) notes.push('Unsupported by the abstract — the full text may still support it; upload the PDF to check');

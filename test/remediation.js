@@ -142,6 +142,46 @@ const eq = (a, b, msg) => { assert.strictEqual(a, b, msg); n++; };
   const A = prep(strip), B = prep(copy);
   ok(E.findIssues([A, B]).some(f => f.kind === 'duplicate'), '5.2: identical thin strips found');
 
+  // ---- Module 3.B: a source that negates the claimed finding contradicts it ("No activity was observed against E. coli")
+  const M = require('../src/tools/match');
+  const nsSource = M.passagesOf('Aqueous extract of Nigella sativa seeds showed antibacterial activity against Staphylococcus aureus with a minimum inhibitory concentration of 12.5 mg/mL. The extract was tested in vitro only. No activity was observed against Escherichia coli or Pseudomonas aeruginosa at concentrations up to 50 mg/mL. Cytotoxicity was not evaluated in this study.', {});
+  const claimVerdict = c => M.verdictOf(M.bestPassages(c, nsSource, 1)[0], { fullText: true }).verdict;
+  eq(claimVerdict('Nigella sativa seed extract inhibits the growth of Staphylococcus aureus (Khan et al., 2019).'), 'full', '3.B: supported claim');
+  eq(claimVerdict('Nigella sativa extract was also active against Escherichia coli and Pseudomonas aeruginosa (Khan et al., 2019).'), 'unsupported', '3.B: claim the source negates');
+  eq(claimVerdict('Nigella sativa extract showed no activity against Escherichia coli (Khan et al., 2019).'), 'full', '3.B: correctly reported negative finding');
+
+  // ---- Module 1: a DOI with page numbers or a link suffix stuck on the end is repaired (spec 1.4)
+  const { doiRepairs } = require('../src/checks/reference');
+  eq(doiRepairs('10.1038/nature14539.pp436-444')[0], '10.1038/nature14539', 'DOI repair: ".pp436-444" removed');
+  eq(doiRepairs('10.1016/j.cell.2011.02.013/full')[0], '10.1016/j.cell.2011.02.013', 'DOI repair: "/full" removed');
+  eq(doiRepairs('10.1371/journal.pmed.1000097.pdf')[0], '10.1371/journal.pmed.1000097', 'DOI repair: ".pdf" removed');
+  eq(doiRepairs('10.1038/nature14539').length, 0, 'DOI repair: a clean DOI is left alone');
+
+  // ---- PDF reading: pdf-parse's old pdf.js, given a Node Buffer, rejected about one valid PDF in three once another PDF
+  // had been read in the same process ("bad XRef entry"); every one of 30 valid PDFs in a row must now be read
+  const tinyPdf = (lines) => {
+    const objs = ['<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+    const pageIds = [];
+    for (const l of lines) {
+      const c = `BT /F1 11 Tf 40 760 Td (${l}) Tj ET`;
+      objs.push(`<< /Length ${c.length} >>\nstream\n${c}\nendstream`);
+      pageIds.push(objs.push(`<< /Type /Page /Parent ${2 * lines.length + 2} 0 R /MediaBox [0 0 612 792] /Contents ${objs.length} 0 R /Resources << /Font << /F1 1 0 R >> >> >>`));
+    }
+    objs.push(`<< /Type /Pages /Kids [${pageIds.map(i => `${i} 0 R`).join(' ')}] /Count ${pageIds.length} >>`);
+    objs.push(`<< /Type /Catalog /Pages ${objs.length} 0 R >>`);
+    let out = '%PDF-1.4\n';
+    const offs = objs.map((o, i) => { const at = out.length; out += `${i + 1} 0 obj\n${o}\nendobj\n`; return at; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objs.length + 1} /Root ${objs.length} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    return Buffer.from(out, 'latin1');
+  };
+  let pdfRead = 0;
+  for (let k = 1; k <= 30; k++) {
+    const r = await P.extractDocument(tinyPdf([`Page one ${'a'.repeat(k)}`, 'Page two']), 'source.pdf', 'application/pdf').catch(() => null);
+    if (r && /Page one/.test(r.text) && /Page two/.test(r.text)) pdfRead++;
+  }
+  eq(pdfRead, 30, 'PDF reading: 30 valid PDFs in a row are all read');
+
   console.log(`remediation tests passed (${n} checks)`);
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

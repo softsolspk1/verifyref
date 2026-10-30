@@ -42,7 +42,9 @@ async function extractDocument(buffer, filename, mimetype) {
   if (ext === '.pdf' || mimetype === 'application/pdf') {
     const pdfParse = require('pdf-parse');
     let data;
-    try { data = await pdfParse(buffer); } catch (e) { throw new Error('This PDF could not be read (it may be damaged, password-protected or a scan). Save it again as PDF or upload the Word file instead.'); }
+    // a plain Uint8Array copy: pdf-parse's old pdf.js keeps state from the previous document when given a Node Buffer and
+    // then rejects about one valid PDF in three as "bad XRef entry" (test/remediation.js)
+    try { data = await pdfParse(new Uint8Array(buffer)); } catch (e) { throw new Error('This PDF could not be read (it may be damaged, password-protected or a scan). Save it again as PDF or upload the Word file instead.'); }
     if (!(data.text || '').trim()) throw new Error('No text could be read from this PDF - it looks like a scanned image. Upload the Word file, or a PDF with selectable text.');
     return { text: repairText(data.text || ''), format: 'pdf' };
   }

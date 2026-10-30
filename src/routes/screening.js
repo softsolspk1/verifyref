@@ -78,7 +78,7 @@ async function runPaperMill(input, { userId, update }) {
   result.referenceSummary = references.length ? { total: references.length, suspicious: references.filter(r => r.status === 'suspicious').length, retracted: references.filter(r => r.status === 'retracted').length } : null;
   if (input.save !== false) {
     await saveResult(userId, 'papermill', result, { title: input.meta.title || 'Paper mill screening', manuscriptCode: input.meta.manuscriptCode, refTotal: references.length, problems: papermillProblems(result), counts: { suspicious: result.risk.highSignals } });
-    await storeFingerprint({ checkId: result.id, userId, meta: input.meta, shingles }).catch(e => console.error('Fingerprint not stored:', e.message));
+    await storeFingerprint({ checkId: result.id, userId, meta: input.meta, shingles, text: input.bodyText || input.text }).catch(e => console.error('Fingerprint not stored:', e.message));
   }
   return result;
 }

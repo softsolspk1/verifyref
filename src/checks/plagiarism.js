@@ -19,6 +19,7 @@ const db = require('../db');
 const { getJson, getText } = require('../http');
 const S = require('../sources');
 const { titleSimilarity } = require('../text');
+const corpus = require('../corpus');
 
 const EPMC = 'https://www.ebi.ac.uk/europepmc/webservices/rest';
 const SAMPLES = 80;          // passages searched
@@ -171,6 +172,9 @@ function overlap(mine, theirs) {
   return { hit, passages: passages.sort((a, b) => b.words - a.words) };
 }
 
+/** Stable repository key of a source found by the search */
+const sourceKeyOf = c => (c.pmcid ? `pmc:${c.pmcid}` : c.pmid ? `pmid:${c.pmid}` : c.doi ? `doi:${String(c.doi).toLowerCase()}` : c.url ? `url:${c.url}` : `title:${String(c.title || '').toLowerCase().slice(0, 200)}`);
+
 // ------------------------------------------------------------------ earlier PJPS submissions (Module 4 fingerprints)
 
 function fnv(s) {
@@ -230,6 +234,10 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
   const mine = prep.words;
   if (mine.length < 200) return { kind: 'plagiarism', error: 'The manuscript text is too short or not available for a similarity check.' };
   const samples = pickSamples(prep.text);
+  // 1. the PJPS text repository (R2): earlier submissions and every source text kept by earlier checks, compared in full
+  update('Comparing with the PJPS text repository');
+  const repo = await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null }).catch(() => []);
+  const repoKeys = new Set(repo.map(d => d.sourceKey));
   update(`Searching ${samples.length} passages in Europe PMC, CORE${S.scholarEnabled() ? ' and on the web' : ''}`);
   const found = new Map(); // key -> candidate
   let queries = 0, searchErrors = 0, webSearches = 0;
@@ -285,7 +293,7 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
     const self = meta.title && c.title && titleSimilarity(meta.title, c.title) >= 0.9;
     if (self) selfMatches.push({ title: c.title, journal: c.journal, year: c.year, doi: c.doi, url: c.url });
     return !self;
-  }).sort((a, b) => b.phrases.length - a.phrases.length).slice(0, MAX_SOURCES);
+  }).filter(c => !repoKeys.has(sourceKeyOf(c))).sort((a, b) => b.phrases.length - a.phrases.length).slice(0, MAX_SOURCES);
 
   update(`Comparing the manuscript with ${ranked.length} source(s) and earlier PJPS submissions`);
   const compared = (await pool(ranked, 3, async c => {
@@ -293,10 +301,21 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
     if (!t.text) return null;
     const o = overlap(mine, t.text);
     if (!o.passages.length) return null;
+    // every source text read is kept in the repository, so later checks compare with it directly
+    await corpus.addDoc({ kind: c.type, sourceKey: sourceKeyOf(c), title: c.title, meta: { journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, scope: t.scope }, text: t.text }).catch(() => null);
     return { type: c.type, title: c.title, journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, compared: t.scope, hit: o.hit, passages: o.passages };
   })).filter(Boolean);
+  const fromRepo = repo.map(d => {
+    const o = overlap(mine, d.text);
+    if (!o.passages.length) return null;
+    const m = d.meta || {};
+    return { type: d.kind, title: d.kind === 'submission' ? `${m.manuscriptCode || 'Earlier PJPS submission'}${d.title ? `: ${d.title}` : ''}` : d.title, journal: m.journal || null, year: m.year || null, doi: m.doi || null, url: m.url || null,
+      checkId: m.checkId || null, via: d.kind === 'submission' ? 'PJPS submissions' : `${m.via || 'Repository'} (PJPS repository)`, compared: d.kind === 'submission' ? 'full text (PJPS repository)' : `${m.scope || 'text'} (PJPS repository)`, hit: o.hit, passages: o.passages };
+  }).filter(Boolean);
+  // submissions already in the repository with their full text are not counted again from their fingerprints
+  const repoChecks = new Set(fromRepo.filter(x => x.checkId).map(x => String(x.checkId)));
   const subs = await submissionMatches(mine, meta.manuscriptCode);
-  const all = [...compared, ...subs.sources];
+  const all = [...fromRepo, ...compared, ...subs.sources.filter(x => !repoChecks.has(String(x.checkId)))];
 
   // primary sources: each matched word is credited to one source, the one with the most matched text first
   const owner = new Int16Array(mine.length).fill(-1);
@@ -332,7 +351,7 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
   const similarity = pct(covered);
   const largest = sources.reduce((m, x) => Math.max(m, x.percent), 0);
   const level = similarity >= 25 || largest >= 15 ? 'bad' : similarity >= 10 || largest >= 5 ? 'warn' : 'ok';
-  const databases = ['Europe PMC (open-access full texts and all PubMed abstracts)', 'CORE (open-access repositories and theses)', ...(S.scholarEnabled() ? ['The web (Google, through SerpApi)'] : []), `Earlier PJPS submissions (${subs.compared})`];
+  const databases = ['PJPS text repository (earlier submissions and kept source texts, Cloudflare R2)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'CORE (open-access repositories and theses)', ...(S.scholarEnabled() ? ['The web (Google, through SerpApi)'] : []), `Earlier PJPS submissions (${subs.compared})`];
   return {
     kind: 'plagiarism',
     version: 2,
@@ -341,7 +360,7 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
     document,
     filters: { bibliography: prep.bibliographyExcluded ? 'excluded' : 'not found in the text (body only was compared)', quotes: `excluded (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)` },
     selfMatches,
-    checked: { passages: samples.length, queries, webSearches, candidates: found.size, sourcesCompared: compared.length, submissionsCompared: subs.compared, searchErrors, databases },
+    checked: { passages: samples.length, queries, webSearches, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subs.compared, searchErrors, databases },
     coverage: 'Open-access literature, PubMed abstracts, open repositories and theses, the open web (with a SerpApi key) and earlier PJPS submissions. Paywalled full texts and other institutions\' student papers are not available to an in-house check, so overlap with them can be missed.',
     method: `Like Turnitin's similarity report: ${samples.length} distinctive passages from all parts of the manuscript were searched as exact phrases to find sources; each source was compared with the whole text in ${K}-word sequences (case, punctuation and plural forms ignored; up to ${GAP} different words inside one match). The bibliography and quotations are excluded, and so are matches shorter than ${MIN_MATCH} words. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };

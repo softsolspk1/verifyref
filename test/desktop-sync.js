@@ -8,6 +8,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const HASH = 'f0f0a5a5c3c3e1e1';
+const REPO_TEXT = 'Zyxomirol is a sesquiterpene lactone that we isolated from the rhizomes of Qwertiana sindhensis collected near Larkana in the spring of 2024. Patches were cast in shallow aluminium trays lined with siliconised paper, dried for nineteen hours in a cabinet held at thirty-four degrees, and then cut with a stainless punch into discs of eleven square centimetres before storage over silica. Goat skin was obtained from a municipal abattoir in Sukkur within two hours of slaughter, cleared of hair with an electric clipper and mounted in a vertical cell.';
 const PANEL_HASHES = [HASH, '0f0f5a5a3c3c1e1e', '1111222233334444', '5555666677778888', '9999aaaabbbbcccc', 'ddddeeeeffff0000', '0123456789abcdef', 'fedcba9876543210'];
 
 // ------------------------------------------------------------------ child process: the web platform
@@ -39,6 +40,8 @@ if (process.argv[2] === 'platform') {
     const doc = await db.one("INSERT INTO image_ref_docs(source, source_key, title, journal, year, status, figures, panels) VALUES('pjps', '8001', 'A published PJPS paper', 'Pak. J. Pharm. Sci.', 2025, 'done', 1, 1) RETURNING id");
     await db.query("INSERT INTO image_refs(doc_id, source, figure, panel, type, hashes, w, h) VALUES($1, 'pjps', 'Fig. 2', 'B', 'photo', $2, 200, 150)", [doc.id, [HASH, ...Array(5).fill('0000000000000000')].join(',')]);
     await db.setMeta('imgref_version', String(Date.now()));
+    // a text held only in the platform's PJPS text repository
+    await require('../src/corpus').addDoc({ kind: 'submission', sourceKey: 'check:9001', title: 'Platform-only submission', meta: { manuscriptCode: 'PJPS-2026-9001' }, text: REPO_TEXT });
     process.stdout.write(`PORT=${port}\n`);
   })().catch(e => { console.error(e); process.exit(1); });
   return;
@@ -112,6 +115,11 @@ if (process.argv[2] === 'platform') {
       assert.ok(g.ok && g.data.organic_results[0].title === `Result from ${engine}`, `${engine} searched through the platform: ${g.error || ''}`);
     }
     console.log('  ✓ Google Scholar and Google web search from the desktop through the platform');
+
+    // similarity report: the desktop finds texts held in the platform's PJPS text repository
+    const found = await require('../src/corpus').candidates(`New introduction. ${REPO_TEXT.slice(150, 420)} New ending.`);
+    assert.ok(found.some(d => d.sourceKey === 'check:9001' && d.text.includes('siliconised paper')), 'platform repository document found from the desktop');
+    console.log('  ✓ similarity report on the desktop compares with the PJPS text repository on the platform');
 
     // Offline: the check still runs and says what was not searched
     process.env.SIMULATE_OFFLINE = '1';

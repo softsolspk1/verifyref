@@ -549,6 +549,26 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- PJPS text repository (src/corpus.js): catalogue of the texts kept in R2 and their fingerprint index
+CREATE TABLE IF NOT EXISTS corpus_docs (
+  id SERIAL PRIMARY KEY,
+  kind TEXT NOT NULL,
+  source_key TEXT NOT NULL UNIQUE,
+  title TEXT,
+  meta JSONB,
+  words INTEGER NOT NULL DEFAULT 0,
+  r2_key TEXT,
+  text TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS corpus_hashes (
+  h BIGINT NOT NULL,
+  doc_id INTEGER NOT NULL REFERENCES corpus_docs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_corpus_hashes_h ON corpus_hashes(h);
+CREATE INDEX IF NOT EXISTS idx_corpus_hashes_doc ON corpus_hashes(doc_id);
 `;
 
 // One-off data migrations from the editor-approval model (v2) to Super Admin management (v3)

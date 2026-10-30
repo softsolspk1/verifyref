@@ -267,6 +267,15 @@ async function remoteSerp(engine, query, num) {
   }
 }
 
+/** The similarity check on the desktop: documents of the platform's PJPS text repository sharing these fingerprints */
+async function remoteCorpus(hashes, opts = {}) {
+  const userId = await db.getMeta('last_device_user');
+  const token = userId ? await deviceToken(userId) : null;
+  if (!token || !isOnline()) return [];
+  const r = await remote('/api/sync/corpus/candidates', { method: 'POST', token, timeout: 60000, body: { hashes: hashes.slice(0, 4000), excludeCode: opts.excludeCode || null, limit: opts.limit || 12 } });
+  return r.docs || [];
+}
+
 const CHECK_COLS = ['uid', 'kind', 'manuscript_code', 'version', 'title', 'ref_total', 'verified', 'suspicious', 'unverified', 'miscited', 'retracted', 'missing_citations', 'uncited_references', 'journal_flags', 'self_citation_rate', 'problems', 'result', 'created_at', 'origin', 'pending_online'];
 
 async function pushChecks(userId, token) {
@@ -384,4 +393,4 @@ async function status(userId) {
   };
 }
 
-module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases, serpViaPlatform, remoteSerp };
+module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases, serpViaPlatform, remoteSerp, remoteCorpus };

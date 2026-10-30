@@ -88,7 +88,7 @@ async function runAndSaveCheck(b, { userId, update }) {
   delete result._shingles;
   if (b.save !== false) {
     await saveCheck(userId, result, { issueId: b.issueId || null, saveMode: b.saveMode || 'full' });
-    if (shingles) await require('../papermill').storeFingerprint({ checkId: result.id, userId, meta: result.meta, shingles }).catch(e => console.error('Fingerprint not stored:', e.message));
+    if (shingles) await require('../papermill').storeFingerprint({ checkId: result.id, userId, meta: result.meta, shingles, text: b.bodyText || b.text }).catch(e => console.error('Fingerprint not stored:', e.message));
     if (b.recheckOf) result.changes = await changesSince(userId, b.recheckOf, result);
     // Desktop: references that could not be verified offline are re-checked when the connection returns
     if (cfg.DESKTOP && result.references?.summary?.pending && result.id && (b.saveMode || 'full') === 'full') {

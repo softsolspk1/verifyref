@@ -121,7 +121,7 @@ async function saveIntegrity(userId, result, input) {
   delete result._hashes; delete result._record; delete result._shingles;
   await saveResult(userId, 'integrity', result, { title: input.meta.title || 'Integrity screening', manuscriptCode: input.meta.manuscriptCode, problems: integrityProblems(result), counts: { suspicious: result.risk.strongSignals } });
   await storeRecord({ checkId: result.id, userId, meta: input.meta, record, hashes }).catch(e => console.error('Integrity record not stored:', e.message));
-  await storeFingerprint({ checkId: result.id, userId, meta: input.meta, shingles }).catch(e => console.error('Fingerprint not stored:', e.message));
+  await storeFingerprint({ checkId: result.id, userId, meta: input.meta, shingles, text: input.bodyText || input.text }).catch(e => console.error('Fingerprint not stored:', e.message));
   return result;
 }
 

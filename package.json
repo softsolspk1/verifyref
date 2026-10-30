@@ -20,7 +20,8 @@
     "images:index": "node scripts/index-image-refs.js",
     "lint": "eslint .",
     "datasets:openalex": "node scripts/load-openalex-journals.js",
-    "datasets:publishers": "node scripts/load-publisher-journals.js"
+    "datasets:publishers": "node scripts/load-publisher-journals.js",
+    "corpus:load": "node scripts/corpus-load.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

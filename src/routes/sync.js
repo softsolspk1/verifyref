@@ -156,6 +156,13 @@ router.post('/sync/images/match', wrap(device), wrap(async (req, res) => {
   res.json({ success: true, earlier, earlierCharts, refs });
 }));
 
+/** Similarity report from the desktop: matching documents of the PJPS text repository (texts read from R2) */
+router.post('/sync/corpus/candidates', wrap(device), wrap(async (req, res) => {
+  const hashes = (Array.isArray(req.body?.hashes) ? req.body.hashes : []).map(Number).filter(Number.isFinite).slice(0, 4000);
+  const docs = await require('../corpus').candidatesByHashes(hashes, { excludeCode: req.body?.excludeCode || null, limit: Math.min(12, parseInt(req.body?.limit, 10) || 12) });
+  res.json({ success: true, docs: docs.map(d => ({ ...d, text: d.text.slice(0, 400000) })) });
+}));
+
 /** Module 1 from the desktop: Google Scholar and Google web search run here with the platform's SerpApi key (cached 30 days) */
 router.post('/sync/serpapi', wrap(device), wrap(async (req, res) => {
   const engine = String(req.body?.engine || '');

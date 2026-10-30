@@ -101,6 +101,26 @@ function reword(p) {
   assert.ok(again.summary.submissions >= 80 && again.sources[0]?.type === 'submission', 'earlier PJPS submission found as "Submitted to PJPS"');
   const sameMs = await checkPlagiarism({ body: earlier, meta: { title: 'Zyxomirol patch', manuscriptCode: 'PJPS-2026-0001' } });
   assert.strictEqual(sameMs.summary.submissions, 0, "a revision of the same manuscript is not counted against itself");
+
+  // PJPS text repository: the source text read in the first run was kept; a stored submission is matched in full
+  const corpus = require('../src/corpus');
+  const st = await corpus.stats();
+  console.log(`  repository after the runs: ${JSON.stringify(st)}`);
+  assert.ok(st.publication?.docs >= 1, 'downloaded source text kept in the repository');
+  const { storeFingerprint } = require('../src/papermill');
+  const u = await db.one("INSERT INTO users(email, name, password_hash, role, status) VALUES('ed@test.local', 'Ed', 'x', 'editor', 'active') RETURNING id");
+  const ck = await db.one("INSERT INTO checks(user_id, kind, title, result) VALUES($1, 'manuscript', 'Zyxomirol patch (stored)', '{}') RETURNING id", [u.id]);
+  await storeFingerprint({ checkId: ck.id, userId: u.id, meta: { title: 'Zyxomirol patch (stored)', manuscriptCode: 'PJPS-2026-0002' }, shingles: shingles(earlier), text: earlier });
+  const full = await checkPlagiarism({ body: earlier, meta: { title: 'Zyxomirol patch', manuscriptCode: 'PJPS-2026-0998' } });
+  const subTop = full.sources.find(x => x.type === 'submission');
+  console.log(`  resubmitted text (repository): submitted to PJPS ${full.summary.submissions}% - ${subTop?.title} [${subTop?.compared}]`);
+  assert.ok(full.summary.submissions >= 98 && /repository/.test(subTop?.compared || ''), 'stored submission found word for word in the repository');
+  const again2 = await checkPlagiarism({ body: manuscript, meta: { title: 'A guar and silicone matrix patch for zyxomirol: permeation across goat skin' } });
+  // the copied paper now comes from the repository (no search needed) with the same matched text; the original text, now a
+  // stored submission, is credited to that submission
+  const pub = again2.sources.find(x => x.type === 'publication');
+  console.log(`  second run: paper found via ${pub?.via}, ${pub?.matchedWords} matched words (first run ${top.matchedWords})`);
+  assert.ok(pub && /PJPS repository/.test(pub.via) && Math.abs(pub.matchedWords - top.matchedWords) <= 5, 'second run finds the paper in the repository with the same matched text');
   console.log('plagiarism accuracy test passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

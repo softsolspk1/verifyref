@@ -33,6 +33,12 @@ Every figure panel of these papers is fingerprinted the same way as in the brows
 
 Archives are read file by file (`src/archiveReader.js`), so the 2 GB BioFors tar never has to fit in memory. PubPeer has no bulk download: every match and every retracted case links to the paper's PubPeer page.
 
+### PJPS text repository (similarity report)
+
+The in-house counterpart of Turnitin's own database (`src/corpus.js`). Full texts are kept on Cloudflare R2 (`corpus/<kind>/<id>.txt.gz`); the database holds a catalogue (`corpus_docs`) and a fingerprint index (`corpus_hashes`: one in four 5-word sequences), so the documents sharing text with a manuscript are found in one indexed query and only those texts are read from R2. It grows with every screening: each manuscript is stored as a PJPS submission and every source text the similarity check downloads is kept. Fill it in bulk with open-access full texts: `npm run corpus:load -- --limit 2000` (Europe PMC, pharmacy / pharmacology by default, `--query` for another subject; resumes where it stopped). The desktop asks the platform's repository through `/api/sync/corpus/candidates`.
+
+The similarity report itself (`src/checks/plagiarism.js`) follows Turnitin's pattern: Similarity Index with Internet sources / Publications / Submitted to PJPS, numbered primary sources adding up to the index, highlighted manuscript text, and Turnitin's filters (bibliography, quotes, matches under 8 words). Nothing is sent to Turnitin or any other outside service. `test/plagiarism-accuracy.js` measures it against planted copies from a real paper.
+
 ### Datasets on Cloudflare R2
 
 `data/` is not deployed; it is mirrored on R2 (`src/datasetStore.js`, catalogue table `dataset_files`): `datasets/files/…` (the data folder: journal lists, ImageTwin / Proofig knowledge base, public image data, RSIID, BioFors, ICLAC, benchmarks), `datasets/raw/…` (the last good download of every refreshable dataset — Retraction Watch, DOAJ, NLM Catalog, Crossref titles, LTWA, Beall, PPS, FDA Orange Book, e-mail domains — used automatically when a source is down) and `datasets/lists/…` (uploaded journal lists). On Vercel the files a module needs are copied from R2 into `/tmp` on first use.

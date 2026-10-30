@@ -5,12 +5,12 @@ import { renderReport } from './report.js';
 const MODES = {
   manuscript: {
     title: 'Full Screening Report',
-    intro: 'One upload runs the PJPS modules: Check Bibliography (13 databases, retractions, quality indicators), PJPS style compliance, Citations (list matching and citation pattern) and Paper Mill Detection — plus the findings of a Module 5 image report if you attach one. The front page gives a summary per module and a desk-review recommendation; an author version (Modules 1–3) can be sent after your approval. Claim support is checked in Module 3.',
+    intro: 'One upload runs the PJPS modules: Check Bibliography (every reference searched in all databases: Crossref, PubMed, Europe PMC, OpenAlex, Semantic Scholar, CORE, Google Books and more, plus Google Scholar and Google when set up; retractions, quality indicators), PJPS style compliance, Citations (list matching and citation pattern) and Paper Mill Detection — plus the findings of a Module 5 image report if you attach one. The front page gives a summary per module and a desk-review recommendation; an author version (Modules 1–3) can be sent after your approval. Claim support is checked in Module 3.',
     needsBody: true, meta: true, screening: true
   },
   references: {
     title: 'Module 1 — Check Bibliography',
-    intro: 'Confirms that every reference is real, correct and not retracted: 13 databases (PubMed and Europe PMC first, then Crossref, the DOI registry, DataCite, OpenAlex, Semantic Scholar, arXiv, DBLP, Open Library, Google Books, ERIC, CORE; Google Scholar as a last resort when a SerpApi key is configured), Retraction Watch, fabrication checks, link checks, reference age against the PJPS rule, self-citation, PJPS citations, predatory / hijacked journals and duplicate references. Regional journals that the databases do not cover are shown as “Not indexed”, not as fake.',
+    intro: 'Confirms that every reference is real, correct and not retracted: every reference is searched in all 13 scholarly databases at once (Crossref, the DOI registry, DataCite, OpenAlex, PubMed with its citation matcher, Europe PMC, Semantic Scholar, arXiv, DBLP, Open Library, Google Books, ERIC, CORE), and in Google Scholar and Google when none of them can verify it and a SerpApi key is configured, Retraction Watch, fabrication checks, link checks, reference age against the PJPS rule, self-citation, PJPS citations, predatory / hijacked journals and duplicate references. Regional journals that the databases do not cover are shown as “Not indexed”, not as fake.',
     needsBody: false, meta: false, authors: true
   },
   citations: {

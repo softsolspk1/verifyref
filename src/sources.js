@@ -570,7 +570,7 @@ async function coreSearch(ref) {
 
 // ---------------------------------------------------------------- 14. Google Scholar (SerpApi, optional, paid)
 // Google offers no Scholar API; SerpApi runs the search for us and returns the result list as JSON. Each search costs a
-// credit, so it is asked last (only for references the 13 free databases could not verify) and cached for 30 days.
+// credit, so it is asked last (only for references the free databases could not verify) and cached for 30 days.
 
 // The desktop holds no SerpApi key: it asks the web platform, which runs the search with its key (see /api/sync/serpapi)
 const scholarEnabled = () => !!cfg.SERPAPI_KEY || (cfg.DESKTOP && require('./desktop').serpViaPlatform());

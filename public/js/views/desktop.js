@@ -4,7 +4,7 @@ import { api, esc, $, $$, badge, toast, fmtDate, runJob, state } from '../core.j
 const OFFLINE_FEATURES = [
   ['Reading documents (PDF, Word, ODT, RTF, text, BibTeX, RIS)', 'Full'],
   ['Module 1 · Check Bibliography: retraction, predatory and journal index lists, NLM / DOAJ / Crossref journal copies', 'Full'],
-  ['Module 1 · look-ups of new references in the 13 databases (Crossref, PubMed, OpenAlex, CORE …)', 'Cached references verified; others queued'],
+  ['Module 1 · look-ups of new references in all databases (Crossref, PubMed, OpenAlex, CORE …)', 'Cached references verified; others queued'],
   ['Module 2 · Reference Style & PJPS (NLM / LTWA abbreviations)', 'Full (DOI completion when online)'],
   ['Module 3 · Citations (in-text ↔ reference list)', 'Full'],
   ['Module 4 · Paper Mill Detection (PPS fingerprints, ICLAC, e-mail domains)', 'Full; published-elsewhere search when online'],

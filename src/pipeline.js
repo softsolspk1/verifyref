@@ -73,9 +73,10 @@ async function runCheck(input, update) {
   }
 
   const refWeight = opts.journals ? 65 : 90;
-  update(`Checking ${refs.length} references against 13 databases`, 5);
+  const dbCount = require('./sources').databases().length;
+  update(`Checking ${refs.length} references against all ${dbCount} databases and Retraction Watch`, 5);
   result.references = await checkReferences(refs, {
-    onProgress: (d, n) => update(`Checking references (${d}/${n}) against 13 databases`, 5 + d / n * refWeight)
+    onProgress: (d, n) => update(`Checking references (${d}/${n}) against all ${dbCount} databases and Retraction Watch`, 5 + d / n * refWeight)
   });
 
   if (opts.citations && body && body.trim().length > 200) {

@@ -274,40 +274,32 @@ async function verifyReference(ref, opts = {}) {
   const rank = c => c.score + (c.yearScore ?? 0.5) * 4 + (c.journalScore ?? 0.5) * 3 + (c.rec.doi ? 1 : 0) - (avoidPreprint(c.rec) ? 8 : 0);
   const best = () => candidates.filter(c => !(idRecord && c.rec === idRecord && !idMatches)).sort((a, b) => rank(b) - rank(a))[0];
 
-  // ---- 2. Bibliographic search cascade (stop early once a confident match agreeing on the year exists)
+  // ---- 2. Every free scholarly database is searched for every reference, all at once: the result lists each database
+  // that holds the work (several independent confirmations), and a database that alone carries a retraction or the
+  // published version is not skipped. (confident() still decides whether the paid Google searches are needed.)
   const confident = () => {
     if (idRecord && idMatches) return true;
     const b = best();
     return !!b && !avoidPreprint(b.rec) && b.score >= 85 && (b.yearScore === null || b.yearScore >= 0.75);
   };
-  if (!confident()) {
-    const wave1 = [
-      ['Crossref', S.crossrefSearch(ref)],
-      ['OpenAlex', S.openalexSearch(ref)],
-      ['Europe PMC', S.europepmcSearch(ref)],
-      ['PubMed', S.pubmedSearch(ref)]
-    ];
-    if (ref.looksLikeBook) wave1.push(['Open Library', S.openLibrarySearch(ref)]);
-    const r1 = await Promise.all(wave1.map(([, p]) => p));
-    wave1.forEach(([n], i) => take(n, r1[i]));
-  }
-  if (!confident()) {
-    const wave2 = [
-      ['Semantic Scholar', S.s2Search(ref)],
-      ['DataCite', S.dataciteSearch(ref)],
-      ['DBLP', S.dblpSearch(ref)],
-      ['arXiv', S.arxivSearch(ref)],
-      ['ERIC', S.ericSearch(ref)],
-      ['CORE', S.coreSearch(ref)],
-      // PubMed's citation matcher (journal, year, volume, first page): finds the paper when the title is misspelled
-      ['PubMed', S.pubmedCitationMatch(ref)],
-      // Google Books for every reference still not verified (books, chapters, reports and many journals' volumes)
-      ['Google Books', S.googleBooksSearch(ref)]
-    ];
-    if ((ref.looksLikeBook || !ref.journal) && !checked.has('Open Library')) wave2.push(['Open Library', S.openLibrarySearch(ref)]);
-    const r2 = await Promise.all(wave2.map(([, p]) => p));
-    wave2.forEach(([n], i) => take(n, r2[i]));
-  }
+  const all = [
+    ['Crossref', S.crossrefSearch(ref)],
+    ['OpenAlex', S.openalexSearch(ref)],
+    ['Europe PMC', S.europepmcSearch(ref)],
+    ['PubMed', S.pubmedSearch(ref)],
+    // PubMed's citation matcher (journal, year, volume, first page): finds the paper when the title is misspelled
+    ['PubMed', S.pubmedCitationMatch(ref)],
+    ['Semantic Scholar', S.s2Search(ref)],
+    ['DataCite', S.dataciteSearch(ref)],
+    ['DBLP', S.dblpSearch(ref)],
+    ['arXiv', S.arxivSearch(ref)],
+    ['ERIC', S.ericSearch(ref)],
+    ['CORE', S.coreSearch(ref)],
+    ['Open Library', S.openLibrarySearch(ref)],
+    ['Google Books', S.googleBooksSearch(ref)]
+  ];
+  const results = await Promise.all(all.map(([, p]) => p.catch(e => ({ error: e.message }))));
+  all.forEach(([n], i) => take(n, results[i]));
   // ---- 2b. Google Scholar (SerpApi, paid per search): only when nothing free could verify the reference
   if (!confident() && S.scholarEnabled() && (ref.title || '').length >= 12) {
     const gs = await S.googleScholarSearch(ref).catch(e => ({ error: e.message }));
@@ -475,7 +467,7 @@ async function classify(v, retraction) {
     else if (grey) { status = 'unverified'; reason = 'Book, report or web source — not found in scholarly databases; check manually'; }
     else {
       status = 'suspicious';
-      reason = 'No match in any of the 13 scholarly databases';
+      reason = `No match in any of the ${S.databases().length} databases searched`;
       // Is the journal itself indexed? An article in a journal that no index covers cannot be checked online: unverified, not fabricated
       if (ref.journal && !journal) {
         const D = require('../datasets');

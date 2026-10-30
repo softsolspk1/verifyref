@@ -138,6 +138,9 @@ async function screening(result, { input, body, refs, meta, update }) {
   update('Novelty and citation outlook (OpenAlex)', 99);
   result.novelty = await require('./checks/novelty').checkNovelty({ meta, journal: { name: cfg.HOME_JOURNAL.name, issn: cfg.HOME_JOURNAL.issn[0] } })
     .catch(e => ({ kind: 'novelty', error: `The novelty assessment could not be completed: ${e.message}` }));
+  update('Author identity (ORCID registry, OpenAlex)', 99);
+  result.authorIdentity = await require('./checks/authorIdentity').checkAuthorIdentity({ text, meta })
+    .catch(e => ({ kind: 'authors', error: `The author identity check could not be completed: ${e.message}` }));
 
   result.screening = screeningSummary(result);
 }
@@ -151,6 +154,7 @@ function screeningSummary(r) {
   const im = r.images?.summary;
   const pl = r.plagiarism && !r.plagiarism.error ? r.plagiarism.summary : null;
   const nv = r.novelty && !r.novelty.error ? r.novelty.summary : null;
+  const ai = r.authorIdentity && !r.authorIdentity.error ? r.authorIdentity : null;
   const reasons = [];
   let rec = 'proceed';
   const escalate = (level, why) => { reasons.push(why); if (level === 'investigate' || (level === 'return' && rec === 'proceed')) rec = level; };
@@ -168,6 +172,8 @@ function screeningSummary(r) {
   if (s.miscited >= 5) escalate('return', `${s.miscited} references with wrong details`);
   if (pl?.level === 'bad') escalate('investigate', `Text overlap ${pl.similarity}% with published papers (largest single source ${pl.largestSource}%)`);
   else if (pl?.level === 'warn') escalate('return', `Text overlap ${pl.similarity}% with published papers — check the matching passages`);
+  const aiHigh = ai ? ai.flags.filter(f => f.severity === 'high') : [];
+  if (aiHigh.length) escalate('return', `Author identity: ${aiHigh.slice(0, 2).map(f => f.text).join('; ')}`);
   const label = { proceed: 'Proceed to peer review', return: 'Return to the authors for corrections', investigate: 'Investigate before any further processing' }[rec];
   return {
     recommendation: rec, recommendationLabel: label, reasons,
@@ -178,6 +184,7 @@ function screeningSummary(r) {
       papermill: pm ? `${pm.level} (score ${pm.score})` : 'not checked',
       plagiarism: pl ? `${pl.similarity}% overlap with ${pl.sources} published source(s)${pl.sources ? ` (largest ${pl.largestSource}%)` : ''}` : 'not checked',
       novelty: nv ? `Novelty ${nv.score}/100 (${nv.band}); ${nv.closeRecent} close work(s) in the last 5 years; 5-year citation outlook ${nv.outlook}${Number.isFinite(nv.fiveYearMedian) ? ` (median ${nv.fiveYearMedian})` : ''}` : 'not assessed',
+      authors: ai ? `${ai.summary.verified} of ${ai.summary.authors} author(s) identified in ORCID${ai.summary.flags ? `; ${ai.summary.flags} problem(s)` : ''}` : 'not checked',
       images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : 'not checked (run Module 5 and attach the report)'
     }
   };

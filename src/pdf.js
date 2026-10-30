@@ -166,9 +166,26 @@ function table(doc, headers, rows) {
     return Math.max(4, Math.min(60, longest));
   });
   const sum = weight.reduce((a, b) => a + b, 0);
-  const widths = weight.map((w, i) => Math.max(34, String(headers[i]).length * 6 + 8, (w / sum) * total));
-  const scale = total / widths.reduce((a, b) => a + b, 0);
-  const cw = widths.map(w => w * scale);
+  // a column is at least as wide as its longest word (an ORCID iD or DOI is not split mid-number), up to 110 pt
+  doc.font('Helvetica').fontSize(8.5);
+  const longestWord = i => Math.min(110, Math.max(0, ...rows.slice(0, 40).flatMap(r => safe(r[i] ?? '').split(/\s+/)).map(w => doc.widthOfString(w))) + 14);
+  // a header wraps between words, so it needs only its longest word (bold)
+  const bodyMins = headers.map((h, i) => longestWord(i));
+  doc.font('Helvetica-Bold');
+  const headWord = h => Math.max(...safe(h).split(/\s+/).map(w => doc.widthOfString(w))) + 14;
+  const mins = headers.map((h, i) => Math.max(34, headWord(h), bodyMins[i]));
+  doc.font('Helvetica');
+  // columns below their minimum get it; the space comes from the others in proportion (all scaled only if the minimums overflow)
+  const cw = weight.map(w => (w / sum) * total);
+  for (let pass = 0; pass < 4; pass++) {
+    const fixed = cw.map((w, i) => w <= mins[i]);
+    fixed.forEach((f, i) => { if (f) cw[i] = mins[i]; });
+    const free = total - cw.reduce((a, w, i) => a + (fixed[i] ? w : 0), 0);
+    const flex = cw.reduce((a, w, i) => a + (fixed[i] ? 0 : w), 0);
+    if (free <= 0 || !flex) { const k = total / cw.reduce((a, b) => a + b, 0); cw.forEach((w, i) => { cw[i] = w * k; }); break; }
+    cw.forEach((w, i) => { if (!fixed[i]) cw[i] = (w / flex) * free; });
+    if (cw.every((w, i) => w >= mins[i] - 0.01)) break;
+  }
   const pad = 3;
   // a cell taller than a page would make pdfkit flow it over new pages: long cells are shortened
   const cellText = c => { const t = safe(c) || ' '; return t.length > 1200 ? t.slice(0, 1200) + '...' : t; };

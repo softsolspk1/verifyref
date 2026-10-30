@@ -123,6 +123,13 @@ export async function renderAdmin(view) {
             <td>${badge('Live API', 'good')}</td>
             <td>${badge('active', 'good')}</td>
           </tr>
+          <tr>
+            <td><b>ORCID registry</b><div class="muted">Live look-ups in the public ORCID registry (about 20 million researcher records): iDs written in the manuscript (check digit, registered, owner's name), name + institution search for the other authors, employments, record age and claimed works; matched to the same iD's OpenAlex profile (publications, h-index, topics). Full Screening section 8 and Module 4</div></td>
+            <td>Authors</td>
+            <td class="num">Live API + Cache (7 days)</td>
+            <td>${badge('Live API', 'good')}</td>
+            <td>${badge('active', 'good')}</td>
+          </tr>
           ${ds.lists.map(l => {
             const parts = (l.label || '').split(' — ');
             const title = parts[0];

@@ -57,6 +57,7 @@ export function renderReport(el, result, { kind } = {}) {
   if (result.images && hasModule('images')) tabs.push(['images', 'Images', result.images.summary.findings]);
   if (result.plagiarism) tabs.push(['plagiarism', 'Plagiarism', result.plagiarism.error ? null : `${result.plagiarism.summary.similarity}%`]);
   if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', result.novelty.error ? null : result.novelty.summary.score]);
+  if (result.authorIdentity) tabs.push(['authors', 'Authors (ORCID)', result.authorIdentity.error ? null : `${result.authorIdentity.summary.verified}/${result.authorIdentity.summary.authors}`]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
 
   el.innerHTML = `
@@ -100,6 +101,7 @@ export function renderReport(el, result, { kind } = {}) {
     else if (k === 'editor') editorTab(body, result);
     else if (k === 'plagiarism') plagiarismTab(body, result.plagiarism);
     else if (k === 'novelty') noveltyTab(body, result.novelty);
+    else if (k === 'authors') authorsTab(body, result.authorIdentity);
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
   $$('.kpi.clickable', el).forEach(k => (k.onclick = () => { show('references'); const f = $(`.filter[data-f="${k.dataset.f}"]`, el); if (f) f.click(); }));
@@ -155,6 +157,7 @@ function summaryTab(body, r) {
       ${hasModule('images') ? row(5, 'Image integrity', sc.lines.images, !im ? '' : im.level === 'HIGH' ? 'bad' : im.level === 'MEDIUM' ? 'warn' : 'good') : ''}
       ${r.plagiarism ? row(6, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
       ${r.novelty ? row(7, 'Novelty &amp; citation outlook', r.novelty.error || sc.lines.novelty || '', r.novelty.error ? '' : r.novelty.summary.band === 'low' ? 'warn' : 'good') : ''}
+      ${r.authorIdentity ? row(8, 'Author identity (ORCID)', r.authorIdentity.error || sc.lines.authors || '', r.authorIdentity.error ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.authorIdentity.summary.level]) : ''}
     </table>
     <p class="muted" style="margin:10px 0 0">Author version: Modules 1–3 only, after your approval. Editor version: all modules. Claim support (does each source support its claim?) is checked in Module 3.</p></div>
     ${r.indicators?.flags?.length ? `<div class="card"><h3>Bibliography indicators</h3>${r.indicators.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.message)}</div></div>`).join('')}</div>` : ''}
@@ -200,6 +203,24 @@ function noveltyTab(body, nv) {
     <div class="card"><h3>Closest published works</h3><table class="t"><tr><th>Work</th><th class="num">Year</th><th class="num">Similarity</th><th class="num">Cited by</th></tr>
       ${nv.closest.map(w => `<tr><td><a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.title)}</a>${w.journal ? `<div class="muted">${esc(w.journal)}</div>` : ''}</td><td class="num">${w.year || ''}</td><td class="num">${w.similarity}</td><td class="num">${w.citedBy}</td></tr>`).join('')}</table>
       <p class="muted" style="margin-top:10px">${esc(nv.method)} ${esc(f.method)}</p></div>`;
+}
+
+function authorsTab(body, ai) {
+  if (ai.error) { body.innerHTML = `<div class="card"><h3>Author identity (ORCID)</h3><p class="muted">${esc(ai.error)}</p></div>`; return; }
+  const s = ai.summary;
+  const orcidLink = id => `<a href="https://orcid.org/${esc(id)}" target="_blank" rel="noopener" class="mono">${esc(id)}</a>`;
+  body.innerHTML = `
+    <div class="risk-banner risk-${{ ok: 'low', warn: 'medium', bad: 'high' }[s.level]}"><div class="risk-level">${s.verified}/${s.authors}</div><div><b>${s.verified} of ${s.authors} author(s) identified in the ORCID registry</b>
+      <div class="muted">${s.idsInManuscript} ORCID iD(s) written in the manuscript; ${s.flags} problem(s). A missing ORCID record is not evidence of misconduct.</div></div></div>
+    ${ai.flags.length ? `<div class="card"><h3>Problems</h3>${ai.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.text)}</div></div>`).join('')}</div>` : ''}
+    <div class="card"><h3>Authors</h3><table class="t"><tr><th>Author</th><th>ORCID</th><th>Institutions (ORCID)</th><th class="num">Publications</th><th>Field</th></tr>
+      ${ai.authors.map(a => `<tr><td><b>${esc(a.author)}</b><div class="muted">${esc(a.status === 'verified' ? a.source : a.note || a.status)}</div></td>
+        <td>${a.orcid ? orcidLink(a.orcid) : a.candidates?.length ? `<span class="muted">candidates:</span><br>${a.candidates.map(c => `${orcidLink(c.id)}${c.institutions.length ? ` <span class="muted">${esc(c.institutions[0])}</span>` : ''}`).join('<br>')}` : '—'}
+          ${a.record ? `<div class="muted">record since ${a.record.created || '?'}${a.record.verifiedEmail ? ' · verified e-mail' : ''}</div>` : ''}</td>
+        <td>${a.record ? esc([...new Set(a.record.employments.map(e => `${e.organization}${e.end ? ` (to ${e.end})` : ''}`))].slice(0, 3).join('; ') || '—') : '—'}${a.institutionAgrees === false ? ' ' + badge('differs', 'warn') : a.institutionAgrees ? ' ' + badge('agrees', 'good') : ''}</td>
+        <td class="num">${a.record ? `${Math.max(a.record.works, a.openalex?.works || 0)}${a.openalex?.hIndex != null ? `<div class="muted">h-index ${a.openalex.hIndex}</div>` : ''}` : '—'}</td>
+        <td>${a.record ? `${a.claimsThisWork ? badge('this manuscript in record', 'good') + ' ' : ''}${a.field?.relatedWorks ? `${a.field.relatedWorks} related work(s)` : ''}${a.field?.topicMatch ? ' · topic match' : ''}${a.field?.examples?.length ? `<div class="muted">${esc(a.field.examples[0])}</div>` : ''}` : '—'}${a.flags.length ? a.flags.map(f => `<div class="flag ${f.severity}" style="margin-top:4px"><div class="msg">${esc(f.text)}</div></div>`).join('') : ''}</td></tr>`).join('')}
+    </table><p class="muted" style="margin-top:10px">${esc(ai.method)}</p></div>`;
 }
 
 function styleTab(body, cp) {

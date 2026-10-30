@@ -318,6 +318,7 @@ function screeningScorecard(r) {
   ];
   if (r.plagiarism) rows.push({ module: '6. Plagiarism (text overlap)', result: r.plagiarism.error || sc.lines.plagiarism || `${r.plagiarism.summary.similarity}% overlap`, level: r.plagiarism.error ? 'na' : r.plagiarism.summary.level });
   if (r.novelty) rows.push({ module: '7. Novelty & citation outlook', result: r.novelty.error || sc.lines.novelty || `novelty ${r.novelty.summary.score}/100`, level: r.novelty.error ? 'na' : r.novelty.summary.level, verdict: r.novelty.error ? null : `${r.novelty.summary.band[0].toUpperCase()}${r.novelty.summary.band.slice(1)}` });
+  if (r.authorIdentity) rows.push({ module: '8. Author identity (ORCID)', result: r.authorIdentity.error || sc.lines.authors || '', level: r.authorIdentity.error ? 'na' : r.authorIdentity.summary.level });
   return rows;
 }
 
@@ -353,6 +354,22 @@ function noveltyBlocks(nv) {
   blocks.push({ table: { headers: ['After', 'Expected citations (median)', 'Likely range (25-75%)', 'Similar works used'], rows: f.horizon.map(h => [`${h.years} year${h.years > 1 ? 's' : ''}`, h.median === null ? 'insufficient data' : String(h.median), h.median === null ? '—' : `${h.low} - ${h.high}`, String(h.basis)]) } });
   if (f.journalNote) blocks.push({ p: f.journalNote, italics: true });
   blocks.push({ p: `${nv.method} ${f.method}`, italics: true });
+  return blocks;
+}
+
+/** Section 8: author identity from the ORCID registry */
+function authorIdentityBlocks(ai) {
+  const blocks = [{ h2: '8. Author identity (ORCID)' }];
+  if (!ai || ai.error) return [...blocks, { p: ai?.error || 'Not checked.' }];
+  const s = ai.summary;
+  blocks.push({ kv: [['Authors', String(s.authors)], ['Identified in ORCID', `${s.verified} (${s.fromManuscript} from iDs in the manuscript)`], ['ORCID iDs in the manuscript', String(s.idsInManuscript)], ['Problems', String(s.flags)]] });
+  if (ai.flags.length) blocks.push({ callout: { level: s.level, title: 'Author identity problems', text: ai.flags.map(f => f.text).join(' · ') } });
+  blocks.push({ table: { headers: ['Author', 'ORCID', 'How identified', 'Institutions (ORCID)', 'Publications', "In the manuscript's field"], rows: ai.authors.map(a => [a.author, a.orcid || '—',
+    a.status === 'verified' ? a.source : a.note || a.status,
+    a.record ? [...new Set(a.record.employments.map(e => e.organization))].slice(0, 3).join('; ') || '—' : a.candidates?.length ? `candidates: ${a.candidates.map(c => `${c.id}${c.institutions.length ? ` (${c.institutions[0]})` : ''}`).join('; ')}` : '—',
+    a.record ? `${Math.max(a.record.works, a.openalex?.works || 0)}${a.openalex?.hIndex != null ? `, h-index ${a.openalex.hIndex}` : ''}` : '—',
+    a.record ? [a.claimsThisWork ? 'this manuscript is in the record' : '', a.field?.relatedWorks ? `${a.field.relatedWorks} related work(s)` : '', a.field?.topicMatch ? 'topic match' : ''].filter(Boolean).join('; ') || 'none listed' : '—']) } });
+  blocks.push({ p: ai.method, italics: true });
   return blocks;
 }
 
@@ -394,12 +411,13 @@ function screeningBlocks(r, version = 'editor') {
     blocks.push({ h2: '5. Image integrity' }, { p: r.images ? `Image risk ${r.images.summary.level}: ${r.images.summary.findings} finding(s) in ${r.images.summary.panels} panels${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0) ? `, ${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0)} figure(s) matching published PJPS / retracted-paper figures` : ''} — see the separate confidential image report.` : 'Not checked — run Module 5 and attach its report.' });
     if (r.plagiarism) blocks.push(...plagiarismBlocks(r.plagiarism));
     if (r.novelty) blocks.push(...noveltyBlocks(r.novelty));
+    if (r.authorIdentity) blocks.push(...authorIdentityBlocks(r.authorIdentity));
   }
   return blocks;
 }
 
 module.exports = {
-  complianceBlocks, citationsBlocks, papermillBlocks, imagesBlocks, screeningBlocks, plagiarismBlocks, noveltyBlocks,
+  complianceBlocks, citationsBlocks, papermillBlocks, imagesBlocks, screeningBlocks, plagiarismBlocks, noveltyBlocks, authorIdentityBlocks,
   buildDocx, decisionSummaryBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks,
   verifyBlocks, evidenceBlocks, assistantBlocks, journalFinderBlocks, conferenceBlocks, restyleBlocks, formatBlocks, authorBlocks
 };

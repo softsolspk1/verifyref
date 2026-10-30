@@ -298,12 +298,13 @@ async function verifyReference(ref, opts = {}) {
       ['DBLP', S.dblpSearch(ref)],
       ['arXiv', S.arxivSearch(ref)],
       ['ERIC', S.ericSearch(ref)],
-      ['CORE', S.coreSearch(ref)]
+      ['CORE', S.coreSearch(ref)],
+      // PubMed's citation matcher (journal, year, volume, first page): finds the paper when the title is misspelled
+      ['PubMed', S.pubmedCitationMatch(ref)],
+      // Google Books for every reference still not verified (books, chapters, reports and many journals' volumes)
+      ['Google Books', S.googleBooksSearch(ref)]
     ];
-    if (ref.looksLikeBook || !ref.journal) {
-      if (!checked.has('Open Library')) wave2.push(['Open Library', S.openLibrarySearch(ref)]);
-      wave2.push(['Google Books', S.googleBooksSearch(ref)]);
-    }
+    if ((ref.looksLikeBook || !ref.journal) && !checked.has('Open Library')) wave2.push(['Open Library', S.openLibrarySearch(ref)]);
     const r2 = await Promise.all(wave2.map(([, p]) => p));
     wave2.forEach(([n], i) => take(n, r2[i]));
   }
@@ -319,6 +320,16 @@ async function verifyReference(ref, opts = {}) {
         if (cr?.record) take('Crossref', { record: cr.record });
         break;
       }
+    }
+  }
+
+  // ---- 2c. Google web search (SerpApi): only when nothing above found the work; shows whether the title exists on the web
+  let web = null;
+  if (!confident() && S.scholarEnabled() && (ref.title || '').length >= 15 && !(best()?.score >= 75)) {
+    const g = await S.googleWebSearch(ref).catch(e => ({ error: e.message }));
+    if (!g.skipped) {
+      mark('Google', g.error ? 'error' : g.hits?.length ? 'found' : 'not-found');
+      if (!g.error) web = g.hits || [];
     }
   }
 
@@ -386,7 +397,7 @@ async function verifyReference(ref, opts = {}) {
   // Offline (desktop): nothing reachable and nothing cached — verify later instead of calling it fabricated
   const outcomes = [...checked.values()];
   const offline = !record && !isOnline() && outcomes.length > 0 && outcomes.every(o => o === 'error');
-  return { ref, record, closest, openalexRecord, confidence, issues, matchedIn: record ? matchedIn : [], checked: Object.fromEntries(checked), topScore: top?.score || 0, offline };
+  return { ref, record, closest, openalexRecord, confidence, issues, matchedIn: record ? matchedIn : [], checked: Object.fromEntries(checked), topScore: top?.score || 0, offline, web };
 }
 
 // ------------------------------------------------------------------ "well-indexed journal but article absent" check
@@ -425,6 +436,15 @@ async function classify(v, retraction) {
   } else if (anyFound && (record.retracted || (retraction && /retraction/i.test(retraction.nature)))) {
     status = 'retracted';
     reason = 'This work has been retracted';
+  } else if (!anyFound && v.web?.length) {
+    // Google found a page with this title: the work exists. For a web page, report, book or thesis that is the check;
+    // for a journal article it is not a bibliographic match, so it stays unverified, but it is not a sign of fabrication
+    const h = v.web[0];
+    v.foundOnWeb = h;
+    const grey = ref.looksLikeWeb || ref.looksLikeBook || (!ref.journal && !ref.doi && !ref.pmid);
+    const idFailed = issues.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code));
+    if (grey && !idFailed) { status = 'verified'; reason = `Found on the web by Google (${h.host}): the page title matches - check the author, year and publisher on that page`; }
+    else { status = 'unverified'; reason = `Not in the scholarly databases, but Google found the title on the web (${h.host}) - not a sign of fabrication; check the details on that page${idFailed ? '. The identifier given does not exist' : ''}`; }
   } else if (!anyFound && v.closest && (ref.looksLikeWeb || (ref.looksLikeBook && !ref.doi) || (!ref.journal && !ref.doi && !ref.pmid)) && scoreCandidate(ref, v.closest).tSim < 0.7) {
     // a web page, report or book whose "closest record" is some unrelated paper: say what it is, not the stray match
     status = 'unverified';
@@ -537,7 +557,7 @@ async function checkReferences(refs, opts = {}) {
       statusLabel: v.notIndexed ? 'Not indexed' : STATUS[status].label,
       tone: STATUS[status].tone,
       reason,
-      confidence: v.record ? Math.min(100, v.confidence) : Math.min(v.topScore || 0, 40),
+      confidence: v.record ? Math.min(100, v.confidence) : v.foundOnWeb && status === 'verified' ? 70 : Math.min(v.topScore || 0, 40),
       issues: v.issues,
       notices,
       retraction: retraction ? { nature: retraction.nature, date: retraction.retraction_date, doi: retraction.retraction_doi, reason: retraction.reason } : (rec?.retracted ? { nature: 'Retraction', source: rec.source } : null),
@@ -552,6 +572,7 @@ async function checkReferences(refs, opts = {}) {
       closest: v.closest ? { source: v.closest.source, title: v.closest.title, year: v.closest.year, journal: v.closest.journal, doi: v.closest.doi, url: v.closest.url } : null,
       matchedIn: v.matchedIn,
       checked: v.checked,
+      web: v.web ? v.web.slice(0, 3) : null,
       suggestion: !rec || status === 'retracted' ? null
         : status !== 'verified' || (!v.ref.doi && rec.doi) ? formatReference({ ...rec, title: rec.title.replace(/^(retracted|withdrawn)\s*:\s*/i, '') }, style) : null,
       age: (rec?.year || v.ref.year) ? year - (rec?.year || v.ref.year) : null,

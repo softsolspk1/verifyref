@@ -252,6 +252,26 @@ async function pubmedSearch(ref) {
   return { records: recs || [] };
 }
 
+/**
+ * NCBI citation matcher (ECitMatch): finds the PubMed record from journal, year, volume, first page and first author,
+ * so a reference whose title is misspelled or garbled is still found. The hit is only a candidate: its record is scored
+ * against the reference like every other match (the same journal page can hold a different paper).
+ */
+async function pubmedCitationMatch(ref) {
+  const page = String(ref.pages || '').match(/^\s*([A-Za-z]?\d+)/)?.[1];
+  if (!ref.journal || !ref.year || !ref.volume || !page) return { records: [] };
+  const clean = s => String(s || '').replace(/[|\r\n]/g, ' ').trim();
+  const a = ref.authors?.[0];
+  const author = a?.family ? `${a.family} ${String(a.given || '').replace(/[^A-Za-z]/g, '').slice(0, 2)}`.trim() : '';
+  const bdata = [clean(ref.journal), ref.year, clean(ref.volume), page, clean(author), 'ref', ''].join('|');
+  const r = await getText(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/ecitmatch.cgi?db=pubmed&retmode=xml&bdata=${enc(bdata)}${ncbiKey()}`, { ttl: 30 * 86400, timeout: 20000, retries: 1 });
+  if (!r.ok) return { error: r.error || `HTTP ${r.status}` };
+  const pmid = (String(r.text || '').trim().split('|').pop() || '').match(/^\d{4,9}$/)?.[0];
+  if (!pmid) return { records: [] };
+  const recs = await pubmedIds([pmid]);
+  return recs === null ? { error: 'PubMed unavailable' } : { records: recs };
+}
+
 // ---------------------------------------------------------------- 6. Europe PMC
 
 function fromEuropePmc(e) {
@@ -552,8 +572,17 @@ async function coreSearch(ref) {
 // Google offers no Scholar API; SerpApi runs the search for us and returns the result list as JSON. Each search costs a
 // credit, so it is asked last (only for references the 13 free databases could not verify) and cached for 30 days.
 
-const scholarEnabled = () => !!cfg.SERPAPI_KEY;
-let scholarBlockedUntil = 0;   // after "out of searches" / invalid key, Google Scholar is skipped for an hour
+// The desktop holds no SerpApi key: it asks the web platform, which runs the search with its key (see /api/sync/serpapi)
+const scholarEnabled = () => !!cfg.SERPAPI_KEY || (cfg.DESKTOP && require('./desktop').serpViaPlatform());
+let scholarBlockedUntil = 0;   // after "out of searches" / invalid key, Google Scholar and Google are skipped for an hour
+
+/** One SerpApi search (engine google_scholar or google), cached 30 days; on the desktop through the web platform */
+async function serpSearch(engine, query, num = 5) {
+  if (cfg.SERPAPI_KEY) return getJson(`https://serpapi.com/search.json?engine=${engine}&q=${enc(query)}&num=${num}&hl=en&api_key=${enc(cfg.SERPAPI_KEY)}`, { ttl: 30 * 86400, timeout: 30000, retries: 1 });
+  if (cfg.DESKTOP) return require('./desktop').remoteSerp(engine, query, num);
+  return { ok: false, status: 0, data: { error: 'SerpApi is not configured' } };
+}
+const serpBlocked = r => r.status === 401 || r.status === 429 || /run out of searches|invalid api key/i.test(r.data?.error || '');
 
 /**
  * "R Rahbari, L Francis, OJ Guy… - Pharmaceutics, 2023 - mdpi.com" -> authors, venue, year, host.
@@ -602,11 +631,11 @@ async function googleScholarSearch(ref) {
   const title = q(ref.title || '').slice(0, 250);
   if (title.length < 12) return { records: [] };
   const fam = ref.authors?.[0]?.family ? ` author:"${q(ref.authors[0].family)}"` : '';
-  const url = `https://serpapi.com/search.json?engine=google_scholar&q=${enc(`"${title}"${fam}`)}&num=5&hl=en&api_key=${enc(cfg.SERPAPI_KEY)}`;
-  let r = await getJson(url, { ttl: 30 * 86400, timeout: 30000, retries: 1 });
+  let r = await serpSearch('google_scholar', `"${title}"${fam}`);
+  if (r.skipped) return { skipped: true };
   // an exact phrase plus the author can be too strict (title variants, author spelled differently): one looser search
-  if (r.ok && !(r.data?.organic_results || []).length && fam) r = await getJson(url.replace(enc(`"${title}"${fam}`), enc(title)), { ttl: 30 * 86400, timeout: 30000, retries: 1 });
-  if (r.status === 401 || r.status === 429 || /run out of searches|invalid api key/i.test(r.data?.error || '')) {
+  if (r.ok && !(r.data?.organic_results || []).length && fam) r = await serpSearch('google_scholar', title);
+  if (serpBlocked(r)) {
     scholarBlockedUntil = Date.now() + 3600000;
     return { error: r.data?.error || `SerpApi HTTP ${r.status}` };
   }
@@ -615,6 +644,35 @@ async function googleScholarSearch(ref) {
   // "[CITATION]" entries are assembled from other papers' reference lists, not from the work itself: they cannot show
   // that a reference exists (a fabricated reference copied by several papers would have one), so they are left out
   return { records: (r.data?.organic_results || []).slice(0, 5).map(fromScholar).filter(x => x.type !== 'citation') };
+}
+
+/**
+ * Google web search (SerpApi, engine "google") for a reference that no scholarly database or Google Scholar found:
+ * pages whose title matches the cited title. This shows that the work exists somewhere on the web (journal site,
+ * repository, report, thesis, web page); it does not confirm the bibliographic details. Returns { hits: [{ title, url, host, sim, snippet }] }.
+ */
+async function googleWebSearch(ref) {
+  if (!scholarEnabled()) return { skipped: true };
+  if (Date.now() < scholarBlockedUntil) return { error: 'Google paused (SerpApi searches used up or key rejected)' };
+  const title = q(ref.title || '').slice(0, 250);
+  if (title.length < 15) return { hits: [] };
+  const r = await serpSearch('google', `"${title}"`, 8);
+  if (r.skipped) return { skipped: true };
+  if (serpBlocked(r)) { scholarBlockedUntil = Date.now() + 3600000; return { error: r.data?.error || `SerpApi HTTP ${r.status}` }; }
+  if (!r.ok) return { error: r.data?.error || r.error || r.status };
+  if (r.data?.error && !/hasn't returned any results/i.test(r.data.error)) return { error: r.data.error };
+  // page titles carry the site name ("Title | Journal", "Title - ScienceDirect") and Google shortens long ones with "..."
+  const pageTitle = t => String(t || '').replace(/\s*(?:\||–|—|-\s)\s*[^|–—]{2,60}$/, '').replace(/(?:\.\.\.|…)\s*$/, '').trim();
+  const hits = (r.data?.organic_results || []).map(o => {
+    const t = pageTitle(o.title);
+    const shortened = /(?:\.\.\.|…)\s*$/.test(String(o.title || ''));
+    const full = String(ref.title || '');
+    const sim = shortened && t.length >= 25 && full.toLowerCase().startsWith(t.toLowerCase().slice(0, -1)) ? 0.95 : Math.max(titleSimilarity(full, t), titleSimilarity(full, o.title || ''));
+    let host = '';
+    try { host = new URL(o.link).hostname.replace(/^www\./, ''); } catch (e) { /* no link */ }
+    return { title: o.title || '', url: o.link || '', host, sim: Math.round(sim * 100) / 100, snippet: String(o.snippet || '').slice(0, 300) };
+  }).filter(h => h.url && h.sim >= 0.9);
+  return { hits: hits.slice(0, 3) };
 }
 
 /** SerpApi account: plan and searches left this month (Admin > Data) */
@@ -631,10 +689,10 @@ const DATABASES = [
   'Crossref', 'DOI Foundation (Handle)', 'DataCite', 'OpenAlex', 'PubMed', 'Europe PMC',
   'Semantic Scholar', 'arXiv', 'DBLP', 'Open Library', 'Google Books', 'ERIC', 'CORE'
 ];
-const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (SerpApi)'] : DATABASES);
+const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (SerpApi)', 'Google (SerpApi)'] : DATABASES);
 
 module.exports = {
-  DATABASES, databases, scholarEnabled, googleScholarSearch, scholarAccount, fromScholar, parseScholarSummary,
+  DATABASES, databases, scholarEnabled, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,
   pubmedPmid, pubmedSearch, europepmcSearch, s2Doi, s2Search,

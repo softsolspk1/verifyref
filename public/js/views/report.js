@@ -320,17 +320,33 @@ function scholarQuery(r) {
   if (title.length >= 12) return `"${title}"${p.authors?.[0]?.family ? ` author:"${p.authors[0].family}"` : ''}`;
   return String(r.raw || '').replace(/^\s*\[?\d+[\].)]?\s*/, '').slice(0, 250);
 }
-function manualSearch(r) {
+/**
+ * PubMed, Google Books, Google Scholar and Google are searched automatically; this shows what each one found. A source
+ * that could not run (no SerpApi key for the two Google searches, offline, a source error) keeps a link to search it by hand.
+ */
+function autoSearch(r) {
   const p = r.parsed || {};
   const q = scholarQuery(r);
   const plain = (p.title || r.raw || '').slice(0, 250);
-  const links = [
-    ['Google Scholar', `https://scholar.google.com/scholar?q=${enc(q)}`],
-    ['Google Books', `https://www.google.com/search?tbm=bks&q=${enc(plain)}`],
+  const sources = [
     ['PubMed', `https://pubmed.ncbi.nlm.nih.gov/?term=${enc(plain)}`],
+    ['Google Books', `https://www.google.com/search?tbm=bks&q=${enc(plain)}`],
+    ['Google Scholar', `https://scholar.google.com/scholar?q=${enc(q)}`],
     ['Google', `https://www.google.com/search?q=${enc(`"${plain}"`)}`]
   ];
-  return `<div style="margin-top:10px"><div class="muted" style="font-size:12px;margin-bottom:4px">Search manually (opens in your browser)</div><div class="row" style="gap:6px;flex-wrap:wrap">${links.map(([l, u]) => `<a class="btn btn-sm btn-ghost" href="${esc(u)}" target="_blank" rel="noopener">${esc(l)} ↗</a>`).join('')}</div></div>`;
+  const state = name => (r.checked || {})[name];
+  const item = ([name, url]) => {
+    const o = state(name);
+    if (o === 'found' && name === 'Google' && (r.web || []).length) return `${badge(name, 'good')} found on the web`;
+    if (o === 'found') return `${badge(name, (r.matchedIn || []).includes(name) ? 'good' : 'neutral')} ${(r.matchedIn || []).includes(name) ? 'matched' : 'similar record, not the same work'}`;
+    if (o === 'not-found') return `${badge(name, 'neutral')} no match`;
+    const why = o === 'error' ? 'could not be searched' : 'not searched';
+    return `${badge(name, 'warn')} ${why} · <a href="${esc(url)}" target="_blank" rel="noopener">search yourself ↗</a>`;
+  };
+  const web = (r.web || []).map(h => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener">${esc(h.title)}</a> <span class="muted">${esc(h.host)} · title match ${Math.round(h.sim * 100)}%</span>${h.snippet ? `<div class="muted" style="font-size:12px">${esc(h.snippet)}</div>` : ''}</li>`).join('');
+  return `<div style="margin-top:10px"><div class="muted" style="font-size:12px;margin-bottom:4px">Searched automatically</div>
+    <div class="row" style="gap:12px;flex-wrap:wrap;font-size:13px">${sources.map(x => `<span>${item(x)}</span>`).join('')}</div>
+    ${web ? `<div style="margin-top:6px"><div class="muted" style="font-size:12px">Found by Google</div><ul class="evidence" style="margin:4px 0 0">${web}</ul></div>` : ''}</div>`;
 }
 
 function refRow(r) {
@@ -366,7 +382,7 @@ function refRow(r) {
       ${(r.links || []).length ? `<p>${r.links.map(l => `${badge(l.status === 'works' ? 'Link works' : l.status === 'broken' ? 'Broken link' : 'Not checked', l.status === 'works' ? 'good' : l.status === 'broken' ? 'bad' : 'neutral')} <a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.url.slice(0, 80))}</a>${l.archived ? ` · <a href="${esc(l.archived)}" target="_blank" rel="noopener">archived copy</a>` : ''}`).join('<br>')}</p>` : ''}
       ${r.suggestion ? `<div class="suggest"><b>Suggested reference:</b> ${esc(r.suggestion)} <button class="btn btn-sm btn-ghost" data-copy="${esc(r.suggestion)}">${ICONS.copy}</button></div>` : ''}
       ${chips ? `<div style="margin-top:10px"><div class="muted" style="font-size:12px;margin-bottom:4px">Databases checked</div><div class="chips">${chips}</div></div>` : ''}
-      ${r.status !== 'verified' ? manualSearch(r) : `<div style="margin-top:8px"><a class="muted" style="font-size:12px" href="https://scholar.google.com/scholar?q=${enc(scholarQuery(r))}" target="_blank" rel="noopener">Find in Google Scholar ↗</a></div>`}
+      ${r.status !== 'verified' || r.web?.length ? autoSearch(r) : `<div style="margin-top:8px"><a class="muted" style="font-size:12px" href="https://scholar.google.com/scholar?q=${enc(scholarQuery(r))}" target="_blank" rel="noopener">Find in Google Scholar ↗</a></div>`}
     </div>
   </div>`;
 }

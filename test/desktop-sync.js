@@ -18,6 +18,14 @@ if (process.argv[2] === 'platform') {
   delete process.env.APP_MODE;
   delete process.env.DATABASE_URL;
   for (const k of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET']) process.env[k] = '';
+  // Google Scholar / Google web search: only the platform holds the SerpApi key (SerpApi replayed in its documented format)
+  process.env.SERPAPI_KEY = 'platform-key';
+  const realFetch = global.fetch;
+  global.fetch = async (url, init) => {
+    if (!String(url).startsWith('https://serpapi.com/')) return realFetch(url, init);
+    const engine = new URL(String(url)).searchParams.get('engine');
+    return new Response(JSON.stringify({ organic_results: [{ title: `Result from ${engine}`, link: 'https://example.org/a' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
   (async () => {
     const server = require('../server');
     const db = require('../src/db');
@@ -94,6 +102,16 @@ if (process.argv[2] === 'platform') {
     r = await call('GET', '/api/images/databases');
     assert.ok(r.data.onPlatform && r.data.bySource.pjps.papers === 1, 'database counts come from the platform');
     console.log('  ✓ Module 5 on the desktop searches the platform image databases');
+
+    // Module 1: the desktop has no SerpApi key; Google Scholar and Google web search run on the platform
+    delete process.env.SERPAPI_KEY;
+    const S = require('../src/sources');
+    assert.ok(S.scholarEnabled(), 'Google searches available on the desktop through the platform');
+    for (const engine of ['google_scholar', 'google']) {
+      const g = await S.serpSearch(engine, '"a test title"', 5);
+      assert.ok(g.ok && g.data.organic_results[0].title === `Result from ${engine}`, `${engine} searched through the platform: ${g.error || ''}`);
+    }
+    console.log('  ✓ Google Scholar and Google web search from the desktop through the platform');
 
     // Offline: the check still runs and says what was not searched
     process.env.SIMULATE_OFFLINE = '1';

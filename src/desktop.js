@@ -69,6 +69,7 @@ async function login(req, res) {
     const r = await remote('/api/desktop/login', { method: 'POST', body: { email, password, device: { name: `${os.hostname()} (${os.platform()})`, version: cfg.APP_VERSION } } });
     const id = await upsertLocalUser(r.user, password);
     await db.setMeta(tokenKey(id), r.token);
+    await db.setMeta('last_device_user', String(id));
     await auth.createSession(res, id);
     const u = await db.one('SELECT * FROM users WHERE id = $1', [id]);
     // First sign-in on this computer: start downloading datasets and reports in the background
@@ -249,6 +250,23 @@ async function remoteImageDatabases(userId) {
   return remote('/api/sync/images/databases', { token, timeout: 20000 }).catch(() => null);
 }
 
+// Google Scholar and Google web search (SerpApi) are run by the web platform with its key; the desktop signs the request
+// with the device token of the user who signed in last. If the platform has no key, they are skipped for an hour.
+let serpOffUntil = 0;
+const serpViaPlatform = () => Date.now() >= serpOffUntil;
+async function remoteSerp(engine, query, num) {
+  const userId = await db.getMeta('last_device_user');
+  const token = userId ? await deviceToken(userId) : null;
+  if (!token || !isOnline()) return { ok: false, status: 0, error: 'The web platform could not be reached (offline).' };
+  try {
+    const r = await remote('/api/sync/serpapi', { method: 'POST', token, timeout: 45000, body: { engine, q: query, num } });
+    if (r.skipped) { serpOffUntil = Date.now() + 3600000; return { skipped: true }; }
+    return { ok: !!r.ok, status: r.status, data: r.data || {} };
+  } catch (e) {
+    return { ok: false, status: e.status || 0, error: e.message };
+  }
+}
+
 const CHECK_COLS = ['uid', 'kind', 'manuscript_code', 'version', 'title', 'ref_total', 'verified', 'suspicious', 'unverified', 'miscited', 'retracted', 'missing_citations', 'uncited_references', 'journal_flags', 'self_citation_rate', 'problems', 'result', 'created_at', 'origin', 'pending_online'];
 
 async function pushChecks(userId, token) {
@@ -366,4 +384,4 @@ async function status(userId) {
   };
 }
 
-module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases };
+module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases, serpViaPlatform, remoteSerp };

@@ -156,6 +156,17 @@ router.post('/sync/images/match', wrap(device), wrap(async (req, res) => {
   res.json({ success: true, earlier, earlierCharts, refs });
 }));
 
+/** Module 1 from the desktop: Google Scholar and Google web search run here with the platform's SerpApi key (cached 30 days) */
+router.post('/sync/serpapi', wrap(device), wrap(async (req, res) => {
+  const engine = String(req.body?.engine || '');
+  if (!['google_scholar', 'google'].includes(engine)) return res.status(400).json({ success: false, message: 'Unknown search engine.' });
+  if (!cfg.SERPAPI_KEY) return res.json({ success: true, skipped: true });
+  const query = String(req.body?.q || '').slice(0, 400);
+  const num = Math.min(10, Math.max(1, parseInt(req.body?.num, 10) || 5));
+  const r = await require('../sources').serpSearch(engine, query, num);
+  res.json({ success: true, ok: !!r.ok, status: r.status, data: { organic_results: r.data?.organic_results || [], error: r.data?.error || null } });
+}));
+
 router.get('/sync/images/refs/:id/thumb', wrap(device), wrap(async (req, res) => {
   const REFS = require('../imageRefs');
   const buf = await REFS.refThumb(await REFS.thumbKey(parseInt(req.params.id, 10) || 0));

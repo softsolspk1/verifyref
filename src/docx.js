@@ -374,18 +374,24 @@ function plagiarismBlocks(pl) {
 function noveltyBlocks(nv) {
   const blocks = [{ h2: '7. Novelty and citation outlook' }];
   if (!nv || nv.error) return [...blocks, { p: nv?.error || 'Not assessed.' }];
-  const s = nv.summary, f = nv.forecast;
-  blocks.push({ kv: [['Novelty score', `${s.score}/100 (${s.band})`], ['Components', `distance from closest work ${nv.components.distance}, uncrowded field ${100 - nv.components.crowding}${nv.components.rarity === null ? '' : `, rare concept combination ${nv.components.rarity}`}`],
-    ['Closest published work', nv.closest[0] ? `${nv.closest[0].title} (${nv.closest[0].year}) — similarity ${nv.closest[0].similarity}` : '—'],
-    ['Close works (last 5 years)', `${s.closeRecent} of ${s.closeWorks} close works`],
-    ['Research topic', nv.momentum ? `${nv.momentum.topic}: ${nv.momentum.trend}${nv.momentum.growthPerYear !== null ? ` (${nv.momentum.growthPerYear > 0 ? '+' : ''}${nv.momentum.growthPerYear}% works per year)` : ''}` : '—'],
-    ['Works compared', `${nv.checked.works} (${nv.checked.database})`]] });
-  if (nv.concepts?.pairs?.length) blocks.push({ table: { headers: ['Concepts studied together', 'Published works'], rows: nv.concepts.pairs.map(p => [`${p.a} + ${p.b}`, p.works === null || p.works === undefined ? '—' : Number(p.works).toLocaleString()]) } });
-  blocks.push({ table: { headers: ['Closest published works', 'Year', 'Similarity', 'Cited by'], rows: nv.closest.slice(0, 8).map(w => [`${w.title}${w.journal ? ` — ${w.journal}` : ''}${w.doi ? ` (doi:${w.doi})` : ''}`, String(w.year || ''), String(w.similarity), String(w.citedBy)]) } });
-  blocks.push({ p: 'Citation outlook (if published in the journal):', bold: true });
-  blocks.push({ table: { headers: ['After', 'Expected citations (median)', 'Likely range (25-75%)', 'Similar works used'], rows: f.horizon.map(h => [`${h.years} year${h.years > 1 ? 's' : ''}`, h.median === null ? 'insufficient data' : String(h.median), h.median === null ? '—' : `${h.low} - ${h.high}`, String(h.basis)]) } });
+  const s = nv.summary, f = nv.forecast, c = nv.components;
+  const w = nv.weights || { distance: 50, uncrowded: 25, rarity: c.rarity === null ? 0 : 25 };
+  const parts = [['Distance from the closest published work', c.distance, w.distance], ['Uncrowded field (last five years)', 100 - c.crowding, w.uncrowded], ...(c.rarity === null ? [] : [['Rare combination of key concepts', c.rarity, w.rarity]])];
+  const wsum = parts.reduce((a, p) => a + p[2], 0) || 1;
+  blocks.push({ callout: { level: s.band === 'high' ? 'ok' : s.band === 'moderate' ? 'warn' : 'bad', title: `Novelty ${s.score}/100 - ${s.band}${s.confidence ? ` (confidence ${s.confidence})` : ''}`, text: nv.statement || '' } });
+  blocks.push({ p: 'Score breakdown', bold: true });
+  blocks.push({ table: { headers: ['Component', 'Value (0-100)', 'Weight', 'Points'], rows: [...parts.map(([l, v, wt]) => [l, v === null ? '-' : String(v), `${Math.round(wt / wsum * 100)}%`, v === null ? '-' : String(Math.round(v * wt / wsum))]), ['Novelty score (70-100 high, 45-69 moderate, 0-44 low)', '', '', String(s.score)]] } });
+  blocks.push({ p: 'Closest published works', bold: true });
+  blocks.push({ table: { headers: ['#', 'Work', 'Shared key terms', 'Year', 'Similarity', 'Cited by'], rows: nv.closest.slice(0, 10).map((x, i) => [String(i + 1), `${x.title}${x.journal ? ` - ${x.journal}` : ''}${x.doi ? ` (doi:${x.doi})` : ''}`, (x.shared || []).join(', ') || '-', String(x.year || ''), `${Math.round(x.similarity * 100)}%`, String(x.citedBy ?? '')]) } });
+  if (nv.concepts?.pairs?.length) blocks.push({ p: 'Research landscape', bold: true }, { table: { headers: ['Key concepts studied together', 'Published works'], rows: nv.concepts.pairs.map(p => [`${p.a} + ${p.b}`, p.works === null || p.works === undefined ? '-' : Number(p.works).toLocaleString()]) } });
+  if (nv.momentum) blocks.push({ p: `Research topic: ${nv.momentum.topic} - ${nv.momentum.trend}${nv.momentum.growthPerYear !== null ? ` (${nv.momentum.growthPerYear > 0 ? '+' : ''}${nv.momentum.growthPerYear}% works per year)` : ''}; works per year: ${(nv.momentum.worksByYear || []).map(y => `${y.year}: ${y.works.toLocaleString()}`).join(', ')}.` });
+  blocks.push({ p: 'Citation outlook (if published in the journal)', bold: true });
+  blocks.push({ table: { headers: ['After', 'Expected citations (median)', 'Likely range (25-75%)', 'Similar works used'], rows: f.horizon.map(h => [`${h.years} year${h.years > 1 ? 's' : ''}`, h.median === null || h.median === undefined ? 'insufficient data' : String(h.median), h.median === null || h.median === undefined ? '-' : `${h.low}-${h.high}`, String(h.basis)]) } });
   if (f.journalNote) blocks.push({ p: f.journalNote, italics: true });
-  blocks.push({ p: `${nv.method} ${f.method}`, italics: true });
+  if (nv.guidance?.length) blocks.push({ p: 'Guidance for the editor', bold: true }, { bullets: nv.guidance });
+  if (nv.selfMatches?.length) blocks.push({ p: `Not counted as prior work (the manuscript's own published version or preprint): ${nv.selfMatches.map(x => x.title).join('; ')}`, italics: true });
+  blocks.push({ p: 'Method and limitations', bold: true }, { p: `${nv.method} ${f.method}`, italics: true });
+  if (nv.limitations?.length) blocks.push({ bullets: nv.limitations });
   return blocks;
 }
 

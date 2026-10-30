@@ -224,25 +224,52 @@ function plagiarismTab(body, pl) {
 
 function noveltyTab(body, nv) {
   if (nv.error) { body.innerHTML = `<div class="card"><h3>Novelty &amp; citation outlook</h3><p class="muted">${esc(nv.error)}</p></div>`; return; }
-  const s = nv.summary, f = nv.forecast;
-  const bar = (label, v) => `<div style="margin:6px 0"><div class="row" style="justify-content:space-between"><span>${label}</span><b>${v ?? '—'}</b></div><div style="height:8px;background:var(--bg-soft,#eef2f5);border-radius:4px"><div style="height:8px;width:${Math.max(0, Math.min(100, v || 0))}%;background:var(--brand,#0f4c5c);border-radius:4px"></div></div></div>`;
+  const s = nv.summary, f = nv.forecast, c = nv.components;
+  const tone = s.band === 'high' ? 'low' : s.band === 'moderate' ? 'medium' : 'high';
   const years = nv.momentum?.worksByYear || [];
   const maxW = Math.max(1, ...years.map(y => y.works));
+  const w = nv.weights || { distance: 50, uncrowded: 25, rarity: c.rarity === null ? 0 : 25 };
+  const parts = [
+    ['Distance from the closest published work', c.distance, w.distance, 'How different the manuscript is from the most similar published study'],
+    ['Uncrowded field (last five years)', 100 - c.crowding, w.uncrowded, 'Few closely related works published recently'],
+    ...(c.rarity === null ? [] : [['Rare combination of key concepts', c.rarity, w.rarity, 'How seldom the key concepts were studied together']])
+  ];
+  const wsum = parts.reduce((a, p) => a + p[2], 0) || 1;
+  const meter = v => `<div style="height:8px;background:var(--bg-soft,#eef2f5);border-radius:4px;min-width:90px"><div style="height:8px;width:${Math.max(0, Math.min(100, v ?? 0))}%;background:var(--accent,#2b6cb0);border-radius:4px"></div></div>`;
+  const simTone = v => (v >= 0.6 ? 'bad' : v >= 0.35 ? 'warn' : 'neutral');
   body.innerHTML = `
-    <div class="risk-banner risk-${s.band === 'high' ? 'low' : s.band === 'moderate' ? 'medium' : 'high'}"><div class="risk-level">${s.score}</div><div><b>Novelty ${s.score}/100 — ${esc(s.band)}</b>
-      <div class="muted">Closest published work: similarity ${s.maxSimilarity}; ${s.closeRecent} close work(s) in the last five years; ${nv.checked.works} related works compared (${esc(nv.checked.database)}). 5-year citation outlook: <b>${esc(s.outlook)}</b>.</div></div></div>
+    <div class="risk-banner risk-${tone}"><div class="risk-level">${s.score}</div><div><b>Novelty ${s.score}/100 — ${esc(s.band)}</b>${s.confidence ? ` <span class="badge b-neutral">confidence ${esc(s.confidence)}</span>` : ''}
+      <div style="margin-top:4px">${esc(nv.statement || `Closest published work: similarity ${s.maxSimilarity}; ${s.closeRecent} close work(s) in the last five years.`)}</div>
+      <div class="muted" style="margin-top:4px">${nv.checked.works} related works compared (${esc(nv.checked.database)}) · 5-year citation outlook: <b>${esc(s.outlook)}</b></div></div></div>
     <div class="grid grid-2">
-      <div class="card"><h3>Novelty components</h3>${bar('Distance from the closest published work', nv.components.distance)}${bar('Uncrowded field (last 5 years)', 100 - nv.components.crowding)}${nv.components.rarity === null ? '' : bar('Rare combination of the key concepts', nv.components.rarity)}
-        ${nv.concepts?.pairs?.length ? `<table class="t" style="margin-top:10px"><tr><th>Concepts studied together</th><th class="num">Works</th></tr>${nv.concepts.pairs.map(p => `<tr><td>${esc(p.a)} + ${esc(p.b)}</td><td class="num">${p.works === null || p.works === undefined ? '—' : Number(p.works).toLocaleString()}</td></tr>`).join('')}</table>` : ''}</div>
-      <div class="card"><h3>Citation outlook</h3>
-        <table class="t"><tr><th>After</th><th class="num">Median</th><th class="num">Likely range</th><th class="num">Basis</th></tr>${f.horizon.map(h => `<tr><td>${h.years} year${h.years > 1 ? 's' : ''}</td><td class="num">${h.median ?? '—'}</td><td class="num">${h.median === null ? '—' : `${h.low} – ${h.high}`}</td><td class="num">${h.basis}</td></tr>`).join('')}</table>
-        ${f.journalNote ? `<p class="muted" style="margin-top:8px">${esc(f.journalNote)}</p>` : ''}
-        ${nv.momentum ? `<h3 style="margin-top:14px">${esc(nv.momentum.topic)}</h3><div class="muted">${esc(nv.momentum.trend)}${nv.momentum.growthPerYear !== null ? ` (${nv.momentum.growthPerYear > 0 ? '+' : ''}${nv.momentum.growthPerYear}% works per year)` : ''}</div>
-          <div class="row" style="align-items:flex-end;gap:4px;height:90px;margin-top:8px">${years.map(y => `<div title="${y.year}: ${y.works.toLocaleString()} works" style="flex:1;text-align:center"><div style="height:${Math.round(y.works / maxW * 70)}px;background:var(--brand,#0f4c5c);border-radius:3px 3px 0 0"></div><div class="muted" style="font-size:11px">${String(y.year).slice(2)}</div></div>`).join('')}</div>` : ''}</div>
+      <div class="card"><h3>Score breakdown</h3>
+        <table class="t"><tr><th>Component</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Points</th></tr>
+          ${parts.map(([label, v, wt, hint]) => `<tr><td>${esc(label)}<div class="muted" style="font-size:12px">${esc(hint)}</div>${meter(v)}</td><td class="num">${v ?? '—'}</td><td class="num">${Math.round(wt / wsum * 100)}%</td><td class="num"><b>${v === null ? '—' : Math.round(v * wt / wsum)}</b></td></tr>`).join('')}
+          <tr><td><b>Novelty score</b></td><td></td><td></td><td class="num"><b>${s.score}</b></td></tr></table>
+        <p class="muted" style="font-size:12px;margin-top:8px">Bands: 70-100 high · 45-69 moderate · 0-44 low.</p>
+      </div>
+      <div class="card"><h3>Guidance for the editor</h3>
+        ${nv.guidance?.length ? `<ul style="margin:0;padding-left:18px">${nv.guidance.map(g => `<li style="margin-bottom:6px">${esc(g)}</li>`).join('')}</ul>` : '<p class="muted">—</p>'}
+        ${nv.selfMatches?.length ? `<p class="muted" style="margin-top:10px">Not counted as prior work (the manuscript's own published version or preprint): ${nv.selfMatches.map(x => esc(x.title)).join('; ')}</p>` : ''}
+      </div>
     </div>
-    <div class="card"><h3>Closest published works</h3><table class="t"><tr><th>Work</th><th class="num">Year</th><th class="num">Similarity</th><th class="num">Cited by</th></tr>
-      ${nv.closest.map(w => `<tr><td><a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.title)}</a>${w.journal ? `<div class="muted">${esc(w.journal)}</div>` : ''}</td><td class="num">${w.year || ''}</td><td class="num">${w.similarity}</td><td class="num">${w.citedBy}</td></tr>`).join('')}</table>
-      <p class="muted" style="margin-top:10px">${esc(nv.method)} ${esc(f.method)}</p></div>`;
+    <div class="card"><h3>Closest published works</h3><table class="t"><tr><th>#</th><th>Work</th><th>Shared key terms</th><th class="num">Year</th><th class="num">Similarity</th><th class="num">Cited by</th></tr>
+      ${nv.closest.map((x, i) => `<tr><td>${i + 1}</td><td><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>${x.journal ? `<div class="muted">${esc(x.journal)}${x.via ? ` · ${esc(x.via)}` : ''}</div>` : ''}</td>
+        <td>${(x.shared || []).map(t => `<span class="chip">${esc(t)}</span>`).join(' ') || '<span class="muted">—</span>'}</td><td class="num">${x.year || ''}</td><td class="num">${badge(`${Math.round(x.similarity * 100)}%`, simTone(x.similarity))}</td><td class="num">${x.citedBy ?? ''}</td></tr>`).join('')}</table></div>
+    <div class="grid grid-2">
+      <div class="card"><h3>Research landscape</h3>
+        ${nv.concepts?.pairs?.length ? `<table class="t"><tr><th>Key concepts studied together</th><th class="num">Published works</th></tr>${nv.concepts.pairs.map(p => `<tr><td>${esc(p.a)} + ${esc(p.b)}</td><td class="num">${p.works === null || p.works === undefined ? '—' : Number(p.works).toLocaleString()}</td></tr>`).join('')}</table>` : '<p class="muted">Key concepts could not be determined.</p>'}
+        ${nv.momentum ? `<h4 style="margin:14px 0 2px">${esc(nv.momentum.topic)}</h4><div class="muted">${esc(nv.momentum.trend)}${nv.momentum.growthPerYear !== null ? ` (${nv.momentum.growthPerYear > 0 ? '+' : ''}${nv.momentum.growthPerYear}% works per year)` : ''}</div>
+          <div class="row" style="align-items:flex-end;gap:4px;height:90px;margin-top:8px">${years.map(y => `<div title="${y.year}: ${y.works.toLocaleString()} works" style="flex:1;text-align:center"><div style="height:${Math.round(y.works / maxW * 70)}px;background:var(--accent,#2b6cb0);border-radius:3px 3px 0 0"></div><div class="muted" style="font-size:11px">${String(y.year).slice(2)}</div></div>`).join('')}</div>` : ''}
+      </div>
+      <div class="card"><h3>Citation outlook (if published)</h3>
+        <table class="t"><tr><th>After</th><th class="num">Median</th><th class="num">Likely range</th><th class="num">Similar works used</th></tr>${f.horizon.map(h => `<tr><td>${h.years} year${h.years > 1 ? 's' : ''}</td><td class="num">${h.median ?? '—'}</td><td class="num">${h.median === null || h.median === undefined ? 'insufficient data' : `${h.low}–${h.high}`}</td><td class="num">${h.basis}</td></tr>`).join('')}</table>
+        ${f.journalNote ? `<p class="muted" style="margin-top:8px">${esc(f.journalNote)}</p>` : ''}
+        <p class="muted" style="font-size:12px">${esc(f.method)}</p>
+      </div>
+    </div>
+    <div class="card"><h3>Method and limitations</h3><p class="muted" style="margin-top:0">${esc(nv.method)}</p>
+      ${nv.limitations?.length ? `<ul class="muted" style="margin:0;padding-left:18px">${nv.limitations.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}</div>`;
 }
 
 function authorsTab(body, ai) {

@@ -46,3 +46,11 @@ for (const d of ['200 mg/kg', '50 mg kg-1', '50 mg·kg−1', '0.5 mL/100 g', '30
 assert.ok(!hasDose('rats received the extract orally for 14 days'), 'no dose');
 
 console.log('study ethics test passed (approval numbers, study type, doses)');
+
+// reviews and public-data studies are not human / animal studies, and a waiver is not a gap
+assert.strictEqual(studyType('A systematic review and meta-analysis. Patients were randomized in the included trials; rats were treated in two studies.').animal, false);
+assert.strictEqual(studyType('This study utilized publicly available, de-identified data and did not involve human participants or animal experiments.').human, false);
+assert.ok(approvalNumber('Therefore, ethical approval and informed consent were waived.').exempt);
+console.log('study ethics test passed (reviews, public data, waivers)');
+assert.strictEqual(studyType('Network pharmacology and molecular docking were used. Wistar rats were used and treated with the extract.').animal, true);
+console.log('study ethics test passed (network pharmacology with animals)');

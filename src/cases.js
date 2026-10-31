@@ -48,7 +48,7 @@ async function getCase(id) {
     FROM checks WHERE id = ANY($1::int[]) ORDER BY created_at`, [ids]) : [];
   c.reports.forEach(r => { r.kindLabel = KIND_LABEL[r.kind] || r.kind; });
   // other reports for the same manuscript that are not linked yet
-  c.suggested = c.manuscript_code ? await db.all('SELECT id, kind, title, created_at FROM checks WHERE manuscript_code = $1 AND result IS NOT NULL AND NOT (id = ANY($2::int[])) ORDER BY created_at DESC LIMIT 10', [c.manuscript_code, ids]) : [];
+  c.suggested = c.manuscript_code ? await db.all('SELECT id, kind, title, created_at FROM checks WHERE manuscript_code = $1 AND result IS NOT NULL AND embedded_in IS NULL AND NOT (id = ANY($2::int[])) ORDER BY created_at DESC LIMIT 10', [c.manuscript_code, ids]) : [];
   c.queries = c.events.filter(e => e.kind === 'query').map(q => ({ ...q, responses: c.events.filter(e => e.kind === 'response' && e.data?.queryId === q.id) }));
   return c;
 }
@@ -100,7 +100,7 @@ async function dashboard() {
   const closed = await db.all(`SELECT c.id, c.title, c.manuscript_code, c.outcome, c.closed_at FROM cases c WHERE status = 'closed' ORDER BY closed_at DESC LIMIT 20`);
   const linked = new Set((await db.all('SELECT check_ids FROM cases')).flatMap(r => (r.check_ids || []).map(Number)));
   const unhandled = (await db.all(`SELECT id, kind, title, manuscript_code, created_at, COALESCE(result->'risk'->>'level', result->'summary'->>'level') AS level FROM checks
-    WHERE kind IN ('integrity', 'papermill', 'images', 'peer-review') AND created_at > now() - interval '120 days'
+    WHERE kind IN ('integrity', 'papermill', 'images', 'peer-review') AND embedded_in IS NULL AND created_at > now() - interval '120 days'
       AND COALESCE(result->'risk'->>'level', result->'summary'->>'level') IN ('HIGH', 'CRITICAL') ORDER BY created_at DESC LIMIT 100`)).filter(r => !linked.has(r.id)).slice(0, 25);
   const screenings = await db.all(`SELECT result->'risk'->>'level' AS level, COUNT(*)::int AS n FROM checks WHERE kind = 'integrity' AND created_at > now() - interval '90 days' GROUP BY 1`);
   const monitoring = await db.all('SELECT status, COUNT(*)::int AS n FROM monitored_articles GROUP BY status');

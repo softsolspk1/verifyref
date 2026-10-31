@@ -326,6 +326,7 @@ ALTER TABLE checks ADD COLUMN IF NOT EXISTS uid TEXT;                     -- sta
 ALTER TABLE checks ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'web';
 ALTER TABLE checks ADD COLUMN IF NOT EXISTS synced_at TIMESTAMPTZ;
 ALTER TABLE checks ADD COLUMN IF NOT EXISTS pending_online INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE checks ADD COLUMN IF NOT EXISTS embedded_in INTEGER;            -- an image report made inside a Full Screening Report: shown only there
 ALTER TABLE checks ALTER COLUMN uid SET DEFAULT md5(random()::text || clock_timestamp()::text);
 UPDATE checks SET uid = md5(id::text || random()::text || clock_timestamp()::text) WHERE uid IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_checks_uid ON checks(uid);

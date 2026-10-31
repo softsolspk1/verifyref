@@ -37,6 +37,7 @@ router.get('/activity', user, wrap(async (req, res) => {
   let where = 'user_id = $1';
   if (req.query.kind) { params.push(String(req.query.kind).split(',')); where += ` AND kind = ANY($${params.length}::text[])`; }
   if (req.query.q) { params.push(`%${req.query.q}%`); where += ` AND (title ILIKE $${params.length} OR manuscript_code ILIKE $${params.length})`; }
+  where += ' AND embedded_in IS NULL';   // shown inside their Full Screening Report
   const rows = await db.all(`SELECT id, kind, manuscript_code, version, title, ref_total, verified, suspicious, unverified, miscited, retracted, problems, created_at, origin, synced_at, pending_online,
     (result IS NOT NULL) AS has_result FROM checks WHERE ${where} ORDER BY created_at DESC LIMIT 500`, params);
   res.json({ success: true, items: rows });

@@ -195,6 +195,7 @@ export function renderCheckForm(view, kind) {
           const { analyseAndSave } = await import('./images.js');
           const img = await analyseAndSave([doc.file], { title: body.meta.title, manuscriptCode: body.meta.manuscriptCode, filename: doc.file.name }, set);
           body.imagesCheckId = img.id;
+          body.imagesEmbedded = true;
         } catch (e) {
           // no figures in the file, or the analysis failed: the rest of the screening still runs, and the report says why
           body.imagesNote = e.noFigures ? 'The manuscript file contains no figures that could be analysed.' : `The image analysis could not be completed: ${e.message}`;

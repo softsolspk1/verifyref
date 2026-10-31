@@ -88,6 +88,8 @@ async function runAndSaveCheck(b, { userId, update }) {
   delete result._shingles;
   if (b.save !== false) {
     await saveCheck(userId, result, { issueId: b.issueId || null, saveMode: b.saveMode || 'full' });
+    // the image report the screening made itself belongs to this report only (not listed separately)
+    if (b.imagesEmbedded && result.images?.checkId && result.id) await db.query("UPDATE checks SET embedded_in = $1 WHERE id = $2 AND user_id = $3 AND kind = $4", [result.id, result.images.checkId, userId, 'images']);
     if (shingles) await require('../papermill').storeFingerprint({ checkId: result.id, userId, meta: result.meta, shingles, text: b.bodyText || b.text }).catch(e => console.error('Fingerprint not stored:', e.message));
     if (b.recheckOf) result.changes = await changesSince(userId, b.recheckOf, result);
     // Desktop: references that could not be verified offline are re-checked when the connection returns
@@ -144,6 +146,7 @@ router.get('/checks', user, wrap(async (req, res) => {
   if (req.query.issue) { params.push(req.query.issue); where += ` AND issue_id = $${params.length}`; }
   if (req.query.code) { params.push(req.query.code); where += ` AND manuscript_code = $${params.length}`; }
   if (req.query.kind) { params.push(String(req.query.kind).split(',')); where += ` AND kind = ANY($${params.length}::text[])`; }
+  where += ' AND embedded_in IS NULL';   // image reports made inside a Full Screening Report are shown there only
   const rows = await db.all(`SELECT id, issue_id, kind, manuscript_code, version, title, ref_total, verified, suspicious, unverified, miscited, retracted,
     missing_citations, uncited_references, journal_flags, self_citation_rate, problems, created_at, origin, synced_at, pending_online, (result IS NOT NULL) AS has_result
     FROM checks WHERE ${where} ORDER BY created_at DESC LIMIT 500`, params);
@@ -183,6 +186,7 @@ router.patch('/checks/:id', user, wrap(async (req, res) => {
 }));
 
 router.delete('/checks/:id', user, wrap(async (req, res) => {
+  await db.query('DELETE FROM checks WHERE embedded_in = $1 AND user_id = $2', [req.params.id, req.user.id]);
   await db.query('DELETE FROM checks WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
   res.json({ success: true });
 }));

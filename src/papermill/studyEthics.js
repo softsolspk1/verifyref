@@ -12,9 +12,15 @@ const ANIMAL_WORK = new RegExp(`\\b${SPECIES}\\s+(?:\\w+\\s+){0,2}(?:were|was)\\
 const ANIMAL_COUNT = new RegExp(`\\b(?:\\d+|six|eight|ten|twelve|fifteen|twenty|thirty|forty|fifty)\\s+(?:adult\\s+|healthy\\s+)?(?:male\\s+|female\\s+)?(?:\\w+\\s+)?${SPECIES}\\b|\\b${SPECIES}\\s*\\(\\s*n\\s*=\\s*\\d+|\\b${SPECIES}\\s+(?:per|in each|/)\\s*group\\b|\\b\\d+\\s*[-–]\\s*\\d+\\s*g\\b[^.]{0,40}\\b${SPECIES}|\\b${SPECIES}\\b[^.]{0,40}\\(\\s*\\d+\\s*[-–]\\s*\\d+\\s*g\\s*\\)`, 'i');
 const HUMAN_WORK = /\b(patients?|participants?|volunteers?|subjects?|respondents?|students?|individuals?|women|men|children|adults)\s+(?:\w+\s+){0,2}(?:were|was)\s+(?:\w+\s+)?(?:recruited|enrolled|included|selected|interviewed|surveyed|randomi[sz]ed|allocated|assigned|screened|invited|approached|followed|treated|administered|given|asked|sampled)\b|\b(informed consent|written consent|consent (?:was|were) (?:obtained|taken|signed)|questionnaire was (?:distributed|administered|filled)|cross-sectional (?:study|survey)|clinical trial|randomi[sz]ed controlled trial|blood samples? (?:were|was) (?:collected|drawn|taken) from)\b/i;
 
-/** { animal, human } - only when the manuscript itself reports the work */
+// reviews of published studies, analyses of public data, or an explicit statement that no humans / animals were involved
+// (network pharmacology / docking papers are not here: many of them also treat animals)
+const SECONDARY = /\b(systematic review|meta-?analys[ie]s|umbrella review|scoping review|bibliometric analysis)\b/i;
+const NONE_INVOLVED = /\bdid not involve (?:any )?(?:human|animal)|\bno (?:human|animal) (?:participants|subjects|experiments|studies) were\b|\bpublicly available,? (?:de-identified |anonymi[sz]ed )?data(?:sets?|bases?)?\b/i;
+
+/** { animal, human } - only when the manuscript itself reports the work (not a review or meta-analysis of others' studies) */
 function studyType(text) {
   const t = String(text || '');
+  if (NONE_INVOLVED.test(t) || (SECONDARY.test(t.slice(0, 3000)) && !/\b(?:we|our)\b[^.]{0,60}\b(?:rats?|mice|patients|participants) (?:were|was)\b/i.test(t))) return { animal: false, human: false, secondary: true };
   return { animal: STRAIN.test(t) || ANIMAL_WORK.test(t) || ANIMAL_COUNT.test(t), human: HUMAN_WORK.test(t) };
 }
 

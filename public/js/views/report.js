@@ -93,7 +93,15 @@ export function renderReport(el, result, { kind } = {}) {
     if (k === 'summary') summaryTab(body, result);
     else if (k === 'style') styleTab(body, result.compliance);
     else if (k === 'papermill') import('./papermill.js').then(m => { body.innerHTML = '<div id="pm"></div>'; m.renderPaperMillResult($('#pm', body), { ...result.papermill, id: null }); });
-    else if (k === 'images') body.innerHTML = `<div class="card"><h3>Image Integrity (Module 5)</h3><p>Image risk <b>${esc(result.images.summary.level)}</b> — ${result.images.summary.findings} finding(s) in ${result.images.summary.panels} panels${result.images.summary.earlier ? `, ${result.images.summary.earlier} match(es) with earlier PJPS manuscripts` : ''}.</p><a class="btn btn-sm" href="#/check/${result.images.checkId}">Open the image report</a></div>`;
+    else if (k === 'images') {
+      // the full Module 5 report (findings with the image pairs, database matches, method), loaded from its saved check
+      body.innerHTML = `<div class="card"><h3>Image Integrity (Module 5)</h3><p>Image risk <b>${esc(result.images.summary.level)}</b> — ${result.images.summary.findings} finding(s) in ${result.images.summary.panels} panels. Loading the image report…</p></div>`;
+      Promise.all([import('./images.js'), api(`/api/checks/${result.images.checkId}`)]).then(([m, d]) => {
+        if (!$('.tab.active[data-tab=images]', el)) return;
+        body.innerHTML = '<div id="img-report"></div>';
+        m.renderImagesResult($('#img-report', body), { ...d.result, id: result.images.checkId });
+      }).catch(e => { body.innerHTML += `<div class="alert alert-warn">The image report could not be loaded (${esc(e.message)}). <a href="#/check/${result.images.checkId}">Open it separately</a>.</div>`; });
+    }
     else if (k === 'references') referencesTab(body, refs, s, result.indicators);
     else if (k === 'citations') citationsTab(body, result.citations, refs);
     else if (k === 'journals') journalsTab(body, result.journals);

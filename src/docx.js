@@ -293,27 +293,92 @@ function papermillBlocks(r) {
   ];
 }
 
-function imagesBlocks(r) {
+const IMG_KIND = { duplicate: 'Duplicated image', partial: 'Overlapping / re-used region', clone: 'Cloned area inside one panel', alteration: 'Possible alteration / manipulation', ai: 'Possible AI-generated image', chart: 'Graph / chart data duplicated' };
+const IMG_CAT = { duplication: 'Duplication & reuse', manipulation: 'Alteration & manipulation', ai: 'AI-generated image', chart: 'Graph & chart duplication' };
+const imgTransform = t => {
+  if (!t) return '—';
+  const deg = ((Math.round((t.rotation || 0) * 180 / Math.PI) % 360) + 360) % 360;
+  const parts = [];
+  if (t.flip) parts.push('mirrored');
+  if (deg > 3 && deg < 357) parts.push(`rotated ${deg > 180 ? deg - 360 : deg}°`);
+  if (t.scale && Math.abs(t.scale - 1) > 0.08) parts.push(`resized ×${t.scale.toFixed(2)}`);
+  return parts.length ? parts.join(', ') : 'none (same orientation and size)';
+};
+// the measured agreement behind a finding, in words an editor can quote
+const imgEvidence = f => {
+  const v = f.verification || {};
+  const out = [];
+  if (v.picture !== undefined) out.push(`picture ${v.picture}`);
+  if (v.noise !== undefined) out.push(`noise pattern ${v.noise}`);
+  if (v.region !== undefined) out.push(`matched regions ${v.region}`);
+  if (!out.length && f.score !== undefined && f.score !== null) out.push(f.kind === 'partial' || (f.kind === 'clone' && f.score > 1) ? `${f.score} matching points / blocks` : `correlation ${f.score}`);
+  return out.join(', ') || '—';
+};
+
+/**
+ * Module 5 report in the layout of the commercial image-integrity reports: case summary, findings overview table, each
+ * finding with the two image regions side by side and the measured agreement, matches with the reference databases
+ * (this manuscript's panel next to the published / retracted figure), then method and limits. Thumbnails of the
+ * reference figures must be loaded beforehand (images.withExportThumbs). section: number when part of the Full Screening Report.
+ */
+function imagesBlocks(r, { section = null } = {}) {
   const s = r.summary;
   const marks = new Map((r.findingMarks || []).map(m => [m.id, m.mark]));
   const label = { confirmed: 'Confirmed by editor', false: 'False alarm', ask: 'Ask the authors' };
-  return [
-    { h1: 'CONFIDENTIAL — Module 5 Image Integrity Report' },
-    { p: r.disclaimer, italics: true },
-    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || r.meta?.filename || '—'}`], ['Image risk', s.level], ['Images / panels analysed', `${s.images} / ${s.panels}`], ['Findings', `${s.findings} (${s.byLevel.high || 0} strong, ${s.byLevel.medium || 0} to check)`], ['Earlier PJPS manuscripts sharing a figure', String((r.earlier || []).length)], ['(a) Duplication & reuse', String((r.findings || []).filter(f => (f.category || 'duplication') === 'duplication').length)], ['(b) Alteration & manipulation', String((r.findings || []).filter(f => f.category === 'manipulation').length)], ['(c) AI-generated image indicators', String((r.findings || []).filter(f => f.category === 'ai').length)], ['(d) Graph & chart duplication', String((r.findings || []).filter(f => f.category === 'chart').length) + ((r.earlierCharts || []).length ? ` (+${r.earlierCharts.length} matching earlier manuscripts)` : '')], ['PJPS image databases (published PJPS papers, retracted papers, PubMed Central, reference figures)', r.references ? `${r.references.length + (r.referenceCharts || []).length} match(es) in ${(r.referencesSearched?.refs || 0).toLocaleString()} reference panels` : 'Not checked (report made before the databases were added)'], ['Comparison with all 155-160 million published figures', r.vendor?.connected ? 'Checked by vendor' : 'Not checked (vendor not connected)']] },
-    { p: r.method, italics: true },
-    ...r.findings.flatMap((f, i) => [
-      { h2: `Finding ${i + 1} [${({ duplication: "Duplication", manipulation: "Manipulation", ai: "AI-generated", chart: "Chart" })[f.category || "duplication"]}]: ${f.a.label}${f.a.panel !== f.b.panel ? ` ↔ ${f.b.label}` : ''}` },
-      { p: `${f.level === 'high' ? 'Strong' : 'Check'} — ${f.description}${marks.get(f.id) ? ` · ${label[marks.get(f.id)] || marks.get(f.id)}` : ''}` },
-      ...((f.details || []).length ? [{ bullets: f.details }] : []),
-      ...(f.assessment ? [{ p: `Type: ${f.assessment.name} (${f.assessment.category}; usual risk ${f.assessment.risk}, false-alarm risk ${f.assessment.falsePositiveRisk}). Common harmless causes: ${f.assessment.falseAlarms.join('; ') || '—'}.`, italics: true }] : []),
-      { images: [{ src: f.thumbA, width: f.thumbAW, height: f.thumbAH }, ...(f.thumbB && f.b.panel !== f.a.panel ? [{ src: f.thumbB, width: f.thumbBW, height: f.thumbBH }] : [])], caption: 'Matched areas are outlined.' }
-    ]),
-    ...((r.references || []).length ? [{ h2: 'Figures matching published PJPS papers and reference databases' }, { table: { headers: ['This manuscript', 'Database', 'Source paper', 'Figure / how', 'Match'], rows: r.references.map(m => [m.panelLabel, m.sourceName, `${m.title || ''}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}${m.doi ? ` doi:${m.doi}` : ''}${m.note ? ` [${m.note}]` : ''}`, `${m.figure}: ${m.description}`, `${m.level === 'high' ? 'Strong' : 'Check'} · distance ${m.distance}${m.correlation !== null ? ` · correlation ${m.correlation}` : ''}`]) } }] : []),
-    ...((r.referenceCharts || []).length ? [{ h2: 'Chart data matching published / reference charts' }, { table: { headers: ['This manuscript', 'Database', 'Source paper', 'Correlation'], rows: r.referenceCharts.map(c => [c.chart, c.sourceName, `${c.title || ''}${c.doi ? ` doi:${c.doi}` : ''}`, String(c.correlation)]) } }] : []),
-    ...((r.earlier || []).length ? [{ h2: 'Figures matching earlier PJPS manuscripts' }, { table: { headers: ['This manuscript', 'Earlier manuscript', 'Earlier figure', 'Distance'], rows: r.earlier.map(e => [e.panelLabel, `${e.manuscriptCode || 'check #' + e.checkId}: ${e.title || ''}`, e.label || '', String(e.distance)]) } }] : []),
-    ...(r.decision ? [{ h2: 'Editor decision' }, { kv: [['Decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—'], ['By', `${r.decision.by}, ${r.decision.at.slice(0, 10)}`]] }] : [])
+  const findings = r.findings || [];
+  const refs = r.references || [];
+  const panelThumb = new Map((r.panels || []).map(p => [p.id, p]));
+  const loc = f => (f.a.panel !== f.b.panel ? `${f.a.label} vs ${f.b.label}` : f.a.label);
+  const sev = l => (l === 'high' ? 'Strong' : 'To check');
+  const h = t => (section ? { h2: `${section}. ${t}` } : { h2: t });
+  const blocks = [
+    section ? { h2: `${section}. Image integrity (confidential)` } : { h1: 'CONFIDENTIAL — Module 5 Image Integrity Report' },
+    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || r.meta?.filename || '—'}`], ['File analysed', r.meta?.filename || '—'], ['Date', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : '—']] },
+    { callout: { level: { HIGH: 'bad', MEDIUM: 'warn', LOW: 'ok' }[s.level] || 'na', title: `Image risk: ${s.level}`, text: s.findings ? `${s.byLevel.high || 0} strong finding(s), ${s.byLevel.medium || 0} to check, in ${s.panels} panels from ${s.images} figure(s).` : `No duplicated, re-used or altered content was found in ${s.panels} panels from ${s.images} figure(s).` } },
+    { table: { headers: ['Check', 'Result'], rows: [
+      ['(a) Duplication & reuse inside the manuscript', String(findings.filter(f => (f.category || 'duplication') === 'duplication').length)],
+      ['(b) Alteration & manipulation', String(findings.filter(f => f.category === 'manipulation').length)],
+      ['(c) AI-generated image indicators', String(findings.filter(f => f.category === 'ai').length)],
+      ['(d) Graph & chart data duplication', String(findings.filter(f => f.category === 'chart').length) + ((r.earlierCharts || []).length ? ` (+${r.earlierCharts.length} matching earlier manuscripts)` : '')],
+      ['Earlier PJPS manuscripts (this system)', `${(r.earlier || []).length} matching figure(s)`],
+      ['Reference databases (published PJPS papers, retracted papers, PubMed Central, publishers, research datasets)', r.references ? `${refs.length + (r.referenceCharts || []).length} match(es) among ${(r.referencesSearched?.refs || 0).toLocaleString('en')} reference panels` : 'not searched'],
+      ['Commercial databases of all published figures (ImageTwin, Proofig)', r.vendor?.connected ? 'searched by the vendor' : 'not searched (figures do not leave the PJPS system)']
+    ] } }
   ];
+  if (r.guidance?.available) blocks.push({ p: `Suggested handling — ${r.guidance.decision.action}. ${r.guidance.decision.desk}`, bold: true });
+  if (r.disclaimer) blocks.push({ p: r.disclaimer, italics: true });
+
+  if (findings.length) {
+    blocks.push(h('Findings overview'), { table: { headers: ['#', 'Finding', 'Location', 'Transformation', 'Measured agreement', 'Severity', 'Editor'], rows: findings.map((f, i) => [String(i + 1), `${IMG_KIND[f.kind] || f.kind} (${IMG_CAT[f.category || 'duplication']})`, loc(f), f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? imgTransform(f.transform) : '—', imgEvidence(f), sev(f.level), label[marks.get(f.id)] || '—']) } });
+    blocks.push(h('Findings in detail'));
+    findings.forEach((f, i) => {
+      blocks.push({ p: `Finding ${i + 1}: ${IMG_KIND[f.kind] || f.kind} — ${loc(f)}`, bold: true, color: f.level === 'high' ? '9B1C1C' : '8A5300' });
+      blocks.push({ kv: [['Severity', `${sev(f.level)}${marks.get(f.id) ? ` · ${label[marks.get(f.id)]}` : ''}`], ['What was found', f.description], ...(f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? [['Transformation', imgTransform(f.transform)]] : []), ['Measured agreement', imgEvidence(f)]] });
+      if ((f.details || []).length) blocks.push({ bullets: f.details });
+      if (f.assessment) blocks.push({ p: `Type: ${f.assessment.name} (usual risk ${f.assessment.risk}, false-alarm risk ${f.assessment.falsePositiveRisk}). Often harmless when: ${f.assessment.falseAlarms.join('; ') || '—'}.`, italics: true });
+      const pics = [{ src: f.thumbA, width: f.thumbAW, height: f.thumbAH }, ...(f.thumbB && f.b.panel !== f.a.panel ? [{ src: f.thumbB, width: f.thumbBW, height: f.thumbBH }] : [])].filter(x => x.src);
+      if (pics.length) blocks.push({ images: pics, caption: f.a.panel !== f.b.panel ? `Left: ${f.a.label} · Right: ${f.b.label}. Matched areas are outlined.` : `${f.a.label}: the two matching areas are outlined.` });
+    });
+  }
+
+  if (refs.length) {
+    blocks.push(h('Matches with published and reference figures'), { table: { headers: ['#', 'This manuscript', 'Database', 'Source paper', 'Figure', 'Measured agreement', 'Severity'], rows: refs.map((m, i) => [String(i + 1), m.panelLabel, m.sourceName, `${m.title || ''}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}${m.doi ? ` doi:${m.doi}` : ''}`, m.figure, `fingerprint distance ${m.distance}/64${m.correlation !== null && m.correlation !== undefined ? `, pixel correlation ${m.correlation}` : ''}`, sev(m.level)]) } });
+    refs.forEach((m, i) => {
+      const mine = panelThumb.get(m.panel);
+      const pics = [mine?.thumb ? { src: mine.thumb, width: mine.w, height: mine.h } : null, m.refThumb ? { src: m.refThumb, width: m.refThumbW, height: m.refThumbH } : null].filter(Boolean);
+      blocks.push({ p: `Match ${i + 1}: ${m.panelLabel} vs ${m.sourceName}, ${m.figure}`, bold: true, color: m.level === 'high' ? '9B1C1C' : '8A5300' });
+      blocks.push({ kv: [['Source paper', `${m.title || '—'}${m.journal ? `, ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}`], ...(m.doi ? [['DOI', `https://doi.org/${m.doi}`]] : []), ['How it matches', m.description], ...(m.note ? [['Note', m.note]] : [])] });
+      if (pics.length) blocks.push({ images: pics, caption: `Left: this manuscript (${m.panelLabel}) · Right: ${m.sourceName} (${m.figure})` });
+    });
+    blocks.push({ p: 'A match with a published figure is not always misconduct: authors may re-use their own figure with permission and a citation. A match with a paper retracted for image problems needs particular care.', italics: true });
+  }
+  if ((r.referenceCharts || []).length) blocks.push(h('Chart data matching published / reference charts'), { table: { headers: ['This manuscript', 'Database', 'Source paper', 'Correlation'], rows: r.referenceCharts.map(c => [c.chart, c.sourceName, `${c.title || ''}${c.doi ? ` doi:${c.doi}` : ''}`, String(c.correlation)]) } });
+  if ((r.earlier || []).length) blocks.push(h('Figures matching earlier PJPS manuscripts'), { table: { headers: ['This manuscript', 'Earlier manuscript', 'Earlier figure', 'Distance'], rows: r.earlier.map(e => [e.panelLabel, `${e.manuscriptCode || 'check #' + e.checkId}: ${e.title || ''}`, e.label || '', String(e.distance)]) } });
+  if (r.authorFigures?.matches?.length) blocks.push(h("Figures matching the authors' earlier papers"), { table: { headers: ['This manuscript', 'Earlier paper', 'Figure', 'Distance'], rows: r.authorFigures.matches.map(m => [m.panelLabel || '', `${m.article || m.pmcid}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}`, m.figure || '', String(m.distance)]) } });
+  if (r.decision) blocks.push(h('Editor decision'), { kv: [['Decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—'], ['By', `${r.decision.by}, ${r.decision.at.slice(0, 10)}`]] });
+  blocks.push(h('Method and limits'), { p: r.method || '', italics: true },
+    { bullets: ['“Strong” means the full-resolution picture and its fine noise pattern agree (copies of one image), not only the overall look; “To check” findings need the editor\'s judgement.', 'Two views of one microscopy field in different colour channels (a merge and its single channels) are normal practice and are never reported as strong.', 'Only figures readable from the file were analysed (see “Not readable” in the on-screen report). Image findings are indicators for the editor, not proof of misconduct; ask the authors for the original images before any decision.'] });
+  return blocks;
 }
 
 /**
@@ -446,7 +511,9 @@ function screeningBlocks(r, version = 'editor') {
   if (version === 'editor') {
     if (r.pattern?.flags?.length) blocks.push({ h2: 'Citation pattern' }, { bullets: r.pattern.flags.map(f => f.message) });
     if (r.papermill) blocks.push(...papermillBlocks(r.papermill).map(b => (b.h1 ? { h2: '4. Paper mill screening (confidential)' } : b)));
-    blocks.push({ h2: '5. Image integrity' }, { p: r.images ? `Image risk ${r.images.summary.level}: ${r.images.summary.findings} finding(s) in ${r.images.summary.panels} panels${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0) ? `, ${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0)} figure(s) matching published PJPS / retracted-paper figures` : ''} — see the separate confidential image report.` : 'Not checked — run Module 5 and attach its report.' });
+    // the complete Module 5 report (loaded by the export route as r.images.report), else its summary
+    if (r.images?.report) blocks.push(...imagesBlocks(r.images.report, { section: 5 }));
+    else blocks.push({ h2: '5. Image integrity' }, { p: r.images ? `Image risk ${r.images.summary.level}: ${r.images.summary.findings} finding(s) in ${r.images.summary.panels} panels${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0) ? `, ${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0)} figure(s) matching published PJPS / retracted-paper figures` : ''}.` : r.imagesNote || 'Not checked — upload the Word / PDF manuscript (or attach a Module 5 report) to analyse its figures.' });
     if (r.plagiarism) blocks.push(...plagiarismBlocks(r.plagiarism));
     if (r.novelty) blocks.push(...noveltyBlocks(r.novelty));
     if (r.authorIdentity) blocks.push(...authorIdentityBlocks(r.authorIdentity));

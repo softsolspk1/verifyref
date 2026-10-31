@@ -89,6 +89,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     id: String(f.id || `f${i + 1}`), kind: KINDS.includes(f.kind) ? f.kind : 'duplicate', category: CATEGORIES.includes(f.category) ? f.category : 'duplication', details: (Array.isArray(f.details) ? f.details : []).slice(0, 8).map(d => String(d).slice(0, 300)), level: f.level === 'high' ? 'high' : 'medium', description: String(f.description || '').slice(0, 400),
     a: { panel: String(f.a?.panel), label: String(f.a?.label || '').slice(0, 120), box: f.a?.box || null }, b: { panel: String(f.b?.panel), label: String(f.b?.label || '').slice(0, 120), box: f.b?.box || null },
     transform: f.transform || null, score: Number(f.score) || 0,
+    verification: f.verification && typeof f.verification === 'object' ? Object.fromEntries(['picture', 'noise', 'region'].filter(k => Number.isFinite(f.verification[k])).map(k => [k, Math.round(f.verification[k] * 100) / 100])) : null,
     thumbA: cap(f.thumbA, 160000), thumbB: cap(f.thumbB, 160000), thumbAW: f.thumbAW | 0, thumbAH: f.thumbAH | 0, thumbBW: f.thumbBW | 0, thumbBH: f.thumbBH | 0
   })).map(f => ({ ...f, assessment: KB.assess(f) }));
   const usable = panels.filter(p => !p.blank && p.type !== 'chart');
@@ -154,4 +155,30 @@ async function vendorStatus() {
   };
 }
 
-module.exports = { compareWithEarlier, compareChartsWithEarlier, saveImageCheck, vendorStatus, MATCH_DISTANCE };
+/** Width and height of a JPEG (from its SOF marker) */
+function jpegSize(buf) {
+  for (let i = 2; i + 9 < buf.length;) {
+    if (buf[i] !== 0xFF) return null;
+    const m = buf[i + 1], len = buf.readUInt16BE(i + 2);
+    if (m >= 0xC0 && m <= 0xCF && ![0xC4, 0xC8, 0xCC].includes(m)) return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+    i += 2 + len;
+  }
+  return null;
+}
+
+/**
+ * Word / PDF export of a Module 5 report: the reference-database figures are kept on R2, so their thumbnails are loaded
+ * here and put next to the manuscript's panel (as in the commercial reports). Returns a copy of the result.
+ */
+async function withExportThumbs(result, userId, { max = 20 } = {}) {
+  if (!result?.references?.length) return result;
+  const refs = await Promise.all(result.references.map(async (m, i) => {
+    if (i >= max || !m.hasThumb || !m.refId) return m;
+    const buf = await (cfg.DESKTOP ? require('./desktop').remoteRefThumb(userId, m.refId) : REFS.thumbKey(m.refId).then(k => REFS.refThumb(k))).catch(() => null);
+    const size = buf ? jpegSize(buf) : null;
+    return size ? { ...m, refThumb: `data:image/jpeg;base64,${buf.toString('base64')}`, refThumbW: size.w, refThumbH: size.h } : m;
+  }));
+  return { ...result, references: refs };
+}
+
+module.exports = { compareWithEarlier, compareChartsWithEarlier, saveImageCheck, vendorStatus, withExportThumbs, MATCH_DISTANCE };

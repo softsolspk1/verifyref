@@ -109,13 +109,17 @@ function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
         }
       }
       else if (b.images) {
-        for (const im of b.images) {
-          const m = String(im.src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/);
-          if (!m) continue;
-          const maxW = Math.min(im.maxWidth || 250, width() / 2 - 6), w = im.width || maxW, h = im.height || maxW;
-          const k = Math.min(1, maxW / w, 200 / h);
-          ensure(h * k + 8);
-          try { doc.image(Buffer.from(m[2], 'base64'), left, doc.y, { width: w * k, height: h * k }); doc.y += h * k + 6; } catch (e) { /* unreadable image: skip */ }
+        // the images of one block side by side (the two regions of a finding, or this manuscript's panel next to the
+        // published figure), each in an equal column, at most 200 pt high
+        const pics = b.images.map(im => ({ im, m: String(im.src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/) })).filter(x => x.m);
+        if (pics.length) {
+          const gap = 10, col = (width() - gap * (pics.length - 1)) / pics.length;
+          const sized = pics.map(({ im, m }) => { const w = im.width || col, h = im.height || col, k = Math.min(1, Math.min(im.maxWidth || col, col) / w, 200 / h); return { buf: Buffer.from(m[2], 'base64'), w: w * k, h: h * k }; });
+          const rowH = Math.max(...sized.map(x => x.h));
+          ensure(rowH + 8);
+          const y0 = doc.y;
+          sized.forEach((x, i) => { try { doc.image(x.buf, left + i * (col + gap), y0, { width: x.w, height: x.h }); } catch (e) { /* unreadable image: skip */ } });
+          doc.y = y0 + rowH + 6;
         }
         if (b.caption) { doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(MUTED).text(safe(b.caption), left, doc.y, { width: width() }); doc.moveDown(0.5); }
       }

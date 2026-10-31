@@ -119,6 +119,7 @@ const TABLES = {
   openalex_journals: { status: 'openalexJournals', meta: 'oaj', label: 'OpenAlex journal list' },
   publisher_journals: { status: 'publisherJournals', meta: 'pubj', label: 'major publisher journal lists' },
   email_domains: { status: 'emailDomains', meta: 'maildom', label: 'e-mail domain lists' },
+  cello_problematic: { status: 'cellosaurus', meta: 'cello', label: 'Cellosaurus problematic cell lines' },
   journal_list_entries: { label: 'journal index lists' }
 };
 

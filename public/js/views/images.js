@@ -67,17 +67,9 @@ export function renderImages(view) {
     const bar = $('.progress-bar span', prog), step = $('.step', prog);
     const set = (s, p) => { if (s) step.textContent = s; if (p !== undefined) bar.style.width = `${Math.max(2, Math.min(99, p))}%`; };
     try {
-      const { images, skipped } = await extractFigures(files, s => set(s, 5));
-      if (!images.length) throw new Error(`No figures could be read. ${skipped.map(s => `${s.name}: ${s.reason}`).join(' · ')}`);
-      set(`${images.length} figure(s) found — starting the analysis`, 10);
-      const analysis = await analyse(images, set);
-      set('Preparing thumbnails and saving', 97);
       const meta = { title: $('#m-title', view).value.trim(), manuscriptCode: $('#m-code', view).value.trim(), filename: files.map(f => f.name).join(', ') };
-      const payload = buildPayload(images, analysis, skipped, meta);
-      const saved = await api('/api/images', { body: { result: payload } });
+      const { result, images } = await analyseAndSave(files, meta, set);
       prog.innerHTML = '';
-      const result = saved.result;
-      result.id = saved.id;
       result.authorLines = $('#m-authors', view).value.split('\n').map(s => s.trim()).filter(Boolean);
       renderImagesResult($('#result', view), result, { live: new Map(images.map(im => [im.id, im])) });
       toast(result.summary.findings ? `${result.summary.findings} finding(s) to check` : 'No image problems found');
@@ -89,6 +81,27 @@ export function renderImages(view) {
       toast(e.message, 'error');
     }
   };
+}
+
+/**
+ * Run Module 5 on manuscript / figure files in this browser and save the report: { id, result, images }. Used by the
+ * Image Integrity page and by the Full Screening Report (which attaches the saved report to the screening).
+ */
+export async function analyseAndSave(files, meta, set = () => {}) {
+  const { images, skipped } = await extractFigures(files, s => set(s, 5));
+  if (!images.length) {
+    const why = skipped.map(s => `${s.name}: ${s.reason}`).join(' · ');
+    const err = new Error(`No figures could be read.${why ? ' ' + why : ''}`);
+    err.noFigures = true;
+    throw err;
+  }
+  set(`${images.length} figure(s) found — starting the analysis`, 10);
+  const analysis = await analyse(images, set);
+  set('Preparing thumbnails and saving', 97);
+  const saved = await api('/api/images', { body: { result: buildPayload(images, analysis, skipped, meta) } });
+  const result = saved.result;
+  result.id = saved.id;
+  return { id: saved.id, result, images };
 }
 
 function analyse(images, set) {

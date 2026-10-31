@@ -614,6 +614,58 @@ const describeTransform = t => {
   return parts.length ? parts.join(', ') : 'same orientation and size';
 };
 
+/**
+ * Colour signature of a panel's signal (pixels clearly above black): 'gray', or the dominant channel(s) ('r', 'g', 'b',
+ * 'rg' ...), and whether the background is dark (fluorescence). Two views of one microscopy field in different channels
+ * (a merge and its green channel, the red and the green channel) match as images but are normal figure practice.
+ */
+export function colourOf(img, box) {
+  const sm = resizeRGBA(img, Math.min(96, box.w), Math.min(96, box.h), box);
+  let r = 0, g = 0, b = 0, n = 0, lum = 0;
+  for (let i = 0; i < sm.width * sm.height; i++) {
+    const R = sm.data[i * 4], G = sm.data[i * 4 + 1], B = sm.data[i * 4 + 2];
+    lum += (R + G + B) / 3;
+    if (Math.max(R, G, B) < 40) continue;
+    r += R; g += G; b += B; n++;
+  }
+  const dark = lum / Math.max(1, sm.width * sm.height) < 60;
+  if (!n) return { cls: 'gray', dark };
+  const c = [r / n, g / n, b / n], mx = Math.max(...c), mn = Math.min(...c);
+  if ((mx - mn) / Math.max(1, mx) < 0.15) return { cls: 'gray', dark };
+  return { cls: ['r', 'g', 'b'].filter((_, i) => c[i] >= 0.75 * mx).join(''), dark };
+}
+
+/** Same field in different colour channels: the colour classes differ and at least one is a dark-field (fluorescence) image */
+const channelViews = (A, B) => !!(A.colour && B.colour && A.colour.cls !== B.colour.cls && (A.colour.dark || B.colour.dark || A.type === 'fluorescence' || B.type === 'fluorescence'));
+
+/**
+ * Pixel-level check of a whole-panel match at 128 x 128 with frame and border trimmed (8% each side): picture
+ * correlation (lp) and fine-noise correlation (hp). Copies of one image agree on both; two different images that merely
+ * look alike (dark fields, blots in identical frames) agree on the picture but not on the noise.
+ */
+function verifyWhole(A, B, k) {
+  const N = 128, m = Math.round(N * 0.08);
+  const a = resizeGray(A.workGray, N, N), b = orient(resizeGray(B.workGray, N, N), k % 4, k >= 4);
+  const ha = blur(a, 1.2), hb = blur(b, 1.2);
+  const corr = (x, y) => {
+    let n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    for (let yy = m; yy < N - m; yy++) for (let xx = m; xx < N - m; xx++) { const i = yy * N + xx, u = x(i), v = y(i); n++; sx += u; sy += v; sxx += u * u; syy += v * v; sxy += u * v; }
+    return (n * sxy - sx * sy) / Math.sqrt(Math.max(1e-9, (n * sxx - sx * sx) * (n * syy - sy * sy)));
+  };
+  return { lp: corr(i => ha.g[i], i => hb.g[i]), hp: corr(i => a.g[i] - ha.g[i], i => b.g[i] - hb.g[i]) };
+}
+
+/** Pixel check of the regions matched by keypoints (upright or mirrored matches only): correlation of the two crops */
+function verifyRegions(A, B, part) {
+  const rot = Math.abs(((part.transform.rotation % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
+  if (rot > 0.12) return null;                                              // rotated: not compared this simply
+  const N = 48;
+  const a = resizeGray(A.workGray, N, N, part.regionA);
+  let b = resizeGray(B.workGray, N, N, part.regionB);
+  if (part.transform.flip) b = flipH(b);
+  return ncc(normalized(a), normalized(b));
+}
+
 /** Prepare one panel: reduced grayscale, hashes in 8 orientations, ORB features (normal and mirrored) */
 export function preparePanel(img, box, meta, gray = null) {
   gray = gray || toGray(img);
@@ -634,7 +686,7 @@ export function preparePanel(img, box, meta, gray = null) {
   }
   const features = blank || type === 'chart' ? null : orb(work);
   const flipped = blank || type === 'chart' ? null : orb(flipH(work));
-  return { ...meta, box, type, blank, scale: s, work: { w: work.w, h: work.h }, workGray: work, hashes, sqNorm, features, flipped, hash: hashHex(hashes[0]) };
+  return { ...meta, box, type, blank, colour: colourOf(img, box), scale: s, work: { w: work.w, h: work.h }, workGray: work, hashes, sqNorm, features, flipped, hash: hashHex(hashes[0]) };
 }
 
 /** Light-weight fingerprint of a panel (8 orientations of the 64-bit hash) - used where the full analysis is not needed */
@@ -667,7 +719,7 @@ function pairDuplicate(A, B) {
   if (corr < (A.type === 'chart' || B.type === 'chart' ? 0.97 : 0.88)) return null;
   const mirror = bestK >= 4, rot = (bestK % 4) * 90;
   const scale = Math.sqrt((B.box.w * B.box.h) / (A.box.w * A.box.h));
-  return { kind: 'duplicate', hamming: bestD, correlation: Math.round(corr * 100) / 100, transform: { rotation: (rot * Math.PI) / 180, flip: mirror, scale } };
+  return { kind: 'duplicate', hamming: bestD, k: bestK, correlation: Math.round(corr * 100) / 100, transform: { rotation: (rot * Math.PI) / 180, flip: mirror, scale } };
 }
 
 function pairPartial(A, B) {
@@ -791,6 +843,9 @@ function pairRegistered(A, B) {
   const mA = contentMask(a.lp, a.bg, a.top);
   const mB0 = contentMask(sameSize(b0.lp, w, h), b0.bg, b0.top);
   const mB = flipMask(mB0, w, h, best.v.name === 'mirror' || best.v.name === 'rot180', best.v.name === 'flipV' || best.v.name === 'rot180');
+  // frames, axes and panel borders are shared by different images of one figure: leave out an 8% margin
+  const mg = Math.max(2, Math.round(0.08 * Math.min(w, h)));
+  for (const m of [mA, mB]) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (x < mg || y < mg || x >= w - mg || y >= h - mg) m[y * w + x] = 0;
   let contentPx = 0;
   for (const v of mA) contentPx += v;
   if (a.top < 20 || b0.top < 20 || contentPx < 0.03 * w * h) return null;
@@ -837,6 +892,8 @@ const toImage = (P, r) => ({ x: Math.round(P.box.x + r.x / P.scale), y: Math.rou
  * Analyse prepared panels. Returns findings:
  * { kind: duplicate|partial|clone, level: high|medium, a: { panel, box }, b: { panel, box }, transform, description, score }
  */
+const CHANNEL_NOTE = ' - shown in different colour channels: probably one microscopy field as a merge and single channels, which is normal; a problem only if the legend calls them different samples';
+
 export function findIssues(panels, progress = () => {}) {
   const findings = [];
   const usable = panels.filter(p => !p.blank);
@@ -847,22 +904,31 @@ export function findIssues(panels, progress = () => {}) {
       const A = usable[i], B = usable[j];
       done++;
       if (done % 20 === 0) progress(done / Math.max(1, pairs));
+      const channels = channelViews(A, B);
       const dup = pairDuplicate(A, B);
       if (dup) {
-        findings.push({ kind: 'duplicate', level: A.type === 'chart' ? 'medium' : 'high', a: { panel: A.id, box: A.box }, b: { panel: B.id, box: B.box }, transform: dup.transform, score: dup.correlation,
-          description: `The same image appears twice (${describeTransform(dup.transform)}; correlation ${dup.correlation})` });
-        continue;
+        // a strong finding needs the full-resolution picture and its fine noise to agree, not just the 64 x 64 thumbnails
+        const v = A.type === 'chart' || B.type === 'chart' ? null : verifyWhole(A, B, dup.k);
+        const strong = !!v && v.lp >= 0.85 && v.hp >= 0.5 && !channels;
+        if (!v || v.lp >= 0.75 || dup.correlation >= 0.97) {
+          findings.push({ kind: 'duplicate', level: strong ? 'high' : 'medium', a: { panel: A.id, box: A.box }, b: { panel: B.id, box: B.box }, transform: dup.transform, score: dup.correlation,
+            verification: v ? { picture: Math.round(v.lp * 100) / 100, noise: Math.round(v.hp * 100) / 100 } : null,
+            description: `The same image appears twice (${describeTransform(dup.transform)}; correlation ${dup.correlation}${v ? `, full-resolution match ${v.lp.toFixed(2)}, noise pattern ${v.hp.toFixed(2)}` : ''})${channels ? CHANNEL_NOTE : ''}` });
+          continue;
+        }
       }
       const reg = pairRegistered(A, B);
       if (reg) {
-        findings.push({ kind: reg.kind, level: reg.noise >= 0.6 && Math.abs(Math.log(reg.transform.scale)) < 0.1 ? 'high' : 'medium', a: { panel: A.id, box: reg.kind === 'duplicate' ? A.box : toImage(A, reg.regionA) }, b: { panel: B.id, box: reg.kind === 'duplicate' ? B.box : toImage(B, reg.regionB) }, transform: reg.transform, score: reg.correlation,
-          description: `${reg.kind === 'duplicate' ? 'The same image appears twice' : 'Overlapping image content'} (pixel match ${reg.correlation}, noise pattern ${reg.noise}; ${describeTransform(reg.transform)})` });
+        findings.push({ kind: reg.kind, level: reg.noise >= (reg.transform.flip || reg.transform.rotation ? 0.75 : 0.6) && Math.abs(Math.log(reg.transform.scale)) < 0.1 && !channels ? 'high' : 'medium', a: { panel: A.id, box: reg.kind === 'duplicate' ? A.box : toImage(A, reg.regionA) }, b: { panel: B.id, box: reg.kind === 'duplicate' ? B.box : toImage(B, reg.regionB) }, transform: reg.transform, score: reg.correlation,
+          description: `${reg.kind === 'duplicate' ? 'The same image appears twice' : 'Overlapping image content'} (pixel match ${reg.correlation}, noise pattern ${reg.noise}; ${describeTransform(reg.transform)})${channels ? CHANNEL_NOTE : ''}` });
         continue;
       }
       const part = pairPartial(A, B);
-      if (part) {
-        findings.push({ kind: 'partial', level: part.inliers >= 25 ? 'high' : 'medium', a: { panel: A.id, box: toImage(A, part.regionA) }, b: { panel: B.id, box: toImage(B, part.regionB) }, transform: part.transform, score: part.inliers,
-          description: `Overlapping image content (${part.inliers} matching points, ${part.coverage}% of the panel; ${describeTransform(part.transform)})` });
+      // the matched regions must look alike pixel by pixel: shared labels, scale bars or instrument overlays match as keypoints only
+      const pv = part ? verifyRegions(A, B, part) : null;
+      if (part && (pv === null || pv >= 0.5)) {
+        findings.push({ kind: 'partial', level: part.inliers >= 25 && pv !== null && pv >= 0.75 && !channels ? 'high' : 'medium', verification: pv === null ? null : { region: Math.round(pv * 100) / 100 }, a: { panel: A.id, box: toImage(A, part.regionA) }, b: { panel: B.id, box: toImage(B, part.regionB) }, transform: part.transform, score: part.inliers,
+          description: `Overlapping image content (${part.inliers} matching points, ${part.coverage}% of the panel; ${describeTransform(part.transform)}${pv !== null ? `; matched regions correlate ${pv.toFixed(2)}` : ''})${channels ? CHANNEL_NOTE : ''}` });
       }
     }
   }

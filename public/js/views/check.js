@@ -1,5 +1,5 @@
 // views/check.js - input forms for the Full Screening Report and Module 1 (Check Bibliography)
-import { api, esc, $, toast, runJob, dropzone, fmtDate, modal } from '../core.js';
+import { api, esc, $, toast, runJob, dropzone, fmtDate, modal, hasModule } from '../core.js';
 import { renderReport } from './report.js';
 
 const MODES = {
@@ -67,7 +67,7 @@ export function renderCheckForm(view, kind) {
         <div class="card-head"><h2>Paper mill &amp; image checks</h2><span class="muted">Editor only — never shown to authors</span></div>
         <div class="grid grid-2">
           <div class="field"><label for="m-rev">Suggested reviewers <span class="muted">(names and e-mails, optional)</span></label><textarea id="m-rev" rows="3"></textarea></div>
-          <div class="field"><label for="m-img">Module 5 image report for this manuscript <span class="muted">(optional)</span></label><select id="m-img"><option value="">— none —</option></select><div class="hint">Run Image Integrity first (it works in your browser), then attach its report here.</div></div>
+          <div class="field">${hasModule('images') ? `<label class="row" style="gap:8px;margin-bottom:8px"><input type="checkbox" id="m-img-run" checked> <span><b>Analyse the figures (Module 5 Image Integrity)</b> as part of this report</span></label><div class="hint" style="margin-bottom:8px">Runs in your browser on the uploaded Word / PDF file: duplicated, re-used and altered figures, and matches with published PJPS papers, retracted papers and PubMed Central figures. The figures are not uploaded.</div>` : ''}<label for="m-img">Or attach an earlier Module 5 report <span class="muted">(optional)</span></label><select id="m-img"><option value="">— none —</option></select></div>
         </div>
       </div>` : ''}
 
@@ -104,7 +104,7 @@ export function renderCheckForm(view, kind) {
       const fd = new FormData();
       fd.append('file', file);
       const d = await api('/api/extract', { form: fd });
-      Object.assign(doc, { referencesText: d.referencesText, bodyText: d.bodyText, structured: d.structured || null, filename: d.filename, edited: null });
+      Object.assign(doc, { referencesText: d.referencesText, bodyText: d.bodyText, structured: d.structured || null, filename: d.filename, edited: null, file: /\.(docx|pdf)$/i.test(file.name) ? file : null });
       paste.value = '';
       paste.placeholder = `Using ${d.filename}`;
       const warn = m.needsBody && !d.fullManuscript ? ' — no manuscript body detected; in-text citations cannot be checked.' : '';
@@ -126,7 +126,7 @@ export function renderCheckForm(view, kind) {
     }
   });
 
-  paste.addEventListener('input', () => { if (paste.value.trim()) Object.assign(doc, { referencesText: '', bodyText: '', structured: null, filename: '', edited: null }); });
+  paste.addEventListener('input', () => { if (paste.value.trim()) Object.assign(doc, { referencesText: '', bodyText: '', structured: null, filename: '', edited: null, file: null }); });
 
   // Module 1.1 - edit / split / merge the detected reference list before it is checked
   $('#review', view).onclick = async () => {
@@ -185,6 +185,22 @@ export function renderCheckForm(view, kind) {
     btn.disabled = true;
     $('#form-area', view).hidden = true;
     try {
+      // Module 5 on the uploaded manuscript first (in this browser); its saved report is attached to the screening
+      if (m.screening && !body.imagesCheckId && doc.file && $('#m-img-run', view)?.checked) {
+        const prog = $('#progress', view);
+        prog.innerHTML = '<div class="progress"><h3>Module 5: analysing the figures</h3><div class="progress-bar"><span style="width:2%"></span></div><div class="muted step">Reading the figures…</div></div>';
+        const bar = $('.progress-bar span', prog), step = $('.step', prog);
+        const set = (st, p) => { if (st) step.textContent = st; if (p !== undefined) bar.style.width = `${Math.max(2, Math.min(99, p))}%`; };
+        try {
+          const { analyseAndSave } = await import('./images.js');
+          const img = await analyseAndSave([doc.file], { title: body.meta.title, manuscriptCode: body.meta.manuscriptCode, filename: doc.file.name }, set);
+          body.imagesCheckId = img.id;
+        } catch (e) {
+          // no figures in the file, or the analysis failed: the rest of the screening still runs, and the report says why
+          body.imagesNote = e.noFigures ? 'The manuscript file contains no figures that could be analysed.' : `The image analysis could not be completed: ${e.message}`;
+        }
+        prog.innerHTML = '';
+      }
       const { jobId } = await api('/api/checks', { body });
       const result = await runJob(jobId, $('#progress', view), `Running ${m.title}`);
       renderReport($('#result', view), result, { kind });

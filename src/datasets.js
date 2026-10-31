@@ -187,6 +187,7 @@ async function loadCitejacked() {
     await bulkInsert(client, 'predatory', [...['kind', 'name', 'name_norm', 'url', 'domain', 'genuine_url', 'source'].map(name => ({ name, type: 'text' })), { name: 'papers', type: 'int' }], items);
   });
   await setMeta('citejacked_count', items.length);
+  await setMeta('citejacked_loaded_at', new Date().toISOString());
   await store.snapshotTable('predatory', tableMeta('beall')).catch(e => console.warn(`R2 snapshot of the predatory table failed: ${e.message}`));
   return items.length;
 }
@@ -1123,6 +1124,55 @@ function emailDomainKind(emailOrDomain) {
   return emailDomainCache.map.get(dom) || null;
 }
 
+// ------------------------------------------------------------------ Cellosaurus problematic cell lines (bulk, offline)
+
+const CELLO_PROBLEMATIC_URL = 'https://api.cellosaurus.org/search/cell-line?q=cc%3A%22Problematic%20cell%20line%22&fields=id,ac,sy,cc&format=tsv&rows=50000';
+const celloKey = s => String(s || '').toLowerCase().replace(/[\s.-]/g, '');
+
+/** Every Cellosaurus cell line with a "Problematic cell line" note (about 1,400, against the 581 of the ICLAC register) */
+async function loadCelloProblematic() {
+  const text = await store.sourceText('cellosaurus-problematic.tsv', () => getText(CELLO_PROBLEMATIC_URL, { ttl: 0, timeout: 180000, retries: 1 }));
+  const lines = text.split(/\r?\n/).filter(l => l && !l.startsWith('#'));
+  const head = lines.shift().split('\t');
+  const col = n => head.indexOf(n);
+  const rows = [], seen = new Set();
+  for (const l of lines) {
+    const f = l.split('\t');
+    const id = f[col('id')], ac = f[col('ac')];
+    const note = (f[col('cc')] || '').split('|').find(c => /^Problematic cell line:/i.test(c));
+    if (!id || !ac || !note) continue;
+    const problematic = note.replace(/^Problematic cell line:\s*/i, '').trim();
+    for (const n of [id, ...(f[col('sy')] || '').split(';').map(s => s.trim())]) {
+      const k = celloKey(n);
+      if (k.length < 2 || seen.has(`${k}|${ac}`)) continue;
+      seen.add(`${k}|${ac}`);
+      rows.push([k, n, id, ac, problematic]);
+    }
+  }
+  const lineCount = new Set(rows.map(r => r[3])).size;
+  if (lineCount < 500) throw new Error(`Cellosaurus returned only ${lineCount} problematic cell lines`);
+  await transaction(async client => {
+    await client.query('TRUNCATE cello_problematic');
+    await bulkInsert(client, 'cello_problematic', ['name_key', 'name', 'primary_name', 'accession', 'problematic'].map(name => ({ name, type: 'text' })), rows);
+  });
+  await setMeta('cello_loaded_at', new Date().toISOString());
+  await setMeta('cello_count', lineCount);
+  return lineCount;
+}
+
+/**
+ * Local Cellosaurus record for a problematic cell line, by its name or a synonym: { found, name, accession, problematic }
+ * or null. A name shared by several lines (rare) matches the one whose primary name it is, else the first.
+ */
+async function celloProblematicLocal(name) {
+  const k = celloKey(name);
+  if (k.length < 2) return null;
+  const rows = await db.all('SELECT * FROM cello_problematic WHERE name_key = $1', [k]).catch(() => []);
+  if (!rows.length) return null;
+  const r = rows.find(x => celloKey(x.primary_name) === k) || rows[0];
+  return { found: true, name: r.primary_name, accession: r.accession, category: null, problematic: r.problematic, local: true };
+}
+
 // ------------------------------------------------------------------ Cellosaurus (live, cached)
 
 const CELLO_ROWS = 100;
@@ -1134,6 +1184,10 @@ const CELLO_ROWS = 100;
 async function cellosaurusLookup(name) {
   const n = String(name || '').trim().replace(/"/g, '');
   if (n.length < 2) return null;
+  // the bulk copy answers for every problematic line without a network call (and offline)
+  const local = await celloProblematicLocal(n);
+  if (local) return local;
+  if (!require('./http').isOnline()) return null;
   // Derivatives list their parent as a synonym (dozens of "MCF-7 …" sublines) and spellings vary ("HepG2" is stored as
   // "Hep-G2"), so search identifiers, then synonyms, and accept only a name equal apart from case, spaces and hyphens
   const key = s => String(s || '').toLowerCase().replace(/[\s-]/g, '');
@@ -1164,7 +1218,9 @@ async function listStatus() {
   return {
     lists: Object.entries(LIST_TYPES).map(([type, label]) => ({ type, label, ...(uploaded[type] || {}) })),
     retractionWatch: { loadedAt: await getMeta('rw_loaded_at'), count: parseInt((await getMeta('rw_count')) || '0', 10) },
-    beall: { loadedAt: await getMeta('beall_loaded_at'), count: parseInt((await getMeta('beall_count')) || '0', 10) },
+    // the predatory table also holds the Retraction Watch hijacked and citejacked rows: its date is the latest of the three,
+    // so a desktop copies the table again when any of them changes
+    beall: { loadedAt: [await getMeta('beall_loaded_at'), await getMeta('rwhj_loaded_at'), await getMeta('citejacked_loaded_at')].filter(Boolean).sort().pop() || null, count: parseInt((await getMeta('beall_count')) || '0', 10) },
     rwHijacked: { loadedAt: await getMeta('rwhj_loaded_at'), count: parseInt((await getMeta('rwhj_count')) || '0', 10) },
     citejacked: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('citejacked_count')) || '0', 10) },
     screener: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('pps_count')) || '0', 10) },
@@ -1176,7 +1232,8 @@ async function listStatus() {
     openalexJournals: await openalexJournalStatus(),
     publisherJournals: await publisherJournalStatus(),
     emailDomains: { loadedAt: await getMeta('maildom_loaded_at'), count: parseInt((await getMeta('maildom_count')) || '0', 10) },
-    iclac: { loadedAt: null, count: 581, builtIn: true }
+    iclac: { loadedAt: null, count: 581, builtIn: true },
+    cellosaurus: { loadedAt: await getMeta('cello_loaded_at'), count: parseInt((await getMeta('cello_count')) || '0', 10) }
   };
 }
 
@@ -1213,8 +1270,8 @@ async function datasetHealth() {
  * instead of timing out halfway through the list, and a source that keeps failing does not block the others.
  */
 // dataset key -> its lookup table on R2 (src/datasetStore.js snapshotTable / restoreTable) and the meta values that go with it
-const DATASET_TABLES = { rw: ['retractions', ['rw_authors']], pps: ['pps_fingerprints', []], beall: ['predatory', ['rwhj_loaded_at', 'rwhj_count', 'citejacked_count']], fda_ob: ['fda_orange_book', []], nlm: ['nlm_journals', []],
-  doaj: ['doaj_journals', []], ltwa: ['ltwa_words', []], crj: ['crossref_journals', []], maildom: ['email_domains', []], pubj: ['publisher_journals', ['pubj_by_publisher']], oaj: ['openalex_journals', []] };
+const DATASET_TABLES = { rw: ['retractions', ['rw_authors']], pps: ['pps_fingerprints', []], beall: ['predatory', ['rwhj_loaded_at', 'rwhj_count', 'citejacked_count', 'citejacked_loaded_at']], fda_ob: ['fda_orange_book', []], nlm: ['nlm_journals', []],
+  doaj: ['doaj_journals', []], ltwa: ['ltwa_words', []], crj: ['crossref_journals', []], maildom: ['email_domains', []], cello: ['cello_problematic', []], pubj: ['publisher_journals', ['pubj_by_publisher']], oaj: ['openalex_journals', []] };
 const tableMeta = key => [`${key}_loaded_at`, `${key}_count`, ...(DATASET_TABLES[key]?.[1] || [])];
 
 /** Fill every dataset table straight from its snapshot on R2 (no source website is contacted). Returns rows per table. */
@@ -1241,6 +1298,7 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
     ['ltwa', 'ltwa', 'ISSN LTWA', loadLtwa],
     ['crj', 'crj', 'Crossref journal list', loadCrossrefJournals],
     ['maildom', 'maildom', 'E-mail domain lists', loadEmailDomains],
+    ['cello', 'cellosaurus', 'Cellosaurus problematic cell lines', loadCelloProblematic, 30],
     ['pubj', 'publisherJournals', 'Major publisher journal lists', () => loadPublisherJournals({ log }), 30],
     // monthly; a download in progress continues on every run with whatever time is left
     // (on Vercel at most 3 minutes per run, so a request never outlives the function time limit)
@@ -1277,6 +1335,6 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
 module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
-  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
+  loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
   loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
 };

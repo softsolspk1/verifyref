@@ -250,6 +250,17 @@ CREATE TABLE IF NOT EXISTS email_domains (
   kind TEXT NOT NULL                     -- freemail | disposable
 );
 
+-- Cellosaurus cell lines with a "Problematic cell line" note (contaminated / misidentified / misclassified), one row per
+-- name or synonym, so Module 4 checks them without the Cellosaurus API (offline on the desktop)
+CREATE TABLE IF NOT EXISTS cello_problematic (
+  name_key TEXT NOT NULL,                -- lower case, no spaces / hyphens / dots ("Hep-G2" -> "hepg2")
+  name TEXT NOT NULL,
+  primary_name TEXT NOT NULL,
+  accession TEXT NOT NULL,
+  problematic TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cello_key ON cello_problematic(name_key);
+
 CREATE TABLE IF NOT EXISTS journal_lists (
   list_type TEXT PRIMARY KEY,
   filename TEXT,

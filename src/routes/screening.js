@@ -208,7 +208,7 @@ router.get('/checks/:id/confidential', auth.requireUser, wrap(async (req, res) =
   const c = await loadCheck(req.user.id, req.params.id);
   if (!c?.result) return res.status(404).json({ success: false, message: 'Report not found.' });
   const kind = c.row.kind;
-  const blocks = kind === 'papermill' ? W.papermillBlocks(c.result) : kind === 'images' ? W.imagesBlocks(c.result) : null;
+  const blocks = kind === 'papermill' ? W.papermillBlocks(c.result) : kind === 'images' ? W.imagesBlocks(await IMG.withExportThumbs(c.result, req.user.id)) : null;
   if (!blocks) return res.status(400).json({ success: false, message: 'No confidential export for this report.' });
   if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(blocks), `${kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.pdf`, 'application/pdf');
   sendFile(res, await W.buildDocx(blocks), `${kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.docx`, DOCX);
@@ -220,6 +220,11 @@ router.get('/checks/:id/screening', auth.requireUser, wrap(async (req, res) => {
   if (!c?.result?.screening) return res.status(404).json({ success: false, message: 'Full Screening Report not found.' });
   const version = req.query.version === 'author' ? 'author' : 'editor';
   if (version === 'author' && !require('../modules').permissionsOf(req.user).includes('reports')) return res.status(403).json({ success: false, message: 'Only editors can prepare the author version.' });
+  // editor version: the full Module 5 report attached to the screening goes in as section 5
+  if (version === 'editor' && c.result.images?.checkId) {
+    const img = await loadCheck(req.user.id, c.result.images.checkId).catch(() => null);
+    if (img?.result) c.result.images.report = await IMG.withExportThumbs(img.result, req.user.id);
+  }
   if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(W.screeningBlocks(c.result, version)), `screening-${version}-${c.row.manuscript_code || c.row.id}.pdf`, 'application/pdf');
   sendFile(res, await W.buildDocx(W.screeningBlocks(c.result, version)), `screening-${version}-${c.row.manuscript_code || c.row.id}.docx`, DOCX);
 }));

@@ -4,7 +4,9 @@
 //   - references to papers that were themselves retracted for paper-mill reasons (exact DOI)
 //   - title similarity to paper-mill-retracted titles (tested and NOT used: it barely separates the groups)
 // Needs data/benchmark/results.json + xml/ (from benchmark-papermill.js) and data/public-images/retractionwatch.csv.
-// Usage: node scripts/benchmark-papermill-refs.js [--titles]
+//   - with --lists (needs the database): references to citejacked journals (Problematic Paper Screener), to journals
+//     discontinued by Scopus published after coverage ended, and to journals with a known hijacked clone (by name)
+// Usage: node scripts/benchmark-papermill-refs.js [--titles] [--lists]
 const fs = require('fs');
 const path = require('path');
 const { csvToObjects } = require('../src/datasets');
@@ -35,6 +37,21 @@ function millCount(name) {
 }
 
 const papers = JSON.parse(fs.readFileSync(path.join(ROOT, 'benchmark', 'results.json'), 'utf8'));
+const LISTS = process.argv.includes('--lists');
+const D = LISTS ? (require('../src/config'), require('../src/datasets')) : null;
+const listCache = new Map();
+async function listsFor(name) {
+  const k = normalizeJournal(name);
+  if (!k) return {};
+  if (!listCache.has(k)) {
+    const [pred, hits] = await Promise.all([D.predatoryMatches({ journal: name }).catch(() => []), D.listLookupAll([], name).catch(() => ({}))]);
+    const sd = hits.scopus_discontinued && !/policy/i.test(hits.scopus_discontinued.data?.['Indexation Change'] || '') ? (parseInt(hits.scopus_discontinued.data?.Year, 10) || 0) : null;
+    listCache.set(k, { citejacked: pred.some(D.isCitejacked), clone: pred.some(x => x.kind === 'hijacked' && !D.isCitejacked(x)), predatory: pred.some(x => x.kind !== 'hijacked'), scopusDropped: sd });
+  }
+  return listCache.get(k);
+}
+
+(async () => {
 const rows = [];
 for (const p of papers) {
   const f = path.join(ROOT, 'benchmark', 'xml', `${p.pmcid}.xml`);
@@ -45,6 +62,18 @@ for (const p of papers) {
   const dois = refs.map(r => ((r.match(/pub-id-type="doi">([^<]+)</) || [])[1] || '').toLowerCase().trim());
   const inMill = sources.filter(s => s && millCount(s) >= 20).length;
   const row = { group: p.group, refs: refs.length, inMill, share: refs.length ? inMill / refs.length : 0, millCited: dois.filter(d => d && d !== p.doi.toLowerCase() && millDoi.has(d)).length };
+  if (LISTS) {
+    const years = refs.map(r => parseInt((r.match(/<year[^>]*>(\d{4})/) || [])[1], 10) || 0);
+    Object.assign(row, { citejacked: 0, clone: 0, predatory: 0, scopusDropped: 0 });
+    for (let i = 0; i < sources.length; i++) {
+      if (!sources[i]) continue;
+      const l = await listsFor(sources[i]);
+      if (l.citejacked) row.citejacked++;
+      if (l.clone) row.clone++;
+      if (l.predatory) row.predatory++;
+      if (l.scopusDropped !== null && l.scopusDropped !== undefined && years[i] >= l.scopusDropped) row.scopusDropped++;
+    }
+  }
   if (process.argv.includes('--titles')) {
     const t = p.title.replace(/<[^>]+>/g, '');
     row.titleSim = Math.max(0, ...millTitles.filter(m => m.doi !== p.doi.toLowerCase()).map(m => titleSimilarity(t, m.title)));
@@ -63,3 +92,13 @@ line('Mill journals: >= 5 refs and >= 20% (medium)', r => r.inMill >= 5 && r.sha
 line('Cites a paper retracted for paper-mill reasons', r => r.millCited >= 1);
 line('Cites 2+ papers retracted for paper-mill reasons', r => r.millCited >= 2);
 if (process.argv.includes('--titles')) for (const t of [0.5, 0.6, 0.7]) line(`Title similarity to a mill-retracted title >= ${t}`, r => r.titleSim >= t);
+if (LISTS) {
+  line('Cites a citejacked journal (Problematic Paper Screener)', r => r.citejacked >= 1);
+  line('Cites 2+ references to citejacked journals', r => r.citejacked >= 2);
+  line('Cites a journal discontinued by Scopus, after coverage ended', r => r.scopusDropped >= 1);
+  line('3+ such references (Scopus discontinued)', r => r.scopusDropped >= 3);
+  line('Cites a journal with a known hijacked clone (name match)', r => r.clone >= 1);
+  line("Cites a journal on Beall's list", r => r.predatory >= 1);
+}
+process.exit(0);
+})().catch(e => { console.error(e); process.exit(1); });

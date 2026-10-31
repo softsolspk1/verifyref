@@ -377,7 +377,8 @@ async function detectPaperMill(input, update = () => {}) {
 
   // Cellosaurus (SIB / ExPASy): every named cell line that the built-in ICLAC list did not already report is looked up
   // for a "Problematic cell line" note (contaminated, misidentified) and, when called a cell line, for its existence
-  if (input.cellosaurus !== false && isOnline()) {
+  // (offline - desktop - the bulk copy of Cellosaurus's problematic lines still answers; "not found" needs the live API)
+  if (input.cellosaurus !== false) {
     const names = cellLineCandidates(body, new Set(cells.map(c => c.name.toLowerCase()))).slice(0, 12);
     if (names.length) {
       update('Checking named cell lines in Cellosaurus', 10);
@@ -388,7 +389,7 @@ async function detectPaperMill(input, update = () => {}) {
       const problematic = flagged.filter(c => !/^Misclassified/i.test(c.rec.problematic));
       const misclassified = flagged.filter(c => /^Misclassified/i.test(c.rec.problematic));
       const ev = c => ({ text: `${c.rec.name} (${c.rec.accession}): ${c.rec.problematic}`, quote: c.example, link: c.rec.accession ? `https://www.cellosaurus.org/${c.rec.accession}` : null });
-      const unknown = found.filter(c => c.rec && !c.rec.found && c.calledLine);
+      const unknown = isOnline() ? found.filter(c => c.rec && !c.rec.found && c.calledLine) : [];
       if (problematic.length) sig('data', 'cellosaurus-problematic', `${problematic.length} contaminated or misidentified cell line(s) in Cellosaurus`, 'medium', Math.min(4, 2 * problematic.length),
         problematic.map(ev), 'Cellosaurus records contamination and misidentification reported in the literature. Ask the authors for an STR authentication profile.');
       if (misclassified.length) sig('data', 'cellosaurus-misclassified', `${misclassified.length} cell line(s) with a Cellosaurus misclassification note`, 'low', 0.5,

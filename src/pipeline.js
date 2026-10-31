@@ -117,16 +117,23 @@ async function screening(result, { input, body, refs, meta, update }) {
   update('Module 4: paper-mill signals', 98);
   const { detectPaperMill } = require('./papermill');
   let images = null;
+  let imageReport = null;
   if (input.imagesCheckId && input.userId) {
     const c = await loadCheck(input.userId, input.imagesCheckId);
-    if (c?.result?.summary) images = { findings: c.result.summary.byLevel || {}, level: c.result.summary.level, checkId: c.row.id, summary: c.result.summary };
+    if (c?.result?.summary) { imageReport = c.result; images = { findings: c.result.summary.byLevel || {}, categories: c.result.summary.byCategory || {}, level: c.result.summary.level, checkId: c.row.id, summary: c.result.summary }; }
   }
   const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');
   const pm = await detectPaperMill({ text, body, meta, references: result.references.results, pattern: result.pattern, suggestedReviewers: input.suggestedReviewers || '', images });
   result._shingles = pm._shingles;
   delete pm._shingles;
   result.papermill = pm;
-  if (images) result.images = { checkId: images.checkId, summary: images.summary };
+  if (images) {
+    // what the front page and the exports need without the thumbnails (the full report stays in its own saved check)
+    const brief = f => ({ kind: f.kind, category: f.category || 'duplication', level: f.level, a: f.a?.label, b: f.a?.panel !== f.b?.panel ? f.b?.label : null, description: f.description });
+    result.images = { checkId: images.checkId, summary: images.summary, findings: (imageReport.findings || []).slice(0, 30).map(brief),
+      references: (imageReport.references || []).slice(0, 30).map(m => ({ panel: m.panelLabel, source: m.sourceName, title: m.title, doi: m.doi, journal: m.journal, year: m.year, figure: m.figure, level: m.level, description: m.description })),
+      earlier: (imageReport.earlier || []).length };
+  } else if (input.imagesNote) result.imagesNote = String(input.imagesNote).slice(0, 300);
 
   // Plagiarism (text overlap with the literature) and novelty / citation outlook; neither may stop the report
   update('Similarity report: comparing the text with published papers, the web and earlier PJPS submissions', 98);
@@ -188,7 +195,7 @@ function screeningSummary(r) {
         : `${pl.similarity}% overlap with ${pl.sources} published source(s)`) : 'not checked',
       novelty: nv ? `Novelty ${nv.score}/100 (${nv.band}); ${nv.closeRecent} close work(s) in the last 5 years; 5-year citation outlook ${nv.outlook}${Number.isFinite(nv.fiveYearMedian) ? ` (median ${nv.fiveYearMedian})` : ''}` : 'not assessed',
       authors: ai ? `${ai.summary.verified} of ${ai.summary.authors} author(s) identified in ORCID${ai.summary.flags ? `; ${ai.summary.flags} problem(s)` : ''}` : 'not checked',
-      images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : 'not checked (run Module 5 and attach the report)'
+      images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : r.imagesNote || 'not checked (upload the Word / PDF manuscript to analyse its figures)'
     }
   };
 }

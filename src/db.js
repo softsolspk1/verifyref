@@ -691,16 +691,22 @@ async function transaction(fn) {
   await init();
   if (lite) return lite.transaction(tx => fn({ query: (sql, params) => tx.query(sql, params) }));
   const client = await pool.connect();
+  // a connection that drops while the transaction holds it emits 'error' on the client: without a listener that ends
+  // the whole process; with it the transaction fails (its next query rejects) and the broken connection is discarded
+  let broken = null;
+  const onError = e => { broken = e; };
+  client.on('error', onError);
   try {
     await client.query('BEGIN');
     const out = await fn(client);
     await client.query('COMMIT');
     return out;
   } catch (e) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (!broken) await client.query('ROLLBACK').catch(() => {});
     throw e;
   } finally {
-    client.release();
+    client.removeListener('error', onError);
+    client.release(broken || undefined);
   }
 }
 

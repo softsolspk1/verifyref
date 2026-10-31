@@ -318,9 +318,9 @@ async function textSignals(text, body = text, custom = []) {
   const ai = aiLeftovers(text);
   if (ai.length) sig('text', 'ai-leftover', `AI-generated text or template left in the manuscript (${ai.length})`, 'high', Math.min(6, 4 + ai.length - 1), ai.map(a => ({ text: a.label, quote: a.example })), 'Only definite traces are flagged; no AI-probability score is used.');
   const tmpl = templateWording(body);
-  if (tmpl.length >= 3) sig('text', 'template', `Wording typical of paper-mill templates (${tmpl.length} features)`, 'medium', tmpl.length >= 5 ? 3 : 2, tmpl.map(t => ({ text: t.label, quote: t.example })), 'These methods are legitimate on their own; several together are typical of templated mill papers.');
+  if (tmpl.length >= 3) sig('text', 'template', `Wording typical of paper-mill templates (${tmpl.length} features)`, tmpl.length >= 5 ? 'medium' : 'low', tmpl.length >= 5 ? 2 : 1, tmpl.map(t => ({ text: t.label, quote: t.example })), 'These methods are legitimate on their own; several together are typical of templated mill papers.');
   const methods = methodsGaps(body);
-  if (methods.gaps.length) sig('text', 'methods', `Methods too vague to repeat (${methods.gaps.length})`, methods.gaps.some(g => g.code === 'ethics') ? 'medium' : 'low', 1, methods.gaps.map(g => ({ text: g.message })));
+  if (methods.gaps.length) sig('text', 'methods', `Methods too vague to repeat (${methods.gaps.length})`, methods.gaps.some(g => g.code === 'ethics') ? 'medium' : 'low', methods.gaps.some(g => g.code === 'ethics') ? 1 : 0, methods.gaps.map(g => ({ text: g.message })));
 
   const hid = hiddenText(text);
   if (hid.zero >= 5 || hid.mixed.length) {

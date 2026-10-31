@@ -171,7 +171,16 @@ function percentChecks(text) {
 function impossibleValues(text) {
   const t = normalizeStats(text);
   const out = [];
-  for (const m of t.matchAll(/\bp\s*[=<>]\s*(\d*\.?\d+)\b/gi)) if (parseFloat(m[1]) > 1) out.push({ kind: 'impossible', gross: true, reported: m[0], recalculated: 'a probability cannot exceed 1', quote: ctx(t, m.index, m[0].length) });
+  // "p = 50%" in a sample-size formula is the expected proportion (p, q = 1 - p), not a p-value
+  const proportion = (m) => /^\s*%/.test(t.slice(m.index + m[0].length, m.index + m[0].length + 3))
+    || /prevalence|proportion|sample size|population|expected|anticipated|q\s*=\s*1\s*-\s*p|z\s*=\s*1\.96|\bα\s*=|margin of error/i.test(t.slice(Math.max(0, m.index - 160), m.index + 60));
+  // not a p-value either: scientific notation ("P = 9.27 e-02", "p = 2.90 × 10-5"), a subscript variable ("K p = 3.26"
+  // of a PID controller) or a formula ("P = 2 x 1 - ...")
+  const notPValue = (m) => {
+    const after = t.slice(m.index + m[0].length, m.index + m[0].length + 14), before = t.slice(Math.max(0, m.index - 3), m.index);
+    return /^\s*(?:[eE]\s*[-−–+]?\s*\d|[×x*·]\s*10\b|[×x*·/+-]\s*[a-z(\d])/.test(after) || /\b[A-Za-z]\s$/.test(before);
+  };
+  for (const m of t.matchAll(/\bp\s*[=<>]\s*(\d*\.?\d+)(?![\d.])/gi)) if (parseFloat(m[1]) > 1 && !proportion(m) && !notPValue(m)) out.push({ kind: 'impossible', gross: true, reported: m[0], recalculated: 'a probability cannot exceed 1', quote: ctx(t, m.index, m[0].length) });
   for (const m of t.matchAll(/(?:±|\bSD\b\s*=?)\s*-\s*\d/g)) out.push({ kind: 'impossible', gross: true, reported: m[0], recalculated: 'a standard deviation cannot be negative', quote: ctx(t, m.index, m[0].length) });
   return out.slice(0, 5);
 }
@@ -341,4 +350,4 @@ function affiliationSpread(affiliations = [], authorCount = 0) {
   return { countries: [...found.keys()], byCountry: Object.fromEntries(found), far: found.size >= 3 || (found.size >= 2 && authorCount && authorCount <= 3 && !found.has('Pakistan')) };
 }
 
-module.exports = { statisticsCheck, statTests, percentChecks, findPrimers, primerSanity, seekAndBlast, affiliationSpread, pT, pF, pChi, pZ, revcomp };
+module.exports = { statisticsCheck, statTests, percentChecks, impossibleValues, findPrimers, primerSanity, seekAndBlast, affiliationSpread, pT, pF, pChi, pZ, revcomp };

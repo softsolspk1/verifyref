@@ -27,14 +27,19 @@ const sizes = () => db.all(`SELECT relname AS table, pg_size_pretty(pg_total_rel
     const rows = await db.all("SELECT key, value::text AS json, expires_at FROM cache WHERE key > $1 AND NOT (value ? '__r2') AND expires_at > $2 ORDER BY key LIMIT 200", [lastKey, Date.now()]);
     if (!rows.length) break;
     lastKey = rows[rows.length - 1].key;
-    await Promise.all(rows.filter(r => r.json.length >= CACHE_R2_MIN).map(async r => {
+    const todo = rows.filter(r => r.json.length >= CACHE_R2_MIN);
+    // 25 at a time (200 parallel writes reset the database connection), each retried once after a network error
+    for (let i = 0; i < todo.length; i += 25) await Promise.all(todo.slice(i, i + 25).map(async r => {
       if (DRY) { moved++; return; }
-      const objectKey = cacheObjectKey(r.key);
-      await R2.putObject(objectKey, zlib.gzipSync(r.json), 'application/gzip');
-      // only replace the row when R2 returns the same content
-      const back = zlib.gunzipSync(await R2.getObject(objectKey)).toString('utf8');
-      if (back !== r.json) throw new Error(`R2 copy of cache entry ${r.key} differs`);
-      await db.query('UPDATE cache SET value = $2 WHERE key = $1', [r.key, JSON.stringify({ __r2: objectKey })]);
+      const move = async () => {
+        const objectKey = cacheObjectKey(r.key);
+        await R2.putObject(objectKey, zlib.gzipSync(r.json), 'application/gzip');
+        // only replace the row when R2 returns the same content
+        const back = zlib.gunzipSync(await R2.getObject(objectKey)).toString('utf8');
+        if (back !== r.json) throw new Error(`R2 copy of cache entry ${r.key} differs`);
+        await db.query('UPDATE cache SET value = $2 WHERE key = $1', [r.key, JSON.stringify({ __r2: objectKey })]);
+      };
+      await move().catch(e => (/differs/.test(e.message) ? Promise.reject(e) : new Promise(res => setTimeout(res, 3000)).then(move)));
       moved++;
     }));
     process.stdout.write(`\r  cache: ${moved} moved`);

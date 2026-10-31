@@ -15,7 +15,7 @@ const { figuresOfFile, decodeImage, decodeAny } = require('./figureFiles');
 
 const SOURCES = {
   pjps: { name: 'Published PJPS papers', short: 'PJPS published' },
-  retracted: { name: 'Papers retracted or corrected for image problems (open access)', short: 'Retracted / corrected' },
+  retracted: { name: 'Papers retracted, corrected or flagged in integrity audits for image problems (open access)', short: 'Retracted / flagged' },
   pmc: { name: 'PubMed Central open-access papers (pharmacy, pharmacology, medicinal plants; blots, histology, microscopy)', short: 'PubMed Central' },
   publisher: { name: 'Open-access papers of the major publishers (MDPI, Elsevier, Springer Nature / BMC, Wiley, Frontiers, PLOS, Taylor & Francis, SAGE, OUP, CUP, Wolters Kluwer, ACS, Dove, Hindawi)', short: 'Publisher open access' },
   rsiid: { name: 'RSIID — pristine scientific figures (Recod.ai, CC-BY; includes BBBC microscopy)', short: 'RSIID' },

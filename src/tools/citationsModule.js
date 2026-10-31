@@ -63,6 +63,7 @@ async function runCitationsModule(input, files = [], update = () => {}) {
       full: ks.full || 0,
       couldNotVerify: ks.couldNotVerify || 0,
       retractedEvidence: claims ? claims.claims.reduce((a, c) => a + c.citations.filter(x => x.refStatus === 'retracted').length, 0) : 0,
+      flaggedEvidence: claims ? claims.claims.reduce((a, c) => a + c.citations.filter(x => x.refFlagged).length, 0) : 0,
       patternFlags: pattern.flags.length,
       selfCitationRate: pattern.summary.selfCitationRate
     }
@@ -75,7 +76,7 @@ function citationProblems(r) {
   return [
     s.missing && `${s.missing} citation(s) missing from the list`, s.uncited && `${s.uncited} reference(s) never cited`,
     s.yearMismatch && `${s.yearMismatch} year mismatch(es)`, s.spelling && `${s.spelling} author name spelled differently`, s.spelling && `${s.spelling} author name spelled differently`, s.spelling && `${s.spelling} author name spelled differently`, s.etAl && `${s.etAl} “et al.” problem(s)`,
-    s.unsupported && `${s.unsupported} unsupported claim(s)`, s.retractedEvidence && `${s.retractedEvidence} claim(s) resting on retracted work`,
+    s.unsupported && `${s.unsupported} unsupported claim(s)`, s.retractedEvidence && `${s.retractedEvidence} claim(s) resting on retracted work`, s.flaggedEvidence && `${s.flaggedEvidence} claim(s) resting on work flagged in an integrity audit`,
     s.patternFlags && `${s.patternFlags} citation-pattern flag(s)`
   ].filter(Boolean);
 }

@@ -149,12 +149,16 @@ function ppsTerms(expr) {
 
 async function loadProblematicScreener() {
   const rows = [];
-  for (const kind of ['tortured', 'scigen', 'suspect']) {
-    const text = await store.sourceText(`pps-${kind}.csv`, () => getText(PPS_URL(kind), { ttl: 0, timeout: 120000, retries: 1 }));
+  // Mathgen (computer-generated mathematics papers) is optional: the load does not fail without it
+  for (const kind of ['tortured', 'scigen', 'suspect', 'mathgen']) {
+    const text = await store.sourceText(`pps-${kind}.csv`, () => getText(PPS_URL(kind), { ttl: 0, timeout: 120000, retries: 1 }))
+      .catch(e => { if (kind !== 'mathgen') throw e; console.warn(`Problematic Paper Screener mathgen: ${e.message}`); return ''; });
+    if (kind === 'mathgen' && !/^"?Fingerprint/i.test(text)) continue; // an error page instead of the CSV
     for (const row of parseCsv(text).slice(1)) {
       const terms = ppsTerms(row[0]);
       if (!terms) continue;
-      rows.push([kind, JSON.stringify(terms), kind === 'scigen' ? '' : (row[1] || ''), parseInt(String(row[kind === 'scigen' ? 1 : 2] || '0').replace(/,/g, ''), 10) || 0]);
+      const generated = kind === 'scigen' || kind === 'mathgen'; // no "expected text" column
+      rows.push([kind, JSON.stringify(terms), generated ? '' : (row[1] || ''), parseInt(String(row[generated ? 1 : 2] || '0').replace(/,/g, ''), 10) || 0]);
     }
   }
   if (rows.length < 1000) throw new Error('Problematic Paper Screener parse returned too few fingerprints');
@@ -250,7 +254,43 @@ async function loadBeall() {
   });
   await setMeta('beall_loaded_at', new Date().toISOString());
   await setMeta('beall_count', items.length);
+  await loadStopPredatory().catch(e => console.warn(`Stop Predatory Journals list: ${e.message}`));
   return items.length;
+}
+
+const SPJ_SOURCE = 'stoppredatoryjournals.com';
+const SPJ_URL = f => `https://raw.githubusercontent.com/stop-predatory-journals/stop-predatory-journals.github.io/master/_data/${f}.csv`;
+
+/**
+ * Stop Predatory Journals (the community successor of Beall's list; archived since 2018): predatory publishers,
+ * standalone journals and hijacked journals with the genuine journal's website. Rows go into the predatory table.
+ */
+async function loadStopPredatory() {
+  const rows = [];
+  // full names only: the list's acronyms ("AJO", "ASJ") and one-word titles ("Research") match genuine journals too
+  const add = (kind, name, url, genuine = null) => {
+    const clean = decode(name || '').replace(/[s|]+$/, '');
+    const norm = normalizeJournal(clean);
+    if (norm && norm.split(' ').length >= 2) rows.push([kind, clean, norm, url || null, url ? domainOf(url) : null, genuine || null, SPJ_SOURCE]);
+  };
+  for (const [file, kind] of [['publishers', 'publisher'], ['journals', 'journal']]) {
+    const text = await store.sourceText(`spj-${file}.csv`, () => getText(SPJ_URL(file), { ttl: 0, timeout: 60000, retries: 2 }));
+    for (const r of csvToObjects(text)) add(kind, r.name, r.url);
+  }
+  const hj = await store.sourceText('spj-hijacked.csv', () => getText(SPJ_URL('hijacked'), { ttl: 0, timeout: 60000, retries: 2 })).catch(() => '');
+  for (const r of csvToObjects(hj)) {
+    for (const url of [r.hijackedurl, r.althijackedurl].filter(Boolean)) {
+      add('hijacked', r.hijacked || r.authentic, url, r.authenticurl);
+    }
+  }
+  if (rows.length < 500) throw new Error(`only ${rows.length} entries parsed`);
+  await transaction(async client => {
+    await client.query('DELETE FROM predatory WHERE source = $1', [SPJ_SOURCE]);
+    await bulkInsert(client, 'predatory', ['kind', 'name', 'name_norm', 'url', 'domain', 'genuine_url', 'source'].map(name => ({ name, type: 'text' })), rows);
+  });
+  await setMeta('spj_count', rows.length);
+  await setMeta('spj_loaded_at', new Date().toISOString());
+  return rows.length;
 }
 
 /** Match a journal/publisher name or homepage against predatory & hijacked lists */
@@ -273,6 +313,13 @@ async function predatoryMatches({ journal, publisher, homepage, issns = [] }) {
     const major = await publisherJournal({ issns, name: journal || '' }).catch(() => null);
     if (major) return hits.filter(h => h.kind === 'hijacked');
   }
+  // Stop Predatory Journals was last updated in 2018 and lists some journals (Oncotarget, Bioinformation) that still
+  // deposit every article in PubMed Central after NLM's review: its entries are not reported for such a journal
+  const spj = h => h.source === SPJ_SOURCE && h.kind !== 'hijacked';
+  if (hits.some(spj)) {
+    const pmc = (await listLookupAll(issns, journal || '').catch(() => ({}))).pmc;
+    if (pmc && /^active$/i.test(String(pmc.data?.['Agreement Status'] || '').trim())) return hits.filter(h => !spj(h));
+  }
   return hits;
 }
 
@@ -288,7 +335,8 @@ const LIST_TYPES = {
   hec_blacklist: 'HEC / institutional list of predatory or blacklisted journals — CSV',
   doaj_removed: 'Journals removed from DOAJ — CSV (optional)',
   scopus_discontinued: 'Scopus discontinued titles — the "Discontinued Titles" sheet of Elsevier\'s source list workbook (.xlsx; uploading the workbook on the Scopus row loads both)',
-  rw_hijacked: 'Retraction Watch Hijacked Journal Checker — .xlsx or CSV export (clone websites of real journals)'
+  rw_hijacked: 'Retraction Watch Hijacked Journal Checker — .xlsx or CSV export (clone websites of real journals)',
+  pmc: 'PubMed Central journal list — downloaded automatically from NCBI (jlist.csv); upload only to replace it'
 };
 
 function findCol(headers, patterns) {
@@ -1059,7 +1107,9 @@ const DATASET_VIEWS = {
   crossref_journals: { label: 'Crossref journal title list', cols: ['title', 'publisher', 'issn', 'eissn', 'doi'], search: ['title', 'publisher', 'issn', 'eissn'], order: 'title_norm' },
   openalex_journals: { label: 'OpenAlex journal list', cols: ['title', 'publisher', 'issns', 'country', 'works', 'h_index', 'is_oa', 'in_doaj', 'first_year', 'last_year'], search: ['title', 'publisher', 'issns'], order: 'works DESC NULLS LAST' },
   publisher_journals: { label: 'Major publisher journal lists', cols: ['title', 'publisher', 'imprint', 'issns', 'works', 'source', 'homepage'], search: ['title', 'imprint', 'issns'], order: 'works DESC NULLS LAST, title_norm' },
-  email_domains: { label: 'E-mail domain lists', cols: ['domain', 'kind'], search: ['domain'], order: 'kind, domain' }
+  email_domains: { label: 'E-mail domain lists', cols: ['domain', 'kind'], search: ['domain'], order: 'kind, domain' },
+  journal_abbrevs: { label: 'JabRef journal abbreviations', cols: ['title', 'abbrev', 'list'], search: ['title', 'abbrev'], order: 'title_norm' },
+  flagged_papers: { label: 'Papers flagged in integrity audits', cols: ['doi', 'title', 'journal', 'year', 'issue', 'image', 'source'], search: ['doi', 'title', 'issue'], order: 'year DESC NULLS LAST, doi' }
 };
 
 /** One page of a dataset table: { label, cols, rows, total, page, size }; publisher_journals can be narrowed to one publisher */
@@ -1212,6 +1262,104 @@ async function cellosaurusLookup(name) {
   };
 }
 
+// ------------------------------------------------------------------ JabRef journal abbreviation lists (CC0)
+
+const JABREF_URL = f => `https://raw.githubusercontent.com/JabRef/abbrv.jabref.org/main/journals/journal_abbreviations_${f}.csv`;
+// in order of preference: a title in several lists keeps the abbreviation of the first (life sciences first; "entrez"
+// and "medicus" repeat the NLM Catalog, which is checked before this table anyway, and the medicus file is malformed)
+const JABREF_LISTS = ['lifescience', 'acs', 'general', 'ubc', 'mechanical', 'mathematics', 'geology_physics', 'ams', 'ieee', 'aea', 'sociology', 'meteorology', 'astronomy'];
+
+async function loadJabrefAbbrevs({ log = console.log } = {}) {
+  const byTitle = new Map();
+  for (const list of JABREF_LISTS) {
+    const text = await store.sourceText(`jabref-${list}.csv`, () => getText(JABREF_URL(list), { ttl: 0, timeout: 60000, retries: 2 })).catch(e => { log(`JabRef ${list}: ${e.message}`); return ''; });
+    let n = 0;
+    for (const row of parseCsv(text, text.slice(0, 500).includes('";"') ? ';' : ',')) {
+      const title = String(row[0] || '').trim(), abbrev = String(row[1] || '').trim();
+      const norm = normalizeJournal(title);
+      // only the dotted ISO 4 form PJPS expects ("J. Ethnopharmacol."); an undotted or unchanged title is not one
+      if (!norm || !abbrev.includes('.') || abbrev === title || byTitle.has(norm)) continue;
+      byTitle.set(norm, [title, norm, abbrev, list]);
+      n++;
+    }
+    if (n) log(`JabRef ${list}: ${n} titles`);
+  }
+  const rows = [...byTitle.values()];
+  if (rows.length < 10000) throw new Error(`JabRef abbreviation lists returned too few titles (${rows.length})`);
+  await transaction(async client => {
+    await client.query('TRUNCATE journal_abbrevs');
+    await bulkInsert(client, 'journal_abbrevs', ['title', 'title_norm', 'abbrev', 'list'].map(name => ({ name, type: 'text' })), rows);
+  });
+  await setMeta('jabref_loaded_at', new Date().toISOString());
+  await setMeta('jabref_count', rows.length);
+  return rows.length;
+}
+
+/** Curated abbreviation of a full journal title: { title, abbrev, list } or null */
+async function jabrefAbbrev(name) {
+  const norm = normalizeJournal(name || '');
+  if (!norm) return null;
+  const r = await db.one('SELECT title, abbrev, list FROM journal_abbrevs WHERE title_norm = $1 LIMIT 1', [norm]).catch(() => null);
+  return r || null;
+}
+
+// ------------------------------------------------------------------ PubMed Central journal list
+
+const PMC_JLIST_URL = 'https://cdn.ncbi.nlm.nih.gov/pmc/home/jlist.csv';
+
+/** Every journal that deposits (or deposited) in PubMed Central, with its agreement status and embargo, as list "pmc" */
+async function loadPmcJournals() {
+  const text = await store.sourceText('pmc-jlist.csv', () => getText(PMC_JLIST_URL, { ttl: 0, timeout: 120000, retries: 2 }));
+  const rows = csvToObjects(text).map(r => ({ Title: r['Journal Title'], ISSN: r['ISSN (print)'], EISSN: r['ISSN (online)'], ...r }));
+  if (rows.length < 2000) throw new Error(`PMC journal list returned too few journals (${rows.length})`);
+  const n = await importJournalList('pmc', 'jlist.csv (PubMed Central journal list)', rows);
+  await setMeta('pmcj_loaded_at', new Date().toISOString());
+  await setMeta('pmcj_count', n);
+  return n;
+}
+
+// ------------------------------------------------------------------ papers flagged in published integrity audits
+
+const BIOENG_URL = 'https://zenodo.org/api/records/15671466/files/Bioengineered%20Supplementary%20Data.xlsx/content';
+const BIOENG_SOURCE = 'Bioengineered paper-mill audit (Zenodo 15671466)';
+const IMAGE_ISSUE = /image|blot|panel|micrograph|photo|transwell|wound|colony|histolog|flow cytometr|dot plot|\bfc\b|splic|duplicat|overlap/i;
+
+/**
+ * Bioengineered audit: about 900 papers of the Taylor & Francis journal Bioengineered checked by integrity sleuths;
+ * the ~226 with a major problem (image overlap, incorrect primers, missing ethics approval ...) are stored.
+ */
+async function loadFlaggedPapers() {
+  const buf = await store.sourceBuffer('bioengineered-audit.xlsx', () => getBuffer(BIOENG_URL, { timeout: 120000, retries: 2 }));
+  const X = require('./xlsx');
+  const wb = await X.openWorkbook(buf);
+  const objs = X.rowsToObjects(await wb.rows('Data'), r => r[0] === 'DOI');
+  const yes = v => /^y(es)?$/i.test(String(v || '').trim());
+  const rows = [];
+  for (const o of objs) {
+    const doi = cleanDoi(o.DOI);
+    if (!doi || !yes(o['Any major problem found? (y/n)'])) continue;
+    const issue = String(o['Issue?'] || o.Comment || '').trim();
+    const image = yes(o['Any Image related issue?']) || ['Image overlap - within figure', 'Image overlap - between figure (within paper)', 'Image overlap - between papers'].some(k => String(o[k] || '').trim()) || IMAGE_ISSUE.test(issue);
+    rows.push([doi, o.PMID || null, o.Title || null, 'Bioengineered', String(o['Publication Year'] || o['Publication date'] || '').slice(0, 4) || null, issue || 'Major problem found', image, BIOENG_SOURCE, `https://doi.org/${doi}`]);
+  }
+  if (rows.length < 100) throw new Error(`Bioengineered audit returned too few flagged papers (${rows.length})`);
+  await transaction(async client => {
+    await client.query('DELETE FROM flagged_papers WHERE source = $1', [BIOENG_SOURCE]);
+    await bulkInsert(client, 'flagged_papers', [...['doi', 'pmid', 'title', 'journal', 'year', 'issue'].map(name => ({ name, type: 'text' })), { name: 'image', type: 'boolean' }, ...['source', 'url'].map(name => ({ name, type: 'text' }))], rows);
+  });
+  await setMeta('flag_loaded_at', new Date().toISOString());
+  await setMeta('flag_count', rows.length);
+  return rows.length;
+}
+
+/** Batch lookup: Map(doi -> flagged paper row) */
+async function flaggedFor(dois) {
+  const list = [...new Set(dois.filter(Boolean).map(d => d.toLowerCase()))];
+  if (!list.length) return new Map();
+  const rows = await db.all('SELECT * FROM flagged_papers WHERE doi = ANY($1::text[])', [list]).catch(() => []);
+  return new Map(rows.map(r => [r.doi, r]));
+}
+
 async function listStatus() {
   const allUploaded = await db.all('SELECT * FROM journal_lists');
   const uploaded = Object.fromEntries(allUploaded.map(r => [r.list_type, r]));
@@ -1220,7 +1368,8 @@ async function listStatus() {
     retractionWatch: { loadedAt: await getMeta('rw_loaded_at'), count: parseInt((await getMeta('rw_count')) || '0', 10) },
     // the predatory table also holds the Retraction Watch hijacked and citejacked rows: its date is the latest of the three,
     // so a desktop copies the table again when any of them changes
-    beall: { loadedAt: [await getMeta('beall_loaded_at'), await getMeta('rwhj_loaded_at'), await getMeta('citejacked_loaded_at')].filter(Boolean).sort().pop() || null, count: parseInt((await getMeta('beall_count')) || '0', 10) },
+    beall: { loadedAt: [await getMeta('beall_loaded_at'), await getMeta('rwhj_loaded_at'), await getMeta('citejacked_loaded_at'), await getMeta('spj_loaded_at')].filter(Boolean).sort().pop() || null, count: parseInt((await getMeta('beall_count')) || '0', 10) },
+    stopPredatory: { loadedAt: await getMeta('spj_loaded_at'), count: parseInt((await getMeta('spj_count')) || '0', 10) },
     rwHijacked: { loadedAt: await getMeta('rwhj_loaded_at'), count: parseInt((await getMeta('rwhj_count')) || '0', 10) },
     citejacked: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('citejacked_count')) || '0', 10) },
     screener: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('pps_count')) || '0', 10) },
@@ -1233,7 +1382,10 @@ async function listStatus() {
     publisherJournals: await publisherJournalStatus(),
     emailDomains: { loadedAt: await getMeta('maildom_loaded_at'), count: parseInt((await getMeta('maildom_count')) || '0', 10) },
     iclac: { loadedAt: null, count: 581, builtIn: true },
-    cellosaurus: { loadedAt: await getMeta('cello_loaded_at'), count: parseInt((await getMeta('cello_count')) || '0', 10) }
+    cellosaurus: { loadedAt: await getMeta('cello_loaded_at'), count: parseInt((await getMeta('cello_count')) || '0', 10) },
+    jabrefAbbrevs: { loadedAt: await getMeta('jabref_loaded_at'), count: parseInt((await getMeta('jabref_count')) || '0', 10) },
+    pmcJournals: { loadedAt: await getMeta('pmcj_loaded_at'), count: parseInt((await getMeta('pmcj_count')) || '0', 10) },
+    flaggedPapers: { loadedAt: await getMeta('flag_loaded_at'), count: parseInt((await getMeta('flag_count')) || '0', 10) }
   };
 }
 
@@ -1270,8 +1422,9 @@ async function datasetHealth() {
  * instead of timing out halfway through the list, and a source that keeps failing does not block the others.
  */
 // dataset key -> its lookup table on R2 (src/datasetStore.js snapshotTable / restoreTable) and the meta values that go with it
-const DATASET_TABLES = { rw: ['retractions', ['rw_authors']], pps: ['pps_fingerprints', []], beall: ['predatory', ['rwhj_loaded_at', 'rwhj_count', 'citejacked_count', 'citejacked_loaded_at']], fda_ob: ['fda_orange_book', []], nlm: ['nlm_journals', []],
-  doaj: ['doaj_journals', []], ltwa: ['ltwa_words', []], crj: ['crossref_journals', []], maildom: ['email_domains', []], cello: ['cello_problematic', []], pubj: ['publisher_journals', ['pubj_by_publisher']], oaj: ['openalex_journals', []] };
+const DATASET_TABLES = { rw: ['retractions', ['rw_authors']], pps: ['pps_fingerprints', []], beall: ['predatory', ['rwhj_loaded_at', 'rwhj_count', 'citejacked_count', 'citejacked_loaded_at', 'spj_count', 'spj_loaded_at']], fda_ob: ['fda_orange_book', []], nlm: ['nlm_journals', []],
+  doaj: ['doaj_journals', []], ltwa: ['ltwa_words', []], crj: ['crossref_journals', []], maildom: ['email_domains', []], cello: ['cello_problematic', []], pubj: ['publisher_journals', ['pubj_by_publisher']], oaj: ['openalex_journals', []],
+  jabref: ['journal_abbrevs', []], flag: ['flagged_papers', []] };
 const tableMeta = key => [`${key}_loaded_at`, `${key}_count`, ...(DATASET_TABLES[key]?.[1] || [])];
 
 /** Fill every dataset table straight from its snapshot on R2 (no source website is contacted). Returns rows per table. */
@@ -1300,6 +1453,9 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
     ['maildom', 'maildom', 'E-mail domain lists', loadEmailDomains],
     ['cello', 'cellosaurus', 'Cellosaurus problematic cell lines', loadCelloProblematic, 30],
     ['pubj', 'publisherJournals', 'Major publisher journal lists', () => loadPublisherJournals({ log }), 30],
+    ['jabref', 'jabrefAbbrevs', 'JabRef journal abbreviations', () => loadJabrefAbbrevs({ log }), 30],
+    ['pmcj', 'pmcJournals', 'PubMed Central journal list', loadPmcJournals, 30],
+    ['flag', 'flaggedPapers', 'Papers flagged in integrity audits', loadFlaggedPapers, 90],
     // monthly; a download in progress continues on every run with whatever time is left
     // (on Vercel at most 3 minutes per run, so a request never outlives the function time limit)
     ['oaj', 'openalexJournals', 'OpenAlex journal list', () => loadOpenAlexJournals({ budgetMs: Math.min(budgetMs - (Date.now() - started), process.env.VERCEL ? 180000 : Infinity), log }), 30]
@@ -1336,5 +1492,6 @@ module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
+  loadStopPredatory, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadFlaggedPapers, flaggedFor,
   loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
 };

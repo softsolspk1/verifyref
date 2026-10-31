@@ -108,8 +108,9 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
       const v = M.verdictOf(best, { fullText: !!src?.fullText });
       if (r.status === 'suspicious') v.notes.unshift('The reference itself could not be found — it may be fabricated');
       if (r.status === 'retracted') v.notes.unshift('The cited work has been retracted');
+      else if (r.flagged) v.notes.unshift(`The cited work was flagged for integrity problems in a published audit (${r.flagged.issue})`);
       return {
-        refIndex: r.index, refRaw: r.raw, refStatus: r.status, refStatusLabel: r.statusLabel,
+        refIndex: r.index, refRaw: r.raw, refStatus: r.status, refStatusLabel: r.statusLabel, refFlagged: !!r.flagged,
         verdict: v.verdict, verdictLabel: VERDICTS[v.verdict], notes: v.notes,
         score: best ? Math.round(best.score * 100) : null,
         evidence: best ? { quote: best.text, origin: src.origin, page: best.page || null, url: src.url || null, level: src.uploaded ? 'uploaded file' : src.fullText ? 'full text' : 'abstract' } : null

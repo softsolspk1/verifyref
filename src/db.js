@@ -94,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_retractions_journal ON retractions(journal_norm);
 
 -- Problematic Paper Screener fingerprints (Cabanac et al.): tortured phrases and SCIgen text; terms are ANDed
 CREATE TABLE IF NOT EXISTS pps_fingerprints (
-  kind TEXT NOT NULL,                    -- tortured | scigen
+  kind TEXT NOT NULL,                    -- tortured | scigen | mathgen | suspect
   terms TEXT NOT NULL,                   -- JSON array of lower-case phrases that must all appear
   expected TEXT,
   papers INT
@@ -260,6 +260,31 @@ CREATE TABLE IF NOT EXISTS cello_problematic (
   problematic TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cello_key ON cello_problematic(name_key);
+
+-- Curated journal abbreviations (JabRef abbreviation lists, CC0): full title -> abbreviation, for journals the NLM
+-- Catalog does not list (Module 2: expected abbreviation before falling back to the word-by-word LTWA form)
+CREATE TABLE IF NOT EXISTS journal_abbrevs (
+  title TEXT NOT NULL,
+  title_norm TEXT NOT NULL,
+  abbrev TEXT NOT NULL,                  -- dotted ISO 4 form ("Pak. J. Pharm. Sci.")
+  list TEXT                              -- JabRef list the entry came from (lifescience, medicus, acs ...)
+);
+CREATE INDEX IF NOT EXISTS idx_jabbrev_title ON journal_abbrevs(title_norm);
+
+-- Papers flagged for integrity problems in published audits and not (yet) retracted, e.g. the Bioengineered
+-- paper-mill audit (Zenodo 15671466): image overlap, incorrect primers, missing ethics approval
+CREATE TABLE IF NOT EXISTS flagged_papers (
+  doi TEXT NOT NULL,
+  pmid TEXT,
+  title TEXT,
+  journal TEXT,
+  year TEXT,
+  issue TEXT,                            -- what the auditors found
+  image BOOLEAN NOT NULL DEFAULT false,  -- an image problem (duplication / overlap / splicing)
+  source TEXT NOT NULL,
+  url TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_flagged_doi ON flagged_papers(doi);
 
 CREATE TABLE IF NOT EXISTS journal_lists (
   list_type TEXT PRIMARY KEY,

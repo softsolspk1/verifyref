@@ -120,6 +120,8 @@ const TABLES = {
   publisher_journals: { status: 'publisherJournals', meta: 'pubj', label: 'major publisher journal lists' },
   email_domains: { status: 'emailDomains', meta: 'maildom', label: 'e-mail domain lists' },
   cello_problematic: { status: 'cellosaurus', meta: 'cello', label: 'Cellosaurus problematic cell lines' },
+  journal_abbrevs: { status: 'jabrefAbbrevs', meta: 'jabref', label: 'JabRef journal abbreviations' },
+  flagged_papers: { status: 'flaggedPapers', meta: 'flag', label: 'papers flagged in integrity audits' },
   journal_list_entries: { label: 'journal index lists' }
 };
 

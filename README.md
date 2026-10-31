@@ -52,6 +52,18 @@ With the `R2_*` variables set, the web platform keeps its working data on R2:
 
 A new database or server is filled from R2 without contacting any source website: `npm run datasets:rebuild`; the daily refresh also restores a table that was never loaded from its snapshot, and saves a new snapshot after every dataset it reloads (`npm run datasets:snapshot` saves all tables once). Reports saved before this change are moved with `npm run reports:to-r2` (`-- --dry-run` to see what would move). The desktop has no R2: it keeps everything in its local database and reaches the platform's R2 data through the device API.
 
+### Added datasets (Modules 1–5)
+
+All five download automatically through the daily dataset refresh. Each one is saved to R2, synced to the desktop app, and shown on Admin › Data.
+
+| Dataset | Rows | Used by |
+|---|---|---|
+| Stop Predatory Journals (archived 2018; stored with Beall's list). Acronyms and one-word names are skipped. Not reported for a journal that is active in PMC. | ≈2,500 | Module 1 Journal Check, Module 4 predatory references |
+| Problematic Paper Screener **Mathgen** fingerprints (computer-generated mathematics papers) | ≈5,700 | Module 4 SCIgen / Mathgen signal. On the 150 + 126 benchmark it caused no new false alarms. |
+| JabRef journal abbreviation lists (CC0). Dotted ISO form only. | ≈26,500 | Module 2 expected abbreviation (after the NLM Catalog, before the LTWA) |
+| PubMed Central journal list (NCBI `jlist.csv`, list type `pmc`) | ≈4,500 | Module 1 "PMC" in the indexing line, plus a note for journals that left PMC |
+| Papers flagged in integrity audits (Bioengineered paper-mill audit, Zenodo 15671466) | 226 | Module 1 reference notice, Module 3 claims resting on flagged work, Module 4 `flagged-refs` signal (weak weight, not benchmarked). The 188 open-access papers with image problems are added to the Module 5 *retracted / flagged* figure source (`node scripts/fetch-public-image-data.js --flagged-only`). |
+
 ### Datasets on Cloudflare R2
 
 `data/` is not deployed; it is mirrored on R2 (`src/datasetStore.js`, catalogue table `dataset_files`): `datasets/files/…` (the data folder: journal lists, ImageTwin / Proofig knowledge base, public image data, RSIID, BioFors, ICLAC, benchmarks), `datasets/raw/…` (the last good download of every refreshable dataset — Retraction Watch, DOAJ, NLM Catalog, Crossref titles, LTWA, Beall, PPS, FDA Orange Book, e-mail domains — used automatically when a source is down) and `datasets/lists/…` (uploaded journal lists). On Vercel the files a module needs are copied from R2 into `/tmp` on first use.

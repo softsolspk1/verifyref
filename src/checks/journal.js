@@ -213,6 +213,12 @@ function interpretLists(hits) {
     out.scopusDiscontinued = { change: pick(d, [/indexation change/i]), byScopus: !/policy/i.test(pick(d, [/indexation change/i]) || ''), year,
       volume: pick(d, [/^volume$/i]), issue: pick(d, [/^issue$/i]), matchedBy: hits.scopus_discontinued.matchedBy };
   }
+  // NCBI's PubMed Central journal list: deposit agreement, embargo and the range of issues in PMC
+  if (hits.pmc) {
+    const d = hits.pmc.data;
+    out.pmc = { status: pick(d, [/agreement status/i]), deposit: pick(d, [/agreement to deposit/i]), embargo: pick(d, [/embargo|release delay/i]),
+      earliest: pick(d, [/^earliest$/i]), latest: pick(d, [/^most recent$/i]), note: pick(d, [/journal note/i]), url: pick(d, [/pmc url/i]), matchedBy: hits.pmc.matchedBy };
+  }
   return out;
 }
 
@@ -265,7 +271,8 @@ async function checkJournal(input) {
   const cj = predatory.find(D.isCitejacked);
   if (cj) flag('medium', `On the Problematic Paper Screener “citejacked” list: ${cj.papers ? `${cj.papers.toLocaleString('en')} papers` : 'papers'} found citing articles from its hijacked version — check that each cited article is from the genuine journal (its DOI resolves to the genuine site)`);
   if (clones.length && !predatory.some(x => x.matchedBy === 'website domain')) flag('medium', `A hijacked clone of this journal exists${cloneSites.length ? ` (${cloneSites.slice(0, 3).join(', ')})` : ''} — make sure the cited article is from the genuine journal${genuineSite ? ` (${genuineSite})` : ''} [${[...new Set(clones.map(p => p.source))].join('; ')}]`);
-  for (const p of predatory.filter(x => x.kind !== 'hijacked')) flag('high', `Listed on Beall's list of potential predatory ${p.kind === 'publisher' ? 'publishers' : 'journals'} (matched by ${p.matchedBy})`);
+  for (const p of predatory.filter(x => x.kind !== 'hijacked')) flag('high', `Listed on ${p.source === 'stoppredatoryjournals.com' ? 'the Stop Predatory Journals list (archived 2018)' : "Beall's list"} of potential predatory ${p.kind === 'publisher' ? 'publishers' : 'journals'} (matched by ${p.matchedBy})`);
+  if (lists.pmc && /no longer participating/i.test(lists.pmc.status || '')) flag('low', `No longer deposits its articles in PubMed Central${lists.pmc.latest ? ` (last issue in PMC: ${lists.pmc.latest})` : ''} — check why the journal left PMC`);
   if (lists.hecBlacklist) flag('high', 'Listed on the uploaded HEC / institutional blacklist');
   if (lists.doajRemoved) flag('medium', `Removed from DOAJ${lists.doajRemoved.reason ? `: ${lists.doajRemoved.reason}` : ''}`);
   const sd = lists.scopusDiscontinued;
@@ -284,6 +291,7 @@ async function checkJournal(input) {
   if (doaj.inDoaj) indexed.push('DOAJ');
   if (lists.hjrs?.category) indexed.push(`HJRS ${lists.hjrs.category}`);
   if (lists.ebsco) indexed.push('EBSCO');
+  if (lists.pmc && /active/i.test(lists.pmc.status || '')) indexed.push('PMC');
 
   // Retractions relative to output — large journals naturally accumulate more in absolute terms
   const works = src?.works_count || 0;
@@ -344,7 +352,8 @@ async function checkJournal(input) {
       medline,
       doaj,
       hjrs: lists.hjrs || null,
-      ebsco: lists.ebsco || null
+      ebsco: lists.ebsco || null,
+      pmc: lists.pmc || null
     },
     retractions: rw,
     predatory,

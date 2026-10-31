@@ -2,7 +2,7 @@
 const S = require('../sources');
 const { request, isOnline } = require('../http');
 const { titleSimilarity, titleContains, nameMatch, journalSimilarity, normalize, normalizeJournal } = require('../text');
-const { retractionsFor } = require('../datasets');
+const { retractionsFor, flaggedFor } = require('../datasets');
 const { formatReference, detectStyle } = require('../format');
 const { resolveJournal } = require('./journal');
 
@@ -530,17 +530,21 @@ async function checkReferences(refs, opts = {}) {
 
   // Retraction Watch (local dataset), batched
   const rw = await retractionsFor(results.map(r => r.record?.doi || r.ref.doi));
+  // papers with major problems documented in published integrity audits (not retracted)
+  const flags = await flaggedFor(results.map(r => r.record?.doi || r.ref.doi)).catch(() => new Map());
 
   const year = new Date().getFullYear();
   const out = [];
   for (const v of results) {
     const retraction = rw.get((v.record?.doi || v.ref.doi || '').toLowerCase()) || null;
+    const flagged = retraction ? null : flags.get((v.record?.doi || v.ref.doi || '').toLowerCase()) || null;
     const { status, reason } = await classify(v, retraction);
     const rec = v.record;
     const notices = [...(rec?.notices || [])];
     if (retraction) {
       notices.unshift({ type: retraction.nature || 'Retraction', label: `Retraction Watch: ${retraction.nature}`, doi: retraction.retraction_doi, date: retraction.retraction_date, reason: retraction.reason });
     }
+    if (flagged) notices.push({ type: 'Flagged in a published integrity audit (not retracted)', label: `${flagged.issue} — ${flagged.source}`, reason: flagged.issue, url: flagged.url });
     out.push({
       index: v.ref.index,
       raw: v.ref.raw,
@@ -552,6 +556,7 @@ async function checkReferences(refs, opts = {}) {
       confidence: v.record ? Math.min(100, v.confidence) : v.foundOnWeb && status === 'verified' ? 70 : Math.min(v.topScore || 0, 40),
       issues: v.issues,
       notices,
+      flagged: flagged ? { issue: flagged.issue, image: flagged.image, source: flagged.source, url: flagged.url } : null,
       retraction: retraction ? { nature: retraction.nature, date: retraction.retraction_date, doi: retraction.retraction_doi, reason: retraction.reason } : (rec?.retracted ? { nature: 'Retraction', source: rec.source } : null),
       record: rec ? {
         source: rec.source, title: rec.title, authors: rec.authors.slice(0, 100), year: rec.year, journal: rec.journal, journalAbbrev: rec.journalAbbrev,

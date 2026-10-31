@@ -85,7 +85,7 @@ function checkEntry(ref, record, nlm = null) {
     const fullNlmTitle = nlm && normalizeJournal(jname) === normalizeJournal(nlm.title) && normalizeJournal(nlm.isoAbbrev) !== normalizeJournal(nlm.title);
     if (jname && jname.split(/\s+/).length > 1 && (fullNlmTitle || UNABBREVIATED.test(jname))) {
       const exp = nlm?.isoAbbrev || record?.journalAbbrev || abbreviateJournal(jname);
-      add('journal', `Journal name abbreviated (ISO / NLM abbreviation${nlm ? `, from the ${nlm.source === 'ISSN LTWA' ? 'ISSN List of Title Word Abbreviations' : 'NLM Catalog'}` : ''})`, jname, exp);
+      add('journal', `Journal name abbreviated (ISO / NLM abbreviation${nlm ? `, from the ${nlm.source === 'ISSN LTWA' ? 'ISSN List of Title Word Abbreviations' : /^JabRef/.test(nlm.source || '') ? nlm.source : 'NLM Catalog'}` : ''})`, jname, exp);
     }
     if (/\bpp?\.\s*\d/i.test(source)) add('pages', 'No “pp.” before page numbers', 'pp.', null, 'low');
     if (/\b(?:vol|volume|no|issue)\.?\s*\d/i.test(source)) add('volume', 'Write volume and issue as 32(1), without “Vol.” or “No.”', source.match(/\b(?:vol|volume|no|issue)\.?\s*\d+/i)[0], null, 'low');
@@ -203,6 +203,8 @@ async function nlmForRefs(refs, records = []) {
     if (!name && !(rec?.issn || []).length) return null;
     const nlm = await D.nlmJournal({ issns: rec?.issn || [], name }).catch(() => null);
     if (nlm || !name) return nlm;
+    const jab = await D.jabrefAbbrev(name).catch(() => null);
+    if (jab) return { title: jab.title, isoAbbrev: jab.abbrev, source: `JabRef abbreviation list (${jab.list})` };
     const ltwa = await D.ltwaAbbreviate(name).catch(() => null);
     return ltwa ? { title: name, isoAbbrev: ltwa, source: 'ISSN LTWA' } : null;
   }));

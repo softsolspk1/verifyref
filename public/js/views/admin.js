@@ -80,13 +80,17 @@ export async function renderAdmin(view) {
             ['DOAJ journal list', 'Directory of Open Access Journals: every DOAJ-listed journal with publisher, APC, licence and review process (Journal Check, predatory screening)', ds.doaj, 'doaj_journals'],
             ['Crossref journal title list', 'Every journal that registers DOIs with Crossref, with ISSNs and publisher (Module 1: is the cited journal real?)', ds.crossrefJournals, 'crossref_journals'],
             ['ISSN List of Title Word Abbreviations (LTWA)', 'Official ISO 4 word abbreviations (Module 2: expected abbreviation for journals not in the NLM Catalog)', ds.ltwa, 'ltwa_words'],
-            ['Free-mail &amp; disposable e-mail domains', 'Public free-mail providers and throw-away mailbox domains (Module 4: author and suggested-reviewer addresses)', ds.emailDomains, 'email_domains']
+            ['Free-mail &amp; disposable e-mail domains', 'Public free-mail providers and throw-away mailbox domains (Module 4: author and suggested-reviewer addresses)', ds.emailDomains, 'email_domains'],
+            ['JabRef journal abbreviations', 'Curated title → abbreviation lists of the JabRef project (CC0: life sciences, Index Medicus, ACS, engineering, mathematics …). Module 2: expected abbreviation for journals not in the NLM Catalog, before the word-by-word LTWA form', ds.jabrefAbbrevs, 'journal_abbrevs'],
+            ['Stop Predatory Journals', 'Community list of predatory publishers, standalone journals and hijacked journals with the genuine website (archived since 2018; stored with Beall’s list). Modules 1 and 4', ds.stopPredatory, 'predatory'],
+            ['PubMed Central journal list', 'Every journal that deposits its articles in PMC, with agreement status and embargo (NCBI). Module 1: “PMC” in the indexing line; journals that stopped participating are noted', ds.pmcJournals, null],
+            ['Papers flagged in integrity audits', 'Papers with major problems found in published audits and not (yet) retracted — Bioengineered paper-mill audit (Zenodo 15671466): image overlap, incorrect primers, missing ethics approval. Modules 1, 3 and 4; their figures go into the Module 5 retracted / flagged image database', ds.flaggedPapers, 'flagged_papers']
           ].map(([name, desc, d, table]) => `<tr>
             <td><b>${name}</b><div class="muted">${desc}</div></td>
             <td>Journal index</td>
             <td class="num">${d?.count ? Number(d.count).toLocaleString() : '0'}</td>
             <td>${d?.loadedAt ? fmtDate(d.loadedAt) : badge('not loaded', 'warn')}</td>
-            <td>${d?.count ? badge('active', 'good') : badge('pending', 'warn')}${viewBtn(table, d?.count)}</td>
+            <td>${d?.count ? badge('active', 'good') : badge('pending', 'warn')}${table ? viewBtn(table, d?.count) : ''}</td>
           </tr>`).join('')}
           ${(o => `<tr>
             <td><b>OpenAlex journal list</b><div class="muted">Every journal in OpenAlex (about 220,000) with all ISSNs, publisher, country, open-access and DOAJ status, APC, output and citation metrics (Journal Check when offline or when OpenAlex does not answer). Refreshed monthly.</div></td>

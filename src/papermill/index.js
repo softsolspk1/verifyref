@@ -403,6 +403,23 @@ async function detectPaperMill(input, update = () => {}) {
     }
   }
 
+  // miRBase: microRNAs that do not exist, or not in the species studied (a human microRNA measured in rats). On the
+  // benchmark neither occurred in the 126 ordinary papers (nor in the 150 mill papers, few of which are microRNA
+  // studies), so wrong-species counts a little and an unknown name is shown without weight (often a retired or mistyped name)
+  const mirs = DC.mirnaMentions(body);
+  if (mirs.length) {
+    const known = await D.mirbaseSpecies(mirs.map(m => m.key)).catch(() => null);
+    if (known) {
+      const mr = DC.mirnaCheck(mirs, known, body);
+      const SP = { rno: 'rat', mmu: 'mouse', hsa: 'human' };
+      if (mr.wrongSpecies.length) sig('data', 'mirna-species', `${mr.wrongSpecies.length} microRNA(s) not known in the species studied (${SP[mr.wrongSpecies[0].target] || mr.wrongSpecies[0].target})`, 'low', mr.wrongSpecies.length >= 2 ? 2 : 1,
+        mr.wrongSpecies.map(m => ({ text: `${m.name}: no ${SP[m.target] || m.target} microRNA of this name in miRBase (annotated in ${m.annotatedIn.join(', ')})`, quote: m.quote, link: `https://www.mirbase.org/results/?query=${encodeURIComponent(m.key)}` })),
+        'Sleuths found human microRNAs "measured" in rat or mouse models in paper-mill papers. Ask which probe or primer was used and its target species.');
+      if (mr.unknown.length) sig('data', 'mirna-unknown', `${mr.unknown.length} microRNA name(s) not in miRBase`, 'low', 0,
+        mr.unknown.map(m => ({ text: `${m.name}: no microRNA of this name in the current miRBase release`, quote: m.quote })), 'Usually a typing error or a name miRBase has retired; an invented microRNA is a paper-mill sign. Check the name.');
+    }
+  }
+
   // Institutions far apart
   const spread = DC.affiliationSpread(meta.affiliations || [], (meta.authors || []).length);
   if (spread.far) signals.push({ group: 'authors', code: 'institutions-far', title: `Authors' institutions are in ${spread.countries.length} countries (${spread.countries.join(', ')})`, severity: 'low', weight: spread.countries.length >= 3 && (meta.authors || []).length <= 4 ? 2 : 1,
@@ -438,7 +455,9 @@ async function detectPaperMill(input, update = () => {}) {
   const yearOf = new Map(refs.map(r => [r.index, parseInt(r.record?.year || r.parsed?.year, 10) || null]));
   const risky = [], clones = [], citejacked = [], dropped = [];
   for (const j of [...journals.values()].slice(0, 80)) {
-    const m = await D.predatoryMatches({ journal: j.name, issns: [...j.issns] }).catch(() => []);
+    // Stop Predatory Journals entries are left out here: on the benchmark (150 mill vs 126 ordinary papers) references to
+    // them were as common in ordinary papers (7/126) as in mill papers (5/150); Journal Check still shows them
+    const m = (await D.predatoryMatches({ journal: j.name, issns: [...j.issns] }).catch(() => [])).filter(x => x.source !== 'stoppredatoryjournals.com');
     // a hijacked-list name match only says that a clone of the journal exists (most such journals are genuine and indexed)
     if (m.some(x => x.kind !== 'hijacked')) risky.push({ ...j, kind: 'predatory' });
     else if (m.some(D.isCitejacked)) citejacked.push({ ...j, papers: m.find(D.isCitejacked).papers });

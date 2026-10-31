@@ -286,6 +286,13 @@ CREATE TABLE IF NOT EXISTS flagged_papers (
 );
 CREATE INDEX IF NOT EXISTS idx_flagged_doi ON flagged_papers(doi);
 
+-- miRBase mature microRNAs: one row per name without species prefix, arm or paralog number ("mir-21", "let-7a") with the
+-- species it is annotated in ("hsa mmu rno ..."); Module 4 checks that a named microRNA exists in the species studied
+CREATE TABLE IF NOT EXISTS mirbase (
+  mir_key TEXT PRIMARY KEY,
+  species TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS journal_lists (
   list_type TEXT PRIMARY KEY,
   filename TEXT,

@@ -84,7 +84,9 @@ export async function renderAdmin(view) {
             ['JabRef journal abbreviations', 'Curated title → abbreviation lists of the JabRef project (CC0: life sciences, Index Medicus, ACS, engineering, mathematics …). Module 2: expected abbreviation for journals not in the NLM Catalog, before the word-by-word LTWA form', ds.jabrefAbbrevs, 'journal_abbrevs'],
             ['Stop Predatory Journals', 'Community list of predatory publishers, standalone journals and hijacked journals with the genuine website (archived since 2018; stored with Beall’s list). Modules 1 and 4', ds.stopPredatory, 'predatory'],
             ['PubMed Central journal list', 'Every journal that deposits its articles in PMC, with agreement status and embargo (NCBI). Module 1: “PMC” in the indexing line; journals that stopped participating are noted', ds.pmcJournals, null],
-            ['Papers flagged in integrity audits', 'Papers with major problems found in published audits and not (yet) retracted — Bioengineered paper-mill audit (Zenodo 15671466): image overlap, incorrect primers, missing ethics approval. Modules 1, 3 and 4; their figures go into the Module 5 retracted / flagged image database', ds.flaggedPapers, 'flagged_papers']
+            ['Papers flagged in integrity audits', 'Papers with major problems found in published audits and not (yet) retracted — Bioengineered paper-mill audit (Zenodo 15671466): image overlap, incorrect primers, missing ethics approval. Modules 1, 3 and 4; their figures go into the Module 5 retracted / flagged image database', ds.flaggedPapers, 'flagged_papers'],
+            ['Journals withdrawn from DOAJ', 'DOAJ change logs (CC BY-SA, 2014 onwards): every withdrawal with its date and reason, downloaded monthly. Module 1 Journal Check: withdrawal for misconduct / not following best practice is a caution; ceasing or a dead website is noted only; a journal back in DOAJ is not flagged', ds.doajWithdrawn, null],
+            ['miRBase microRNAs', 'Every mature microRNA by species (miRBase). Module 4: a named microRNA that is not known in the species studied (a human microRNA measured in rats), or that does not exist', ds.mirbase, 'mirbase']
           ].map(([name, desc, d, table]) => `<tr>
             <td><b>${name}</b><div class="muted">${desc}</div></td>
             <td>Journal index</td>
@@ -133,13 +135,6 @@ export async function renderAdmin(view) {
             <td class="num">Live API + Cache (7 days)</td>
             <td>${badge('Live API', 'good')}</td>
             <td>${badge('active', 'good')}</td>
-          </tr>
-          <tr>
-            <td><b>Google Scholar (via SerpApi)</b><div class="muted">Searched (with Google web search) for references that none of the 13 free databases could verify (books, theses, regional journals). Each search uses one SerpApi credit; results are cached for 30 days. Scholar "[CITATION]" entries are not accepted as proof that a work exists.${!ds.scholar?.configured ? ' Not configured: add <span class="mono">SERPAPI_KEY</span> to the Vercel environment variables (and to <span class="mono">.env</span> for the desktop) and redeploy.' : ''}</div></td>
-            <td>References</td>
-            <td class="num">${!ds.scholar?.configured ? '—' : ds.scholar.error ? 'Live API' : `${ds.scholar.left ?? '?'} searches left${ds.scholar.searchesPerMonth ? ` of ${Number(ds.scholar.searchesPerMonth).toLocaleString()}/month` : ''}${ds.scholar.used != null ? ` · ${ds.scholar.used} used this month` : ''}`}</td>
-            <td>${badge(ds.scholar?.plan ? `SerpApi ${ds.scholar.plan}` : 'Live API (paid)', ds.scholar?.configured ? 'good' : 'neutral')}</td>
-            <td>${!ds.scholar?.configured ? badge('no key', 'neutral') : ds.scholar.error ? badge('key error', 'bad') + `<div class="muted">${esc(ds.scholar.error)}</div>` : ds.scholar.left === 0 ? badge('no searches left', 'warn') : badge('active', 'good')}</td>
           </tr>
           ${ds.lists.map(l => {
             const parts = (l.label || '').split(' — ');

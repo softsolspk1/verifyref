@@ -8,7 +8,7 @@ const sevTone = s => ({ high: 'bad', medium: 'warn', low: 'neutral' }[s] || 'neu
 export function renderPaperMill(view) {
   view.innerHTML = `
     <div class="page-head"><div><h1>Module 4 — Paper Mill Detection</h1>
-      <p>Looks for signs that a manuscript came from a paper mill: tortured phrases, AI-text leftovers, template wording, vague methods, fabricated references, citations to papers retracted for paper-mill reasons, authors with earlier retractions, ORCID and e-mail signals, misidentified cell lines and overlap with earlier PJPS submissions. Gives a LOW / MEDIUM / HIGH risk level with the evidence for every signal.</p></div></div>
+      <p>Looks for signs that a manuscript came from a paper mill: tortured phrases, AI-text leftovers, template wording, vague methods, fabricated references, citations to papers retracted for paper-mill reasons, authors with earlier retractions, ORCID and e-mail signals, misidentified cell lines, microRNAs that do not exist in the species studied (miRBase) and overlap with earlier PJPS submissions. Gives a LOW / MEDIUM / HIGH risk level with the evidence for every signal.</p></div></div>
     <div class="alert alert-warn">Screening aid only — it never rejects a paper by itself. The report is confidential and is never shared with authors or reviewers.</div>
     <div id="form-area">
       <div class="card">

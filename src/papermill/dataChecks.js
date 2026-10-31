@@ -350,4 +350,47 @@ function affiliationSpread(affiliations = [], authorCount = 0) {
   return { countries: [...found.keys()], byCountry: Object.fromEntries(found), far: found.size >= 3 || (found.size >= 2 && authorCount && authorCount <= 3 && !found.has('Pakistan')) };
 }
 
-module.exports = { statisticsCheck, statTests, percentChecks, impossibleValues, findPrimers, primerSanity, seekAndBlast, affiliationSpread, pT, pF, pChi, pZ, revcomp };
+// ------------------------------------------------------------------ microRNAs (miRBase)
+// Paper-mill papers in molecular biology are dominated by microRNA / lncRNA studies; sleuths often find a microRNA that
+// does not exist, or not in the species studied (a human microRNA "measured" in rats). Checked against miRBase.
+
+const MIR_RE = /\b(?:(hsa|mmu|rno)-)?(?:miR|MiR|MIR|microRNA|miRNA)[\s-]?(\d{1,4}[a-l]?)(?:-\d)?(?:-[35]p)?(?![\w-])/g;
+const LET_RE = /\b(?:(hsa|mmu|rno)-)?let-7([a-k])(?:-\d)?(?:-[35]p)?(?![\w-])/g;
+
+/** Named microRNAs: [{ key: 'mir-21' | 'let-7a', name, prefix, quote }] (one per key) */
+function mirnaMentions(text) {
+  const out = new Map();
+  const add = (key, name, prefix, i) => { if (!out.has(key)) out.set(key, { key, name, prefix: prefix || null, quote: text.slice(Math.max(0, i - 80), i + 80).replace(/\s+/g, ' ') }); };
+  for (const m of text.matchAll(MIR_RE)) add(`mir-${m[2].toLowerCase()}`, m[0], m[1], m.index);
+  for (const m of text.matchAll(LET_RE)) add(`let-7${m[2].toLowerCase()}`, m[0], m[1], m.index);
+  return [...out.values()];
+}
+
+/** The species of the experiments when there is only one: 'rno' (rats), 'mmu' (mice) or 'hsa' (human material only); else null */
+function studySpecies(text) {
+  const n = re => (text.match(re) || []).length;
+  const rat = n(/\brats?\b|sprague[- ]dawley|wistar/gi), mouse = n(/\bmice\b|\bmouse\b|\bmurine\b|c57bl|balb\/c|nude mice/gi);
+  const human = n(/\bpatients?\b|\bhuman\b|\bvolunteers?\b|\bHeLa\b|\bHEK-?293|\bMCF-?7\b|\bA549\b|\bHepG2\b|\bSW480\b|\bHCT-?116\b/g);
+  if (rat >= 3 && !mouse && human < 2) return 'rno';
+  if (mouse >= 3 && !rat && human < 2) return 'mmu';
+  if (human >= 3 && !rat && !mouse) return 'hsa';
+  return null;
+}
+
+/**
+ * Compare named microRNAs with miRBase. species: Map(key -> Set of species codes) from datasets.mirbaseSpecies.
+ * Returns { unknown: [...], wrongSpecies: [...], species }
+ */
+function mirnaCheck(mentions, species, text) {
+  const study = studySpecies(text);
+  const unknown = [], wrongSpecies = [];
+  for (const m of mentions) {
+    const sp = species.get(m.key);
+    if (!sp) { unknown.push(m); continue; }
+    const target = m.prefix || study;
+    if (target && target !== 'hsa' && !sp.has(target) && sp.has('hsa')) wrongSpecies.push({ ...m, target, annotatedIn: [...sp].slice(0, 6) });
+  }
+  return { unknown, wrongSpecies, species: study };
+}
+
+module.exports = { statisticsCheck, statTests, percentChecks, impossibleValues, findPrimers, primerSanity, seekAndBlast, affiliationSpread, pT, pF, pChi, pZ, revcomp, mirnaMentions, studySpecies, mirnaCheck };

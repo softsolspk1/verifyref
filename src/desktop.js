@@ -122,6 +122,7 @@ const TABLES = {
   cello_problematic: { status: 'cellosaurus', meta: 'cello', label: 'Cellosaurus problematic cell lines' },
   journal_abbrevs: { status: 'jabrefAbbrevs', meta: 'jabref', label: 'JabRef journal abbreviations' },
   flagged_papers: { status: 'flaggedPapers', meta: 'flag', label: 'papers flagged in integrity audits' },
+  mirbase: { status: 'mirbase', meta: 'mirbase', label: 'miRBase microRNAs' },
   journal_list_entries: { label: 'journal index lists' }
 };
 

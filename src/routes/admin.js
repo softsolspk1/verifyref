@@ -148,8 +148,7 @@ router.get('/admin/stats', wrap(async (req, res) => {
 // ------------------------------------------------------------------ datasets and journal lists
 
 router.get('/admin/datasets', wrap(async (req, res) => {
-  const [status, scholar] = await Promise.all([D.listStatus(), require('../sources').scholarAccount().catch(e => ({ configured: true, error: e.message }))]);
-  res.json({ success: true, ...status, scholar });
+  res.json({ success: true, ...(await D.listStatus()) });
 }));
 
 /** Image Integrity (Module 5) sources: public datasets, ImageTwin / Proofig knowledge base, retracted image cases, benchmark */

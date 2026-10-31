@@ -63,6 +63,15 @@ All five download automatically through the daily dataset refresh. Each one is s
 | JabRef journal abbreviation lists (CC0). Dotted ISO form only. | ≈26,500 | Module 2 expected abbreviation (after the NLM Catalog, before the LTWA) |
 | PubMed Central journal list (NCBI `jlist.csv`, list type `pmc`) | ≈4,500 | Module 1 "PMC" in the indexing line, plus a note for journals that left PMC |
 | Papers flagged in integrity audits (Bioengineered paper-mill audit, Zenodo 15671466) | 226 | Module 1 reference notice, Module 3 claims resting on flagged work, Module 4 `flagged-refs` signal (weak weight, not benchmarked). The 188 open-access papers with image problems are added to the Module 5 *retracted / flagged* figure source (`node scripts/fetch-public-image-data.js --flagged-only`). |
+| Journals withdrawn from DOAJ (DOAJ change logs, CC BY-SA, list type `doaj_removed`) | ≈7,400 | Module 1 Journal Check. Withdrawal for misconduct or not following best practice is a caution; ceasing or a dead website is noted only; a journal back in DOAJ is not flagged. Not used in Module 4: on the benchmark, ordinary papers cite these journals as often as mill papers do (35/126 vs 35/150). |
+| miRBase mature microRNAs | ≈12,500 names | Module 4 `mirna-species`: a microRNA not known in the species studied, such as a human microRNA measured in rats (low weight). `mirna-unknown`: a name not in miRBase (shown, not scored). Neither occurred in the 126 benchmark controls. |
+
+**PJPS subject areas** (`src/subjects.js`): Drug Delivery Systems, Drug Design & Synthesis, Clinical Pharmacology, Pharmacokinetics, Natural Products, Pharmaceutical Analysis, Toxicology, Microbiology, Biotechnology, Pharmacognosy, Immunology, Neuroscience, Pharmacotherapeutics, Nanotechnology, Biopharmaceutics, Pharmacogenomics, Biochemistry, Materials Science and Molecular Modeling. One list drives three datasets:
+- **Module 5, PubMed Central figures:** one search band per subject, taking turns with the pharmacy and biomedical bands (`npm run images:index -- --source pmc --band <subject id>`).
+- **Module 5, retracted / flagged figures:** papers retracted for paper-mill reasons in these subjects (Retraction Watch "Subject"), even when the notice does not mention images. Mill papers reuse the same blots, micrographs and plots across papers. This adds 7,593 cases, 3,735 of them with PubMed Central figures (`node scripts/fetch-public-image-data.js`).
+- **Similarity text repository:** `npm run corpus:load -- --subjects --limit 2000` loads open-access full texts across all subject areas (`--subject <id>` for one).
+
+Stop Predatory Journals is no longer counted in the Module 4 predatory-reference signal. On the benchmark, ordinary papers cited its journals more often (10/126) than mill papers did (5/150). Journal Check still shows it.
 
 ### Datasets on Cloudflare R2
 

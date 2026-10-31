@@ -1,5 +1,6 @@
 // scripts/fetch-public-image-data.js - downloads the public metadata behind the Module 5 benchmark panel:
 //  * Retraction Watch (Crossref) rows whose retraction reason names images/figures  -> data/public-images/retracted_image_cases.json
+//  * Retraction Watch paper-mill retractions in the PJPS subject areas (src/subjects.js) -> same file
 //  * papers with image problems in published integrity audits (Bioengineered audit, Zenodo 15671466) -> same file
 //  * Europe PMC open-access status (PMCID, licence) for those papers                  -> same file
 // --flagged-only adds the audit papers to the existing file without reading Retraction Watch again.
@@ -9,6 +10,7 @@ const path = require('path');
 const https = require('https');
 const cfg = require('../src/config');
 const { csvToObjects } = require('../src/datasets');
+const { rwSubjects } = require('../src/subjects');
 
 const OUT = path.join(cfg.DATA_DIR, 'public-images');
 fs.mkdirSync(OUT, { recursive: true });
@@ -92,13 +94,17 @@ function save(cases) {
   let text;
   if (fs.existsSync(rwFile)) text = fs.readFileSync(rwFile, 'utf8');
   else { console.log('downloading Retraction Watch …'); text = await get(`https://api.labs.crossref.org/data/retractionwatch?mailto=${encodeURIComponent(cfg.CONTACT_EMAIL)}`); fs.writeFileSync(rwFile, text); }
-  const rows = csvToObjects(text).filter(r => /retraction|correction|concern/i.test(r.RetractionNature || '') && IMAGE_REASON.test(r.Reason || '') && cleanDoi(r.OriginalPaperDOI));
+  // paper-mill retractions in the PJPS subject areas: mill papers reuse the same blots, micrographs and plots across
+  // papers, so their figures are kept even when the notice does not name images
+  const MILL = /paper mill/i;
+  const isMill = r => /retraction/i.test(r.RetractionNature || '') && MILL.test(r.Reason || '') && rwSubjects(r.Subject).length > 0;
+  const rows = csvToObjects(text).filter(r => cleanDoi(r.OriginalPaperDOI) && ((/retraction|correction|concern/i.test(r.RetractionNature || '') && IMAGE_REASON.test(r.Reason || '')) || isMill(r)));
   const byDoi = new Map();
   for (const r of rows) byDoi.set(cleanDoi(r.OriginalPaperDOI), {
     doi: cleanDoi(r.OriginalPaperDOI), title: r.Title, journal: r.Journal, subject: r.Subject, nature: r.RetractionNature,
-    date: isoDate(r.RetractionDate), reasons: (r.Reason || '').split(';').map(x => x.replace(/^\+/, '').trim()).filter(x => IMAGE_REASON.test(x)), country: r.Country
+    date: isoDate(r.RetractionDate), reasons: (r.Reason || '').split(';').map(x => x.replace(/^\+/, '').trim()).filter(x => IMAGE_REASON.test(x) || MILL.test(x)), country: r.Country
   });
-  console.log(`${byDoi.size} papers with image-related retraction reasons`);
+  console.log(`${byDoi.size} papers with image-related retraction reasons or paper-mill retractions in the PJPS subject areas`);
   for (const c of audit) if (!byDoi.has(c.doi)) byDoi.set(c.doi, c);
   const cases = [...byDoi.values()];
   await addOpenAccess(cases);

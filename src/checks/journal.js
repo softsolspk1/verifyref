@@ -274,7 +274,14 @@ async function checkJournal(input) {
   for (const p of predatory.filter(x => x.kind !== 'hijacked')) flag('high', `Listed on ${p.source === 'stoppredatoryjournals.com' ? 'the Stop Predatory Journals list (archived 2018)' : "Beall's list"} of potential predatory ${p.kind === 'publisher' ? 'publishers' : 'journals'} (matched by ${p.matchedBy})`);
   if (lists.pmc && /no longer participating/i.test(lists.pmc.status || '')) flag('low', `No longer deposits its articles in PubMed Central${lists.pmc.latest ? ` (last issue in PMC: ${lists.pmc.latest})` : ''} — check why the journal left PMC`);
   if (lists.hecBlacklist) flag('high', 'Listed on the uploaded HEC / institutional blacklist');
-  if (lists.doajRemoved) flag('medium', `Removed from DOAJ${lists.doajRemoved.reason ? `: ${lists.doajRemoved.reason}` : ''}`);
+  // DOAJ withdraws journals for misconduct / not following best practice, but also for ceasing or a dead website;
+  // a journal listed in DOAJ again since then is not flagged
+  if (lists.doajRemoved && !doaj.inDoaj) {
+    const why = lists.doajRemoved.reason || '';
+    const when = lists.doajRemoved.date ? ` (${lists.doajRemoved.date})` : '';
+    if (/best practice|misconduct|ethic|plagiar|fraud|predatory|editorial|peer review|false|mislead/i.test(why)) flag('medium', `Withdrawn from DOAJ${when}: ${why}`);
+    else flag('low', `Withdrawn from DOAJ${when}${why ? `: ${why}` : ''}`);
+  }
   const sd = lists.scopusDiscontinued;
   const lastCovered = sd ? [sd.year, sd.volume && `vol. ${sd.volume}`, sd.issue && `issue ${sd.issue}`].filter(Boolean).join(', ') : '';
   if (sd?.byScopus || lists.scopus?.discontinued) flag('high', `Coverage discontinued by Scopus${lastCovered ? ` (last content covered: ${lastCovered})` : ''} — articles published after that are not Scopus-indexed`);

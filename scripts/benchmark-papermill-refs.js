@@ -46,7 +46,10 @@ async function listsFor(name) {
   if (!listCache.has(k)) {
     const [pred, hits] = await Promise.all([D.predatoryMatches({ journal: name }).catch(() => []), D.listLookupAll([], name).catch(() => ({}))]);
     const sd = hits.scopus_discontinued && !/policy/i.test(hits.scopus_discontinued.data?.['Indexation Change'] || '') ? (parseInt(hits.scopus_discontinued.data?.Year, 10) || 0) : null;
-    listCache.set(k, { citejacked: pred.some(D.isCitejacked), clone: pred.some(x => x.kind === 'hijacked' && !D.isCitejacked(x)), predatory: pred.some(x => x.kind !== 'hijacked'), scopusDropped: sd });
+    const dw = hits.doaj_removed?.data?.Reason || '';
+    listCache.set(k, { citejacked: pred.some(D.isCitejacked), clone: pred.some(x => x.kind === 'hijacked' && !D.isCitejacked(x)), predatory: pred.some(x => x.kind !== 'hijacked'),
+      spj: pred.some(x => x.kind !== 'hijacked' && x.source === 'stoppredatoryjournals.com'), scopusDropped: sd,
+      doajBad: /best practice|misconduct|ethic|plagiar|fraud|predatory|editorial|peer review|false|mislead/i.test(dw), doajAny: !!hits.doaj_removed });
   }
   return listCache.get(k);
 }
@@ -64,13 +67,17 @@ for (const p of papers) {
   const row = { group: p.group, refs: refs.length, inMill, share: refs.length ? inMill / refs.length : 0, millCited: dois.filter(d => d && d !== p.doi.toLowerCase() && millDoi.has(d)).length };
   if (LISTS) {
     const years = refs.map(r => parseInt((r.match(/<year[^>]*>(\d{4})/) || [])[1], 10) || 0);
-    Object.assign(row, { citejacked: 0, clone: 0, predatory: 0, scopusDropped: 0 });
+    Object.assign(row, { citejacked: 0, clone: 0, predatory: 0, spj: 0, scopusDropped: 0, doajBad: 0, doajAny: 0 });
+    row.flagged = (await D.flaggedFor(dois.filter(d => d && d !== p.doi.toLowerCase())).catch(() => new Map())).size;
     for (let i = 0; i < sources.length; i++) {
       if (!sources[i]) continue;
       const l = await listsFor(sources[i]);
       if (l.citejacked) row.citejacked++;
       if (l.clone) row.clone++;
       if (l.predatory) row.predatory++;
+      if (l.spj) row.spj++;
+      if (l.doajBad) row.doajBad++;
+      if (l.doajAny) row.doajAny++;
       if (l.scopusDropped !== null && l.scopusDropped !== undefined && years[i] >= l.scopusDropped) row.scopusDropped++;
     }
   }
@@ -99,6 +106,11 @@ if (LISTS) {
   line('3+ such references (Scopus discontinued)', r => r.scopusDropped >= 3);
   line('Cites a journal with a known hijacked clone (name match)', r => r.clone >= 1);
   line("Cites a journal on Beall's list", r => r.predatory >= 1);
+  line('Cites a journal on the Stop Predatory Journals list', r => r.spj >= 1);
+  line('Cites a journal withdrawn from DOAJ (any reason)', r => r.doajAny >= 1);
+  line('Cites a journal withdrawn from DOAJ for best practice / misconduct', r => r.doajBad >= 1);
+  line('2+ such references (DOAJ best practice / misconduct)', r => r.doajBad >= 2);
+  line('Cites a paper flagged in a published integrity audit', r => r.flagged >= 1);
 }
 process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -269,7 +269,7 @@ async function loadStopPredatory() {
   const rows = [];
   // full names only: the list's acronyms ("AJO", "ASJ") and one-word titles ("Research") match genuine journals too
   const add = (kind, name, url, genuine = null) => {
-    const clean = decode(name || '').replace(/[s|]+$/, '');
+    const clean = decode(name || '').replace(/[\s|]+$/, '');
     const norm = normalizeJournal(clean);
     if (norm && norm.split(' ').length >= 2) rows.push([kind, clean, norm, url || null, url ? domainOf(url) : null, genuine || null, SPJ_SOURCE]);
   };
@@ -333,7 +333,7 @@ const LIST_TYPES = {
   hjrs: 'HEC Journal Recognition System (HJRS) — W/X/Y categories CSV',
   ebsco: 'EBSCO database coverage (title lists, e.g. Academic Search Complete, CINAHL, Business Source) — CSV; combine several databases in one file with a "Database" column',
   hec_blacklist: 'HEC / institutional list of predatory or blacklisted journals — CSV',
-  doaj_removed: 'Journals removed from DOAJ — CSV (optional)',
+  doaj_removed: 'Journals withdrawn from DOAJ — downloaded automatically from the DOAJ change logs (2014 onwards, with the reason); upload only to replace it',
   scopus_discontinued: 'Scopus discontinued titles — the "Discontinued Titles" sheet of Elsevier\'s source list workbook (.xlsx; uploading the workbook on the Scopus row loads both)',
   rw_hijacked: 'Retraction Watch Hijacked Journal Checker — .xlsx or CSV export (clone websites of real journals)',
   pmc: 'PubMed Central journal list — downloaded automatically from NCBI (jlist.csv); upload only to replace it'
@@ -1109,6 +1109,7 @@ const DATASET_VIEWS = {
   publisher_journals: { label: 'Major publisher journal lists', cols: ['title', 'publisher', 'imprint', 'issns', 'works', 'source', 'homepage'], search: ['title', 'imprint', 'issns'], order: 'works DESC NULLS LAST, title_norm' },
   email_domains: { label: 'E-mail domain lists', cols: ['domain', 'kind'], search: ['domain'], order: 'kind, domain' },
   journal_abbrevs: { label: 'JabRef journal abbreviations', cols: ['title', 'abbrev', 'list'], search: ['title', 'abbrev'], order: 'title_norm' },
+  mirbase: { label: 'miRBase microRNAs', cols: ['mir_key', 'species'], search: ['mir_key'], order: 'mir_key' },
   flagged_papers: { label: 'Papers flagged in integrity audits', cols: ['doi', 'title', 'journal', 'year', 'issue', 'image', 'source'], search: ['doi', 'title', 'issue'], order: 'year DESC NULLS LAST, doi' }
 };
 
@@ -1318,6 +1319,77 @@ async function loadPmcJournals() {
   return n;
 }
 
+// ------------------------------------------------------------------ miRBase (mature microRNAs by species)
+
+const MIRBASE_URL = 'https://www.mirbase.org/download/mature.fa';
+
+/** "miR-29b-1-5p" / "hsa-miR-29b-3p" / "let-7a" -> "mir-29b" / "let-7a": no species prefix, arm or paralog number */
+function mirKey(name) {
+  return String(name || '').toLowerCase().replace(/^[a-z]{3,4}-(?=(?:mir|let|lin|bantam|lsy)-)/, '').replace(/-(?:5p|3p)$/, '').replace(/^((?:mir|let)-\d+[a-z]?)-\d+$/, '$1');
+}
+
+async function loadMirbase() {
+  const text = await store.sourceText('mirbase-mature.fa', () => getText(MIRBASE_URL, { ttl: 0, timeout: 300000, retries: 2 }));
+  const by = new Map();
+  for (const m of text.matchAll(/^>([a-z]{3,4})-(\S+)/gm)) {
+    const key = mirKey(m[2]);
+    if (!/^(?:mir|let)-/.test(key)) continue;
+    // "miR-21" without a letter names the family: mouse calls it miR-21a, so the bare key collects every lettered member
+    for (const k of new Set([key, key.replace(/^(mir-\d+)[a-z]$/, '$1')])) {
+      if (!by.has(k)) by.set(k, new Set());
+      by.get(k).add(m[1]);
+    }
+  }
+  if (by.size < 5000) throw new Error(`miRBase parse returned too few microRNAs (${by.size})`);
+  const rows = [...by].map(([k, sp]) => [k, [...sp].sort().join(' ')]);
+  await transaction(async client => {
+    await client.query('TRUNCATE mirbase');
+    await bulkInsert(client, 'mirbase', [{ name: 'mir_key', type: 'text' }, { name: 'species', type: 'text' }], rows);
+  });
+  await setMeta('mirbase_loaded_at', new Date().toISOString());
+  await setMeta('mirbase_count', rows.length);
+  return rows.length;
+}
+
+/** Map(mir_key -> Set of species codes) for the keys found in miRBase; null when the table is empty (not loaded) */
+async function mirbaseSpecies(keys) {
+  const n = parseInt((await getMeta('mirbase_count')) || '0', 10);
+  if (!n) return null;
+  const rows = await db.all('SELECT mir_key, species FROM mirbase WHERE mir_key = ANY($1::text[])', [[...new Set(keys)]]);
+  return new Map(rows.map(r => [r.mir_key, new Set(r.species.split(' '))]));
+}
+
+// ------------------------------------------------------------------ journals withdrawn from DOAJ
+
+// DOAJ's public change logs (Google Sheets, CC BY-SA): 19 Mar 2014 - 31 Jan 2024, and 1 Feb 2024 onwards
+const DOAJ_LOGS = [['doaj-changes-2014-2024.xlsx', '183mRBRqs2jOyP0qZWXN8dUd02D4vL0Mov_kgYF8HORM'], ['doaj-changes-2024.xlsx', '1Kv3MbgFSgtSDnEGkA2JacrSjunRu0umHeZCtcMeqO5E']];
+const excelDate = v => { const n = parseFloat(v); return n > 20000 && n < 80000 ? new Date(Date.UTC(1899, 11, 30) + n * 86400000).toISOString().slice(0, 10) : String(v || '').trim(); };
+
+/** Every journal withdrawn from DOAJ with date and reason, newest withdrawal per ISSN / title, as list "doaj_removed" */
+async function loadDoajWithdrawn() {
+  const X = require('./xlsx');
+  const latest = new Map();
+  for (const [name, id] of DOAJ_LOGS) {
+    const buf = await store.sourceBuffer(name, () => getBuffer(`https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`, { timeout: 120000, retries: 2 }));
+    const wb = await X.openWorkbook(buf);
+    const objs = X.rowsToObjects(await wb.rows('Withdrawn'), r => r.some(c => /^issn$/i.test(c)) && r.some(c => /reason/i.test(c)));
+    for (const o of objs) {
+      const title = String(o['Journal Title'] || '').trim(), issn = cleanIssn(o.ISSN);
+      if (!title && !issn) continue;
+      const date = excelDate(o[Object.keys(o).find(k => /date/i.test(k))]);
+      const key = issn || normalizeJournal(title);
+      const prev = latest.get(key);
+      if (!prev || date > prev['Date Removed']) latest.set(key, { 'Journal Title': title, ISSN: issn || '', EISSN: '', 'Date Removed': date, Reason: String(o.Reason || '').trim() });
+    }
+  }
+  const rows = [...latest.values()];
+  if (rows.length < 5000) throw new Error(`DOAJ change logs returned too few withdrawn journals (${rows.length})`);
+  const n = await importJournalList('doaj_removed', 'DOAJ change logs (journals withdrawn, 2014 onwards)', rows);
+  await setMeta('doajw_loaded_at', new Date().toISOString());
+  await setMeta('doajw_count', n);
+  return n;
+}
+
 // ------------------------------------------------------------------ papers flagged in published integrity audits
 
 const BIOENG_URL = 'https://zenodo.org/api/records/15671466/files/Bioengineered%20Supplementary%20Data.xlsx/content';
@@ -1385,7 +1457,9 @@ async function listStatus() {
     cellosaurus: { loadedAt: await getMeta('cello_loaded_at'), count: parseInt((await getMeta('cello_count')) || '0', 10) },
     jabrefAbbrevs: { loadedAt: await getMeta('jabref_loaded_at'), count: parseInt((await getMeta('jabref_count')) || '0', 10) },
     pmcJournals: { loadedAt: await getMeta('pmcj_loaded_at'), count: parseInt((await getMeta('pmcj_count')) || '0', 10) },
-    flaggedPapers: { loadedAt: await getMeta('flag_loaded_at'), count: parseInt((await getMeta('flag_count')) || '0', 10) }
+    flaggedPapers: { loadedAt: await getMeta('flag_loaded_at'), count: parseInt((await getMeta('flag_count')) || '0', 10) },
+    doajWithdrawn: { loadedAt: await getMeta('doajw_loaded_at'), count: parseInt((await getMeta('doajw_count')) || '0', 10) },
+    mirbase: { loadedAt: await getMeta('mirbase_loaded_at'), count: parseInt((await getMeta('mirbase_count')) || '0', 10) }
   };
 }
 
@@ -1424,7 +1498,7 @@ async function datasetHealth() {
 // dataset key -> its lookup table on R2 (src/datasetStore.js snapshotTable / restoreTable) and the meta values that go with it
 const DATASET_TABLES = { rw: ['retractions', ['rw_authors']], pps: ['pps_fingerprints', []], beall: ['predatory', ['rwhj_loaded_at', 'rwhj_count', 'citejacked_count', 'citejacked_loaded_at', 'spj_count', 'spj_loaded_at']], fda_ob: ['fda_orange_book', []], nlm: ['nlm_journals', []],
   doaj: ['doaj_journals', []], ltwa: ['ltwa_words', []], crj: ['crossref_journals', []], maildom: ['email_domains', []], cello: ['cello_problematic', []], pubj: ['publisher_journals', ['pubj_by_publisher']], oaj: ['openalex_journals', []],
-  jabref: ['journal_abbrevs', []], flag: ['flagged_papers', []] };
+  jabref: ['journal_abbrevs', []], flag: ['flagged_papers', []], mirbase: ['mirbase', []] };
 const tableMeta = key => [`${key}_loaded_at`, `${key}_count`, ...(DATASET_TABLES[key]?.[1] || [])];
 
 /** Fill every dataset table straight from its snapshot on R2 (no source website is contacted). Returns rows per table. */
@@ -1456,6 +1530,8 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
     ['jabref', 'jabrefAbbrevs', 'JabRef journal abbreviations', () => loadJabrefAbbrevs({ log }), 30],
     ['pmcj', 'pmcJournals', 'PubMed Central journal list', loadPmcJournals, 30],
     ['flag', 'flaggedPapers', 'Papers flagged in integrity audits', loadFlaggedPapers, 90],
+    ['doajw', 'doajWithdrawn', 'Journals withdrawn from DOAJ', loadDoajWithdrawn, 30],
+    ['mirbase', 'mirbase', 'miRBase microRNAs', loadMirbase, 90],
     // monthly; a download in progress continues on every run with whatever time is left
     // (on Vercel at most 3 minutes per run, so a request never outlives the function time limit)
     ['oaj', 'openalexJournals', 'OpenAlex journal list', () => loadOpenAlexJournals({ budgetMs: Math.min(budgetMs - (Date.now() - started), process.env.VERCEL ? 180000 : Infinity), log }), 30]
@@ -1492,6 +1568,6 @@ module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
-  loadStopPredatory, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadFlaggedPapers, flaggedFor,
+  loadStopPredatory, loadDoajWithdrawn, loadMirbase, mirbaseSpecies, mirKey, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadFlaggedPapers, flaggedFor,
   loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
 };

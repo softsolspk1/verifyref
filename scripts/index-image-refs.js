@@ -4,9 +4,9 @@
 //        published PJPS papers from pjps.pk (default: articles newer than the newest indexed one)
 //   --source retracted [--limit 500] [--force]
 //        open-access papers retracted / corrected for image problems (needs data/public-images/retracted_image_cases.json)
-//   --source pmc [--limit 500] [--band pharmacy|biomedical] [--restart]
+//   --source pmc [--limit 500] [--band pharmacy|biomedical|<subject id from src/subjects.js>] [--restart]
 //        open-access PubMed Central papers in pharmacy / pharmacology / medicinal plants, and biomedical papers with
-//        blots / histology / microscopy (the two bands take turns; continues where it stopped)
+//        blots / histology / microscopy (the bands - pharmacy, biomedical and the 19 PJPS subject areas - take turns; continues where it stopped)
 //   --source publisher [--limit 500] [--restart] [--publisher "Dove Medical Press" (repeatable; default: all)]
 //        open-access papers of the major publishers (MDPI, Elsevier, Springer Nature, Wiley, Frontiers, PLOS, ...)
 //   --source rsiid | biofors | binder [--limit N] [--force]

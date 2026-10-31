@@ -16,7 +16,7 @@ const { figuresOfFile, decodeImage, decodeAny } = require('./figureFiles');
 const SOURCES = {
   pjps: { name: 'Published PJPS papers', short: 'PJPS published' },
   retracted: { name: 'Papers retracted, corrected or flagged in integrity audits for image problems (open access)', short: 'Retracted / flagged' },
-  pmc: { name: 'PubMed Central open-access papers (pharmacy, pharmacology, medicinal plants; blots, histology, microscopy)', short: 'PubMed Central' },
+  pmc: { name: 'PubMed Central open-access papers (pharmacy, pharmacology, medicinal plants; blots, histology, microscopy; the 19 PJPS subject areas)', short: 'PubMed Central' },
   publisher: { name: 'Open-access papers of the major publishers (MDPI, Elsevier, Springer Nature / BMC, Wiley, Frontiers, PLOS, Taylor & Francis, SAGE, OUP, CUP, Wolters Kluwer, ACS, Dove, Hindawi)', short: 'Publisher open access' },
   rsiid: { name: 'RSIID — pristine scientific figures (Recod.ai, CC-BY; includes BBBC microscopy)', short: 'RSIID' },
   biofors: { name: 'BioFors — biomedical figure panels with expert duplication annotations (ICCV 2021)', short: 'BioFors' },
@@ -241,7 +241,8 @@ async function indexPjps({ from = null, to = null, limit = 200, force = false, b
 
 // ------------------------------------------------------------------ source 2: retracted / corrected papers with image problems
 
-const IMAGE_REASONS = /image/i;
+// image problems, and paper-mill retractions in the PJPS subject areas (their figures recur in other mill papers)
+const IMAGE_REASONS = /image|paper mill/i;
 
 async function indexRetracted({ limit = 100, force = false, budgetMs = Infinity, concurrency = 3 } = {}, update = () => {}) {
   const started = Date.now();
@@ -250,7 +251,7 @@ async function indexRetracted({ limit = 100, force = false, budgetMs = Infinity,
   const all = PUB.cases({ oa: true, per: 1e6 }).cases.filter(c => c.pmcid && c.reasons.some(r => IMAGE_REASONS.test(r)));
   if (!all.length) throw new Error('The list of retracted papers with image problems is not available (data/public-images/retracted_image_cases.json - run scripts/fetch-public-image-data.js or sync the data folder to R2).');
   // strongest cases first: duplication / manipulation / fabrication, retractions before corrections, newest first
-  const rank = c => (c.reasons.some(r => /Duplication|Manipulation|Falsification|Plagiarism of Image/.test(r)) ? 0 : 1) * 2 + (/Retraction/i.test(c.nature) ? 0 : 1);
+  const rank = c => (c.reasons.some(r => /Duplication|Manipulation|Falsification|Plagiarism of Image/.test(r)) ? 0 : c.reasons.some(r => /image/i.test(r)) ? 1 : 2) * 2 + (/Retraction/i.test(c.nature) ? 0 : 1);
   all.sort((a, b) => rank(a) - rank(b) || String(b.date).localeCompare(String(a.date)));
   // done, or confirmed without figures; failures and pre-fallback "no figures" are retried once a day at most
   const rows = force ? [] : await db.all("SELECT source_key, status, error, indexed_at > now() - interval '1 day' AS recent FROM image_ref_docs WHERE source = 'retracted'");
@@ -279,7 +280,9 @@ const PMC_QUERY = '(pharmacology[MeSH Terms] OR pharmaceutical[tiab] OR pharmace
 const PMC_BIOMED_QUERY = '("western blot"[tiab] OR "western blotting"[tiab] OR immunohistochemistry[tiab] OR histopathology[tiab] OR immunofluorescence[tiab] OR "flow cytometry"[tiab] OR "electrophoretic mobility"[tiab]) AND open access[filter]';
 const PMC_BANDS = [
   { id: 'pharmacy', query: PMC_QUERY, offsetKey: 'imgref_pmc_offset' },
-  { id: 'biomedical', query: PMC_BIOMED_QUERY, offsetKey: 'imgref_pmc_offset_biomed' }
+  { id: 'biomedical', query: PMC_BIOMED_QUERY, offsetKey: 'imgref_pmc_offset_biomed' },
+  // one band per PJPS subject area (src/subjects.js), so the figures a manuscript is compared with cover its field
+  ...require('./subjects').SUBJECTS.map(x => ({ id: x.id, query: require('./subjects').pmcQuery(x), offsetKey: `imgref_pmc_offset_${x.id}` }))
 ];
 const eutils = (tool, params) => {
   const key = require('./config').NCBI_API_KEY;
@@ -292,7 +295,7 @@ const eutils = (tool, params) => {
  */
 async function indexPmc({ limit = 100, band = null, force = false, budgetMs = Infinity, concurrency = 3, restart = false } = {}, update = () => {}) {
   const started = Date.now();
-  // the two search bands take turns (pharmacy first); each keeps its own position in the result list
+  // the search bands take turns (pharmacy, biomedical, then the PJPS subject areas); each keeps its own position
   const turn = parseInt((await db.getMeta('imgref_pmc_turn')) || '0', 10);
   const b = PMC_BANDS.find(x => x.id === band) || PMC_BANDS[turn % PMC_BANDS.length];
   if (!band) await db.setMeta('imgref_pmc_turn', turn + 1);

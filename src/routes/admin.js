@@ -320,7 +320,14 @@ router.get('/admin/lists/:type/entries', wrap(async (req, res) => {
 router.post('/admin/lists/:type', webOnly, upload.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: 'Choose a CSV file.' });
   if (!D.LIST_TYPES[req.params.type]) return res.status(400).json({ success: false, message: 'Unknown list type.' });
-  if (/\.xlsx?$/i.test(req.file.originalname)) return res.status(400).json({ success: false, message: 'Please save the spreadsheet as CSV (File → Save As → CSV UTF-8) and upload that.' });
+  if (/\.xls$/i.test(req.file.originalname)) return res.status(400).json({ success: false, message: 'Please save the spreadsheet as CSV (File → Save As → CSV UTF-8) and upload that.' });
+  if (/\.xlsx$/i.test(req.file.originalname)) {
+    // Elsevier's Scopus workbook (source list + discontinued titles) and the Retraction Watch hijacked checker
+    const counts = await D.importJournalWorkbook(req.params.type, req.file.originalname, req.file.buffer).catch(e => ({ error: e.message }));
+    if (counts.error) return res.status(400).json({ success: false, message: counts.error });
+    await auth.audit(req, 'list-uploaded', req.params.type, { file: req.file.originalname, rows: counts });
+    return res.json({ success: true, rows: counts[req.params.type], lists: counts });
+  }
   const n = await D.importJournalList(req.params.type, req.file.originalname, req.file.buffer.toString('utf8'));
   await auth.audit(req, 'list-uploaded', req.params.type, { file: req.file.originalname, rows: n });
   res.json({ success: true, rows: n });

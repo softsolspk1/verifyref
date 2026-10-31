@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS predatory (
 );
 CREATE INDEX IF NOT EXISTS idx_predatory_name ON predatory(name_norm);
 CREATE INDEX IF NOT EXISTS idx_predatory_domain ON predatory(domain);
+ALTER TABLE predatory ADD COLUMN IF NOT EXISTS papers INT;          -- citejacked: papers the Problematic Paper Screener found citing the hijacked version
 
 CREATE TABLE IF NOT EXISTS fda_orange_book (
   id SERIAL PRIMARY KEY,

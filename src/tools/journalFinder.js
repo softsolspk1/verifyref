@@ -76,7 +76,8 @@ async function findJournals(input, update = () => {}) {
     const lastFull = byYear[thisYear - 1] || 0;
     const base = Math.max(1, ((byYear[thisYear - 3] || 0) + (byYear[thisYear - 4] || 0)) / 2);
     const flags = [];
-    if (pred.some(p => p.kind === 'hijacked')) flags.push({ severity: 'high', message: 'Listed as a hijacked journal (a clone website may be collecting fees)' });
+    if (pred.some(p => p.kind === 'hijacked' && p.matchedBy === 'website domain')) flags.push({ severity: 'high', message: 'This website is a known hijacked clone of the journal (it may be collecting fees)' });
+    else if (pred.some(p => p.kind === 'hijacked')) flags.push({ severity: 'medium', message: `A hijacked clone of this journal exists${pred.find(p => p.domain)?.domain ? ` (${pred.find(p => p.domain).domain})` : ''} — submit only through the genuine journal site` });
     if (pred.some(p => p.kind !== 'hijacked')) flags.push({ severity: 'high', message: `Matches Beall's list (${pred.filter(p => p.kind !== 'hijacked').map(p => p.kind).join(', ')})` });
     if (lists.hecBlacklist) flags.push({ severity: 'high', message: 'On the uploaded HEC / institutional blacklist' });
     if (lists.scopus?.discontinued) flags.push({ severity: 'high', message: 'Discontinued in Scopus — the quartile may no longer hold' });

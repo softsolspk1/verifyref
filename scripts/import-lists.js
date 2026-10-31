@@ -20,5 +20,15 @@ const ALIASES = { 'sjr-scopus': 'sjr', 'sjr-wos-filtered': 'wos_sjr' };
       console.log(`${type}: ${n} journals imported from ${f}`);
     } catch (e) { console.log(`${type}: FAILED ${e.message}`); }
   }
+  // Workbooks: Elsevier's Scopus source list (its discontinued-titles sheet; the main sheet is scopus.csv above) and
+  // the Retraction Watch hijacked journal checker
+  for (const f of fs.readdirSync(DIR).filter(x => /\.xlsx$/i.test(x))) {
+    const type = /^scopus/i.test(f) ? 'scopus_discontinued' : /hijack/i.test(f) ? 'rw_hijacked' : null;
+    if (!type) { console.log(`skip ${f}: not a known workbook`); continue; }
+    try {
+      const n = await D.importJournalWorkbook(type, f, fs.readFileSync(path.join(DIR, f)));
+      console.log(`${f}: ${JSON.stringify(n)} rows imported`);
+    } catch (e) { console.log(`${f}: FAILED ${e.message}`); }
+  }
   process.exit(0);
 })();

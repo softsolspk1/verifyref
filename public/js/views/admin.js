@@ -211,7 +211,7 @@ export async function renderAdmin(view) {
             <td><b>${esc(title)}</b>${desc ? `<div class="muted">${esc(desc)}</div>` : ''}</td>
             <td class="num">${l.row_count ? Number(l.row_count).toLocaleString() : '—'}</td>
             <td>${l.uploaded_at ? fmtDate(l.uploaded_at) : badge('not uploaded', 'neutral')}</td>
-            <td class="row" style="flex-wrap:nowrap">${l.row_count ? `<button class="btn btn-sm" data-view="${l.type}">View</button>` : ''}${desk ? '' : `${l.type === 'ebsco' ? `<button class="btn btn-sm" id="dl-ebsco">Download from source</button>` : ''}<label class="btn btn-sm" style="margin:0">Upload CSV<input type="file" accept=".csv,.txt" hidden data-list="${l.type}"></label>${l.row_count ? `<button class="btn btn-sm btn-ghost btn-danger" data-rm="${l.type}">✕</button>` : ''}`}</td>
+            <td class="row" style="flex-wrap:nowrap">${l.row_count ? `<button class="btn btn-sm" data-view="${l.type}">View</button>` : ''}${desk ? '' : `${l.type === 'ebsco' ? `<button class="btn btn-sm" id="dl-ebsco">Download from source</button>` : ''}<label class="btn btn-sm" style="margin:0">${/^(scopus|scopus_discontinued|rw_hijacked)$/.test(l.type) ? 'Upload CSV / XLSX' : 'Upload CSV'}<input type="file" accept="${/^(scopus|scopus_discontinued|rw_hijacked)$/.test(l.type) ? '.csv,.txt,.xlsx' : '.csv,.txt'}" hidden data-list="${l.type}"></label>${l.row_count ? `<button class="btn btn-sm btn-ghost btn-danger" data-rm="${l.type}">✕</button>` : ''}`}</td>
           </tr>`;
         }).join('')}
         </tbody>

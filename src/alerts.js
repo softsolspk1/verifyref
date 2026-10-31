@@ -47,7 +47,7 @@ async function journalSignals(source) {
   const issns = source.issn || (source.issn_l ? [source.issn_l] : []);
   const lists = interpretLists(await D.listLookupAll(issns, source.display_name).catch(() => ({})));
   const pred = await D.predatoryMatches({ journal: source.display_name, publisher: source.host_organization_name }).catch(() => []);
-  return { quartile: lists.sjr?.quartile || lists.jcr?.quartile || null, predatory: pred.length > 0, hjrs: lists.hjrs?.category || null };
+  return { quartile: lists.sjr?.quartile || lists.jcr?.quartile || null, predatory: pred.some(D.isRiskyMatch), hjrs: lists.hjrs?.category || null };
 }
 
 const worksSince = (filter, sinceDays) => {

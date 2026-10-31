@@ -165,8 +165,44 @@ async function loadProblematicScreener() {
   ppsCache = null;
   await setMeta('pps_loaded_at', new Date().toISOString());
   await setMeta('pps_count', rows.length);
+  await loadCitejacked().catch(e => console.warn(`Problematic Paper Screener citejacked list: ${e.message}`));
   return rows.length;
 }
+
+const CITEJACKED_SOURCE = 'Problematic Paper Screener (citejacked)';
+const LOCAL_CITEJACKED = path.join(cfg.DATA_DIR, 'pps', 'citejacked.csv');
+
+/**
+ * The screener's "citejacked" detector: journals whose hijacked version is being cited ("A" OR "B" = the names of one
+ * journal). They go into the predatory table as hijacked journals matched by name, with the number of papers found citing them.
+ */
+async function loadCitejacked() {
+  let text = await store.sourceText('pps-citejacked.csv', () => getText(PPS_URL('citejacked'), { ttl: 0, timeout: 120000, retries: 1 })).catch(() => null);
+  if (!text && fs.existsSync(LOCAL_CITEJACKED)) text = fs.readFileSync(LOCAL_CITEJACKED, 'utf8');
+  if (!text) throw new Error('not available (download failed and no local copy)');
+  const items = parseCitejacked(text).flatMap(j => j.names.map(n => ['hijacked', n, normalizeJournal(n), null, null, null, CITEJACKED_SOURCE, j.papers]));
+  if (items.length < 10) throw new Error(`only ${items.length} journals parsed`);
+  await transaction(async client => {
+    await client.query('DELETE FROM predatory WHERE source = $1', [CITEJACKED_SOURCE]);
+    await bulkInsert(client, 'predatory', [...['kind', 'name', 'name_norm', 'url', 'domain', 'genuine_url', 'source'].map(name => ({ name, type: 'text' })), { name: 'papers', type: 'int' }], items);
+  });
+  await setMeta('citejacked_count', items.length);
+  await store.snapshotTable('predatory', tableMeta('beall')).catch(e => console.warn(`R2 snapshot of the predatory table failed: ${e.message}`));
+  return items.length;
+}
+
+/** citejacked.csv -> [{ names: ['Turkish Journal of Computer and Mathematics Education', 'TURCOMAT'], papers: 4211 }] */
+function parseCitejacked(text) {
+  return parseCsv(text).slice(1).map(row => ({
+    names: [...String(row[0] || '').matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => m[1].trim()).filter(n => normalizeJournal(n)),
+    papers: parseInt(String(row[1] || '0').replace(/,/g, ''), 10) || 0
+  })).filter(j => j.names.length);
+}
+
+/** A citejacked match (the screener found papers citing the journal's hijacked version) */
+const isCitejacked = p => p?.source === CITEJACKED_SOURCE;
+/** A list match that makes the journal itself risky: predatory, or a hijacked website - not just "a clone of it exists" */
+const isRiskyMatch = p => p.kind !== 'hijacked' || p.matchedBy === 'website domain';
 
 let ppsCache = null;
 async function ppsFingerprints() {
@@ -249,7 +285,9 @@ const LIST_TYPES = {
   hjrs: 'HEC Journal Recognition System (HJRS) — W/X/Y categories CSV',
   ebsco: 'EBSCO database coverage (title lists, e.g. Academic Search Complete, CINAHL, Business Source) — CSV; combine several databases in one file with a "Database" column',
   hec_blacklist: 'HEC / institutional list of predatory or blacklisted journals — CSV',
-  doaj_removed: 'Journals removed from DOAJ — CSV (optional)'
+  doaj_removed: 'Journals removed from DOAJ — CSV (optional)',
+  scopus_discontinued: 'Scopus discontinued titles — the "Discontinued Titles" sheet of Elsevier\'s source list workbook (.xlsx; uploading the workbook on the Scopus row loads both)',
+  rw_hijacked: 'Retraction Watch Hijacked Journal Checker — .xlsx or CSV export (clone websites of real journals)'
 };
 
 function findCol(headers, patterns) {
@@ -260,9 +298,10 @@ function findCol(headers, patterns) {
   return null;
 }
 
-async function importJournalList(listType, filename, csvText) {
+/** csv: the list as CSV text, or its rows as objects (read from a workbook; raw is then the workbook, for the R2 copy) */
+async function importJournalList(listType, filename, csv, { raw = null } = {}) {
   if (!LIST_TYPES[listType]) throw new Error('Unknown list type');
-  const rows = csvToObjects(csvText);
+  const rows = Array.isArray(csv) ? csv : csvToObjects(csv);
   if (!rows.length) throw new Error('The CSV file has no rows');
   const headers = Object.keys(rows[0]);
   const titleCol = findCol(headers, [/^(journal|source)\s*title$/i, /^title$/i, /journal name/i, /title/i, /journal/i, /name/i]);
@@ -280,7 +319,7 @@ async function importJournalList(listType, filename, csvText) {
     if (!title && !issns.length && !eissn) continue;
     data.push([listType, issns[0] || null, eissn, title, normalizeJournal(title), JSON.stringify(row)]);
   }
-  await store.put(`lists/${listType}.csv`, csvText, { source: `uploaded: ${filename}` }).catch(e => console.warn(`R2 copy of the ${listType} list failed: ${e.message}`));
+  if (raw || !Array.isArray(csv)) await store.put(`lists/${listType}${raw ? path.extname(filename).toLowerCase() || '.xlsx' : '.csv'}`, raw || csv, { source: `uploaded: ${filename}` }).catch(e => console.warn(`R2 copy of the ${listType} list failed: ${e.message}`));
   await transaction(async client => {
     await client.query('DELETE FROM journal_list_entries WHERE list_type = $1', [listType]);
     await bulkInsert(client, 'journal_list_entries', [
@@ -290,7 +329,82 @@ async function importJournalList(listType, filename, csvText) {
     await client.query(`INSERT INTO journal_lists(list_type, filename, row_count, uploaded_at) VALUES($1, $2, $3, now())
       ON CONFLICT(list_type) DO UPDATE SET filename = EXCLUDED.filename, row_count = EXCLUDED.row_count, uploaded_at = EXCLUDED.uploaded_at`, [listType, filename, data.length]);
   });
+  if (listType === 'rw_hijacked') await syncHijackedChecker(rows);
   return data.length;
+}
+
+// ------------------------------------------------------------------ journal lists published as .xlsx workbooks
+
+const sheetObjects = async (wb, sheet, header) => require('./xlsx').rowsToObjects(await wb.rows(sheet), r => r.some(x => header.test(x)));
+
+/**
+ * Elsevier's Scopus source list workbook: the main sheet becomes the "scopus" list (skipped with main: false) and the
+ * "Discontinued Titles" sheet the "scopus_discontinued" list (last year / volume / issue covered, and whether Scopus
+ * dropped the title or the journal changed its own policy). Returns { scopus_discontinued, scopus } row counts.
+ */
+async function importScopusWorkbook(filename, buffer, { main = true } = {}) {
+  const wb = await require('./xlsx').openWorkbook(buffer);
+  const disc = wb.sheets.find(n => /^discontinued/i.test(n));
+  if (!disc) throw new Error(`No "Discontinued Titles" sheet in ${filename} (sheets: ${wb.sheets.join(', ')})`);
+  // "Source Title (newly added titles are highlighted in red)" -> "Source Title"
+  const rows = (await sheetObjects(wb, disc, /^sourcerecord id$/i))
+    .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [/^source title/i.test(k) ? 'Source Title' : k, v])))
+    .filter(r => r['Source Title'] || r.ISSN || r.EISSN);
+  if (rows.length < 100) throw new Error(`The ${disc} sheet of ${filename} has only ${rows.length} rows`);
+  const out = { scopus_discontinued: await importJournalList('scopus_discontinued', filename, rows, { raw: main ? null : buffer }) };
+  if (main) {
+    const first = wb.sheets.find(n => /^scopus sources/i.test(n)) || wb.sheets[0];
+    const all = await sheetObjects(wb, first, /^sourcerecord id$/i);
+    if (all.length < 10000) throw new Error(`The ${first} sheet of ${filename} has only ${all.length} rows`);
+    out.scopus = await importJournalList('scopus', filename, all, { raw: buffer });
+  }
+  return out;
+}
+
+/** The Retraction Watch Hijacked Journal Checker export (.xlsx): the rows below the "Hijacked Journal Title" header */
+async function importHijackedWorkbook(filename, buffer) {
+  const wb = await require('./xlsx').openWorkbook(buffer);
+  const rows = (await sheetObjects(wb, 0, /^hijacked journal title$/i))
+    .map(r => Object.fromEntries(Object.entries(r).filter(([k, v]) => !/^col\d+$/.test(k))))
+    .filter(r => r['Hijacked Journal Title']);
+  if (rows.length < 100) throw new Error(`${filename} has only ${rows.length} hijacked journals`);
+  return importJournalList('rw_hijacked', filename, rows, { raw: buffer });
+}
+
+/** Spreadsheet upload on Admin > Data: the lists that Elsevier and Retraction Watch publish only as workbooks */
+async function importJournalWorkbook(listType, filename, buffer) {
+  if (listType === 'scopus' || listType === 'scopus_discontinued') return importScopusWorkbook(filename, buffer, { main: listType === 'scopus' });
+  if (listType === 'rw_hijacked') return { rw_hijacked: await importHijackedWorkbook(filename, buffer) };
+  throw new Error('Please save the spreadsheet as CSV (File → Save As → CSV UTF-8) and upload that.');
+}
+
+const RW_HIJACKED_SOURCE = 'Retraction Watch Hijacked Journal Checker';
+
+/**
+ * The hijacked-journal rows also go into the predatory table, so every module that matches cited journals and websites
+ * against Beall's hijacked list (predatoryMatches) sees them: name = the genuine title the clone copies (both spellings
+ * the checker gives), url / domain = the clone website, genuine_url = the real journal's site.
+ */
+async function syncHijackedChecker(rows) {
+  const col = (r, re) => { const k = Object.keys(r).find(h => re.test(h.trim())); return k ? String(r[k] || '').trim() : ''; };
+  const items = [];
+  for (const r of rows) {
+    const names = [...new Set([col(r, /^hijacked journal title$/i), col(r, /^original journal$/i)].filter(n => normalizeJournal(n)))];
+    const genuine = col(r, /^url \(original/i) || null;
+    for (const url of col(r, /^url \(hijacked/i).split(/[\s,;]+/).filter(u => /\.[a-z]{2,}/i.test(u))) {
+      for (const n of names) items.push(['hijacked', n, normalizeJournal(n), url, domainOf(url), genuine, RW_HIJACKED_SOURCE]);
+    }
+  }
+  if (!items.length) throw new Error('No hijacked journal websites found in the Retraction Watch list');
+  await transaction(async client => {
+    await client.query('DELETE FROM predatory WHERE source = $1', [RW_HIJACKED_SOURCE]);
+    await bulkInsert(client, 'predatory', ['kind', 'name', 'name_norm', 'url', 'domain', 'genuine_url', 'source'].map(name => ({ name, type: 'text' })), items);
+  });
+  await setMeta('rwhj_loaded_at', new Date().toISOString());
+  await setMeta('rwhj_count', rows.length);
+  // the predatory table on R2 carries Beall's and Retraction Watch's rows together
+  await store.snapshotTable('predatory', tableMeta('beall')).catch(e => console.warn(`R2 snapshot of the predatory table failed: ${e.message}`));
+  return items.length;
 }
 
 /**
@@ -1051,6 +1165,8 @@ async function listStatus() {
     lists: Object.entries(LIST_TYPES).map(([type, label]) => ({ type, label, ...(uploaded[type] || {}) })),
     retractionWatch: { loadedAt: await getMeta('rw_loaded_at'), count: parseInt((await getMeta('rw_count')) || '0', 10) },
     beall: { loadedAt: await getMeta('beall_loaded_at'), count: parseInt((await getMeta('beall_count')) || '0', 10) },
+    rwHijacked: { loadedAt: await getMeta('rwhj_loaded_at'), count: parseInt((await getMeta('rwhj_count')) || '0', 10) },
+    citejacked: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('citejacked_count')) || '0', 10) },
     screener: { loadedAt: await getMeta('pps_loaded_at'), count: parseInt((await getMeta('pps_count')) || '0', 10) },
     fdaOrangeBook: { loadedAt: await getMeta('fda_ob_loaded_at'), count: parseInt((await getMeta('fda_ob_count')) || '0', 10) },
     nlm: { loadedAt: await getMeta('nlm_loaded_at'), count: parseInt((await getMeta('nlm_count')) || '0', 10) },
@@ -1097,7 +1213,7 @@ async function datasetHealth() {
  * instead of timing out halfway through the list, and a source that keeps failing does not block the others.
  */
 // dataset key -> its lookup table on R2 (src/datasetStore.js snapshotTable / restoreTable) and the meta values that go with it
-const DATASET_TABLES = { rw: ['retractions', ['rw_authors']], pps: ['pps_fingerprints', []], beall: ['predatory', []], fda_ob: ['fda_orange_book', []], nlm: ['nlm_journals', []],
+const DATASET_TABLES = { rw: ['retractions', ['rw_authors']], pps: ['pps_fingerprints', []], beall: ['predatory', ['rwhj_loaded_at', 'rwhj_count', 'citejacked_count']], fda_ob: ['fda_orange_book', []], nlm: ['nlm_journals', []],
   doaj: ['doaj_journals', []], ltwa: ['ltwa_words', []], crj: ['crossref_journals', []], maildom: ['email_domains', []], pubj: ['publisher_journals', ['pubj_by_publisher']], oaj: ['openalex_journals', []] };
 const tableMeta = key => [`${key}_loaded_at`, `${key}_count`, ...(DATASET_TABLES[key]?.[1] || [])];
 
@@ -1162,5 +1278,5 @@ module.exports = {
   parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup,
-  importJournalList, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
+  loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
 };

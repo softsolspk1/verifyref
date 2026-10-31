@@ -417,14 +417,50 @@ async function detectPaperMill(input, update = () => {}) {
   if (otherRetracted.length) sig('references', 'retracted', `${otherRetracted.length} retracted paper(s) cited`, 'low', 1, otherRetracted.map(r => ({ text: `[${r.index}] ${r.record?.title || r.raw.slice(0, 140)}` })));
 
   const journals = new Map();
-  for (const r of refs) { const j = r.record?.journal || r.parsed?.journal; if (j) { const k = normalizeJournal(j); if (!journals.has(k)) journals.set(k, { name: j, refs: [] }); journals.get(k).refs.push(r.index); } }
-  const risky = [];
+  for (const r of refs) {
+    const j = r.record?.journal || r.parsed?.journal;
+    if (!j) continue;
+    const k = normalizeJournal(j);
+    if (!journals.has(k)) journals.set(k, { name: j, issns: new Set(), refs: [] });
+    journals.get(k).refs.push(r.index);
+    for (const i of r.record?.issn || []) journals.get(k).issns.add(i);
+  }
+  const refList = idx => idx.map(i => `[${i}]`).join(' ');
+  const yearOf = new Map(refs.map(r => [r.index, parseInt(r.record?.year || r.parsed?.year, 10) || null]));
+  const risky = [], clones = [], citejacked = [], dropped = [];
   for (const j of [...journals.values()].slice(0, 80)) {
-    const m = await D.predatoryMatches({ journal: j.name }).catch(() => []);
-    if (m.length) risky.push({ ...j, kind: m.some(x => x.kind === 'hijacked') ? 'hijacked' : 'predatory' });
+    const m = await D.predatoryMatches({ journal: j.name, issns: [...j.issns] }).catch(() => []);
+    // a hijacked-list name match only says that a clone of the journal exists (most such journals are genuine and indexed)
+    if (m.some(x => x.kind !== 'hijacked')) risky.push({ ...j, kind: 'predatory' });
+    else if (m.some(D.isCitejacked)) citejacked.push({ ...j, papers: m.find(D.isCitejacked).papers });
+    else if (m.length) clones.push({ ...j, clone: m[0].domain, genuine: m[0].genuine_url });
+    // Scopus discontinued the journal (Elsevier's Discontinued Titles sheet): references from its last covered year on
+    const hit = (await D.listLookupAll([...j.issns], j.name).catch(() => ({}))).scopus_discontinued;
+    if (hit && !/policy/i.test(hit.data?.['Indexation Change'] || '')) {
+      const year = parseInt(hit.data?.Year, 10) || null;
+      const after = year ? j.refs.filter(i => (yearOf.get(i) || 0) >= year) : j.refs;
+      if (after.length) dropped.push({ ...j, refs: after, year });
+    }
+  }
+  // the reference's own link on a clone website
+  for (const r of refs) {
+    const url = r.parsed?.url || r.record?.url;
+    if (!url || risky.some(j => j.refs.includes(r.index))) continue;
+    const h = (await D.predatoryMatches({ homepage: url }).catch(() => [])).find(x => x.kind === 'hijacked');
+    if (h) risky.push({ name: `${h.name} (clone site ${h.domain})`, refs: [r.index], kind: 'hijacked' });
   }
   const riskyRefs = risky.reduce((a, j) => a + j.refs.length, 0);
-  if (riskyRefs) sig('references', 'predatory', `${riskyRefs} reference(s) to predatory or hijacked journals`, riskyRefs >= 3 ? 'medium' : 'low', riskyRefs >= 3 ? 3 : 1, risky.map(j => ({ text: `${j.name} (${j.kind}) — refs ${j.refs.map(i => `[${i}]`).join(' ')}` })));
+  if (riskyRefs) sig('references', 'predatory', `${riskyRefs} reference(s) to predatory or hijacked journals`, riskyRefs >= 3 ? 'medium' : 'low', riskyRefs >= 3 ? 3 : 1, risky.map(j => ({ text: `${j.name} (${j.kind}) — refs ${refList(j.refs)}` })));
+  const droppedRefs = dropped.reduce((a, j) => a + j.refs.length, 0);
+  if (droppedRefs) sig('references', 'scopus-discontinued', `${droppedRefs} reference(s) to journals discontinued by Scopus, published after Scopus stopped covering them`, droppedRefs >= 3 ? 'medium' : 'low', droppedRefs >= 3 ? 2 : 1,
+    dropped.map(j => ({ text: `${j.name} — Scopus coverage ends ${j.year || '(year not given)'} — refs ${refList(j.refs)}` })), 'Scopus drops journals after re-evaluation for publication concerns; mill papers often cite and are placed in such journals. A few such references are common - many of them is the pattern.');
+  // the screener's citejacked detector flags papers that cite these journals (the citations usually point to the hijacked version)
+  const cjRefs = citejacked.reduce((a, j) => a + j.refs.length, 0);
+  if (cjRefs) sig('references', 'citejacked', `${cjRefs} reference(s) to journals on the Problematic Paper Screener "citejacked" list`, cjRefs >= 2 ? 'medium' : 'low', cjRefs >= 2 ? 2 : 1,
+    citejacked.map(j => ({ text: `${j.name}${j.papers ? ` (${j.papers.toLocaleString('en')} papers found citing its hijacked version)` : ''} — refs ${refList(j.refs)}` })), 'The hijacked versions of these journals publish mill-type papers that are then cited. Check whether each cited article is from the genuine journal (its DOI resolves to the genuine site).');
+  const cloneRefs = clones.reduce((a, j) => a + j.refs.length, 0);
+  if (cloneRefs) sig('references', 'hijacked-clone', `${cloneRefs} reference(s) to journals with a known hijacked clone website`, 'low', 0,
+    clones.map(j => ({ text: `${j.name} — clone ${j.clone}${j.genuine ? `, genuine site ${j.genuine}` : ''} — refs ${refList(j.refs)}` })), 'Check that the cited articles come from the genuine journal (its DOI resolves to the genuine site) and not from the clone.');
   for (const f of (input.pattern?.flags || []).filter(f => ['citation-stacking', 'author-concentration', 'journal-concentration', 'irrelevant-self-citation', 'citation-blocks'].includes(f.code))) {
     sig('references', 'stacking', f.message, f.severity === 'high' ? 'medium' : 'low', f.severity === 'high' ? 2 : 1, [], f.guidance);
   }

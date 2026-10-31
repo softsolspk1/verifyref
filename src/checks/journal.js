@@ -205,6 +205,14 @@ function interpretLists(hits) {
   }
   if (hits.hec_blacklist) out.hecBlacklist = { matchedBy: hits.hec_blacklist.matchedBy, data: hits.hec_blacklist.data };
   if (hits.doaj_removed) out.doajRemoved = { reason: pick(hits.doaj_removed.data, [/reason/i]), date: pick(hits.doaj_removed.data, [/date/i]) };
+  // Elsevier's "Discontinued Titles" sheet: the last volume / issue Scopus covers. "Discontinuation" is Scopus dropping
+  // the title after re-evaluation; "Journal change policy" is the journal's own change (publisher, access model ...)
+  if (hits.scopus_discontinued) {
+    const d = hits.scopus_discontinued.data;
+    const year = parseInt(pick(d, [/^year$/i]), 10) || null;
+    out.scopusDiscontinued = { change: pick(d, [/indexation change/i]), byScopus: !/policy/i.test(pick(d, [/indexation change/i]) || ''), year,
+      volume: pick(d, [/^volume$/i]), issue: pick(d, [/^issue$/i]), matchedBy: hits.scopus_discontinued.matchedBy };
+  }
   return out;
 }
 
@@ -233,7 +241,7 @@ async function checkJournal(input) {
 
   const listedIn = src?.listed_in || [];
   const medline = resolved?.nlm?.medline || listedIn.includes('medline');
-  const scopusIndexed = lists.sjr || lists.scopus ? !(lists.scopus?.discontinued) : wd?.scopusId ? true : null;
+  const scopusIndexed = lists.scopusDiscontinued?.byScopus ? false : lists.sjr || lists.scopus ? !(lists.scopus?.discontinued) : wd?.scopusId ? true : null;
   const scopusSource = lists.scopus || lists.sjr ? 'Uploaded Scopus/SJR list' : wd?.scopusId ? 'Wikidata (Scopus source ID)' : null;
   const counts = (src?.counts_by_year || []).slice().sort((a, b) => a.year - b.year);
 
@@ -249,17 +257,21 @@ async function checkJournal(input) {
 
   const flags = [];
   const flag = (severity, message) => flags.push({ severity, message });
-  for (const p of predatory) {
-    if (p.kind === 'hijacked') {
-      if (p.matchedBy === 'website domain') flag('high', `Website is a known HIJACKED clone of “${p.name}” (genuine site: ${p.genuine_url || 'see list'})`);
-      else flag('medium', `A hijacked clone of “${p.name}” exists (${p.domain}) — make sure the cited article is from the genuine journal${p.genuine_url ? ` (${p.genuine_url})` : ''}`);
-    } else {
-      flag('high', `Listed on Beall's list of potential predatory ${p.kind === 'publisher' ? 'publishers' : 'journals'} (matched by ${p.matchedBy})`);
-    }
-  }
+  // one flag per finding: a journal can match Beall's and Retraction Watch's hijacked lists under several spellings
+  const clones = predatory.filter(p => p.kind === 'hijacked' && p.matchedBy !== 'website domain' && !D.isCitejacked(p));
+  const cloneSites = [...new Set(clones.map(p => p.domain).filter(Boolean))];
+  const genuineSite = predatory.find(p => p.genuine_url)?.genuine_url;
+  for (const p of predatory.filter(x => x.kind === 'hijacked' && x.matchedBy === 'website domain')) flag('high', `Website is a known HIJACKED clone of “${p.name}” (genuine site: ${p.genuine_url || 'see list'}; source: ${p.source})`);
+  const cj = predatory.find(D.isCitejacked);
+  if (cj) flag('medium', `On the Problematic Paper Screener “citejacked” list: ${cj.papers ? `${cj.papers.toLocaleString('en')} papers` : 'papers'} found citing articles from its hijacked version — check that each cited article is from the genuine journal (its DOI resolves to the genuine site)`);
+  if (clones.length && !predatory.some(x => x.matchedBy === 'website domain')) flag('medium', `A hijacked clone of this journal exists${cloneSites.length ? ` (${cloneSites.slice(0, 3).join(', ')})` : ''} — make sure the cited article is from the genuine journal${genuineSite ? ` (${genuineSite})` : ''} [${[...new Set(clones.map(p => p.source))].join('; ')}]`);
+  for (const p of predatory.filter(x => x.kind !== 'hijacked')) flag('high', `Listed on Beall's list of potential predatory ${p.kind === 'publisher' ? 'publishers' : 'journals'} (matched by ${p.matchedBy})`);
   if (lists.hecBlacklist) flag('high', 'Listed on the uploaded HEC / institutional blacklist');
   if (lists.doajRemoved) flag('medium', `Removed from DOAJ${lists.doajRemoved.reason ? `: ${lists.doajRemoved.reason}` : ''}`);
-  if (lists.scopus?.discontinued) flag('high', 'Coverage discontinued by Scopus');
+  const sd = lists.scopusDiscontinued;
+  const lastCovered = sd ? [sd.year, sd.volume && `vol. ${sd.volume}`, sd.issue && `issue ${sd.issue}`].filter(Boolean).join(', ') : '';
+  if (sd?.byScopus || lists.scopus?.discontinued) flag('high', `Coverage discontinued by Scopus${lastCovered ? ` (last content covered: ${lastCovered})` : ''} — articles published after that are not Scopus-indexed`);
+  else if (sd) flag('low', `Scopus coverage ended after a change of journal policy${lastCovered ? ` (last content covered: ${lastCovered})` : ''}`);
   else if (lists.scopus?.inactive) flag('low', 'Marked inactive in the Scopus source list (no longer receiving new content)');
   if (issns.length && issns.some(i => !issnChecksumValid(i))) flag('high', 'ISSN has an invalid check digit');
   if (portal.registered === false) flag('high', 'ISSN not found in the official ISSN registry');
@@ -327,7 +339,7 @@ async function checkJournal(input) {
     } : null,
     nlm: resolved?.nlm || null,
     indexing: {
-      scopus: { indexed: scopusIndexed, source: scopusSource, scopusId: wd?.scopusId || null, quartile: lists.sjr?.quartile || null, sjr: lists.sjr?.sjr || null, categories: lists.sjr?.categories || null, citeScore: lists.scopus?.citeScore || null },
+      scopus: { indexed: scopusIndexed, source: scopusSource, discontinued: lists.scopusDiscontinued || (lists.scopus?.discontinued ? { byScopus: true } : null), scopusId: wd?.scopusId || null, quartile: lists.sjr?.quartile || null, sjr: lists.sjr?.sjr || null, categories: lists.sjr?.categories || null, citeScore: lists.scopus?.citeScore || null },
       wos: { collections: lists.wos || [], listUploaded: null, jcrQuartile: lists.jcr?.quartile || null, jif: lists.jcr?.jif || null, jcrCategory: lists.jcr?.category || null },
       medline,
       doaj,
@@ -382,6 +394,8 @@ async function checkCitedJournals(referenceResults, { onProgress, max = 80 } = {
     wos: out.filter(j => j.indexing?.wos?.collections?.length).length,
     medline: out.filter(j => j.indexing?.medline).length,
     predatory: out.filter(j => j.predatory?.some(p => p.kind !== 'hijacked' || p.matchedBy === 'website domain')).length,
+    hijackedClones: out.filter(j => j.predatory?.some(p => p.kind === 'hijacked' && p.matchedBy !== 'website domain')).length,
+    scopusDiscontinued: out.filter(j => j.indexing?.scopus?.discontinued?.byScopus).length,
     refsInHighRisk: out.filter(j => j.verdict === 'high-risk').reduce((a, j) => a + j.refs.length, 0)
   };
   return { journals: out, summary };

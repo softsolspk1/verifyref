@@ -32,7 +32,8 @@ the measured agreement and the image pair, so they can be dismissed in seconds.
 
 ## Cloned area inside one image (IDD) and splicing (CSTD)
 
-Second pass on 2026-10-31 ( writes every report with its measurements):
+Second pass on 2026-10-31 (`node scripts/benchmark-images.mjs --task idd|cstd --docs 60 --neg 300 --dump` writes every
+report with its measurements to data/benchmark/images-dump.json):
 
 | Cloned area (IDD) | Before | After |
 |---|---|---|

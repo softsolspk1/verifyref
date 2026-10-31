@@ -2,7 +2,7 @@
 import { api, esc, $, hasModule, fmtDate, badge, ICONS, state } from '../core.js';
 
 const CARDS = [
-  { path: '/manuscript', module: 'manuscript', icon: 'manuscript', title: 'Screen a new submission — all 5 modules at once', text: 'One upload runs Modules 1 to 4 (and attaches a Module 5 image report) and gives a front-page summary with a desk-review recommendation: proceed / return to authors / investigate.', wide: true },
+  { path: '/manuscript', module: 'manuscript', icon: 'manuscript', title: 'Screen a new submission — all 5 modules at once', text: 'One upload runs all 5 modules, including the image-integrity analysis of the figures, and gives a front-page summary with a desk-review recommendation: proceed / return to authors / investigate.', wide: true },
   { path: '/references', module: 'references', icon: 'refs', title: '1 · Check Bibliography', text: 'Is every reference real, correct and not retracted? Every reference searched in all databases (13 scholarly databases, plus Google Scholar and Google when set up), DOIs, Retraction Watch, links, reference age, self-citation, predatory journals, duplicates. Editors: monitoring of published PJPS articles for retractions, corrections and concerns.' },
   { path: '/restyle', module: 'restyle', icon: 'style', title: '2 · Reference Style & PJPS', text: 'Rule-by-rule PJPS style compliance, then conversion of citations and the reference list — in Word as Track Changes.' },
   { path: '/citations', module: 'citations', icon: 'cite', title: '3 · Citations', text: 'In-text citations against the reference list, claim support from the cited sources, citation pattern flags and the author letter.' },

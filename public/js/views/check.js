@@ -5,7 +5,7 @@ import { renderReport } from './report.js';
 const MODES = {
   manuscript: {
     title: 'Full Screening Report',
-    intro: 'One upload runs the PJPS modules: Check Bibliography (every reference searched in all databases: Crossref, PubMed, Europe PMC, OpenAlex, Semantic Scholar, CORE, Google Books and more, plus Google Scholar and Google when set up; retractions, quality indicators), PJPS style compliance, Citations (list matching and citation pattern) and Paper Mill Detection — plus the findings of a Module 5 image report if you attach one. The front page gives a summary per module and a desk-review recommendation; an author version (Modules 1–3) can be sent after your approval. Claim support is checked in Module 3.',
+    intro: 'One upload runs the PJPS modules: Check Bibliography (every reference searched in all databases: Crossref, PubMed, Europe PMC, OpenAlex, Semantic Scholar, CORE, Google Books and more, plus Google Scholar and Google when set up; retractions, quality indicators), PJPS style compliance, Citations (list matching and citation pattern) and Paper Mill Detection — and Module 5 Image Integrity on the figures of the uploaded Word / PDF file (analysed in your browser). The front page gives a summary per module and a desk-review recommendation; an author version (Modules 1–3) can be sent after your approval. Claim support is checked in Module 3.',
     needsBody: true, meta: true, screening: true
   },
   references: {

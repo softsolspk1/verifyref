@@ -18,7 +18,7 @@ Precision when the tool says MEDIUM or HIGH (with this 50/50 sample): 100.0%. In
 | Signal | Retracted | Control |
 |---|---|---|
 | cell-lines | 11/150 | 2/126 |
-| methods | 112/150 | 95/126 |
+| methods | 95/150 | 73/126 |
 | primers | 1/150 | 0/126 |
 | statistics | 1/150 | 1/126 |
 | suspect | 2/150 | 1/126 |

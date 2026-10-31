@@ -9,6 +9,7 @@ const D = require('../datasets');
 const { getJson } = require('../http');
 const { nameMatch, splitName, titleSimilarity, normalizeJournal } = require('../text');
 const { TORTURED, AI_LEFTOVERS, TEMPLATES, CELL_LINES, FREE_MAIL, DISPOSABLE_MAIL } = require('./lists');
+const { studyType, approvalNumber, hasDose } = require('./studyEthics');
 const DC = require('./dataChecks');
 const { isOnline } = require('../http');
 
@@ -89,19 +90,21 @@ function templateWording(text) {
 function methodsGaps(text) {
   const methods = (text.match(/(?:^|\n)\s*(?:\d+\.?\s*)?(?:materials? and methods|methods?|methodology|experimental(?: section| procedures)?)\s*\n([\s\S]{200,30000}?)(?:\n\s*(?:\d+\.?\s*)?(?:results|results and discussion|discussion)\s*\n|$)/i) || [])[1] || '';
   const scope = methods || text;
-  const animals = /\b(rats?|mice|mouse|rabbits?|guinea pigs?|animals?)\b/i.test(scope);
-  const humans = /\b(patients?|participants?|volunteers?|subjects? were|respondents?)\b/i.test(scope);
+  // an animal / human study only when the paper reports the work itself (not a mention of rats in the introduction)
+  const { animal: animals, human: humans } = studyType(text);
   const reagents = /\b(reagents?|chemicals?|antibod(?:y|ies)|kits?|cell lines?|media|serum)\b/i.test(scope);
   const gaps = [];
-  if ((animals || humans) && !/\b(ethic(?:s|al)? (?:committee|board|approval|review)|institutional review board|IRB|IACUC|animal care|approval (?:no|number|letter|ref)|ERC|IREB|bioethics)\b/i.test(text)) {
-    gaps.push({ code: 'ethics', message: `${animals ? 'Animal' : 'Human'} study with no ethics approval (committee or approval number) stated` });
-  } else if ((animals || humans) && !/\b(?:approval|ref(?:erence)?|protocol|letter)\s*(?:no\.?|number|#|:)\s*[\w/.-]*\d/i.test(text)) {
-    gaps.push({ code: 'ethics-number', message: 'Ethics approval mentioned without an approval / reference number' });
+  const ethics = animals || humans ? approvalNumber(text) : null;
+  if (ethics && !ethics.approval) {
+    gaps.push({ code: 'ethics', message: `${animals && humans ? 'Human and animal' : animals ? 'Animal' : 'Human'} study with no ethics approval (committee or approval number) stated` });
+  } else if (ethics && !ethics.number) {
+    gaps.push({ code: 'ethics-number', message: 'Ethics approval mentioned without an approval / reference number', quote: ethics.approval.sentence });
   }
   if (reagents && !/\b(purchased from|obtained from|supplied by|procured from|gift from|Sigma|Merck|Thermo|Invitrogen|Abcam|ATCC|Bio-?Rad|Santa Cruz|Cell Signaling|BDH|Fluka|Daejung|Scharlau)\b/i.test(scope)) {
     gaps.push({ code: 'supplier', message: 'Reagents, kits or cells used without naming the supplier' });
   }
-  if (animals && !/\b\d+(?:\.\d+)?\s*(?:mg|µg|μg|g|ml|mL)\s*\/\s*kg\b/i.test(scope)) gaps.push({ code: 'dose', message: 'Animal study without doses in mg/kg' });
+  // doses only matter when the animals were treated; mg/kg, mg kg-1, mg/kg b.w., mL/100 g ... all count
+  if (animals && /\b(?:treated|administered|dosed|given|received|gavage|injected|oral(?:ly)?|intraperitoneal(?:ly)?|i\.p\.|p\.o\.)\b/i.test(scope) && !hasDose(text)) gaps.push({ code: 'dose', message: 'Animal study without doses (mg/kg or similar)' });
   if ((animals || humans) && !/\b(?:n\s*=\s*\d+|\d+\s+(?:rats|mice|animals|patients|participants|subjects|volunteers)|(?:groups?|each) of \d+|sample size)\b/i.test(scope)) gaps.push({ code: 'sample', message: 'No sample size (n = …) stated' });
   return { checked: !!methods || animals || humans, methodsFound: !!methods, gaps };
 }
@@ -320,7 +323,7 @@ async function textSignals(text, body = text, custom = []) {
   const tmpl = templateWording(body);
   if (tmpl.length >= 3) sig('text', 'template', `Wording typical of paper-mill templates (${tmpl.length} features)`, tmpl.length >= 5 ? 'medium' : 'low', tmpl.length >= 5 ? 2 : 1, tmpl.map(t => ({ text: t.label, quote: t.example })), 'These methods are legitimate on their own; several together are typical of templated mill papers.');
   const methods = methodsGaps(body);
-  if (methods.gaps.length) sig('text', 'methods', `Methods too vague to repeat (${methods.gaps.length})`, methods.gaps.some(g => g.code === 'ethics') ? 'medium' : 'low', methods.gaps.some(g => g.code === 'ethics') ? 1 : 0, methods.gaps.map(g => ({ text: g.message })));
+  if (methods.gaps.length) sig('text', 'methods', `Methods too vague to repeat (${methods.gaps.length})`, methods.gaps.some(g => g.code === 'ethics') ? 'medium' : 'low', methods.gaps.some(g => g.code === 'ethics') ? 1 : 0, methods.gaps.map(g => ({ text: g.message, ...(g.quote ? { quote: g.quote } : {}) })));
 
   const hid = hiddenText(text);
   if (hid.zero >= 5 || hid.mixed.length) {

@@ -7,6 +7,7 @@
 const { getJson, isOnline } = require('../http');
 const { titleSimilarity } = require('../text');
 const { dimension, finish, ctx } = require('./common');
+const { studyType, approvalNumber } = require('../papermill/studyEthics');
 
 const REGISTRIES = [
   ['ClinicalTrials.gov', /\bNCT\d{8}\b/gi], ['ISRCTN', /\bISRCTN\d{8}\b/gi], ['CTRI (India)', /\bCTRI\/\d{4}\/\d{2,3}\/\d{6}\b/gi], ['IRCT (Iran)', /\bIRCT\d{8,14}N\d{1,3}\b/gi],
@@ -15,8 +16,6 @@ const REGISTRIES = [
   ['CRIS (Korea)', /\bKCT\d{7}\b/gi], ['TCTR (Thailand)', /\bTCTR\d{11}\b/gi], ['SLCTR (Sri Lanka)', /\bSLCTR\/\d{4}\/\d{3}\b/gi], ['REBEC (Brazil)', /\bRBR-\w{6,8}\b/gi], ['Netherlands Trial Register', /\bNTR\d{3,5}\b|\bNL\d{4,5}\b(?=[^.]{0,40}regist)/gi]
 ];
 
-const HUMAN = /\b(patients?|participants?|volunteers?|respondents?|subjects? were|questionnaire|interviews?|survey|blood samples? (?:were|was) (?:collected|drawn)|clinical (?:study|trial))\b/i;
-const ANIMAL = /\b(rats?|mice|mouse|rabbits?|guinea pigs?|hamsters?|dogs?|zebrafish|animals? were|albino)\b/i;
 const TRIAL = /\b(randomi[sz]ed (?:controlled |clinical )?trial|RCT\b|clinical trial|phase (?:I{1,3}|IV|[1-4])\b[^.]{0,30}\btrial|double[- ]blind|placebo[- ]controlled)\b/i;
 const IN_VITRO_ONLY = /\b(in vitro|cell lines?|bacterial strains?|in silico|docking)\b/i;
 
@@ -38,11 +37,14 @@ async function trialRecord(nct) {
 async function analyzeEthics(text, { title = '', online = isOnline() } = {}) {
   const d = dimension('ethics', 'Research ethics');
   const t = String(text);
-  const human = HUMAN.test(t), animal = ANIMAL.test(t), trial = TRIAL.test(t);
+  // a human / animal study only when the manuscript reports the work (papermill/studyEthics.js): a mention is not enough
+  const st = studyType(t);
+  const human = st.human, animal = st.animal, trial = TRIAL.test(t);
   const inVitroOnly = !human && !animal && IN_VITRO_ONLY.test(t);
 
   const approval = has(/\b(ethic(?:s|al)? (?:review )?(?:committee|board|approval|clearance)|institutional review board|\bIRB\b|\bIACUC\b|animal (?:care|ethics) (?:and use )?committee|\bERC\b|\bIREB\b|bioethics committee|research ethics)\b/i, t);
-  const approvalNo = has(/\b(?:approval|ref(?:erence)?|protocol|letter|permit|IRB|ERC|IACUC)\s*(?:no\.?|number|#|code|ID)?\s*[:.]?\s*[A-Z]{0,8}[\w/.-]*\d[\w/.-]*/i, t);
+  // the number is looked for in and next to the approval statement, in all the usual formats (AEC/2021/45, IRB-00123, Ref. No. ...)
+  const approvalNo = (() => { const a = approvalNumber(t); return a.number ? { found: a.number, quote: a.approval?.sentence || '' } : null; })();
   const consent = has(/\b(informed consent|written consent|consent (?:was|were) (?:obtained|taken|signed)|consent forms?|assent)\b/i, t);
   const helsinki = has(/\bDeclaration of Helsinki\b|\bHelsinki Declaration\b/i, t);
   const animalGuide = has(/\b(ARRIVE|Guide for the Care and Use of Laboratory Animals|NIH (?:guide|guidelines)|Directive 2010\/63|OECD (?:guideline|test guideline)|CPCSEA|institutional (?:animal )?guidelines)\b/i, t);

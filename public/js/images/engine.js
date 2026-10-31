@@ -868,7 +868,8 @@ function selfClone(P) {
     const matches = matchFeatures(P.features, P.features, { self: true, minShift: 24, ratio: 0.8, maxDist: 50 });
     if (matches.length >= 8) {
       const r = ransac(matches, P.features, P.features, { minShift: 24 });
-      if (r && r.inliers.length >= 10) {
+      // BioFors IDD: annotated clones had 14+ agreeing points, clean images at most 11
+      if (r && r.inliers.length >= 13) {
         const a = bbox(r.inliers.map(m => P.features.pts[m.i])), b = bbox(r.inliers.map(m => P.features.pts[m.j]));
         const overlap = !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
         if (!overlap && a.w > 12 && a.h > 12) out.push({ kind: 'clone', method: 'keypoints', inliers: r.inliers.length, regionA: a, regionB: b, transform: { rotation: r.rotation, flip: false, scale: r.scale } });
@@ -878,6 +879,8 @@ function selfClone(P) {
   if (!P.blank && P.type !== 'chart') {
     // tolerant block matching (survives JPEG recompression), every candidate verified pixel by pixel
     for (const c of copyMoveBlocks(P.workGray, { quant: 20, neigh: 12, minBlocks: 15, minVar: 15, verify: true })) {
+      // the copied area must also share its fine noise; repeated textures (membrane, tissue) match only in the picture
+      if ((c.pixel?.hp ?? 1) < 0.55) continue;
       if (out.some(o => Math.abs(o.regionA.x - c.a.x) < 20 && Math.abs(o.regionA.y - c.a.y) < 20)) continue;
       out.push({ kind: 'clone', method: 'blocks', blocks: c.blocks, pixel: c.pixel, regionA: c.a, regionB: c.b, transform: { rotation: 0, flip: false, scale: 1 } });
     }
@@ -934,7 +937,7 @@ export function findIssues(panels, progress = () => {}) {
   }
   usable.forEach(P => {
     for (const c of selfClone(P)) {
-      const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.6;
+      const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.8;
       findings.push({ kind: 'clone', level: strong ? 'high' : 'medium', a: { panel: P.id, box: toImage(P, c.regionA) }, b: { panel: P.id, box: toImage(P, c.regionB) }, transform: c.transform, score: c.inliers || c.blocks,
         description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)})` : `Possible cloned area inside one panel (${c.blocks} matching blocks${c.pixel ? `, pixel match ${c.pixel.lp.toFixed(2)}, noise pattern ${c.pixel.hp.toFixed(2)}` : ''})` });
     }

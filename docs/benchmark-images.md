@@ -32,13 +32,25 @@ the measured agreement and the image pair, so they can be dismissed in seconds.
 
 ## Cloned area inside one image (IDD) and splicing (CSTD)
 
-| Task | Flagged (positives) | Flagged (negatives) | "Strong" on negatives |
-|---|---|---|---|
-| Cloned area (IDD) | 26 / 78 (33%), located correctly in 23 | 26 / 231 (11%) | 4 |
-| Cut / sharp transition (CSTD) | 15 / 121 (12%) | 15 / 140 (11%) | 0 |
+Second pass on 2026-10-31 ( writes every report with its measurements):
 
-Splicing (cut / sharp transition) is not separated from ordinary images by the current detectors: these reports are shown as
-"to check" only and should be read as indicators. Cloned-area detection finds about a third of the annotated cases.
+| Cloned area (IDD) | Before | After |
+|---|---|---|
+| Annotated clones reported | 26 / 78 | 26 / 78 (23 located correctly) |
+| ... as Strong | 13 | 12 |
+| Clean images reported | 34 / 230 | 29 / 230 |
+| ... as Strong | 11 | 3 |
+
+Changes: a keypoint clone needs 13+ agreeing points (annotated clones had 14+, clean images at most 11); a block clone must
+share its fine noise (0.55+, Strong from 0.8): repeated membrane / tissue texture matches only in the picture.
+
+| Splicing (CSTD, blots) | Before | After |
+|---|---|---|
+| Spliced blots reported | 17 / 124 | 15 / 124 (8 located) |
+| Clean blots reported | 12 / 151 | 10 / 151 |
+
+A horizontal background step needs 12+ grey levels (clean blots stayed at 11 or below). Vertical steps do not separate
+spliced from clean blots (normal lane edges look the same): they stay "to check" indicators. Splicing detection is weak.
 
 ## Limits
 

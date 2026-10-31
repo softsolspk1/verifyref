@@ -50,6 +50,7 @@ const inter = (a, b) => { const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.
 const gtBox = b => ({ x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] });
 const hitsGt = (box, gts) => gts.some(g => { const G = gtBox(g); return inter(box, G) / Math.max(1, Math.min(box.w * box.h, G.w * G.h)) >= 0.25; });
 const report = {};
+const DUMP = process.argv.includes('--dump'), dump = [];
 
 // ---------------------------------------------------------------- external duplication
 if (TASK === 'all' || TASK === 'edd') {
@@ -103,6 +104,7 @@ function runImages(gtMap, task, kind) {
       tested++;
       const core = kind === 'clone' ? E.findIssues([p]) : [];
       const fnd = kind === 'clone' ? core.filter(f => f.kind === 'clone') : F.forensicFindings([p], {}, []).filter(f => f.kind === 'alteration');
+      if (DUMP) dump.push({ task, truth: truthy, doc: it.doc, name: it.name, type: p.type, findings: fnd.map(f => ({ level: f.level, score: f.score, description: f.description, located: truthy ? (hitsGt(f.a.box, it.boxes) || hitsGt(f.b.box, it.boxes)) : false })) });
       if (fnd.length) {
         flagged++;
         if (fnd.some(f => f.level === 'high')) high++;
@@ -138,3 +140,4 @@ if (TASK === 'all' || TASK === 'neg') {
 
 fs.writeFileSync(path.join(ROOT, 'data', 'benchmark', 'images-results.json'), JSON.stringify(report, null, 1));
 console.log(JSON.stringify(report, null, 1));
+if (DUMP) fs.writeFileSync(path.join(ROOT, 'data', 'benchmark', 'images-dump.json'), JSON.stringify(dump));

@@ -183,7 +183,8 @@ function blotFindings(gray, box) {
     }
     const P = new Float32Array(len);
     for (let i = 0; i < len; i++) { let s = 0, n = 0; for (let k = -2; k <= 2; k++) if (prof[i + k] !== undefined) { s += prof[i + k]; n++; } P[i] = s / n; }
-    const thr = Math.max(10, range * 0.06);
+    // BioFors CSTD: horizontal steps of clean blots stayed at or below 11 grey levels, joined blots were mostly 12+
+    const thr = Math.max(vertical ? 10 : 12, range * 0.06);
     let best = null;
     for (let x = 12; x < len - 12; x++) {
       const left = median(Array.from(P.subarray(x - 10, x - 2))), right = median(Array.from(P.subarray(x + 3, x + 11)));

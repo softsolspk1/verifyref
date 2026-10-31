@@ -282,7 +282,7 @@ const PMC_BANDS = [
   { id: 'pharmacy', query: PMC_QUERY, offsetKey: 'imgref_pmc_offset' },
   { id: 'biomedical', query: PMC_BIOMED_QUERY, offsetKey: 'imgref_pmc_offset_biomed' },
   // one band per PJPS subject area (src/subjects.js), so the figures a manuscript is compared with cover its field
-  ...require('./subjects').SUBJECTS.map(x => ({ id: x.id, query: require('./subjects').pmcQuery(x), offsetKey: `imgref_pmc_offset_${x.id}` }))
+  ...require('./subjects').SUBJECTS.map(x => ({ id: x.id, query: require('./subjects').pmcImageQuery(x), offsetKey: `imgref_pmc_offset_${x.id}` }))
 ];
 const eutils = (tool, params) => {
   const key = require('./config').NCBI_API_KEY;
@@ -504,23 +504,86 @@ async function indexUpload(files, meta = {}) {
 
 // ------------------------------------------------------------------ matching
 
-let index = null;   // { version, n, ids: Int32Array, h: Uint32Array(n*12), loadedAt }
+let index = null;   // { version, n, ids: Int32Array, h: Uint32Array(n*12), mih, loadedAt }
 let charts = null;  // { version, list: [{ id, series }] }
 
-async function loadIndex() {
-  const version = (await db.getMeta('imgref_version')) || '0';
-  if (index && index.version === version) return index;
-  const rows = await db.all("SELECT id, hashes FROM image_refs WHERE type IS DISTINCT FROM 'chart'");
+// --- index segments on Cloudflare R2
+// The fingerprints (6 x 64 bits) and chart data of indexed panels are moved from the database into segment files on R2
+// (exportIndex); the database keeps the row a match displays (paper, figure label, thumbnail). A segment is
+//   "PJIX" | format 1 | count  (3 x uint32, little-endian) | ids (count x int32) | hashes (count x 12 x uint32)
+// with the chart data in a second, gzipped JSON file [[id, series], ...]. Panels not yet exported are read from the
+// database, so a search always covers every indexed panel. Without R2 (desktop) nothing is exported.
+const zlib = require('zlib');
+const SEG_MAGIC = 0x58494a50;   // "PJIX"
+const segCache = new Map();     // segment id -> { ids, h }  (segments never change once written)
+const segChartCache = new Map(); // segment id -> [{ id, series }]
+
+function packSegment(ids, h, n) {
+  const buf = Buffer.alloc(12 + n * 4 + n * 48);
+  buf.writeUInt32LE(SEG_MAGIC, 0); buf.writeUInt32LE(1, 4); buf.writeUInt32LE(n, 8);
+  for (let i = 0; i < n; i++) buf.writeInt32LE(ids[i], 12 + i * 4);
+  const o = 12 + n * 4;
+  for (let i = 0; i < n * 12; i++) buf.writeUInt32LE(h[i], o + i * 4);
+  return buf;
+}
+
+function unpackSegment(buf) {
+  if (buf.length < 12 || buf.readUInt32LE(0) !== SEG_MAGIC || buf.readUInt32LE(4) !== 1) throw new Error('not an image index segment');
+  const n = buf.readUInt32LE(8);
+  if (buf.length !== 12 + n * 52) throw new Error('image index segment is truncated');
+  const ids = new Int32Array(n), h = new Uint32Array(n * 12), o = 12 + n * 4;
+  for (let i = 0; i < n; i++) ids[i] = buf.readInt32LE(12 + i * 4);
+  for (let i = 0; i < n * 12; i++) h[i] = buf.readUInt32LE(o + i * 4);
+  return { ids, h };
+}
+
+async function readSegment(seg) {
+  if (!segCache.has(seg.id)) segCache.set(seg.id, unpackSegment(await R2.getObject(seg.key)));
+  return segCache.get(seg.id);
+}
+
+async function readSegmentCharts(seg) {
+  if (!seg.charts_key) return [];
+  if (!segChartCache.has(seg.id)) segChartCache.set(seg.id, JSON.parse(zlib.gunzipSync(await R2.getObject(seg.charts_key)).toString('utf8')).map(([id, series]) => ({ id, series })));
+  return segChartCache.get(seg.id);
+}
+
+/** Panel rows -> { ids, h, n } of the panels whose fingerprints are searched (chart panels are matched by their data) */
+function hashRows(rows) {
   const ids = new Int32Array(rows.length), h = new Uint32Array(rows.length * 12);
   let n = 0;
   for (const r of rows) {
-    const hs = String(r.hashes).split(',');
+    if (r.type === 'chart') continue;
+    const hs = String(r.hashes || '').split(',');
     if (hs.length !== 6 || !hs.every(isHex)) continue;
     ids[n] = r.id;
     hs.forEach((x, j) => { h[n * 12 + j * 2] = hi(x); h[n * 12 + j * 2 + 1] = lo(x); });
     n++;
   }
-  index = { version, n, ids, h, loadedAt: Date.now() };
+  return { ids, h, n };
+}
+
+async function loadIndex() {
+  const version = (await db.getMeta('imgref_version')) || '0';
+  if (index && index.version === version) return index;
+  // panels still in the database first, then the segments: a panel exported in between is in both and counted once
+  const recent = hashRows(await db.all("SELECT id, type, hashes FROM image_refs WHERE hashes IS NOT NULL AND type IS DISTINCT FROM 'chart' ORDER BY id"));
+  const segs = R2.enabled() ? await db.all('SELECT * FROM image_index_segments ORDER BY min_id') : [];
+  const parts = await Promise.all(segs.map(readSegment));
+  for (const k of segCache.keys()) if (!segs.some(s => s.id === k)) segCache.delete(k);   // merged away
+  const dup = recent.n ? new Set(recent.ids.subarray(0, recent.n)) : null;
+  const total = parts.reduce((a, p) => a + p.ids.length, 0) + recent.n;
+  const ids = new Int32Array(total), h = new Uint32Array(total * 12);
+  let n = 0;
+  for (const p of parts) {
+    if (!dup) { ids.set(p.ids, n); h.set(p.h, n * 12); n += p.ids.length; continue; }
+    for (let i = 0; i < p.ids.length; i++) {
+      if (dup.has(p.ids[i])) continue;
+      ids[n] = p.ids[i]; h.set(p.h.subarray(i * 12, i * 12 + 12), n * 12); n++;
+    }
+  }
+  ids.set(recent.ids.subarray(0, recent.n), n); h.set(recent.h.subarray(0, recent.n * 12), n * 12); n += recent.n;
+  index = { version, n, ids, h, mih: mihIndex(n, h), segments: segs.length, loadedAt: Date.now() };
   charts = null;
   return index;
 }
@@ -529,22 +592,149 @@ async function loadCharts() {
   const idx = await loadIndex();
   if (charts && charts.version === idx.version) return charts;
   const rows = await db.all('SELECT id, series FROM image_refs WHERE series IS NOT NULL');
-  charts = { version: idx.version, list: rows.map(r => ({ id: r.id, series: cleanSeries(r.series) })) };
+  const segs = R2.enabled() ? await db.all('SELECT * FROM image_index_segments WHERE charts_key IS NOT NULL ORDER BY min_id') : [];
+  const seen = new Set(rows.map(r => r.id));
+  const fromSegs = (await Promise.all(segs.map(readSegmentCharts))).flat().filter(c => !seen.has(c.id));
+  charts = { version: idx.version, list: [...fromSegs.map(c => ({ id: c.id, series: cleanSeries(c.series) })), ...rows.map(r => ({ id: r.id, series: cleanSeries(r.series) }))] };
   return charts;
+}
+
+/**
+ * Move the fingerprints and chart data of panels still held in the database into new segments on R2 (oldest first,
+ * up to `batch` panels per segment), then clear them from the rows. minPanels: leave fewer waiting panels where they are
+ * (the daily run on Vercel waits for a few thousand, so it does not write a small segment every day).
+ */
+async function exportIndex({ batch = 100000, minPanels = 1, log = () => {} } = {}) {
+  if (!R2.enabled()) return { skipped: 'Cloudflare R2 is not configured' };
+  const out = { segments: 0, panels: 0, charts: 0 };
+  for (;;) {
+    const rows = await db.all('SELECT id, type, hashes, series FROM image_refs WHERE hashes IS NOT NULL ORDER BY id LIMIT $1', [batch]);
+    if (!rows.length || rows.length < minPanels) break;
+    const { ids, h, n } = hashRows(rows);
+    const chartList = rows.filter(r => r.series).map(r => [r.id, r.series]);
+    const tag = `${rows[0].id}-${rows[rows.length - 1].id}-${crypto.randomBytes(3).toString('hex')}`;
+    const key = `imgindex/seg-${tag}.bin`, chartsKey = chartList.length ? `imgindex/seg-${tag}-charts.json.gz` : null;
+    await R2.putObject(key, packSegment(ids, h, n));
+    if (chartsKey) await R2.putObject(chartsKey, zlib.gzipSync(JSON.stringify(chartList)), 'application/gzip');
+    // read back before clearing the rows: the database copy is only dropped once R2 holds an identical one
+    const check = unpackSegment(await R2.getObject(key));
+    if (check.ids.length !== n || (n && (check.ids[n - 1] !== ids[n - 1] || check.h[n * 12 - 1] !== h[n * 12 - 1]))) throw new Error(`image index segment ${key} did not read back correctly`);
+    await db.transaction(async client => {
+      await client.query('INSERT INTO image_index_segments(key, charts_key, min_id, max_id, panels, charts) VALUES($1, $2, $3, $4, $5, $6)', [key, chartsKey, rows[0].id, rows[rows.length - 1].id, n, chartList.length]);
+      await client.query('UPDATE image_refs SET hashes = NULL, series = NULL WHERE id = ANY($1::int[])', [rows.map(r => r.id)]);
+    });
+    out.segments++; out.panels += n; out.charts += chartList.length;
+    log(`image index: segment ${key} (${n} panels, ${chartList.length} charts) on R2`);
+    if (rows.length < batch) break;
+  }
+  if (out.segments) { await bumpVersion(); Object.assign(out, await compactIndex({ log })); }
+  return out;
+}
+
+/**
+ * Keep the number of segments small: when there are more than maxSegments, the smallest are merged into one of at most
+ * mergeLimit panels. Panels of papers removed or re-indexed since are left out of the merged segment.
+ */
+async function compactIndex({ maxSegments = 40, mergeLimit = 300000, log = () => {} } = {}) {
+  if (!R2.enabled()) return { merged: 0 };
+  const segs = await db.all('SELECT * FROM image_index_segments ORDER BY panels, id');
+  if (segs.length <= maxSegments) return { merged: 0 };
+  const pick = [];
+  let size = 0;
+  for (const s of segs) { if (pick.length >= 2 && size + s.panels > mergeLimit) break; pick.push(s); size += s.panels; }
+  if (pick.length < 2) return { merged: 0 };
+  const parts = await Promise.all(pick.map(readSegment));
+  const chartParts = (await Promise.all(pick.map(readSegmentCharts))).flat();
+  const minId = Math.min(...pick.map(s => s.min_id)), maxId = Math.max(...pick.map(s => s.max_id));
+  const alive = new Set((await db.all('SELECT id FROM image_refs WHERE id BETWEEN $1 AND $2', [minId, maxId])).map(r => r.id));
+  const ids = new Int32Array(size), h = new Uint32Array(size * 12);
+  let n = 0;
+  for (const p of parts) for (let i = 0; i < p.ids.length; i++) {
+    if (!alive.has(p.ids[i])) continue;
+    ids[n] = p.ids[i]; h.set(p.h.subarray(i * 12, i * 12 + 12), n * 12); n++;
+  }
+  const chartList = chartParts.filter(c => alive.has(c.id)).map(c => [c.id, c.series]);
+  const tag = `${minId}-${maxId}-${crypto.randomBytes(3).toString('hex')}`;
+  const key = `imgindex/seg-${tag}.bin`, chartsKey = chartList.length ? `imgindex/seg-${tag}-charts.json.gz` : null;
+  await R2.putObject(key, packSegment(ids, h, n));
+  if (chartsKey) await R2.putObject(chartsKey, zlib.gzipSync(JSON.stringify(chartList)), 'application/gzip');
+  if (unpackSegment(await R2.getObject(key)).ids.length !== n) throw new Error(`merged image index segment ${key} did not read back correctly`);
+  await db.transaction(async client => {
+    await client.query('INSERT INTO image_index_segments(key, charts_key, min_id, max_id, panels, charts) VALUES($1, $2, $3, $4, $5, $6)', [key, chartsKey, minId, maxId, n, chartList.length]);
+    await client.query('DELETE FROM image_index_segments WHERE id = ANY($1::int[])', [pick.map(s => s.id)]);
+  });
+  await bumpVersion();
+  for (const s of pick) { await R2.deleteObject(s.key); if (s.charts_key) await R2.deleteObject(s.charts_key); }
+  log(`image index: ${pick.length} segments merged into ${key} (${n} panels)`);
+  return { merged: pick.length };
+}
+
+// --- multi-index hashing: exact search that does not slow down as the databases grow
+// Each 64-bit hash is cut into four 16-bit chunks. Two hashes at most 7 bits apart differ in at most 1 bit in at least
+// one chunk (pigeonhole), so looking up every chunk value within 1 bit (17 values per chunk) finds every reference
+// panel the full comparison would accept (WHOLE = 6, WINDOW = 5): the candidates below are then compared exactly as before.
+
+const chunk = (h, l, c) => (c === 0 ? h >>> 16 : c === 1 ? h & 0xffff : c === 2 ? l >>> 16 : l & 0xffff);
+
+/** CSR table per chunk position over `count` hashes read by at(i) -> [hi, lo] */
+function chunkTable(count, at) {
+  const tables = [];
+  for (let c = 0; c < 4; c++) {
+    const offsets = new Uint32Array(65537);
+    for (let i = 0; i < count; i++) { const [h, l] = at(i); offsets[chunk(h, l, c) + 1]++; }
+    for (let v = 0; v < 65536; v++) offsets[v + 1] += offsets[v];
+    const fill = offsets.slice(0, 65536), entries = new Int32Array(count);
+    for (let i = 0; i < count; i++) { const [h, l] = at(i); entries[fill[chunk(h, l, c)]++] = i; }
+    tables.push({ offsets, entries });
+  }
+  return tables;
+}
+
+/** whole: the whole-panel hash of every reference panel; windows: its five crop-window hashes (entry = panel * 5 + window) */
+function mihIndex(n, h) {
+  return {
+    whole: chunkTable(n, i => [h[i * 12], h[i * 12 + 1]]),
+    windows: chunkTable(n * 5, e => { const o = Math.floor(e / 5) * 12 + (e % 5 + 1) * 2; return [h[o], h[o + 1]]; })
+  };
+}
+
+function lookup(tables, qh, ql, add) {
+  for (let c = 0; c < 4; c++) {
+    const v = chunk(qh, ql, c), { offsets, entries } = tables[c];
+    for (let b = -1; b < 16; b++) {
+      const key = b < 0 ? v : v ^ (1 << b);
+      for (let i = offsets[key], end = offsets[key + 1]; i < end; i++) add(entries[i]);
+    }
+  }
+}
+
+/** Reference panel positions (ascending, as in a full scan) that may match a manuscript panel: Q = 8 orientations, W = 5 windows */
+function mihCandidates(mih, Q, W) {
+  const set = new Set();
+  for (let k = 0; k < 8; k++) {
+    lookup(mih.whole, Q[k * 2], Q[k * 2 + 1], i => set.add(i));                        // whole panel
+    lookup(mih.windows, Q[k * 2], Q[k * 2 + 1], e => set.add(Math.floor(e / 5)));     // a crop of the published panel
+  }
+  if (W) for (let j = 0; j < 5; j++) lookup(mih.whole, W[j * 2], W[j * 2 + 1], i => set.add(i)); // the published panel is a crop
+  return Int32Array.from(set).sort();
 }
 
 /**
  * Candidate matches for the manuscript panels: [{ panel, ref, how: whole|crop|contains, k (orientation 0-7), window, distance }].
  * panels: [{ id, hashes: [8 hex], windows: [5 hex] }]
  */
-function candidates(idx, panels, limitPerPanel = 8) {
+function candidates(idx, panels, limitPerPanel = 8, { scan = false } = {}) {
   const out = [];
   for (const p of panels) {
     if (!Array.isArray(p.hashes) || p.hashes.length !== 8 || !p.hashes.every(isHex)) continue;
     const Q = p.hashes.flatMap(x => [hi(x), lo(x)]);
     const W = (Array.isArray(p.windows) && p.windows.length === 5 && p.windows.every(isHex)) ? p.windows.flatMap(x => [hi(x), lo(x)]) : null;
     const found = [];
-    for (let r = 0; r < idx.n; r++) {
+    // only the reference panels the chunk index can match (the same result as comparing with every panel: see mihIndex)
+    const positions = scan || !idx.mih ? null : mihCandidates(idx.mih, Q, W);
+    const total = positions ? positions.length : idx.n;
+    for (let i = 0; i < total; i++) {
+      const r = positions ? positions[i] : i;
       const o = r * 12;
       let best = null;
       // whole panel, any orientation
@@ -813,8 +1003,10 @@ async function growImageDatabases({ budgetMs = 240000 } = {}) {
   out.retracted = await indexRetracted({ limit: 60, budgetMs: left(budgetMs * 0.4) }).catch(e => ({ error: e.message }));
   out.publisher = await indexPublisherOa({ limit: 50, budgetMs: left(budgetMs * 0.3) }).catch(e => ({ error: e.message }));
   out.pmc = await indexPmc({ limit: 40, budgetMs: left(budgetMs) }).catch(e => ({ error: e.message }));
+  // fingerprints move to R2 once a few thousand panels are waiting (a small daily segment would only add files)
+  out.exported = await exportIndex({ minPanels: 5000, batch: 50000 }).catch(e => ({ error: e.message }));
   const brief = o => (o && !o.error ? { papers: o.papers, panels: o.panels, errors: (o.errors || []).length } : o);
-  return { retracted: brief(out.retracted), publisher: brief(out.publisher), pmc: brief(out.pmc), seconds: Math.round((Date.now() - started) / 1000) };
+  return { retracted: brief(out.retracted), publisher: brief(out.publisher), pmc: brief(out.pmc), exported: out.exported, seconds: Math.round((Date.now() - started) / 1000) };
 }
 
 const panelsOf = docId => db.all('SELECT id, figure, panel, type, w, h, (thumb_key IS NOT NULL) AS has_thumb FROM image_refs WHERE doc_id = $1 ORDER BY id', [docId]);
@@ -822,5 +1014,5 @@ const thumbKey = async id => (await db.one('SELECT thumb_key FROM image_refs WHE
 
 module.exports = {
   SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, latestPjpsId, indexRetracted, indexPmc, indexPublisherOa, growImageDatabases, indexUpload,
-  matchManuscript, candidates, loadIndex, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
+  matchManuscript, candidates, loadIndex, loadCharts, exportIndex, compactIndex, packSegment, unpackSegment, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
 };

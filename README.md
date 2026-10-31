@@ -49,6 +49,10 @@ With the `R2_*` variables set, the web platform keeps its working data on R2:
 | Saved reports | full result of every saved check (`reports/<id>.json.gz`, `src/reportStore.js`) | a small stub (kind, meta, summary, risk level, R2 key, reference DOIs for the retraction monitor) |
 | Text repository | full texts of submissions and source papers (`corpus/…`) | catalogue and fingerprint index |
 | Datasets | the last good source download (`datasets/raw/…`) and a snapshot of every finished lookup table (`datasets/tables/<table>.ndjson.gz`) | the indexed lookup tables, filled from R2 |
+| Module 5 image index | fingerprints and chart data of every indexed panel in segment files (`imgindex/seg-….bin`, `…-charts.json.gz`), written after every indexing run; more than 40 segments are merged | one small row per panel (paper, figure label, thumbnail key) and the list of segments (`image_index_segments`) |
+| Cached web responses | responses of 2 KB or more, gzipped (`cache/…json.gz`), removed with their row when they expire | the cache row with a pointer; small responses stay in the row |
+
+Existing data is moved with `npm run storage:to-r2` (`-- --dry-run` first; `-- --vacuum` reclaims the space afterwards). Matching against the image index uses multi-index hashing: the same matches as comparing with every panel, but the search time hardly grows with the database.
 
 A new database or server is filled from R2 without contacting any source website: `npm run datasets:rebuild`; the daily refresh also restores a table that was never loaded from its snapshot, and saves a new snapshot after every dataset it reloads (`npm run datasets:snapshot` saves all tables once). Reports saved before this change are moved with `npm run reports:to-r2` (`-- --dry-run` to see what would move). The desktop has no R2: it keeps everything in its local database and reaches the platform's R2 data through the device API.
 

@@ -5,6 +5,8 @@
 //   --source retracted [--limit 500] [--force]
 //        open-access papers retracted / corrected for image problems (needs data/public-images/retracted_image_cases.json)
 //   --source pmc [--limit 500] [--band pharmacy|biomedical|<subject id from src/subjects.js>] [--restart]
+//   --source pmc --subjects [--per-subject 2500] [--limit 200]
+//        all 19 PJPS subject areas together (image-method papers: blots, histology, microscopy ...), newest first
 //        open-access PubMed Central papers in pharmacy / pharmacology / medicinal plants, and biomedical papers with
 //        blots / histology / microscopy (the bands - pharmacy, biomedical and the 19 PJPS subject areas - take turns; continues where it stopped)
 //   --source publisher [--limit 500] [--restart] [--publisher "Dove Medical Press" (repeatable; default: all)]
@@ -14,6 +16,8 @@
 //   --file <path> [--file <path>] --title "..." [--doi ...] [--note ...]
 //        reference figures from local PDF / Word / PNG / JPEG files
 //   --status   what the databases hold
+//   --export   move fingerprints and chart data still in the database into the index segments on R2 (also done
+//              automatically after every indexing run)
 // Already indexed papers are skipped, so an interrupted run can simply be started again.
 const fs = require('fs');
 const path = require('path');
@@ -30,6 +34,7 @@ const log = (step) => { if (Date.now() - last > 1000) { last = Date.now(); conso
 (async () => {
   let out;
   if (argv.includes('--status')) out = await REFS.status();
+  else if (argv.includes('--export')) out = await REFS.exportIndex({ log: console.log });
   else if (all('file').length) {
     const files = all('file').map(f => ({ name: path.basename(f), buffer: fs.readFileSync(f) }));
     out = await REFS.indexUpload(files, { title: opt('title'), doi: opt('doi'), journal: opt('journal'), year: opt('year'), note: opt('note'), url: opt('url') });
@@ -40,14 +45,37 @@ const log = (step) => { if (Date.now() - last > 1000) { last = Date.now(); conso
   } else if (['rsiid', 'biofors', 'binder'].includes(opt('source'))) {
     const fn = { rsiid: REFS.indexRsiid, biofors: REFS.indexBiofors, binder: REFS.indexBinder }[opt('source')];
     out = await fn({ limit: int('limit', Infinity), force: argv.includes('--force') }, log);
+  } else if (opt('source') === 'pmc' && argv.includes('--subjects')) {
+    // every PJPS subject area up to --per-subject papers (newest first), in rounds of --limit per subject, so all of
+    // them grow together; a subject with fewer papers is done when its search is exhausted
+    const per = int('per-subject', 2500), step = int('limit', 200);
+    const subjects = require('../src/subjects').SUBJECTS;
+    const reached = new Set();
+    out = {};
+    while (reached.size < subjects.length) {
+      for (const sj of subjects.filter(x => !reached.has(x.id))) {
+        const before = parseInt((await db.getMeta(`imgref_pmc_offset_${sj.id}`)) || '0', 10);
+        if (before >= per) { reached.add(sj.id); continue; }
+        const r = await REFS.indexPmc({ limit: Math.min(step, per - before), band: sj.id, concurrency: int('concurrency', 3) }, log).catch(e => ({ error: e.message }));
+        const after = parseInt((await db.getMeta(`imgref_pmc_offset_${sj.id}`)) || '0', 10);
+        const o = out[sj.name] || (out[sj.name] = { papers: 0, panels: 0, available: null, position: 0 });
+        o.papers += r.papers || 0; o.panels += r.panels || 0; o.available = r.total ?? o.available; o.position = after;
+        console.log(`${sj.name}: +${r.papers || 0} papers, +${r.panels || 0} panels (position ${after}${r.total ? ` of ${r.total}` : ''})${r.error ? ` - ${r.error}` : ''}`);
+        if (after <= before || (r.total != null && after >= r.total)) reached.add(sj.id);
+      }
+      // after every round, so the database never holds more than one round of fingerprints
+      await REFS.exportIndex({ log: console.log }).catch(e => console.log(`export to R2 failed (retried after the next round): ${e.message}`));
+    }
   } else if (opt('source') === 'pmc') {
     out = await REFS.indexPmc({ limit: int('limit', 500), band: opt('band'), concurrency: int('concurrency', 3), restart: argv.includes('--restart') }, log);
   } else if (opt('source') === 'publisher') {
     out = await REFS.indexPublisherOa({ limit: int('limit', 500), concurrency: int('concurrency', 3), restart: argv.includes('--restart'), ...(all('publisher').length ? { publishers: all('publisher') } : {}) }, log);
   } else {
-    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 17).join('\n').replace(/^\/\/ ?/gm, ''));
+    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 21).join('\n').replace(/^\/\/ ?/gm, ''));
     return db.close();
   }
+  // the new fingerprints go to the index segments on R2 (nothing to do without R2 or after --status)
+  if (!argv.includes('--status') && !argv.includes('--export')) out = { ...out, exported: await REFS.exportIndex({ log: console.log }).catch(e => ({ error: e.message })) };
   console.log(JSON.stringify(out, null, 2));
   await db.close();
 })().catch(async e => { console.error(e); await db.close().catch(() => {}); process.exit(1); });

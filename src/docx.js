@@ -345,6 +345,14 @@ function imagesBlocks(r, { section = null } = {}) {
       ['Commercial databases of all published figures (ImageTwin, Proofig)', r.vendor?.connected ? 'searched by the vendor' : 'not searched (figures do not leave the PJPS system)']
     ] } }
   ];
+  // what the figures were compared with: every reference database with its size when the analysis ran
+  const searchedDbs = Object.values(r.referencesSearched?.bySource || {}).filter(x => x.papers || x.panels);
+  if (searchedDbs.length) {
+    blocks.push(h('Databases searched'), { table: { headers: ['Database', 'Papers', 'Panels', 'Last updated'], rows: [
+      ...searchedDbs.map(x => [x.name, Number(x.papers).toLocaleString('en'), Number(x.panels).toLocaleString('en'), x.updated ? new Date(x.updated).toISOString().slice(0, 10) : '—']),
+      ['Earlier PJPS manuscripts screened in this system', '—', '—', '—']
+    ] } }, { p: `Matches are reported only against these ${(r.referencesSearched.refs || 0).toLocaleString('en')} reference panels and earlier PJPS manuscripts. A figure re-used from a paper outside them (for example a paywalled article) cannot be detected here.`, italics: true });
+  }
   if (r.guidance?.available) blocks.push({ p: `Suggested handling — ${r.guidance.decision.action}. ${r.guidance.decision.desk}`, bold: true });
   if (r.disclaimer) blocks.push({ p: r.disclaimer, italics: true });
 

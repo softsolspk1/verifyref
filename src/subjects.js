@@ -30,9 +30,16 @@ const SUBJECTS = [
 // PubMed Central: title/abstract terms of the subject, open-access subset (figures can be downloaded)
 // (each term in brackets: "AUC AND Cmax" inside the OR list would otherwise narrow the whole query)
 const pmcQuery = s => `(${s.terms.map(t => `(${t.split(' AND ').map(w => `${w}[tiab]`).join(' AND ')})`).join(' OR ')}) AND open access[filter]`;
+// Methods whose figures are photographs of the experiment, where duplication and manipulation are found and can be
+// detected (blots, gels, histology, microscopy, flow cytometry, assay wells); charts and chemical structures are not
+const IMAGE_METHODS = ['"western blot*"', 'immunohistochem*', 'histopatholog*', 'histolog*', 'immunofluorescen*', '"flow cytometr*"', 'micrograph*',
+  '"electron microscop*"', 'confocal', '"gel electrophoresis"', '"wound healing"', 'transwell', '"colony formation"', '"H&E"'];
+/** Module 5: open-access papers of the subject that use image-based methods */
+const pmcImageQuery = s => `(${pmcQuery(s).replace(/ AND open access\[filter\]$/, '')} AND (${IMAGE_METHODS.map(t => `${t}[tiab]`).join(' OR ')})) AND open access[filter]`;
+
 // Europe PMC: open-access research articles with full text
 const epmcQuery = s => `(${s.terms.map(t => `(TITLE_ABS:${t.includes(' AND ') ? `(${t})` : t})`).join(' OR ')}) AND OPEN_ACCESS:y AND HAS_FT:y AND PUB_TYPE:"research-article"`;
 /** The PJPS subjects a Retraction Watch "Subject" field falls under ("(BLS) Biology - Molecular;(HSC) Medicine - Oncology;") */
 const rwSubjects = subjectField => SUBJECTS.filter(s => s.rw.test(String(subjectField || '')));
 
-module.exports = { SUBJECTS, pmcQuery, epmcQuery, rwSubjects };
+module.exports = { SUBJECTS, pmcQuery, pmcImageQuery, epmcQuery, rwSubjects, IMAGE_METHODS };

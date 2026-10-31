@@ -97,6 +97,8 @@ if (cfg.DESKTOP) {
     const secret = process.env.CRON_SECRET;
     if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ success: false, message: 'Unauthorized.' });
     await purgeJobs();
+    // expired cache rows and their R2 objects
+    await require('./src/http').purgeCache().catch(e => console.warn(`cache purge: ${e.message}`));
     // time-boxed: the stalest datasets first, the rest on the following days (all of them at once exceeded the function time limit)
     const datasets = await D.ensureDatasets({ budgetMs: 60000 });
     const alerts = await require('./src/alerts').runAlerts();

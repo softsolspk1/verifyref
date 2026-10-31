@@ -479,6 +479,22 @@ CREATE TABLE IF NOT EXISTS image_refs (
   w INTEGER, h INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_image_refs_doc ON image_refs(doc_id);
+-- With Cloudflare R2 the fingerprints and chart data of indexed panels are moved into index segments on R2
+-- (src/imageRefs.js exportIndex); the row keeps what a match shows. hashes IS NULL = exported.
+ALTER TABLE image_refs ALTER COLUMN hashes DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_image_refs_unexported ON image_refs(id) WHERE hashes IS NOT NULL;
+
+-- Image index segments on R2: panel ids min_id..max_id with their fingerprints (key) and chart data (charts_key)
+CREATE TABLE IF NOT EXISTS image_index_segments (
+  id SERIAL PRIMARY KEY,
+  key TEXT NOT NULL,
+  charts_key TEXT,
+  min_id INTEGER NOT NULL,
+  max_id INTEGER NOT NULL,
+  panels INTEGER NOT NULL,
+  charts INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- Every dataset file kept on Cloudflare R2 (data folder mirror, raw snapshots of downloaded datasets, uploaded lists)
 CREATE TABLE IF NOT EXISTS dataset_files (

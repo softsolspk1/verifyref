@@ -105,22 +105,45 @@ function memSet(key, value, expires) {
   if (mem.size > MEM_MAX) mem.delete(mem.keys().next().value);
 }
 
+// With Cloudflare R2 a response of CACHE_R2_MIN bytes or more is kept on R2 (gzipped) and the row holds only
+// { "__r2": "<object key>" }; smaller ones stay in the row, where they are read fastest. Without R2 (desktop) every
+// response stays in the row.
+const zlib = require('zlib');
+const CACHE_R2_MIN = 2048;
+const r2 = () => require('./uploads');
+const cacheObjectKey = key => { const h = require('crypto').createHash('sha256').update(key).digest('hex'); return `cache/${h.slice(0, 2)}/${h}.json.gz`; };
+
 async function cacheGet(key) {
   const m = memGet(key);
   if (m) return m;
   try {
     const row = await db.one('SELECT value, expires_at FROM cache WHERE key = $1', [key]);
     if (row && Number(row.expires_at) > Date.now()) {
-      memSet(key, row.value, Number(row.expires_at));
-      return row.value;
+      const value = row.value?.__r2 ? JSON.parse(zlib.gunzipSync(await r2().getObject(row.value.__r2)).toString('utf8')) : row.value;
+      memSet(key, value, Number(row.expires_at));
+      return value;
     }
-  } catch (e) { /* cache is best-effort */ }
+  } catch (e) { /* cache is best-effort: a missing R2 object is a cache miss */ }
   return null;
 }
 function cacheSet(key, value, expires) {
   memSet(key, value, expires);
-  db.query('INSERT INTO cache(key, value, expires_at) VALUES($1, $2, $3) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at',
-    [key, JSON.stringify(value), expires]).catch(() => {});
+  const json = JSON.stringify(value);
+  const save = v => db.query('INSERT INTO cache(key, value, expires_at) VALUES($1, $2, $3) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at', [key, v, expires]);
+  if (json.length >= CACHE_R2_MIN && r2().enabled()) {
+    const objectKey = cacheObjectKey(key);
+    r2().putObject(objectKey, zlib.gzipSync(json), 'application/gzip').then(() => save(JSON.stringify({ __r2: objectKey }))).catch(() => save(json).catch(() => {}));
+  } else save(json).catch(() => {});
+}
+
+/** Expired rows go, with their R2 objects */
+async function purgeCache() {
+  const now = Date.now();
+  if (r2().enabled()) {
+    const gone = await db.all("SELECT value->>'__r2' AS k FROM cache WHERE expires_at < $1 AND value ? '__r2' LIMIT 5000", [now]);
+    for (const g of gone) await r2().deleteObject(g.k);
+  }
+  await db.query('DELETE FROM cache WHERE expires_at < $1', [now]);
 }
 
 /**
@@ -242,8 +265,6 @@ async function getBuffer(url, options = {}) {
 }
 
 // Purge expired cache rows occasionally
-setInterval(() => {
-  db.query('DELETE FROM cache WHERE expires_at < $1', [Date.now()]).catch(() => {});
-}, 6 * 3600 * 1000).unref();
+setInterval(() => { purgeCache().catch(() => {}); }, 6 * 3600 * 1000).unref();
 
-module.exports = { request, getJson, getText, getBuffer, USER_AGENT, sleep, isOnline, onConnectivity, probe };
+module.exports = { request, getJson, getText, getBuffer, USER_AGENT, sleep, isOnline, onConnectivity, probe, cacheGet, cacheSet, purgeCache, cacheObjectKey, CACHE_R2_MIN };

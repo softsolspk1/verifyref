@@ -1,0 +1,80 @@
+PJPS DATA INTEGRITY SYSTEM - DATABASE OPTIONS (MOVING FROM NEON)
+31 October 2026
+
+1. CAN WE MOVE OFF NEON?
+------------------------
+Yes. The web platform uses plain PostgreSQL through the standard "pg" driver. Nothing in
+the code is specific to Neon, so any PostgreSQL host works by changing DATABASE_URL.
+- The only extension used is pg_trgm, and it is optional (skipped where unavailable).
+- The desktop application keeps its own built-in database (PGlite) and is not affected.
+
+Moving to a database that is not PostgreSQL (MySQL, MongoDB, Cloudflare D1, Firebase)
+would mean rewriting much of the application's SQL. Not recommended.
+
+
+2. CURRENT SIZE (31 Oct 2026)
+-----------------------------
+Database: 1.1 GB. Largest tables:
+
+  Table                   Size     What it holds
+  ----------------------  -------  -------------------------------------------------
+  corpus_hashes           297 MB   similarity-report fingerprints (3.8 million rows)
+  journal_list_entries    269 MB   uploaded and downloaded journal lists
+  openalex_journals       130 MB   OpenAlex journal list
+  cache                   127 MB   cached web responses
+  image_refs              103 MB   Module 5 figure fingerprints (148,000 panels)
+  retractions              66 MB   Retraction Watch
+
+Module 5 indexing now running (retracted / paper-mill papers, then the 19 subject areas)
+will add about 600 MB to image_refs, taking the database to about 1.7 GB.
+
+
+3. HOSTS THAT WORK WITHOUT CODE CHANGES
+---------------------------------------
+  Option                          Suits us if                          Watch out for
+  ------------------------------  -----------------------------------  ---------------------------------
+  Supabase (managed PostgreSQL)   a drop-in replacement with a         use its pooler connection
+                                  built-in connection pooler, which    string, not the direct one
+                                  serverless Vercel needs
+  AWS RDS / Google Cloud SQL /    a large, steady database with        needs a connection pooler for
+  Azure                           predictable storage                  Vercel (e.g. RDS Proxy); more setup
+  Railway / Render /              something simple with a fixed        smaller plans limit connections
+  DigitalOcean managed PostgreSQL monthly price
+  Own server (PostgreSQL on a     the lowest cost for a large,         we handle backups, updates and
+  VPS, e.g. Hetzner, DigitalOcean) growing database                    security
+
+- Current prices were not compared; check them before deciding.
+- Whichever host is chosen, it must be in the same region as the Vercel functions,
+  otherwise every query gets slower.
+
+
+4. RECOMMENDATION: SHRINK THE DATABASE FIRST, THEN DECIDE
+---------------------------------------------------------
+Much of the size is in tables that do not need to live in the database:
+- Module 5 figure index (image_refs): it is read as one block anyway, so it can be kept
+  as one compressed file on Cloudflare R2, which we already use and which is cheap for
+  storage. Reports would also load the index faster.
+- cache: cached web responses can be trimmed.
+- corpus_hashes: the similarity fingerprints could also move to R2 in the same way.
+
+This would keep the database well under 1 GB even after all the Module 5 indexing.
+After that, staying on Neon may be cheaper than moving.
+
+
+5. IF WE MOVE: STEPS
+--------------------
+1. Create the new PostgreSQL database and put its connection string in .env and in the
+   Vercel environment variables (DATABASE_URL). Do not paste it in chat or e-mail.
+2. Pause the Module 5 indexing job.
+3. Copy the database with pg_dump / pg_restore and check row counts table by table.
+4. Switch DATABASE_URL on Vercel, redeploy, and run the test suite.
+5. Resume the indexing job.
+
+The site would be down for about an hour during the switch.
+
+
+6. DECISIONS NEEDED
+-------------------
+- Move the image index and caches to Cloudflare R2 first, or move to another host now?
+- Deploy the faster Module 5 image matching (built and tested, not yet pushed). The live
+  site uses the old full comparison until then, which gets slower as figures are added.

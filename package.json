@@ -24,7 +24,8 @@
     "corpus:load": "node scripts/corpus-load.js",
     "datasets:snapshot": "node scripts/datasets-r2.js snapshot",
     "datasets:rebuild": "node scripts/datasets-r2.js rebuild",
-    "reports:to-r2": "node scripts/reports-to-r2.js"
+    "reports:to-r2": "node scripts/reports-to-r2.js",
+    "storage:to-r2": "node scripts/storage-to-r2.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

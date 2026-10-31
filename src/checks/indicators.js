@@ -112,7 +112,7 @@ async function bibliographyIndicators(meta, results, journals) {
   if (pattern && pattern.summary.selfCitationRate >= 15) flags.push({ severity: pattern.summary.selfCitationRate >= 25 ? 'high' : 'medium', code: 'self-citation', message: `Self-citation ${pattern.summary.selfCitationRate}% (${self.length} of ${results.length} references)` });
   if (risky.length) flags.push({ severity: 'high', code: 'predatory', message: `${risky.reduce((a, r) => a + r.refs.length, 0)} reference(s) to predatory or hijacked journals` });
   const nDisc = discontinued.reduce((a, r) => a + r.refs.length, 0);
-  if (nDisc) flags.push({ severity: nDisc >= 3 ? 'medium' : 'low', code: 'scopus-discontinued', message: `${nDisc} reference(s) to journals discontinued by Scopus, published after the last content Scopus covers` });
+  if (nDisc) flags.push({ severity: 'low', code: 'scopus-discontinued', message: `${nDisc} reference(s) to journals discontinued by Scopus, published after the last content Scopus covers` });
   const nCj = citejacked.reduce((a, r) => a + r.refs.length, 0);
   if (nCj) flags.push({ severity: 'medium', code: 'citejacked', message: `${nCj} reference(s) to journals on the Problematic Paper Screener "citejacked" list (their hijacked versions are widely cited) — check each cited article is from the genuine journal` });
   if (clones.length) flags.push({ severity: 'low', code: 'hijacked-clone', message: `${clones.reduce((a, r) => a + r.refs.length, 0)} reference(s) to journals that have a known hijacked clone website — check that each cited article is from the genuine journal` });

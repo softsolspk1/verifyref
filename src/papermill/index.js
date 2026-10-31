@@ -453,8 +453,8 @@ async function detectPaperMill(input, update = () => {}) {
   const riskyRefs = risky.reduce((a, j) => a + j.refs.length, 0);
   if (riskyRefs) sig('references', 'predatory', `${riskyRefs} reference(s) to predatory or hijacked journals`, riskyRefs >= 3 ? 'medium' : 'low', riskyRefs >= 3 ? 3 : 1, risky.map(j => ({ text: `${j.name} (${j.kind}) — refs ${refList(j.refs)}` })));
   const droppedRefs = dropped.reduce((a, j) => a + j.refs.length, 0);
-  if (droppedRefs) sig('references', 'scopus-discontinued', `${droppedRefs} reference(s) to journals discontinued by Scopus, published after Scopus stopped covering them`, droppedRefs >= 3 ? 'medium' : 'low', droppedRefs >= 3 ? 2 : 1,
-    dropped.map(j => ({ text: `${j.name} — Scopus coverage ends ${j.year || '(year not given)'} — refs ${refList(j.refs)}` })), 'Scopus drops journals after re-evaluation for publication concerns; mill papers often cite and are placed in such journals. A few such references are common - many of them is the pattern.');
+  if (droppedRefs) sig('references', 'scopus-discontinued', `${droppedRefs} reference(s) to journals discontinued by Scopus, published after Scopus stopped covering them`, 'low', droppedRefs >= 3 ? 1 : 0,
+    dropped.map(j => ({ text: `${j.name} — Scopus coverage ends ${j.year || '(year not given)'} — refs ${refList(j.refs)}` })), 'Scopus drops journals after re-evaluation for publication concerns. On the benchmark (150 paper-mill retractions vs 126 ordinary papers) one or two such references were equally common in both groups, so they do not add to the risk score; three or more count a little.');
   // the screener's citejacked detector flags papers that cite these journals (the citations usually point to the hijacked version)
   const cjRefs = citejacked.reduce((a, j) => a + j.refs.length, 0);
   if (cjRefs) sig('references', 'citejacked', `${cjRefs} reference(s) to journals on the Problematic Paper Screener "citejacked" list`, cjRefs >= 2 ? 'medium' : 'low', cjRefs >= 2 ? 2 : 1,

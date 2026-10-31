@@ -52,3 +52,22 @@ from the cached JATS files) against Retraction Watch (`data/public-images/retrac
   journals, and the separation (about 2:1 at 0.6, none above 0.7) is too weak to show editors.
 - Same caveat as above: thresholds were chosen on these papers; with mill papers at about 2% of submissions, the low
   level of this signal is a pointer, not a finding.
+
+## Journal-list signals (2026-10-31)
+
+`node scripts/benchmark-papermill-refs.js --lists` on the same 150 paper-mill retractions and 126 ordinary papers, with the
+lists loaded on 2026-10-31 (Retraction Watch Hijacked Journal Checker, Problematic Paper Screener citejacked list, Elsevier's
+Scopus discontinued titles of September 2026, Beall's list):
+
+| Signal | Mill-retracted | Control |
+|---|---|---|
+| Cites a citejacked journal (Problematic Paper Screener) | 0/150 | 0/126 |
+| Cites a journal discontinued by Scopus, after coverage ended | 6/150 | 6/126 |
+| 3+ such references (Scopus discontinued) | 1/150 | 0/126 |
+| Cites a journal with a known hijacked clone (name match) | 4/150 | 10/126 |
+| Cites a journal on Beall's list | 15/150 | 8/126 |
+
+Consequences in Module 4: one or two Scopus-discontinued references carry no weight (shown for information), three or more
+weigh 1; a hijacked-clone match by journal name only carries no weight ("check that the article comes from the genuine
+journal") - only a reference link on a clone website counts as a hijacked-journal reference; citejacked references stay a
+signal (the screener's own detector) although none occurred in this sample.

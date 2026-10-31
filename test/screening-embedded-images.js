@@ -39,6 +39,16 @@ const { start } = require('../server');
 
   await api(`/api/checks/${screeningId}`, { method: 'DELETE' });
   assert.ok(!(await api(`/api/checks/${img.id}`)).success, 'deleted together with the screening');
+
+  // a browser tab still running the screening form from before an update (no imagesHandled) is asked to reload
+  const stale = await fetch(base + '/api/checks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie, 'Sec-Fetch-Site': 'same-origin' }, body: JSON.stringify({ kind: 'manuscript', text }) });
+  assert.strictEqual(stale.status, 409, 'out-of-date page refused');
+  assert.ok(/reload/i.test((await stale.json()).message), 'asked to reload');
+  // the current form always says why the figures were not analysed
+  const note = 'Not checked — the manuscript text was pasted, so there were no figures to analyse.';
+  const r2 = await job((await api('/api/checks', { method: 'POST', body: { kind: 'manuscript', text, meta: { title: 'Note test', authors: ['A Khan'] }, imagesHandled: true, imagesNote: note } })).jobId);
+  assert.strictEqual(r2.status, 'done', `screening: ${r2.error}`);
+  assert.strictEqual(r2.result.screening.lines.images, note, 'front page gives the reason');
   console.log('screening embedded images test passed');
   process.exit(0);
 })().catch(e => { console.error('FAILED:', e); process.exit(1); });

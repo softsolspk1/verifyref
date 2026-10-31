@@ -67,7 +67,7 @@ export function renderCheckForm(view, kind) {
         <div class="card-head"><h2>Paper mill &amp; image checks</h2><span class="muted">Editor only — never shown to authors</span></div>
         <div class="grid grid-2">
           <div class="field"><label for="m-rev">Suggested reviewers <span class="muted">(names and e-mails, optional)</span></label><textarea id="m-rev" rows="3"></textarea></div>
-          <div class="field">${hasModule('images') ? `<label class="row" style="gap:8px;margin-bottom:8px"><input type="checkbox" id="m-img-run" checked> <span><b>Analyse the figures (Module 5 Image Integrity)</b> as part of this report</span></label><div class="hint" style="margin-bottom:8px">Runs in your browser on the uploaded Word / PDF file: duplicated, re-used and altered figures, and matches with published PJPS papers, retracted papers and PubMed Central figures. The figures are not uploaded.</div>` : ''}<label for="m-img">Or attach an earlier Module 5 report <span class="muted">(optional)</span></label><select id="m-img"><option value="">— none —</option></select></div>
+          <div class="field">${hasModule('images') ? `<div class="hint" style="margin-bottom:8px"><b>Module 5 Image Integrity</b> always analyses the figures of the uploaded Word (.docx) / PDF file, in your browser: duplicated, re-used and altered figures, and matches with published PJPS papers, retracted papers and PubMed Central figures. The figures are not uploaded.</div>` : ''}<label for="m-img">Or attach an earlier Module 5 report instead <span class="muted">(optional)</span></label><select id="m-img"><option value="">— none —</option></select></div>
         </div>
       </div>` : ''}
 
@@ -186,7 +186,16 @@ export function renderCheckForm(view, kind) {
     $('#form-area', view).hidden = true;
     try {
       // Module 5 on the uploaded manuscript first (in this browser); its saved report is attached to the screening
-      if (m.screening && !body.imagesCheckId && doc.file && $('#m-img-run', view)?.checked) {
+      // every screening says what happened to the figures: analysed, an earlier report attached, or why not
+      if (m.screening) body.imagesHandled = true;
+      if (m.screening && !body.imagesCheckId && !hasModule('images')) body.imagesNote = 'Not checked — this account does not have Module 5 Image Integrity (ask the Super Admin to enable it).';
+      else if (m.screening && !body.imagesCheckId && !doc.file) {
+        const ext = (doc.filename.match(/\.\w+$/) || [''])[0].toLowerCase();
+        body.imagesNote = doc.filename && !text
+          ? `Not checked — figures can be analysed only from a Word .docx or PDF file, and ${doc.filename} is a ${ext || 'different'} file. Save it as .docx or PDF and run the screening again.`
+          : 'Not checked — the manuscript text was pasted, so there were no figures to analyse. Upload the Word .docx or PDF file to include Module 5.';
+      }
+      if (m.screening && !body.imagesCheckId && doc.file && hasModule('images')) {
         const prog = $('#progress', view);
         prog.innerHTML = '<div class="progress"><h3>Module 5: analysing the figures</h3><div class="progress-bar"><span style="width:2%"></span></div><div class="muted step">Reading the figures…</div></div>';
         const bar = $('.progress-bar span', prog), step = $('.step', prog);

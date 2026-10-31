@@ -78,6 +78,8 @@ router.post('/checks', user, wrap(async (req, res) => {
   const kind = CHECK_MODULE[b.kind] ? b.kind : 'manuscript';
   if (!permissionsOf(req.user).includes(CHECK_MODULE[kind])) return res.status(403).json({ success: false, message: 'Your account does not have access to this tool.' });
   if (!b.text && !b.referencesText && !(b.entries || []).length) return res.status(400).json({ success: false, message: 'Provide a manuscript or a reference list.' });
+  // a browser tab opened before an update still runs the old screening form, which can skip Module 5 without saying so
+  if (kind === 'manuscript' && req.get('sec-fetch-site') && !b.imagesHandled) return res.status(409).json({ success: false, message: 'This page is out of date — press Ctrl+F5 to reload it, then run the Full Screening again.' });
   const job = await createJob(req.user.id, 'check', { ...b, kind });
   res.json({ success: true, jobId: job.id, offline: cfg.DESKTOP && !isOnline() });
 }));

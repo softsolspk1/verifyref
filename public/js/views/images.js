@@ -11,6 +11,46 @@ const single = f => f.a.panel === f.b.panel;
 const TYPE = { blot: 'Blot / gel', fluorescence: 'Fluorescence', histology: 'Histology', chart: 'Chart / graph', grayscale: 'Grayscale', photo: 'Photo / microscopy' };
 const levelTone = l => ({ HIGH: 'bad', MEDIUM: 'warn', LOW: 'good', high: 'bad', medium: 'warn' }[l] || 'neutral');
 
+// the same wording as the Word / PDF report
+function transformText(t) {
+  if (!t) return '—';
+  const deg = ((Math.round((t.rotation || 0) * 180 / Math.PI) % 360) + 360) % 360;
+  const parts = [];
+  if (t.flip) parts.push('mirrored');
+  if (deg > 3 && deg < 357) parts.push(`rotated ${deg > 180 ? deg - 360 : deg}°`);
+  if (t.scale && Math.abs(t.scale - 1) > 0.08) parts.push(`resized ×${t.scale.toFixed(2)}`);
+  return parts.length ? parts.join(', ') : 'none (same orientation and size)';
+}
+function agreementText(f) {
+  const v = f.verification || {}, out = [];
+  if (v.picture !== undefined) out.push(`picture ${v.picture}`);
+  if (v.noise !== undefined) out.push(`noise pattern ${v.noise}`);
+  if (v.region !== undefined) out.push(`matched regions ${v.region}`);
+  if (!out.length && f.score !== undefined && f.score !== null) out.push(f.kind === 'partial' || (f.kind === 'clone' && f.score > 1) ? `${f.score} matching points / blocks` : `correlation ${f.score}`);
+  return out.join(', ') || '—';
+}
+// captions of the two sides of a finding: which is the original and which the copy
+function sides(f) {
+  if (f.kind === 'clone') return ['Original area', 'Cloned copy'];
+  if (f.kind === 'partial') return ['Region in ' + f.a.label, 'Same region in ' + f.b.label];
+  if (f.kind === 'duplicate' || f.kind === 'chart') return [f.a.label, `${f.b.label} (copy)`];
+  return [f.a.label, f.b.label];
+}
+const pic = (src, view, cap) => `<figure>${src ? `<img src="${src}" alt="" data-view="${view}">` : '<div class="muted">no picture</div>'}<figcaption>${cap}</figcaption></figure>`;
+
+/** A finding's pictures: the whole panel(s) with the areas outlined and, for a cloned area or an overlap, both areas enlarged */
+function evidenceBoard(f) {
+  const [sa, sb] = sides(f);
+  const whole = f.kind === 'clone'
+    ? pic(f.thumbA, 'a', `<span class="tagline src-a">Red</span> original area · <span class="tagline src-b">Blue</span> cloned copy — ${esc(f.a.label)}`)
+    : single(f) ? pic(f.thumbA, 'a', `${esc(f.a.label)}${f.kind === 'alteration' ? ' — the flagged area is outlined' : ''}`)
+      : `<div class="pair">${pic(f.thumbA, 'a', `<span class="tagline">A</span>${esc(f.a.label)}${f.kind === 'partial' ? ' — matching part outlined' : ''}`)}${pic(f.thumbB, 'b', `<span class="tagline">B</span>${esc(f.b.label)}${f.kind === 'partial' ? ' — matching part outlined' : ''}`)}</div>`;
+  if (!f.zoomA || !f.zoomB) return `<div class="evidence-board solo"><div><h4>${single(f) && f.kind !== 'clone' ? 'Panel' : 'The two panels'}</h4>${whole}</div></div>`;
+  return `<div class="evidence-board"><div><h4>${f.kind === 'clone' ? 'Whole panel' : 'Whole panels'}</h4>${whole}</div>
+    <div><h4>Enlarged</h4><div class="zoom-pair">${pic(f.zoomA, 'a', `<span class="tagline src-a">${esc(sa)}</span>`)}<span class="arrow">→</span>${pic(f.zoomB, 'b', `<span class="tagline src-b">${esc(sb)}</span>`)}</div>
+    <div class="muted" style="font-size:12px;margin-top:4px">${f.kind === 'clone' ? 'The copy may be rotated, mirrored or resized (see Transformation).' : 'Compare the shapes and the background texture of the two areas.'}</div></div></div>`;
+}
+
 export function renderImages(view) {
   view.innerHTML = `
     <div class="page-head"><div><h1>Module 5 — Image Integrity Detection</h1>
@@ -101,7 +141,16 @@ export async function analyseAndSave(files, meta, set = () => {}) {
   const saved = await api('/api/images', { body: { result: buildPayload(images, analysis, skipped, meta) } });
   const result = saved.result;
   result.id = saved.id;
+  await savePanelViews(result, images);
   return { id: saved.id, result, images };
+}
+
+/** Store sharper pictures of the matched panels with the report (for the screen and the Word / PDF report) */
+export async function savePanelViews(result, images) {
+  const views = matchedPanelViews(result, images);
+  if (!Object.keys(views).length || !result.id) return;
+  result.panelViews = { ...(result.panelViews || {}), ...views };
+  await api(`/api/images/${result.id}/views`, { method: 'PUT', body: { views } }).catch(() => {});
 }
 
 function analyse(images, set) {
@@ -138,6 +187,31 @@ function thumb(im, box, marks = [], max = 360, quality = 0.78) {
   return { src: c.toDataURL('image/jpeg', quality), w: c.width, h: c.height };
 }
 
+// a matched area with a little of its surroundings (5% each side), kept inside the image
+function around(box, im) {
+  const W = im.canvas.width, H = im.canvas.height, m = Math.round(Math.max(box.w, box.h) * 0.05);
+  const x = Math.max(0, box.x - m), y = Math.max(0, box.y - m);
+  return { x, y, w: Math.max(1, Math.min(W - x, box.w + 2 * m)), h: Math.max(1, Math.min(H - y, box.h + 2 * m)) };
+}
+
+/**
+ * Sharper pictures of the panels that match a published / reference figure or an earlier manuscript (the saved panel
+ * thumbnails are 150 px): { panelId: { src, w, h } }, at most 24.
+ */
+export function matchedPanelViews(result, images) {
+  const byId = new Map(images.map(im => [im.id, im]));
+  const panels = new Map((result.panels || []).map(p => [p.id, p]));
+  const ids = [...new Set([...(result.references || []), ...(result.earlier || []), ...(result.authorFigures?.matches || [])].map(m => m.panel))].slice(0, 24);
+  const out = {};
+  for (const id of ids) {
+    const p = panels.get(id), im = p && byId.get(p.imageId);
+    if (!im || !p.box || (result.panelViews || {})[id]) continue;
+    const t = thumb(im, p.box, [], 340, 0.8);
+    out[id] = { src: t.src, w: t.w, h: t.h };
+  }
+  return out;
+}
+
 function buildPayload(images, analysis, skipped, meta) {
   const byId = new Map(images.map(im => [im.id, im]));
   const panelById = new Map(analysis.panels.map(p => [p.id, p]));
@@ -152,15 +226,28 @@ function buildPayload(images, analysis, skipped, meta) {
     const out = { ...f, a: { ...f.a, label: A?.label || f.a.panel }, b: { ...f.b, label: B?.label || f.b.panel } };
     const size = budget > 1_000_000 ? 360 : budget > 300_000 ? 240 : 0;
     if (size) {
+      const imA = imgOfPanel(f.a.panel), imB = imgOfPanel(f.b.panel);
       if (f.kind === 'clone') {
-        const t = thumb(imgOfPanel(f.a.panel), A.box, [f.a.box, f.b.box], size);
+        const t = thumb(imA, A.box, [f.a.box, f.b.box], size);
+        Object.assign(out, { thumbA: t.src, thumbAW: t.w, thumbAH: t.h });
+        budget -= t.src.length;
+      } else if (single(f)) {
+        // one panel (alteration, AI indicators): the flagged area outlined when it is only part of the panel
+        const part = f.a.box && A.box && f.a.box.w * f.a.box.h < 0.8 * A.box.w * A.box.h;
+        const t = thumb(imA, A.box, part ? [f.a.box] : [], size);
         Object.assign(out, { thumbA: t.src, thumbAW: t.w, thumbAH: t.h });
         budget -= t.src.length;
       } else {
-        const ta = thumb(imgOfPanel(f.a.panel), A.box, f.kind === 'partial' ? [f.a.box] : [], size);
-        const tb = thumb(imgOfPanel(f.b.panel), B.box, f.kind === 'partial' ? [f.b.box] : [], size);
+        const ta = thumb(imA, A.box, f.kind === 'partial' ? [f.a.box] : [], size);
+        const tb = thumb(imB, B.box, f.kind === 'partial' ? [f.b.box] : [], size);
         Object.assign(out, { thumbA: ta.src, thumbAW: ta.w, thumbAH: ta.h, thumbB: tb.src, thumbBW: tb.w, thumbBH: tb.h });
         budget -= ta.src.length + tb.src.length;
+      }
+      // cloned area / overlapping part: the original area and its copy enlarged side by side
+      if ((f.kind === 'clone' || f.kind === 'partial') && f.a.box && f.b.box && budget > 300_000) {
+        const za = thumb(imA, around(f.a.box, imA), [], 240), zb = thumb(imB, around(f.b.box, imB), [], 240);
+        Object.assign(out, { zoomA: za.src, zoomAW: za.w, zoomAH: za.h, zoomB: zb.src, zoomBW: zb.w, zoomBH: zb.h });
+        budget -= za.src.length + zb.src.length;
       }
     }
     return out;
@@ -221,6 +308,8 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     <div id="decision" class="no-print"></div>`;
 
   const body = $('#tab-body', el);
+  // the sharpest saved picture of a panel (the matched panels are kept at 340 px, the others at 150 px)
+  const viewOf = id => result.panelViews?.[id]?.src || panelById.get(id)?.thumb || null;
   const srcOf = panelId => {
     const p = panelById.get(panelId);
     const im = live?.get(p?.imageId);
@@ -241,11 +330,15 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     body.innerHTML = list.map((f, i) => `
       <div class="card finding" data-id="${esc(f.id)}">
         <div class="card-head"><h3>${i + 1}. ${esc(KIND[f.kind] || f.kind)}</h3><div class="row">${badge(f.level === 'high' ? 'Strong' : 'Check', levelTone(f.level))}${marks.get(f.id) ? badge({ confirmed: 'Confirmed', false: 'False alarm', ask: 'Ask authors' }[marks.get(f.id)], marks.get(f.id) === 'false' ? 'neutral' : 'info') : ''}</div></div>
-        <p style="margin:0 0 8px">${esc(f.description)}</p>${f.assessment ? `<div class="muted" style="margin:0 0 8px"><b>${esc(f.assessment.name)}</b> · usual risk ${esc(f.assessment.risk)} · false-alarm risk ${esc(f.assessment.falsePositiveRisk)}${f.assessment.falseAlarms.length ? `<br>Often harmless when: ${esc(f.assessment.falseAlarms.join('; '))}` : ''}</div>` : ''}${(f.details || []).length ? `<ul class="muted" style="margin:0 0 8px">${f.details.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
-        <div class="pair">
-          <figure>${f.thumbA ? `<img src="${f.thumbA}" alt="" data-view="a">` : '<div class="muted">no thumbnail</div>'}<figcaption>${esc(f.a.label)}</figcaption></figure>
-          ${!single(f) ? `<figure>${f.thumbB ? `<img src="${f.thumbB}" alt="" data-view="b">` : '<div class="muted">no thumbnail</div>'}<figcaption>${esc(f.b.label)}</figcaption></figure>` : ''}
-        </div>
+        <p style="margin:0 0 10px">${esc(f.description)}</p>
+        ${evidenceBoard(f)}
+        <table class="facts">
+          <tr><td>Location</td><td>${esc(single(f) ? f.a.label : `${f.a.label} and ${f.b.label}`)}</td></tr>
+          ${f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? `<tr><td>Transformation</td><td>${esc(transformText(f.transform))}</td></tr>` : ''}
+          <tr><td>Measured agreement</td><td>${esc(agreementText(f))}</td></tr>
+          ${f.assessment ? `<tr><td>Type</td><td><b>${esc(f.assessment.name)}</b> · usual risk ${esc(f.assessment.risk)} · false-alarm risk ${esc(f.assessment.falsePositiveRisk)}${f.assessment.falseAlarms.length ? `<div class="muted">Often harmless when: ${esc(f.assessment.falseAlarms.join('; '))}</div>` : ''}</td></tr>` : ''}
+          ${(f.details || []).length ? `<tr><td>Details</td><td><ul style="margin:0;padding-left:18px">${f.details.map(d => `<li>${esc(d)}</li>`).join('')}</ul></td></tr>` : ''}
+        </table>
         <div class="row no-print" style="margin-top:8px">
           <button class="btn btn-sm" data-open>Open forensic viewer</button>
           <span class="spacer"></span>
@@ -304,8 +397,12 @@ export function renderImagesResult(el, result, { live = null } = {}) {
   const earlierTab = () => {
     const e = result.earlier || [], ec = result.earlierCharts || [];
     const chartsTable = ec.length ? `<div class="card"><h3>Graph / chart data matching earlier manuscripts</h3><div class="table-wrap"><table class="t"><tr><th>This manuscript</th><th>Earlier manuscript</th><th>Earlier chart</th><th class="num">Correlation</th></tr>${ec.map(x => `<tr><td>${esc(x.chart)}</td><td>${x.onPlatform ? `<strong>${esc(x.manuscriptCode || 'Report #' + x.checkId)}</strong> <span class="tag">web platform</span>` : `<a href="#/check/${x.checkId}">${esc(x.manuscriptCode || 'Report #' + x.checkId)}</a>`}<div class="muted">${esc(x.title || '')} · ${fmtDate(x.date)}</div></td><td>${esc(x.label)}</td><td class="num">${x.correlation}</td></tr>`).join('')}</table></div></div>` : '';
-    body.innerHTML = e.length ? `<div class="card"><p class="muted">Panels whose fingerprint matches a figure in an earlier PJPS manuscript (smaller distance = closer match; 0 = identical).</p><div class="table-wrap"><table class="t"><tr><th>This manuscript</th><th>Earlier manuscript</th><th>Earlier figure</th><th class="num">Distance</th></tr>
-      ${e.map(x => { const p = panelById.get(x.panel); return `<tr><td>${p?.thumb ? `<img src="${p.thumb}" class="mini">` : ''} ${esc(x.panelLabel)}</td><td>${x.onPlatform ? `<strong>${esc(x.manuscriptCode || 'Report #' + x.checkId)}</strong> <span class="tag">web platform</span>` : `<a href="#/check/${x.checkId}">${esc(x.manuscriptCode || 'Report #' + x.checkId)}</a>`}<div class="muted">${esc(x.title || '')} · ${fmtDate(x.date)}</div></td><td>${x.thumb ? `<img src="${x.thumb}" class="mini">` : ''} ${esc(x.label || '')}</td><td class="num">${x.distance}</td></tr>`; }).join('')}</table></div></div>`
+    const code = x => (x.onPlatform ? `<strong>${esc(x.manuscriptCode || 'Report #' + x.checkId)}</strong> <span class="tag">web platform</span>` : `<a href="#/check/${x.checkId}">${esc(x.manuscriptCode || 'Report #' + x.checkId)}</a>`);
+    body.innerHTML = e.length ? `<p class="muted">Panels whose fingerprint matches a figure in an earlier PJPS manuscript (fingerprint distance: 0 = identical, smaller = closer).</p>`
+      + e.map((x, i) => `<div class="card finding"><div class="card-head"><h3>${i + 1}. ${esc(x.panelLabel)} matches ${esc(x.manuscriptCode || 'an earlier manuscript')}</h3>${badge(x.distance <= 3 ? 'Strong' : 'Check', x.distance <= 3 ? 'bad' : 'warn')}</div>
+        <div class="ref-meta"><b>Earlier manuscript:</b> ${code(x)} <span class="muted">· ${esc(x.title || '')} · ${fmtDate(x.date)}</span></div>
+        <div class="pair">${pic(viewOf(x.panel), '', `<span class="tagline">This manuscript:</span>${esc(x.panelLabel)}`)}${pic(x.thumb, '', `<span class="tagline">Earlier manuscript:</span>${esc(x.label || '')}`)}</div>
+        <table class="facts"><tr><td>Measured agreement</td><td>fingerprint distance ${x.distance} of 64${x.how && x.how !== 'whole' ? ` (${x.how === 'crop' ? 'a crop of the earlier figure' : 'contains the earlier figure'})` : ''}</td></tr></table></div>`).join('')
       : (ec.length ? '' : '<div class="alert alert-good">No figure or chart matches an earlier PJPS manuscript screened in this system.</div>');
     body.innerHTML += chartsTable;
   };
@@ -317,13 +414,13 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     const searched = sr ? `<p class="muted">${sr.panels} panel(s) compared with ${sr.refs.toLocaleString()} reference panel(s): ${Object.values(sr.bySource || {}).map(x => `${esc(x.name)} — ${x.papers.toLocaleString()} papers`).join(' · ')}.</p>` : '';
     const card = (m, i) => `<div class="card finding" data-ref="${i}">
         <div class="card-head"><h3>${i + 1}. ${esc(m.panelLabel)} matches ${esc(m.sourceName)}</h3><div class="row">${badge(m.level === 'high' ? 'Strong' : 'Check', levelTone(m.level))}${badge(m.sourceName, m.source === 'retracted' ? 'bad' : 'info')}</div></div>
-        <p style="margin:0 0 6px">${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title || m.doi || 'Source paper')}</a>` : esc(m.title || '')}<span class="muted">${[m.journal, m.year, m.doi ? 'doi:' + m.doi : ''].filter(Boolean).map(x => ' · ' + esc(x)).join('')}</span>${m.doi ? ` · <a href="https://pubpeer.com/search?q=${encodeURIComponent(m.doi)}" target="_blank" rel="noopener">Check on PubPeer</a>` : ''}</p>
-        ${m.note ? `<div class="muted" style="margin:0 0 6px">${esc(m.note)}</div>` : ''}
-        <ul class="muted" style="margin:0 0 8px"><li>${esc(m.figure)} — ${esc(m.description)}</li><li>Fingerprint distance ${m.distance} of 64${m.correlation !== null ? ` · pixel correlation of the aligned images ${m.correlation}` : ''}</li></ul>
+        <div class="ref-meta"><b>Source paper:</b> ${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title || m.doi || 'Source paper')}</a>` : esc(m.title || '—')}<span class="muted">${[m.journal, m.year, m.doi ? 'doi:' + m.doi : ''].filter(Boolean).map(x => ' · ' + esc(x)).join('')}</span>${m.doi ? ` · <a href="https://pubpeer.com/search?q=${encodeURIComponent(m.doi)}" target="_blank" rel="noopener">Check on PubPeer</a>` : ''}
+          ${m.note ? `<div class="muted" style="margin-top:4px">${esc(m.note)}</div>` : ''}</div>
         <div class="pair">
-          <figure>${panelById.get(m.panel)?.thumb ? `<img src="${panelById.get(m.panel).thumb}" alt="" data-view>` : '<div class="muted">no thumbnail</div>'}<figcaption>This manuscript: ${esc(m.panelLabel)}</figcaption></figure>
-          <figure>${m.hasThumb ? `<img src="/api/images/refs/${m.refId}/thumb" alt="" data-view>` : '<div class="muted">no thumbnail</div>'}<figcaption>${esc(m.sourceName)}: ${esc(m.figure)}</figcaption></figure>
+          <figure>${viewOf(m.panel) ? `<img src="${viewOf(m.panel)}" alt="" data-view>` : '<div class="muted">no picture</div>'}<figcaption><span class="tagline">This manuscript:</span>${esc(m.panelLabel)}</figcaption></figure>
+          <figure>${m.hasThumb || m.refThumb ? `<img src="${m.refThumb || `/api/images/refs/${m.refId}/thumb`}" alt="" data-view class="${m.source === 'retracted' ? 'figure-ref' : ''}">` : '<div class="muted">no picture</div>'}<figcaption><span class="tagline ${m.source === 'retracted' ? 'src-a' : ''}">Source figure:</span>${esc(m.sourceName)} — ${esc(m.figure)}</figcaption></figure>
         </div>
+        <table class="facts"><tr><td>How it matches</td><td>${esc(m.description)}</td></tr><tr><td>Measured agreement</td><td>fingerprint distance ${m.distance} of 64 (0 = identical)${m.correlation !== null && m.correlation !== undefined ? ` · pixel correlation of the aligned images ${m.correlation}` : ''}</td></tr>${m.transform ? `<tr><td>Transformation</td><td>${esc(transformText(m.transform))}</td></tr>` : ''}</table>
         <div class="row no-print" style="margin-top:8px"><button class="btn btn-sm" data-open>Open forensic viewer</button></div>
       </div>`;
     body.innerHTML = searched + (result.referencesError ? `<div class="alert alert-warn">The image databases could not be searched: ${esc(result.referencesError)}</div>` : '')
@@ -352,7 +449,10 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     const c = af.checked;
     body.innerHTML = `<div class="card"><h3>Result</h3><p class="muted">${c.authors} author(s) searched · ${c.articles} open-access paper(s) · ${c.figures} figure(s) and ${c.panels} panel(s) compared${c.noFullText ? ` · ${c.noFullText} paper(s) without readable figures` : ''}${af.checkedAt ? ' · ' + fmtDate(af.checkedAt) : ''}</p>
       ${af.note ? `<div class="alert alert-info">${esc(af.note)}</div>` : ''}
-      ${af.matches.length ? `<div class="table-wrap"><table class="t"><tr><th>This manuscript</th><th>Earlier paper by the authors</th><th>Figure</th><th class="num">Distance</th></tr>${af.matches.map(m => { const p = panelById.get(m.panel); return `<tr><td>${p?.thumb ? `<img src="${p.thumb}" class="mini">` : ''} ${esc(m.panelLabel || '')}</td><td><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.article || m.pmcid)}</a><div class="muted">${esc(m.journal || '')} ${esc(m.year || '')} · ${esc(m.author || '')}${m.via ? ` · via ${esc(m.via)}` : ''}</div></td><td>${esc(m.figure)}<div class="muted">${esc(m.caption || '')}</div></td><td class="num">${m.distance}</td></tr>`; }).join('')}</table></div>` : (c.articles ? '<div class="alert alert-good">No panel of this manuscript matches a figure in the authors\' open-access papers that could be read.</div>' : '')}
+      ${af.matches.length ? af.matches.map((m, i) => `<div class="finding" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px"><h3 style="margin:0 0 8px">${i + 1}. ${esc(m.panelLabel || '')} matches ${esc(m.figure)} of an earlier paper</h3>
+        <div class="ref-meta"><b>Earlier paper:</b> <a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.article || m.pmcid)}</a><span class="muted"> · ${esc([m.journal, m.year, m.author].filter(Boolean).join(' · '))}${m.via ? ` · via ${esc(m.via)}` : ''}</span>${m.caption ? `<div class="muted" style="margin-top:4px">${esc(m.figure)}: ${esc(m.caption)}</div>` : ''}</div>
+        <div class="pair">${pic(viewOf(m.panel), '', `<span class="tagline">This manuscript:</span>${esc(m.panelLabel || '')}`)}${m.refThumb ? pic(m.refThumb, '', `<span class="tagline">Earlier paper:</span>${esc(m.figure)}`) : `<figure><div class="muted">Picture not kept with this report — <a href="${esc(m.url)}" target="_blank" rel="noopener">open the earlier paper</a></div></figure>`}</div>
+        <table class="facts"><tr><td>Measured agreement</td><td>fingerprint distance ${m.distance} of 64 (0 = identical)</td></tr></table></div>`).join('') : (c.articles ? '<div class="alert alert-good">No panel of this manuscript matches a figure in the authors\' open-access papers that could be read.</div>' : '')}
       <p class="muted">Closed-access papers cannot be compared. A re-used figure is not always wrong (permitted re-use with permission, or the authors' own earlier work) - check the earlier paper and ask the authors if the source is not cited.</p></div>` + form;
     wire();
     function wire() {
@@ -367,6 +467,7 @@ export function renderImagesResult(el, result, { live = null } = {}) {
           const out = await runJob(jobId, $('#af-progress', body), 'Comparing with the authors\' open-access papers');
           result.authorFigures = out;
           result.authorLines = authors.map(a => a.name);
+          if (live) await savePanelViews(result, [...live.values()]);
           $('.tab[data-tab=authors] .count', el).textContent = out.matches.length;
           authorsTab();
           toast(out.matches.length ? `${out.matches.length} matching figure(s) found` : 'No matches with the authors\' earlier figures');

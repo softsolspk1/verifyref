@@ -489,3 +489,35 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .dl-option .btn { justify-content: center; }
 .dl-option small { font-size: 11.5px; line-height: 1.4; color: var(--text-3); }
 @media (max-width: 420px) { .dl-options { grid-template-columns: 1fr; } }
+
+/* Module 4 report: score meter, numbered signals, evidence tables */
+.score-meter { position: relative; height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); margin: 8px 0 3px; max-width: 420px; }
+.score-meter .fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: linear-gradient(90deg, var(--good), var(--warn) 50%, var(--bad)); }
+.score-meter .mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text-2); }
+.score-scale { display: flex; justify-content: space-between; max-width: 420px; font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+.reasons { margin: 0; padding-left: 20px; } .reasons li { margin-bottom: 6px; }
+.pm-signal { border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--surface); }
+.pm-signal.sev-high { border-left-color: var(--bad); } .pm-signal.sev-medium { border-left-color: var(--warn); } .pm-signal.sev-low { border-left-color: var(--text-3); }
+.pm-head { display: flex; gap: 10px; align-items: flex-start; }
+.pm-no { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+.pm-head .msg { font-weight: 600; } .pm-head .guide { font-size: 12.5px; color: var(--text-2); margin-top: 3px; }
+.pm-sev { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: 12px; }
+.pm-signal details { margin-top: 8px; } .t.ev td { vertical-align: top; } .t.ev .quote { margin: 4px 0 0; font-size: 12.5px; }
+.t tr.total td { font-weight: 700; border-top: 2px solid var(--border); }
+.ok-mark { color: var(--good); font-weight: 700; } .no-wrap { white-space: nowrap; }
+
+/* Module 5 findings: whole panels with the areas outlined, enlarged crops, source figure next to the copy */
+.evidence-board { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+.evidence-board.solo { grid-template-columns: 1fr; }
+.evidence-board h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
+.zoom-pair { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.zoom-pair figure { flex: 1 1 120px; max-width: 220px; }
+.zoom-pair .arrow { font-size: 20px; color: var(--text-3); flex: none; }
+.finding figcaption .tagline { display: inline-block; font-weight: 700; margin-right: 4px; }
+.finding figcaption .src-a { color: #d6164a; } .finding figcaption .src-b { color: #0089c7; }
+.facts { width: 100%; margin-top: 10px; font-size: 13px; }
+.facts td:first-child { width: 170px; color: var(--text-3); font-weight: 600; }
+.ref-meta { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin: 0 0 10px; font-size: 13px; }
+.figure-ref { outline: 3px solid var(--bad); outline-offset: -3px; }
+@media (max-width: 720px) { .evidence-board { grid-template-columns: 1fr; } }
+.zoom-pair figure img { width: 100%; }

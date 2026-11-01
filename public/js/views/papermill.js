@@ -69,9 +69,39 @@ export function renderPaperMill(view) {
   };
 }
 
+const SEV = { high: 'Strong', medium: 'Moderate', low: 'Weak' };
+
+// what was checked: [check, result, done] (the same list as the Word / PDF report)
+function coverage(r) {
+  const c = r.checked || {}, d = r.details || {};
+  const millRefs = (d.millJournals || []).reduce((n, j) => n + (j.refs || []).length, 0);
+  return [
+    ['Manuscript text (tortured phrases, AI-text leftovers, template wording, methods, hidden text)', 'Checked', !!c.text],
+    ['References against the scholarly databases and Retraction Watch', c.references ? `${d.references?.total || 0} checked: ${d.references?.fabricated || 0} not found, ${d.references?.retracted || 0} retracted` : 'No reference list found', !!c.references],
+    ['Cited journals with 20 or more paper-mill retractions (Retraction Watch)', c.references ? `${millRefs} reference(s)` : 'No reference list found', !!c.references],
+    ['Authors against Retraction Watch (by name)', c.authors ? 'Checked' : 'No author names found — enter them above', !!c.authors],
+    ['ORCID iDs and their publications against Retraction Watch', c.orcid ? `${(d.orcids || []).length} iD(s); ${(d.orcidRetractions || []).length} retracted publication(s)` : 'No ORCID iD in the manuscript', !!c.orcid],
+    ['E-mail addresses (free-mail, disposable, institution)', (d.emails || []).length ? `${d.emails.length} address(es)` : 'No e-mail address found', !!(d.emails || []).length],
+    ['Suggested reviewers', c.reviewers ? 'Checked' : 'None given', !!c.reviewers],
+    ['Statistics recalculated (p-values, percentages)', c.statistics ? `${c.statistics} value(s), ${(d.statistics?.findings || []).length} inconsistent` : 'No test statistics found', !!c.statistics],
+    ['Primer sequences (NCBI BLAST)', c.primers ? `${c.primers} found${c.primersBlasted ? `, ${c.primersBlasted} checked in BLAST` : ', BLAST not run'}` : 'No primer sequences', !!c.primers],
+    ['Earlier version of this manuscript (author changes)', c.previousVersion ? 'Compared' : 'No earlier version with this manuscript ID', !!c.previousVersion],
+    ['Earlier PJPS submissions (text overlap)', `${c.earlierSubmissions || 0} compared`, true],
+    ['Image Integrity (Module 5)', c.images ? 'Included' : 'No Module 5 report attached', !!c.images]
+  ];
+}
+
+const evidenceRow = (e, i) => `<tr><td class="num">${i + 1}</td><td>${esc(e.text)}${e.quote ? `<div class="quote">“…${esc(e.quote)}…”</div>` : ''}${e.note ? `<div class="muted">${esc(e.note)}</div>` : ''}</td><td class="no-wrap">${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">Source</a>` : ''}${e.checkId ? ` <a href="#/check/${e.checkId}">Earlier report</a>` : ''}</td></tr>`;
+
 export function renderPaperMillResult(el, r) {
-  const groups = Object.entries(GROUPS).map(([g, label]) => ({ g, label, list: r.signals.filter(s => s.group === g) }));
-  const c = r.checked || {};
+  const signals = r.signals || [];
+  const groups = Object.entries(GROUPS).map(([g, label]) => ({ g, label, list: signals.filter(s => s.group === g) }));
+  const count = (list, sev) => list.filter(s => s.severity === sev).length;
+  const main = signals.filter(s => s.severity !== 'low').sort((a, b) => b.weight - a.weight).slice(0, 6);
+  // score on a 0-12 scale with the MEDIUM (4) and HIGH (8) thresholds marked
+  const pct = Math.min(100, (r.risk.score / 12) * 100);
+  const authors = (r.meta?.authors || []).map(a => a.name).filter(Boolean);
+  let n = 0;
   el.innerHTML = `
     <div class="page-head">
       <div><h1>${esc(r.meta?.title || 'Paper Mill Detection')}</h1>
@@ -79,27 +109,25 @@ export function renderPaperMillResult(el, r) {
       <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button><button class="btn btn-sm" id="export-pdf">${ICONS.download} PDF</button>` : ''}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button></div>
     </div>
     ${datasetBanner(r)}
-    <div class="risk-banner risk-${r.risk.level.toLowerCase()}"><div class="risk-level">${esc(r.risk.level)}</div><div><b>Paper mill risk</b> · score ${r.risk.score} · ${r.risk.highSignals} strong signal(s)<div class="muted">${esc(r.disclaimer)}</div></div></div>
-    <div class="kpis">${groups.map(x => `<div class="kpi ${x.list.some(s => s.severity === 'high') ? 'bad' : x.list.length ? 'warn' : 'good'}"><div class="n">${x.list.length}</div><div class="l">${esc(x.label)}</div></div>`).join('')}</div>
-    ${groups.map(x => `<div class="card"><div class="card-head"><h3>${esc(x.label)}</h3>${badge(x.list.length ? `${x.list.length} signal(s)` : 'None', x.list.length ? 'warn' : 'good')}</div>
-      ${x.list.length ? x.list.map(s => `<div class="flag ${s.severity}"><div style="flex:1">
-        <div class="msg">${badge(s.severity === 'high' ? 'Strong' : s.severity === 'medium' ? 'Moderate' : 'Weak', sevTone(s.severity))} ${esc(s.title)} <span class="muted">· weight ${s.weight}</span></div>
-        ${s.note ? `<div class="guide">${esc(s.note)}</div>` : ''}
-        ${(s.evidence || []).length ? `<details ${s.severity === 'high' ? 'open' : ''}><summary class="muted">Evidence (${s.evidence.length})</summary><ul class="evidence">${s.evidence.map(e => `<li>${esc(e.text)}${e.quote ? `<div class="quote">“…${esc(e.quote)}…”</div>` : ''}${e.note ? `<div class="muted">${esc(e.note)}</div>` : ''}${e.link ? ` <a href="${esc(e.link)}" target="_blank" rel="noopener">source</a>` : ''}${e.checkId ? ` <a href="#/check/${e.checkId}">open earlier report</a>` : ''}</li>`).join('')}</ul></details>` : ''}
-      </div></div>`).join('') : '<p class="muted">No signal found.</p>'}</div>`).join('')}
-    <div class="card"><h3>What was checked</h3><ul class="checked">
-      <li>${c.references ? '✓' : '—'} References (${r.details?.references?.total || 0}: ${r.details?.references?.fabricated || 0} not found, ${r.details?.references?.retracted || 0} retracted)</li>
-      <li>${c.authors ? '✓' : '—'} Authors against Retraction Watch${c.authors ? '' : ' (no author names found — enter them above)'}</li>
-      <li>${c.orcid ? '✓' : '—'} ORCID iDs (${(r.details?.orcids || []).length}${c.orcid ? `; their publications checked against Retraction Watch: ${(r.details?.orcidRetractions || []).length} retracted` : ''})</li>
-      <li>${c.references ? '✓' : '—'} Cited journals against the journals with 20 or more paper-mill retractions in Retraction Watch (${(r.details?.millJournals || []).reduce((n, j) => n + j.refs.length, 0)} reference(s))</li>
-      <li>${c.statistics ? '✓' : '—'} Statistics recalculated (${c.statistics || 0} p-values and percentages found, ${(r.details?.statistics?.findings || []).length} inconsistent)</li>
-      <li>${c.primers ? '✓' : '—'} Primer sequences (${c.primers || 0} found${c.primersBlasted ? `, ${c.primersBlasted} checked against NCBI BLAST` : c.primers ? ', NCBI BLAST not run' : ''})</li>
-      <li>${(r.details?.emails || []).length ? '✓' : '—'} E-mail addresses (${(r.details?.emails || []).length})</li>
-      <li>${c.reviewers ? '✓' : '—'} Suggested reviewers</li>
-      <li>${c.previousVersion ? '✓ Compared with the earlier version' : '— No earlier version with this manuscript ID'}</li>
-      <li>✓ Compared with ${c.earlierSubmissions || 0} earlier PJPS submission(s)</li>
-      <li>${c.images ? '✓' : '—'} Image Integrity (Module 5)</li>
-    </ul></div>
+    <div class="risk-banner risk-${r.risk.level.toLowerCase()}"><div class="risk-level">${esc(r.risk.level)}</div><div style="flex:1">
+      <b>Paper mill risk</b> · score ${r.risk.score} · ${count(signals, 'high')} strong, ${count(signals, 'medium')} moderate, ${count(signals, 'low')} weak signal(s)
+      <div class="score-meter" title="LOW below 4 · MEDIUM from 4 · HIGH from 8"><span class="fill" style="width:${pct}%"></span><span class="mark" style="left:33.3%"></span><span class="mark" style="left:66.6%"></span></div>
+      <div class="score-scale"><span>LOW</span><span>MEDIUM ≥ 4</span><span>HIGH ≥ 8</span></div>
+      <div class="muted">${esc(r.disclaimer)}</div></div></div>
+    ${authors.length ? `<p class="muted" style="margin:-6px 0 14px">Authors: ${esc(authors.join(', '))}</p>` : ''}
+    <div class="grid grid-2">
+      <div class="card"><h3>Main reasons</h3>${main.length ? `<ol class="reasons">${main.map(s => `<li>${badge(SEV[s.severity], sevTone(s.severity))} ${esc(s.title)}</li>`).join('')}</ol>` : '<p class="muted">No strong or moderate signal was found.</p>'}</div>
+      <div class="card"><h3>Signals at a glance</h3><div class="table-wrap"><table class="t"><tr><th>Area</th><th class="num">Strong</th><th class="num">Moderate</th><th class="num">Weak</th><th class="num">Weight</th></tr>
+        ${groups.map(x => `<tr><td>${esc(x.label)}</td><td class="num">${count(x.list, 'high') || '—'}</td><td class="num">${count(x.list, 'medium') || '—'}</td><td class="num">${count(x.list, 'low') || '—'}</td><td class="num">${x.list.reduce((a, s) => a + s.weight, 0)}</td></tr>`).join('')}
+        <tr class="total"><td>Total</td><td class="num">${count(signals, 'high')}</td><td class="num">${count(signals, 'medium')}</td><td class="num">${count(signals, 'low')}</td><td class="num">${r.risk.score}</td></tr></table></div></div>
+    </div>
+    ${groups.map(x => `<div class="card"><div class="card-head"><h3>${esc(x.label)}</h3>${badge(x.list.length ? `${x.list.length} signal(s)` : 'None', x.list.some(s => s.severity === 'high') ? 'bad' : x.list.length ? 'warn' : 'good')}</div>
+      ${x.list.length ? x.list.map(s => { n++; const ev = s.evidence || []; return `<div class="pm-signal sev-${s.severity}">
+        <div class="pm-head"><span class="pm-no">${n}</span><div style="flex:1"><div class="msg">${esc(s.title)}</div>${s.note ? `<div class="guide">${esc(s.note)}</div>` : ''}</div><div class="pm-sev">${badge(SEV[s.severity], sevTone(s.severity))}<span class="muted">weight ${s.weight}</span></div></div>
+        ${ev.length ? `<details ${s.severity !== 'low' ? 'open' : ''}><summary class="muted">Evidence (${ev.length})</summary><div class="table-wrap"><table class="t ev"><tr><th class="num">#</th><th>Evidence</th><th></th></tr>${ev.map(evidenceRow).join('')}</table></div></details>` : ''}
+      </div>`; }).join('') : '<p class="muted">No signal found.</p>'}</div>`).join('')}
+    <div class="card"><h3>What was checked</h3><div class="table-wrap"><table class="t"><tr><th>Check</th><th>Result</th></tr>${coverage(r).map(([k, v, done]) => `<tr><td>${done ? '<span class="ok-mark">✓</span>' : '<span class="muted">—</span>'} ${esc(k)}</td><td class="${done ? '' : 'muted'}">${esc(v)}</td></tr>`).join('')}</table></div>
+      <p class="muted" style="margin-top:8px">How the level is set: every signal has a weight (set on a benchmark of 150 paper-mill retractions and 126 ordinary papers). LOW below 4, MEDIUM from 4 or with one strong signal, HIGH from 8 or with two strong signals. No single signal proves that a paper came from a paper mill.</p></div>
     <div id="decision" class="no-print"></div>`;
   const ex = $('#export', el);
   if (ex) ex.onclick = () => download(`/api/checks/${r.id}/confidential`).catch(e => toast(e.message, 'error'));

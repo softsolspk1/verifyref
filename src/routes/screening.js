@@ -124,6 +124,23 @@ router.post('/images/compare', mod('images'), wrap(async (req, res) => {
   res.json({ success: true, matches: await IMG.compareWithEarlier(panels, { excludeCode: req.body?.manuscriptCode || null }) });
 }));
 
+/** Sharper pictures of the panels that match a reference / earlier figure, sent by the browser after saving: { views: { panelId: { src, w, h } } } */
+router.put('/images/:id/views', mod('images'), wrap(async (req, res) => {
+  const c = await loadCheck(req.user.id, req.params.id);
+  if (!c?.result || c.row.kind !== 'images') return res.status(404).json({ success: false, message: 'Report not found.' });
+  const known = new Set((c.result.panels || []).map(p => p.id));
+  const views = { ...(c.result.panelViews || {}) };
+  for (const [id, v] of Object.entries(req.body?.views || {})) {
+    if (Object.keys(views).length >= 40) break;
+    if (known.has(id) && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(String(v?.src || '')) && v.src.length <= 120000) views[id] = { src: v.src, w: v.w | 0, h: v.h | 0 };
+  }
+  c.result.panelViews = views;
+  delete c.result.id; delete c.result.createdAt; delete c.result.issueId;
+  await db.query('UPDATE checks SET result = $1 WHERE id = $2 AND user_id = $3', [JSON.stringify(c.result), c.row.id, req.user.id]);
+  await require('../reportStore').offload(c.row.id, c.result);
+  res.json({ success: true, views: Object.keys(views).length });
+}));
+
 /** 5.6 - the authors' own open-access figures (Europe PMC) compared with this manuscript's panels; runs as a background job */
 const AF = require('../authorFigures');
 const { splitName } = require('../text');

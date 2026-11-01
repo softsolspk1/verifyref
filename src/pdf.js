@@ -50,6 +50,10 @@ function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
         const y = doc.y + 2;
         doc.moveTo(left, y).lineTo(left + width(), y).lineWidth(0.8).strokeColor(HEAD).stroke();
         doc.y = y + 6;
+      } else if (b.h3) {
+        ensure(34);
+        doc.moveDown(0.4).font('Helvetica-Bold').fontSize(11).fillColor(HEAD).text(safe(b.h3), left, doc.y, { width: width() });
+        doc.moveDown(0.25);
       } else if (b.callout) {
         // recommendation box: coloured bar, title and text
         const L = LEVEL[b.callout.level] || LEVEL.na;
@@ -114,12 +118,20 @@ function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
         const pics = b.images.map(im => ({ im, m: String(im.src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/) })).filter(x => x.m);
         if (pics.length) {
           const gap = 10, col = (width() - gap * (pics.length - 1)) / pics.length;
-          const sized = pics.map(({ im, m }) => { const w = im.width || col, h = im.height || col, k = Math.min(1, Math.min(im.maxWidth || col, col) / w, 200 / h); return { buf: Buffer.from(m[2], 'base64'), w: w * k, h: h * k }; });
+          const sized = pics.map(({ im, m }) => { const w = im.width || col, h = im.height || col, k = Math.min(im.upscale ? 4 : 1, Math.min(im.maxWidth || col, col) / w, (im.upscale ? 150 : 200) / h); return { buf: Buffer.from(m[2], 'base64'), w: w * k, h: h * k }; });
           const rowH = Math.max(...sized.map(x => x.h));
-          ensure(rowH + 8);
+          // a label under each picture (which panel, which source figure, original area / copy)
+          const labels = pics.map(({ im }) => safe(im.label || ''));
+          doc.font('Helvetica-Bold').fontSize(8);
+          const labelH = labels.some(Boolean) ? Math.max(...labels.map(t => (t ? doc.heightOfString(t, { width: col }) : 0))) + 4 : 0;
+          ensure(rowH + labelH + 8);
           const y0 = doc.y;
-          sized.forEach((x, i) => { try { doc.image(x.buf, left + i * (col + gap), y0, { width: x.w, height: x.h }); } catch (e) { /* unreadable image: skip */ } });
-          doc.y = y0 + rowH + 6;
+          sized.forEach((x, i) => {
+            const x0 = left + i * (col + gap);
+            try { doc.image(x.buf, x0, y0, { width: x.w, height: x.h }); doc.rect(x0, y0, x.w, x.h).lineWidth(0.5).strokeColor(LINE).stroke(); } catch (e) { /* unreadable image: skip */ }
+            if (labels[i]) doc.font('Helvetica-Bold').fontSize(8).fillColor(pics[i].im.tone === 'bad' ? '#9B1C1C' : HEAD).text(labels[i], x0, y0 + rowH + 3, { width: col });
+          });
+          doc.y = y0 + rowH + labelH + 6;
         }
         if (b.caption) { doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(MUTED).text(safe(b.caption), left, doc.y, { width: width() }); doc.moveDown(0.5); }
       }
@@ -212,7 +224,7 @@ function table(doc, headers, rows) {
   const rowHeight = (cells, bold) => Math.max(...cells.map((c, i) => doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(8.5).heightOfString(cellText(c), { width: cw[i] - pad * 2 }))) + pad * 2;
   const drawRow = (cells, header) => {
     const h = rowHeight(cells, header);
-    if (doc.y + h > doc.page.height - doc.page.margins.bottom) { doc.addPage(); drawRow(headers, true); }
+    if (doc.y + h > doc.page.height - doc.page.margins.bottom) { doc.addPage(); if (!header) drawRow(headers, true); }
     const y = doc.y;
     let x = left;
     cells.forEach((c, i) => {

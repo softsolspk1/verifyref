@@ -1,0 +1,51 @@
+PJPS DATA INTEGRITY SYSTEM - STATUS OF THE 5 MODULES
+31 October 2026 (live on the web portal and in the desktop app)
+
+MODULE 1 - CHECK BIBLIOGRAPHY: WORKING
+- Each reference is checked against the scholarly databases and Retraction Watch.
+- Cited journals are checked for indexing, quartile, and Beall's predatory / hijacked lists.
+- New today: 486 hijacked journals (Retraction Watch Hijacked Journal Checker) and 1,172 titles
+  discontinued from Scopus (Sep 2026 list, with the last issue Scopus covered).
+- New today: 39 "citejacked" journals (Problematic Paper Screener).
+- A journal name that a clone website also uses now gives "check the source"; only a link to a
+  clone website is flagged as a hijacked journal.
+
+MODULE 2 - REFERENCE STYLE (PJPS): WORKING
+- No changes this session. Tested today: a 3-reference test manuscript came out 100% compliant.
+
+MODULE 3 - CITATIONS: WORKING
+- No changes this session. Tested today: a deliberate year mismatch (cited 2016, listed 2014)
+  was caught.
+
+MODULE 4 - PAPER MILL DETECTION: WORKING, FINDINGS ARE INDICATORS
+- New signals: references to citejacked journals, to Scopus-discontinued journals, and to
+  journals with a hijacked clone.
+- Cellosaurus: 1,391 problematic cell lines (ICLAC has 581), also checked offline on the desktop.
+- Signal weights were set from a benchmark of 150 paper-mill retractions vs 126 ordinary papers.
+  One or two Scopus-discontinued references, or a clone-name match, do not raise the risk score.
+- Limit: the text signals alone catch about 5% of known mill papers. Reference and author
+  signals add more. Editor judgement is needed.
+
+MODULE 5 - IMAGE INTEGRITY: WORKING, IMPROVED TODAY
+- Now included in the Full Screening Report: figures in the uploaded Word / PDF are analysed
+  automatically, and the full image report is in the screening and in section 5 of its Word/PDF.
+- The report is laid out like ImageTwin: a findings overview table, image pairs side by side,
+  and matches with published / retracted papers next to the manuscript's figure.
+- Accuracy on expert-annotated real figures (BioFors, 60 papers): 59% of known duplicates found
+  (was 53%); false "strong" alarms down from 2.35 to 0.98 per paper; no false reports on
+  17,571 pairs of unrelated figures.
+- Limits: splicing detection is weak (indicator only); cloned areas are found in about 1 in 3
+  cases; flow-cytometry plots can still give false alarms.
+  Commercial databases (ImageTwin, Proofig) are not searched.
+
+DATA LOADS
+- Similarity text repository: 3,013 papers (general and Dove loads finished).
+- PJPS archive figures: running, about 1,550 of 7,281 articles done in this run; it resumes if
+  it stops.
+- PubMed Central figures: next, after the PJPS archive.
+
+ACTION FOR YOU
+- C: drive is nearly full. Delete C:\ProgramData\Synaptics\ValidityService.log as administrator
+  (commands given in the chat).
+- docs/Module4-5-Audit-Report-2026-10-30.txt contains a card number and a password and is
+  not committed. Remove them before committing that file.

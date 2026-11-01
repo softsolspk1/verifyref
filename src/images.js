@@ -90,7 +90,9 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     a: { panel: String(f.a?.panel), label: String(f.a?.label || '').slice(0, 120), box: f.a?.box || null }, b: { panel: String(f.b?.panel), label: String(f.b?.label || '').slice(0, 120), box: f.b?.box || null },
     transform: f.transform || null, score: Number(f.score) || 0,
     verification: f.verification && typeof f.verification === 'object' ? Object.fromEntries(['picture', 'noise', 'region'].filter(k => Number.isFinite(f.verification[k])).map(k => [k, Math.round(f.verification[k] * 100) / 100])) : null,
-    thumbA: cap(f.thumbA, 160000), thumbB: cap(f.thumbB, 160000), thumbAW: f.thumbAW | 0, thumbAH: f.thumbAH | 0, thumbBW: f.thumbBW | 0, thumbBH: f.thumbBH | 0
+    thumbA: cap(f.thumbA, 160000), thumbB: cap(f.thumbB, 160000), thumbAW: f.thumbAW | 0, thumbAH: f.thumbAH | 0, thumbBW: f.thumbBW | 0, thumbBH: f.thumbBH | 0,
+    // enlarged original area and copy (cloned area, overlapping part)
+    zoomA: cap(f.zoomA, 80000), zoomB: cap(f.zoomB, 80000), zoomAW: f.zoomAW | 0, zoomAH: f.zoomAH | 0, zoomBW: f.zoomBW | 0, zoomBH: f.zoomBH | 0
   })).map(f => ({ ...f, assessment: KB.assess(f) }));
   const usable = panels.filter(p => !p.blank && p.type !== 'chart');
   let earlier = await compareWithEarlier(usable, { excludeCode: meta.manuscriptCode || null });

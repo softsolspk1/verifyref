@@ -325,4 +325,28 @@ async function figuresOfFile(name, buf) {
   return { images: [], skipped: [{ name, reason: 'Unsupported file type (PDF, Word .docx, PNG, JPEG, TIFF or WebP)' }] };
 }
 
-module.exports = { pdfImages, docxImages, decodeImage, decodeAny, figuresOfFile };
+/**
+ * A JPEG data URL of one panel of an RGBA image, scaled down (area average) to at most max px on its longer side:
+ * the earlier figure shown next to the manuscript's panel in the report. { src, w, h } or null.
+ */
+function panelJpeg(img, box = null, max = 300) {
+  const b = box || { x: 0, y: 0, w: img.width, h: img.height };
+  if (!(b.w > 0 && b.h > 0)) return null;
+  const k = Math.min(1, max / Math.max(b.w, b.h));
+  const w = Math.max(1, Math.round(b.w * k)), h = Math.max(1, Math.round(b.h * k));
+  const out = Buffer.alloc(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const y0 = b.y + Math.floor(y / k), y1 = Math.max(y0 + 1, Math.min(b.y + b.h, b.y + Math.floor((y + 1) / k)));
+    for (let x = 0; x < w; x++) {
+      const x0 = b.x + Math.floor(x / k), x1 = Math.max(x0 + 1, Math.min(b.x + b.w, b.x + Math.floor((x + 1) / k)));
+      let r = 0, g = 0, bl = 0, n = 0;
+      for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) { const i = (yy * img.width + xx) * 4; r += img.data[i]; g += img.data[i + 1]; bl += img.data[i + 2]; n++; }
+      const o = (y * w + x) * 4;
+      out[o] = r / n; out[o + 1] = g / n; out[o + 2] = bl / n; out[o + 3] = 255;
+    }
+  }
+  const enc = jpeg.encode({ width: w, height: h, data: out }, 78);
+  return { src: `data:image/jpeg;base64,${enc.data.toString('base64')}`, w, h };
+}
+
+module.exports = { pdfImages, docxImages, decodeImage, decodeAny, figuresOfFile, panelJpeg };

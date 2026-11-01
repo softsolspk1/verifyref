@@ -191,11 +191,14 @@ async function checkAuthorFigures(input, update = () => {}) {
         if (theirs.blank) continue;
         out.checked.panels++;
         const h0 = parse(theirs.hashes[0]);
+        let view;
         for (const m of mine) {
           const d = Math.min(...m.hv.map(x => dist(x, h0)));
           if (d <= MATCH_DISTANCE) {
             matched++;
-            out.matches.push({ panel: m.id, panelLabel: m.label, pmcid: art.pmcid, article: art.title, year: art.year, journal: art.journal, doi: art.doi, author: art.author, figure: f.label, caption: f.caption, distance: d, url: art.pmcid ? `https://pmc.ncbi.nlm.nih.gov/articles/${art.pmcid}/` : art.url, imageUrl: img.url, via: art.via });
+            // the earlier paper's panel itself, shown next to the manuscript's panel in the report
+            if (view === undefined) { try { view = out.matches.length < 40 ? require('./figureFiles').panelJpeg(img, b, 300) : null; } catch { view = null; } }
+            out.matches.push({ panel: m.id, panelLabel: m.label, pmcid: art.pmcid, article: art.title, year: art.year, journal: art.journal, doi: art.doi, author: art.author, figure: f.label, caption: f.caption, distance: d, url: art.pmcid ? `https://pmc.ncbi.nlm.nih.gov/articles/${art.pmcid}/` : art.url, imageUrl: img.url, via: art.via, ...(view ? { refThumb: view.src, refThumbW: view.w, refThumbH: view.h } : {}) });
           }
         }
       }

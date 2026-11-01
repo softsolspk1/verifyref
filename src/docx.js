@@ -1,6 +1,7 @@
 // docx.js - Word exports built from simple blocks: {h1|h2|p|bullets|table|kv}
 const {
-  Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, ImageRun
+  Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, ImageRun,
+  Header, Footer, PageNumber
 } = require('docx');
 const cfg = require('./config');
 
@@ -63,35 +64,62 @@ async function buildDocx(blocks, { rtl = false, title = cfg.APP_NAME } = {}) {
   for (const b of blocks) {
     if (b.h1) children.push(para(b.h1, { heading: HeadingLevel.HEADING_1, rtl, after: 120 }));
     else if (b.h2) children.push(para(b.h2, { heading: HeadingLevel.HEADING_2, rtl, after: 100 }));
+    else if (b.h3) children.push(para(b.h3, { heading: HeadingLevel.HEADING_3, rtl, after: 80 }));
     else if (b.p !== undefined) children.push(para(b.p, { rtl, bold: b.bold, italics: b.italics, color: b.color }));
     else if (b.bullets) for (const t of b.bullets) children.push(para(t, { rtl, bullet: true }));
     else if (b.kv) for (const [k, v] of b.kv) children.push(para([run(`${k}: `, { bold: true, rtl }), run(v, { rtl })], { rtl }));
     else if (b.table) { children.push(table(b.table.headers, b.table.rows, rtl)); children.push(para('', { after: 120 })); }
     else if (b.marked) children.push(...markedParagraphs(b.marked));
     else if (b.callout) {
-      const color = { ok: '1E6B34', warn: '8A5300', bad: '9B1C1C' }[b.callout.level] || '5B6675';
-      children.push(para(b.callout.title, { rtl, bold: true, color }));
-      if (b.callout.text) children.push(para(b.callout.text, { rtl }));
+      // a shaded box with a coloured bar on the left, as in the PDF
+      const L = { ok: ['1E6B34', 'E6F4EA'], warn: ['8A5300', 'FFF4E0'], bad: ['9B1C1C', 'FDE8E8'] }[b.callout.level] || ['5B6675', 'F1F3F5'];
+      const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+      children.push(new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: { top: none, bottom: none, right: none, insideHorizontal: none, insideVertical: none, left: { style: BorderStyle.SINGLE, size: 24, color: L[0] } },
+        rows: [new TableRow({ children: [new TableCell({
+          shading: { type: ShadingType.CLEAR, color: 'auto', fill: L[1] },
+          margins: { top: 100, bottom: 100, left: 160, right: 160 },
+          children: [para(b.callout.title, { rtl, bold: true, color: L[0], size: 24, after: b.callout.text ? 60 : 0 }), ...(b.callout.text ? [para(b.callout.text, { rtl, after: 0 })] : [])]
+        })] })]
+      }));
+      children.push(para('', { after: 120 }));
     } else if (b.scorecard) {
       const label = { ok: 'Pass', warn: 'Check', bad: 'Action', na: 'Not run' };
       children.push(table(['Module', 'Result', 'Verdict'], b.scorecard.map(r => [r.module, r.result, r.verdict || label[r.level] || '—']), rtl));
       children.push(para('', { after: 120 }));
     } else if (b.images) {
       // Images side by side (data: URLs from the browser), each scaled to fit half a page width
-      const runs = [];
-      for (const im of b.images) {
-        const m = String(im.src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/);
-        if (!m) continue;
-        const maxW = im.maxWidth || 300, w = im.width || maxW, h = im.height || maxW;
-        const k = Math.min(1, maxW / w, 260 / h);
-        runs.push(new ImageRun({ type: m[1] === 'png' ? 'png' : 'jpg', data: Buffer.from(m[2], 'base64'), transformation: { width: Math.round(w * k), height: Math.round(h * k) } }), run('    '));
-      }
-      if (runs.length) children.push(new Paragraph({ children: runs, spacing: { after: 40 } }));
+      const pics = b.images.map(im => ({ im, m: String(im.src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/) })).filter(x => x.m);
+      const maxW = pics.length > 2 ? 200 : 300;
+      const picture = ({ im, m }) => {
+        const mw = Math.min(im.maxWidth || maxW, maxW), w = im.width || mw, h = im.height || mw;
+        const k = Math.min(im.upscale ? 4 : 1, mw / w, (im.upscale ? 200 : 260) / h);
+        return new ImageRun({ type: m[1] === 'png' ? 'png' : 'jpg', data: Buffer.from(m[2], 'base64'), transformation: { width: Math.round(w * k), height: Math.round(h * k) } });
+      };
+      if (pics.length && pics.some(x => x.im.label)) {
+        // one column per picture with its label underneath (which panel / source figure / original area / copy)
+        const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
+          rows: [new TableRow({ children: pics.map(x => new TableCell({
+            width: { size: Math.floor(100 / pics.length), type: WidthType.PERCENTAGE },
+            margins: { top: 40, bottom: 40, left: 40, right: 120 },
+            children: [new Paragraph({ children: [picture(x)], spacing: { after: 40 } }), para(x.im.label || '', { size: 17, bold: true, color: x.im.tone === 'bad' ? '9B1C1C' : '0F4C5C', after: 0 })]
+          })) })]
+        }));
+      } else if (pics.length) children.push(new Paragraph({ children: pics.flatMap(x => [picture(x), run('    ')]), spacing: { after: 40 } }));
       if (b.caption) children.push(para(b.caption, { size: 17, italics: true, after: 160 }));
     }
   }
   children.push(para(`${cfg.APP_NAME} · ${cfg.APP_VENDOR} · ${new Date().toISOString().slice(0, 10)}`, { size: 16, color: '7A8794', italics: true }));
-  const doc = new Document({ title, creator: cfg.APP_VENDOR, sections: [{ properties: { page: { margin: { top: 900, bottom: 900, left: 900, right: 900 } } }, children }] });
+  // running header (report title) and footer with page numbers on every page
+  const name = title === cfg.APP_NAME ? (blocks.find(x => x.h1)?.h1 || '') : title;
+  const small = (text, o = {}) => new TextRun({ ...(text ? { text } : {}), font: 'Calibri', size: 16, color: '7A8794', ...o });
+  const headers = { default: new Header({ children: [new Paragraph({ children: [small(`${cfg.APP_NAME}  |  ${name}`)], border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'BFC8D2', space: 4 } } })] }) };
+  const footers = { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [small(`${cfg.APP_NAME} · ${cfg.APP_VENDOR} · page `), small('', { children: [PageNumber.CURRENT] }), small(' of '), small('', { children: [PageNumber.TOTAL_PAGES] })] })] }) };
+  const doc = new Document({ title, creator: cfg.APP_VENDOR, sections: [{ properties: { page: { margin: { top: 900, bottom: 900, left: 900, right: 900 } } }, headers, footers, children }] });
   return Packer.toBuffer(doc);
 }
 
@@ -278,19 +306,103 @@ function citationsBlocks(r) {
   ];
 }
 
-function papermillBlocks(r) {
-  const groups = { text: 'Text signals', references: 'Reference signals', authors: 'Author & submission signals', data: 'Data signals' };
+const PM_GROUPS = { text: 'Text signals', references: 'Reference signals', authors: 'Author & submission signals', data: 'Data signals' };
+const PM_SEV = { high: 'Strong', medium: 'Moderate', low: 'Weak' };
+const pmEvidence = e => `${e.text || ''}${e.quote ? ` — “${e.quote}”` : ''}${e.note ? ` (${e.note})` : ''}${e.link ? ` — ${e.link}` : ''}`;
+
+/** What Module 4 checked, as [check, result] rows (the same list as on screen) */
+function papermillCoverage(r) {
+  const c = r.checked || {}, d = r.details || {};
+  const no = why => `Not checked${why ? ` — ${why}` : ''}`;
+  const millRefs = (d.millJournals || []).reduce((n, j) => n + (j.refs || []).length, 0);
   return [
-    { h1: 'CONFIDENTIAL — Module 4 Paper Mill Screening' },
-    { p: r.disclaimer, italics: true },
-    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || '—'}`], ['Risk level', `${r.risk.level} (score ${r.risk.score}, ${r.risk.highSignals} strong signal(s))`], ['Date', new Date(r.createdAt).toISOString().slice(0, 10)]] },
-    ...Object.entries(groups).flatMap(([g, label]) => {
-      const list = r.signals.filter(x => x.group === g);
-      return [{ h2: label }, list.length ? { table: { headers: ['Signal', 'Weight', 'Evidence'], rows: list.map(x => [`${x.title}${x.note ? ` — ${x.note}` : ''}`, `${x.severity} (${x.weight})`, (x.evidence || []).slice(0, 12).map(e => `${e.text}${e.quote ? ` — “${e.quote}”` : ''}${e.note ? ` (${e.note})` : ''}`).join('\n')]) } } : { p: 'No signal found.' }];
-    }),
-    ...(r.guidance?.available ? [{ h2: 'Suggested handling for this risk level' }, { kv: [['Before publication', r.guidance.decision.desk], ['After publication', r.guidance.decision.post]] }, { bullets: r.guidance.evidence }] : []),
-    ...(r.decision ? [{ h2: 'Editor decision' }, { kv: [['Decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—'], ['By', `${r.decision.by}, ${r.decision.at.slice(0, 10)}`]] }] : [])
+    ['Manuscript text (tortured phrases, AI-text leftovers, template wording, methods, hidden text)', c.text ? 'Checked' : no()],
+    ['References against the scholarly databases and Retraction Watch', c.references ? `${d.references?.total || 0} checked: ${d.references?.fabricated || 0} not found, ${d.references?.retracted || 0} retracted` : no('no reference list found')],
+    ['Cited journals with 20 or more paper-mill retractions (Retraction Watch)', c.references ? `${millRefs} reference(s)` : no('no reference list found')],
+    ['Authors against Retraction Watch (by name)', c.authors ? 'Checked' : no('no author names found')],
+    ['ORCID iDs and their publications against Retraction Watch', c.orcid ? `${(d.orcids || []).length} iD(s); ${(d.orcidRetractions || []).length} retracted publication(s)` : no('no ORCID iD in the manuscript')],
+    ['E-mail addresses (free-mail, disposable, institution)', (d.emails || []).length ? `${d.emails.length} address(es)` : no('no e-mail address found')],
+    ['Suggested reviewers', c.reviewers ? 'Checked' : no('none given')],
+    ['Statistics recalculated (p-values, percentages)', c.statistics ? `${c.statistics} value(s), ${(d.statistics?.findings || []).length} inconsistent` : no('no test statistics found')],
+    ['Primer sequences (NCBI BLAST)', c.primers ? `${c.primers} found${c.primersBlasted ? `, ${c.primersBlasted} checked in BLAST` : ', BLAST not run'}` : no('no primer sequences')],
+    ['Earlier version of this manuscript (author changes)', c.previousVersion ? 'Compared' : no('no earlier version with this manuscript ID')],
+    ['Earlier PJPS submissions (text overlap)', `${c.earlierSubmissions || 0} compared`],
+    ['Image Integrity (Module 5)', c.images ? 'Included' : no('no Module 5 report attached')]
   ];
+}
+
+/**
+ * Module 4 report: case details, risk box, main reasons, signals at a glance, every signal with its numbered evidence,
+ * what was checked, suggested handling, how the level is set, and the editor's sign-off. section: number when part of
+ * the Full Screening Report.
+ */
+function papermillBlocks(r, { section = null } = {}) {
+  const signals = r.signals || [];
+  const count = (list, sev) => list.filter(x => x.severity === sev).length;
+  const sub = (no, t) => (section ? { h3: `${section}.${no} ${t}` } : { h2: t });
+  const authors = (r.meta?.authors || []).map(a => a.name).filter(Boolean);
+  const level = { HIGH: 'bad', MEDIUM: 'warn', LOW: 'ok' }[r.risk.level] || 'na';
+  const blocks = [
+    section ? { h2: `${section}. Paper mill screening (confidential)` } : { h1: 'CONFIDENTIAL — Paper Mill Screening Report (Module 4)' },
+    { p: 'Confidential — for the editor only. Not to be shared with authors or reviewers.', bold: true, color: '9B1C1C' },
+    { kv: [
+      ['Manuscript ID', r.meta?.manuscriptCode || '—'],
+      ['Title', r.meta?.title || '—'],
+      ...(authors.length ? [['Authors', authors.join(', ')]] : []),
+      ['Screened on', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : '—'],
+      ...(r.id ? [['Report no.', String(r.id)]] : [])
+    ] },
+    { callout: { level, title: `Paper mill risk: ${r.risk.level}`, text: `Score ${r.risk.score} (MEDIUM from 4, HIGH from 8 or with two strong signals) · ${count(signals, 'high')} strong, ${count(signals, 'medium')} moderate and ${count(signals, 'low')} weak signal(s). ${r.disclaimer || ''}`.trim() } }
+  ];
+  const main = signals.filter(x => x.severity !== 'low').sort((a, b) => b.weight - a.weight).slice(0, 6);
+  blocks.push(sub(1, 'Main reasons'), { bullets: main.length ? main.map(x => `${PM_SEV[x.severity]}: ${x.title}`) : ['No strong or moderate signal was found. Weak signals, if any, are listed below.'] });
+  blocks.push(sub(2, 'Signals at a glance'), { table: { headers: ['Area', 'Signals', 'Strong', 'Moderate', 'Weak', 'Weight'], rows: [
+    ...Object.entries(PM_GROUPS).map(([g, label]) => { const l = signals.filter(x => x.group === g); return [label, String(l.length), String(count(l, 'high')), String(count(l, 'medium')), String(count(l, 'low')), String(l.reduce((a, x) => a + x.weight, 0))]; }),
+    ['Total', String(signals.length), String(count(signals, 'high')), String(count(signals, 'medium')), String(count(signals, 'low')), String(r.risk.score)]
+  ] } });
+  let n = 0;
+  blocks.push(sub(3, 'Signals and evidence'));
+  for (const [g, label] of Object.entries(PM_GROUPS)) {
+    const list = signals.filter(x => x.group === g);
+    blocks.push({ p: `${label} (${list.length})`, bold: true, color: '0F4C5C' });
+    if (!list.length) { blocks.push({ p: 'No signal found.', italics: true }); continue; }
+    for (const x of list) {
+      n++;
+      blocks.push({ p: `Signal ${n}. ${x.title}`, bold: true, color: x.severity === 'high' ? '9B1C1C' : x.severity === 'medium' ? '8A5300' : '1F2A37' });
+      blocks.push({ kv: [['Strength', `${PM_SEV[x.severity]} (weight ${x.weight})`], ...(x.note ? [['What it means', x.note]] : [])] });
+      const ev = x.evidence || [];
+      if (ev.length) {
+        blocks.push({ table: { headers: ['#', 'Evidence'], rows: ev.slice(0, 15).map((e, i) => [String(i + 1), pmEvidence(e)]) } });
+        if (ev.length > 15) blocks.push({ p: `… and ${ev.length - 15} more item(s), listed in the on-screen report.`, italics: true });
+      }
+    }
+  }
+  blocks.push(sub(4, 'What was checked'), { table: { headers: ['Check', 'Result'], rows: papermillCoverage(r) } });
+  if (r.guidance?.available) blocks.push(sub(5, 'Suggested handling for this risk level'), { kv: [['Before publication', r.guidance.decision.desk], ['After publication', r.guidance.decision.post]] }, { bullets: r.guidance.evidence });
+  blocks.push(sub(6, 'How the risk level is set'), { bullets: [
+    'Every signal has a weight. The weights were set on a benchmark of 150 papers retracted for paper-mill reasons and 126 ordinary papers from the same journals and years.',
+    'The risk is LOW below a total of 4, MEDIUM from 4 (or with one strong signal) and HIGH from 8 (or with two strong signals).',
+    'Text signals alone find only a small share of known mill papers; reference, author and data signals add most of the evidence. No single signal proves that a paper came from a paper mill.',
+    'The report never rejects a paper by itself: the editor reviews the evidence and decides.'
+  ] });
+  const d = r.decision;
+  blocks.push(sub(7, 'Editor review'), { table: { headers: ['Decision', 'Notes', 'Reviewed by', 'Date'], rows: [[d?.label || '', d?.notes || '', d?.by || '', d?.at ? d.at.slice(0, 10) : '']] } });
+  return blocks;
+}
+
+// a JPEG / PNG data URL with its pixel size read from the file header: { src, width, height } or null
+function imgSize(src) {
+  const m = String(src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/);
+  if (!m) return null;
+  const b = Buffer.from(m[2], 'base64');
+  if (m[1] === 'png') return b.length > 24 ? { src, width: b.readUInt32BE(16), height: b.readUInt32BE(20) } : null;
+  for (let i = 2; i + 9 < b.length;) {
+    if (b[i] !== 0xFF) { i++; continue; }
+    const mk = b[i + 1];
+    if (mk >= 0xC0 && mk <= 0xCF && mk !== 0xC4 && mk !== 0xC8 && mk !== 0xCC) return { src, width: b.readUInt16BE(i + 7), height: b.readUInt16BE(i + 5) };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return null;
 }
 
 const IMG_KIND = { duplicate: 'Duplicated image', partial: 'Overlapping / re-used region', clone: 'Cloned area inside one panel', alteration: 'Possible alteration / manipulation', ai: 'Possible AI-generated image', chart: 'Graph / chart data duplicated' };
@@ -328,6 +440,12 @@ function imagesBlocks(r, { section = null } = {}) {
   const findings = r.findings || [];
   const refs = r.references || [];
   const panelThumb = new Map((r.panels || []).map(p => [p.id, p]));
+  // the sharpest saved picture of a panel: the 340 px view kept for matched panels, else the 150 px thumbnail
+  const view = id => {
+    const v = r.panelViews?.[id], p = panelThumb.get(id);
+    if (v?.src) return { src: v.src, width: v.w, height: v.h };
+    return p?.thumb ? { src: p.thumb, width: p.w, height: p.h } : null;
+  };
   const loc = f => (f.a.panel !== f.b.panel ? `${f.a.label} vs ${f.b.label}` : f.a.label);
   const sev = l => (l === 'high' ? 'Strong' : 'To check');
   const h = t => (section ? { h2: `${section}. ${t}` } : { h2: t });
@@ -345,6 +463,15 @@ function imagesBlocks(r, { section = null } = {}) {
       ['Commercial databases of all published figures (ImageTwin, Proofig)', r.vendor?.connected ? 'searched by the vendor' : 'not searched (figures do not leave the PJPS system)']
     ] } }
   ];
+  // the main points in plain words, strongest first
+  const key = [
+    ...findings.filter(f => f.level === 'high').map(f => `${IMG_KIND[f.kind] || f.kind}: ${loc(f)} (strong)`),
+    ...refs.filter(m => m.level === 'high').map(m => `${m.panelLabel} matches ${m.figure} of a paper in “${m.sourceName}”${m.source === 'retracted' ? ' — a paper retracted or corrected for image problems' : ''} (strong)`),
+    ...(r.earlier || []).filter(e => e.distance <= 3).map(e => `${e.panelLabel} matches a figure of earlier PJPS manuscript ${e.manuscriptCode || 'check #' + e.checkId}`),
+    ...(r.authorFigures?.matches || []).filter(m => m.distance <= 3).map(m => `${m.panelLabel || 'A panel'} matches ${m.figure} of the authors' earlier paper${m.year ? ` (${m.year})` : ''}`)
+  ];
+  const toCheck = findings.filter(f => f.level !== 'high').length + refs.filter(m => m.level !== 'high').length;
+  blocks.push({ h3: 'Key findings' }, { bullets: key.length ? [...key.slice(0, 8), ...(key.length > 8 ? [`… and ${key.length - 8} more (see below)`] : []), ...(toCheck ? [`${toCheck} further finding(s) to check by eye`] : [])] : [toCheck ? `No strong finding; ${toCheck} finding(s) to check by eye (see below).` : 'No duplicated, re-used, altered or AI-generated content was found in the figures that could be read.'] });
   // what the figures were compared with: every reference database with its size when the analysis ran
   const searchedDbs = Object.values(r.referencesSearched?.bySource || {}).filter(x => x.papers || x.panels);
   if (searchedDbs.length) {
@@ -364,25 +491,43 @@ function imagesBlocks(r, { section = null } = {}) {
       blocks.push({ kv: [['Severity', `${sev(f.level)}${marks.get(f.id) ? ` · ${label[marks.get(f.id)]}` : ''}`], ['What was found', f.description], ...(f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? [['Transformation', imgTransform(f.transform)]] : []), ['Measured agreement', imgEvidence(f)]] });
       if ((f.details || []).length) blocks.push({ bullets: f.details });
       if (f.assessment) blocks.push({ p: `Type: ${f.assessment.name} (usual risk ${f.assessment.risk}, false-alarm risk ${f.assessment.falsePositiveRisk}). Often harmless when: ${f.assessment.falseAlarms.join('; ') || '—'}.`, italics: true });
-      const pics = [{ src: f.thumbA, width: f.thumbAW, height: f.thumbAH }, ...(f.thumbB && f.b.panel !== f.a.panel ? [{ src: f.thumbB, width: f.thumbBW, height: f.thumbBH }] : [])].filter(x => x.src);
-      if (pics.length) blocks.push({ images: pics, caption: f.a.panel !== f.b.panel ? `Left: ${f.a.label} · Right: ${f.b.label}. Matched areas are outlined.` : `${f.a.label}: the two matching areas are outlined.` });
+      const two = f.a.panel !== f.b.panel;
+      const pics = [
+        f.thumbA && { src: f.thumbA, width: f.thumbAW, height: f.thumbAH, label: f.kind === 'clone' ? `Whole panel ${f.a.label}: red = original area, blue = cloned copy` : two ? `A: ${f.a.label}` : f.a.label },
+        two && f.thumbB && { src: f.thumbB, width: f.thumbBW, height: f.thumbBH, label: `B: ${f.b.label}${f.kind === 'duplicate' ? ' (copy)' : ''}` }
+      ].filter(Boolean);
+      if (pics.length) blocks.push({ images: pics, caption: f.kind === 'partial' ? 'The matching part is outlined in both panels.' : f.kind === 'clone' ? 'The original area and its copy are outlined.' : f.kind === 'alteration' ? 'The flagged area is outlined.' : '' });
+      // cloned area / overlap: both areas enlarged, original first
+      if (f.zoomA && f.zoomB) blocks.push({ images: [{ src: f.zoomA, width: f.zoomAW, height: f.zoomAH, label: f.kind === 'clone' ? 'Enlarged: original area' : `Enlarged: region in ${f.a.label}`, maxWidth: 230, upscale: true }, { src: f.zoomB, width: f.zoomBW, height: f.zoomBH, label: f.kind === 'clone' ? 'Enlarged: cloned copy' : `Enlarged: same region in ${f.b.label}`, tone: 'bad', maxWidth: 230, upscale: true }], caption: f.kind === 'clone' ? `The copy may be ${imgTransform(f.transform) === 'none (same orientation and size)' ? 'an exact copy' : imgTransform(f.transform)}.` : '' });
     });
   }
 
   if (refs.length) {
     blocks.push(h('Matches with published and reference figures'), { table: { headers: ['#', 'This manuscript', 'Database', 'Source paper', 'Figure', 'Measured agreement', 'Severity'], rows: refs.map((m, i) => [String(i + 1), m.panelLabel, m.sourceName, `${m.title || ''}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}${m.doi ? ` doi:${m.doi}` : ''}`, m.figure, `fingerprint distance ${m.distance}/64${m.correlation !== null && m.correlation !== undefined ? `, pixel correlation ${m.correlation}` : ''}`, sev(m.level)]) } });
     refs.forEach((m, i) => {
-      const mine = panelThumb.get(m.panel);
-      const pics = [mine?.thumb ? { src: mine.thumb, width: mine.w, height: mine.h } : null, m.refThumb ? { src: m.refThumb, width: m.refThumbW, height: m.refThumbH } : null].filter(Boolean);
+      const mine = view(m.panel);
+      const pics = [mine && { ...mine, label: `This manuscript: ${m.panelLabel}` }, m.refThumb && { src: m.refThumb, width: m.refThumbW, height: m.refThumbH, label: `Source figure: ${m.sourceName}, ${m.figure}`, tone: m.source === 'retracted' ? 'bad' : '' }].filter(Boolean);
       blocks.push({ p: `Match ${i + 1}: ${m.panelLabel} vs ${m.sourceName}, ${m.figure}`, bold: true, color: m.level === 'high' ? '9B1C1C' : '8A5300' });
-      blocks.push({ kv: [['Source paper', `${m.title || '—'}${m.journal ? `, ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}`], ...(m.doi ? [['DOI', `https://doi.org/${m.doi}`]] : []), ['How it matches', m.description], ...(m.note ? [['Note', m.note]] : [])] });
-      if (pics.length) blocks.push({ images: pics, caption: `Left: this manuscript (${m.panelLabel}) · Right: ${m.sourceName} (${m.figure})` });
+      blocks.push({ kv: [['Source paper', `${m.title || '—'}${m.journal ? `, ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}`], ...(m.doi ? [['DOI', `https://doi.org/${m.doi}`]] : []), ['Database', m.sourceName], ['How it matches', m.description], ['Measured agreement', `fingerprint distance ${m.distance} of 64 (0 = identical)${m.correlation !== null && m.correlation !== undefined ? `, pixel correlation ${m.correlation}` : ''}`], ...(m.note ? [['Note', m.note]] : [])] });
+      if (pics.length) blocks.push({ images: pics, caption: m.refThumb ? '' : 'The source figure is not available as a picture; open the source paper to compare.' });
     });
     blocks.push({ p: 'A match with a published figure is not always misconduct: authors may re-use their own figure with permission and a citation. A match with a paper retracted for image problems needs particular care.', italics: true });
   }
   if ((r.referenceCharts || []).length) blocks.push(h('Chart data matching published / reference charts'), { table: { headers: ['This manuscript', 'Database', 'Source paper', 'Correlation'], rows: r.referenceCharts.map(c => [c.chart, c.sourceName, `${c.title || ''}${c.doi ? ` doi:${c.doi}` : ''}`, String(c.correlation)]) } });
-  if ((r.earlier || []).length) blocks.push(h('Figures matching earlier PJPS manuscripts'), { table: { headers: ['This manuscript', 'Earlier manuscript', 'Earlier figure', 'Distance'], rows: r.earlier.map(e => [e.panelLabel, `${e.manuscriptCode || 'check #' + e.checkId}: ${e.title || ''}`, e.label || '', String(e.distance)]) } });
-  if (r.authorFigures?.matches?.length) blocks.push(h("Figures matching the authors' earlier papers"), { table: { headers: ['This manuscript', 'Earlier paper', 'Figure', 'Distance'], rows: r.authorFigures.matches.map(m => [m.panelLabel || '', `${m.article || m.pmcid}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}`, m.figure || '', String(m.distance)]) } });
+  if ((r.earlier || []).length) {
+    blocks.push(h('Figures matching earlier PJPS manuscripts'), { table: { headers: ['This manuscript', 'Earlier manuscript', 'Earlier figure', 'Distance'], rows: r.earlier.map(e => [e.panelLabel, `${e.manuscriptCode || 'check #' + e.checkId}: ${e.title || ''}`, e.label || '', String(e.distance)]) } });
+    r.earlier.slice(0, 12).forEach(e => {
+      const mine = view(e.panel), theirs = imgSize(e.thumb);
+      if (mine && theirs) blocks.push({ images: [{ ...mine, label: `This manuscript: ${e.panelLabel}` }, { ...theirs, label: `Earlier manuscript ${e.manuscriptCode || 'check #' + e.checkId}: ${e.label || ''}` }] });
+    });
+  }
+  if (r.authorFigures?.matches?.length) {
+    blocks.push(h("Figures matching the authors' earlier papers"), { table: { headers: ['This manuscript', 'Earlier paper', 'Figure', 'Distance'], rows: r.authorFigures.matches.map(m => [m.panelLabel || '', `${m.article || m.pmcid}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}`, m.figure || '', String(m.distance)]) } });
+    r.authorFigures.matches.slice(0, 12).forEach(m => {
+      const mine = view(m.panel);
+      if (mine && m.refThumb) blocks.push({ images: [{ ...mine, label: `This manuscript: ${m.panelLabel || ''}` }, { src: m.refThumb, width: m.refThumbW, height: m.refThumbH, label: `Earlier paper: ${m.figure || ''}${m.year ? ` (${m.year})` : ''}` }] });
+    });
+  }
   if (r.decision) blocks.push(h('Editor decision'), { kv: [['Decision', r.decision.label || '—'], ['Notes', r.decision.notes || '—'], ['By', `${r.decision.by}, ${r.decision.at.slice(0, 10)}`]] });
   blocks.push(h('Method and limits'), { p: r.method || '', italics: true },
     { bullets: ['“Strong” means the full-resolution picture and its fine noise pattern agree (copies of one image), not only the overall look; “To check” findings need the editor\'s judgement.', 'Two views of one microscopy field in different colour channels (a merge and its single channels) are normal practice and are never reported as strong.', 'Only figures readable from the file were analysed (see “Not readable” in the on-screen report). Image findings are indicators for the editor, not proof of misconduct; ask the authors for the original images before any decision.'] });
@@ -518,7 +663,7 @@ function screeningBlocks(r, version = 'editor') {
   } else blocks.push({ p: 'Not checked (manuscript text not available).' });
   if (version === 'editor') {
     if (r.pattern?.flags?.length) blocks.push({ h2: 'Citation pattern' }, { bullets: r.pattern.flags.map(f => f.message) });
-    if (r.papermill) blocks.push(...papermillBlocks(r.papermill).map(b => (b.h1 ? { h2: '4. Paper mill screening (confidential)' } : b)));
+    if (r.papermill) blocks.push(...papermillBlocks(r.papermill, { section: 4 }));
     // the complete Module 5 report (loaded by the export route as r.images.report), else its summary
     if (r.images?.report) blocks.push(...imagesBlocks(r.images.report, { section: 5 }));
     else blocks.push({ h2: '5. Image integrity' }, { p: r.images ? `Image risk ${r.images.summary.level}: ${r.images.summary.findings} finding(s) in ${r.images.summary.panels} panels${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0) ? `, ${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0)} figure(s) matching published PJPS / retracted-paper figures` : ''}.` : r.imagesNote || 'Not checked — upload the Word / PDF manuscript (or attach a Module 5 report) to analyse its figures.' });
@@ -530,7 +675,7 @@ function screeningBlocks(r, version = 'editor') {
 }
 
 module.exports = {
-  complianceBlocks, citationsBlocks, papermillBlocks, imagesBlocks, screeningBlocks, plagiarismBlocks, noveltyBlocks, authorIdentityBlocks,
+  complianceBlocks, citationsBlocks, papermillBlocks, papermillCoverage, imagesBlocks, screeningBlocks, plagiarismBlocks, noveltyBlocks, authorIdentityBlocks,
   buildDocx, decisionSummaryBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks,
   verifyBlocks, evidenceBlocks, assistantBlocks, journalFinderBlocks, conferenceBlocks, restyleBlocks, formatBlocks, authorBlocks
 };

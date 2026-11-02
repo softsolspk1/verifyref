@@ -43,6 +43,14 @@ module.exports = {
   CORE_API_KEY: env.CORE_API_KEY || '',
   // Google Scholar through SerpApi (serpapi.com, paid): last resort for references no free database could verify
   SERPAPI_KEY: env.SERPAPI_KEY || '',
+  // Similarity report, Turnitin's "Internet sources": exact-phrase web search with SerpApi, Brave Search (BRAVE_API_KEY)
+  // or Google Programmable Search (GOOGLE_CSE_KEY + GOOGLE_CSE_CX); WEB_PHRASES web searches per report
+  BRAVE_API_KEY: env.BRAVE_API_KEY || '',
+  GOOGLE_CSE_KEY: env.GOOGLE_CSE_KEY || '',
+  GOOGLE_CSE_CX: env.GOOGLE_CSE_CX || '',
+  WEB_PHRASES: env.WEB_PHRASES || '',
+  // OpenAlex full-text passage searches per similarity report ($0.001 each beyond OpenAlex's free daily allowance)
+  OPENALEX_PHRASES: env.OPENALEX_PHRASES || '',
   MAX_REFERENCES: parseInt(env.MAX_REFERENCES || '250', 10),
   // Uploads: files larger than Vercel's 4.5 MB request limit go from the browser straight to Cloudflare R2
   MAX_UPLOAD_MB: parseInt(env.MAX_UPLOAD_MB || '500', 10),

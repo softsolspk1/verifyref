@@ -290,11 +290,13 @@ async function previousAuthors(code, version) {
 
 /** Store the fingerprint of a screened manuscript (after the check is saved) */
 async function storeFingerprint({ checkId, userId, meta, shingles: sh, text }) {
-  // the full text goes into the PJPS text repository (R2), where later similarity checks compare with it word for word
-  if (text && checkId) await require('../corpus').addDoc({ kind: 'submission', sourceKey: `check:${checkId}`, title: meta?.title || '', meta: { manuscriptCode: meta?.manuscriptCode || null, checkId }, text }).catch(e => console.error('Repository: submission not stored:', e.message));
+  // No repository (as Turnitin's setting): the manuscript's text and abstract are never stored. Only sampled hashes of
+  // 6-word sequences are kept - they cannot be turned back into text - so Module 4 can still recognise the same
+  // manuscript submitted again; the similarity report does not compare with them.
+  void text;
   if (!sh?.length) return;
   await db.query("INSERT INTO fingerprints(check_id, user_id, manuscript_code, kind, title, data) VALUES($1, $2, $3, 'text', $4, $5)",
-    [checkId || null, userId || null, meta.manuscriptCode || null, (meta.title || '').slice(0, 300), JSON.stringify({ shingles: sh, authors: (meta.authors || []).map(a => `${a.given} ${a.family}`.trim()), abstract: (meta.abstract || '').slice(0, 1500) })]);
+    [checkId || null, userId || null, meta.manuscriptCode || null, (meta.title || '').slice(0, 300), JSON.stringify({ shingles: sh, authors: (meta.authors || []).map(a => `${a.given} ${a.family}`.trim()) })]);
 }
 
 // ------------------------------------------------------------------ scoring

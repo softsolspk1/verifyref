@@ -2,8 +2,9 @@
 // Cloudflare R2 (corpus/<kind>/<id>.txt.gz); the database holds only a catalogue (corpus_docs) and a fingerprint index
 // (corpus_hashes: sampled hashes of 5-word sequences -> document), so the documents sharing text with a manuscript are
 // found in one indexed query and only those texts are read from R2.
-// It grows with every screening: each manuscript is stored as a PJPS submission, and every source text the similarity
-// check downloads (open-access papers, abstracts, web pages) is kept, so the next check finds it without searching again.
+// It holds published texts only: every source text the similarity check downloads (open-access papers, abstracts, web
+// pages) is kept, so the next check finds it without searching again. Manuscripts are never stored (no repository, as
+// Turnitin's setting for unpublished work).
 // It can also be filled in bulk with open-access papers (scripts/corpus-load.js). Without R2 (the desktop), texts are kept
 // in the local database instead.
 const zlib = require('zlib');

@@ -92,29 +92,23 @@ function reword(p) {
   console.log(`  original-only manuscript: Similarity Index ${clean.summary.similarity}% (${clean.summary.sources} source(s))`);
   assert.ok(clean.summary.similarity <= 2, 'original text scores at most 2%');
 
-  // submitted works: the same text stored as an earlier PJPS submission (Module 4 fingerprints) is found again
-  const { shingles } = require('../src/papermill');
+  // no repository (Turnitin's setting for unpublished work): a screened manuscript is never stored, and earlier
+  // unpublished PJPS submissions are not compared - checking the same text again finds nothing new
+  const { shingles, storeFingerprint } = require('../src/papermill');
   const earlier = ['Introduction', ...ORIGINAL.slice(0, 5), 'Results', ...ORIGINAL.slice(5)].join('\n\n');
-  await db.query("INSERT INTO fingerprints(manuscript_code, kind, title, data) VALUES('PJPS-2026-0001', 'text', 'Zyxomirol patch (first submission)', $1)", [JSON.stringify({ shingles: shingles(earlier) })]);
-  const again = await checkPlagiarism({ body: earlier, meta: { title: 'Zyxomirol patch', manuscriptCode: 'PJPS-2026-0999' } });
-  console.log(`  resubmitted text: Similarity Index ${again.summary.similarity}% (submitted to PJPS ${again.summary.submissions}%) - ${again.sources[0]?.title}`);
-  assert.ok(again.summary.submissions >= 80 && again.sources[0]?.type === 'submission', 'earlier PJPS submission found as "Submitted to PJPS"');
-  const sameMs = await checkPlagiarism({ body: earlier, meta: { title: 'Zyxomirol patch', manuscriptCode: 'PJPS-2026-0001' } });
-  assert.strictEqual(sameMs.summary.submissions, 0, "a revision of the same manuscript is not counted against itself");
-
-  // PJPS text repository: the source text read in the first run was kept; a stored submission is matched in full
+  const u = await db.one("INSERT INTO users(email, name, password_hash, role, status) VALUES('ed@test.local', 'Ed', 'x', 'editor', 'active') RETURNING id");
+  const ck = await db.one("INSERT INTO checks(user_id, kind, title, result) VALUES($1, 'manuscript', 'Zyxomirol patch (first submission)', '{}') RETURNING id", [u.id]);
+  await storeFingerprint({ checkId: ck.id, userId: u.id, meta: { title: 'Zyxomirol patch (first submission)', manuscriptCode: 'PJPS-2026-0001', abstract: 'Zyxomirol patch abstract' }, shingles: shingles(earlier), text: earlier });
   const corpus = require('../src/corpus');
   const st = await corpus.stats();
+  assert.ok(!st.submission, 'the manuscript text is not stored in the repository');
+  const fp = await db.one("SELECT data FROM fingerprints WHERE manuscript_code = 'PJPS-2026-0001'");
+  assert.ok(fp && !fp.data.abstract && !JSON.stringify(fp.data).includes('Zyxomirol'), 'only hashes are kept for Module 4, no readable text');
+  const again = await checkPlagiarism({ body: earlier, meta: { title: 'Zyxomirol patch', manuscriptCode: 'PJPS-2026-0999' } });
+  console.log(`  same text checked again: Similarity Index ${again.summary.similarity}% (${again.sources.length} source(s)); repository: ${again.repository}`);
+  assert.ok(again.summary.similarity <= 2 && !again.sources.some(x => x.type === 'submission'), 'an earlier unpublished submission is not compared');
   console.log(`  repository after the runs: ${JSON.stringify(st)}`);
-  assert.ok(st.publication?.docs >= 1, 'downloaded source text kept in the repository');
-  const { storeFingerprint } = require('../src/papermill');
-  const u = await db.one("INSERT INTO users(email, name, password_hash, role, status) VALUES('ed@test.local', 'Ed', 'x', 'editor', 'active') RETURNING id");
-  const ck = await db.one("INSERT INTO checks(user_id, kind, title, result) VALUES($1, 'manuscript', 'Zyxomirol patch (stored)', '{}') RETURNING id", [u.id]);
-  await storeFingerprint({ checkId: ck.id, userId: u.id, meta: { title: 'Zyxomirol patch (stored)', manuscriptCode: 'PJPS-2026-0002' }, shingles: shingles(earlier), text: earlier });
-  const full = await checkPlagiarism({ body: earlier, meta: { title: 'Zyxomirol patch', manuscriptCode: 'PJPS-2026-0998' } });
-  const subTop = full.sources.find(x => x.type === 'submission');
-  console.log(`  resubmitted text (repository): submitted to PJPS ${full.summary.submissions}% - ${subTop?.title} [${subTop?.compared}]`);
-  assert.ok(full.summary.submissions >= 98 && /repository/.test(subTop?.compared || ''), 'stored submission found word for word in the repository');
+  assert.ok(st.publication?.docs >= 1, 'downloaded published source text kept in the repository');
   const again2 = await checkPlagiarism({ body: manuscript, meta: { title: 'A guar and silicone matrix patch for zyxomirol: permeation across goat skin' } });
   // the copied paper now comes from the repository (no search needed) with the same matched text; the original text, now a
   // stored submission, is credited to that submission

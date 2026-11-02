@@ -609,8 +609,8 @@ function plagiarismBlocks(pl) {
     return [...blocks, { p: 'Report made with the earlier method; run the screening again for the full similarity report.', italics: true }];
   }
   const TYPE = { internet: 'Internet source', publication: 'Publication', submission: 'Submitted to PJPS' };
-  blocks.push({ kv: [['Similarity Index', pt(s.similarity)], ['Internet sources', pt(s.internet)], ['Publications', pt(s.publications)], ['Submitted to PJPS', pt(s.submissions)],
-    ['Words compared', s.words.toLocaleString()], ['Filters', `bibliography ${pl.filters.bibliography}; quotes ${pl.filters.quotes}; small matches ${pl.filters.smallMatches}`]] });
+  blocks.push({ kv: [['Similarity Index', pt(s.similarity)], ['Internet sources', pt(s.internet)], ['Publications', pt(s.publications)], ...(pl.repository ? [] : [['Submitted to PJPS', pt(s.submissions)]]),
+    ['Words compared', s.words.toLocaleString()], ['Filters', `bibliography ${pl.filters.bibliography}; quotes ${pl.filters.quotes}; small matches ${pl.filters.smallMatches}`], ...(pl.repository ? [['Repository', pl.repository]] : [])] });
   if (pl.sources.length) {
     blocks.push({ p: 'Primary sources', bold: true });
     blocks.push({ table: { headers: ['No.', 'Match', 'Source', 'Type'], rows: pl.sources.map(x => [String(x.no), pt(x.percent), `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : x.url && !x.checkId ? ` (${x.url})` : ''}`, TYPE[x.type] || x.type]) } });

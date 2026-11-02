@@ -195,9 +195,9 @@ function plagiarismTab(body, pl) {
       <div class="card-head"><h3>Originality report — Similarity Index</h3>${badge(`${s.sources} primary source(s)`, s.sources ? 'warn' : 'good')}</div>
       <div class="row" style="gap:24px;align-items:center;flex-wrap:wrap">
         <div class="risk-banner risk-${tone}" style="margin:0;min-width:180px"><div class="risk-level">${pctText(s.similarity)}</div><div><b>Similarity Index</b><div class="muted">${s.words.toLocaleString()} words compared</div></div></div>
-        <div class="kpis" style="flex:1;margin:0">${typeBox('Internet sources', s.internet)}${typeBox('Publications', s.publications)}${typeBox('Submitted to PJPS', s.submissions)}</div>
+        <div class="kpis" style="flex:1;margin:0">${typeBox('Internet sources', s.internet)}${typeBox('Publications', s.publications)}${pl.repository ? '' : typeBox('Submitted to PJPS', s.submissions)}</div>
       </div>
-      <p class="muted" style="margin:10px 0 0">Filters: bibliography ${esc(pl.filters.bibliography)} · quotes ${esc(pl.filters.quotes)} · small matches ${esc(pl.filters.smallMatches)}</p>
+      <p class="muted" style="margin:10px 0 0">Filters: bibliography ${esc(pl.filters.bibliography)} · quotes ${esc(pl.filters.quotes)} · small matches ${esc(pl.filters.smallMatches)}${pl.repository ? ' · <b>No repository</b>: this manuscript was not stored' : ''}</p>
     </div>
     ${pl.earlierSubmissions?.length ? `<div class="alert alert-bad"><b>Earlier PJPS submission with the same text (Module 4):</b> ${pl.earlierSubmissions.map(esc).join('; ')}</div>` : ''}
     <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:16px;align-items:start">
@@ -216,7 +216,8 @@ function plagiarismTab(body, pl) {
       </div>
     </div>
     <div class="card"><h3>What was searched</h3>
-      <p class="muted" style="margin-top:0">${pl.checked.passages} passages searched (${pl.checked.queries} searches${pl.checked.webSearches ? `, ${pl.checked.webSearches} on the web` : ''}), ${pl.checked.candidates} candidate sources, ${pl.checked.sourcesCompared} compared in full; ${pl.checked.submissionsCompared} earlier PJPS submissions compared.${pl.checked.searchErrors ? ` ${pl.checked.searchErrors} search(es) failed.` : ''}</p>
+      <p class="muted" style="margin-top:0">${pl.checked.passages} passages searched${pl.checked.passagesFound !== undefined ? ` (${pl.checked.passagesFound} found elsewhere)` : ''}: ${pl.checked.queries} literature searches${pl.checked.openalexSearches ? `, ${pl.checked.openalexSearches} in publisher full texts (OpenAlex)` : ''}${pl.checked.webSearches ? `, ${pl.checked.webSearches} on the web` : ''}; ${pl.checked.neighbours ? `${pl.checked.neighbours} papers on the same subject read in full; ` : ''}${pl.checked.candidates} candidate sources, ${pl.checked.sourcesCompared} compared in full.${pl.repository ? '' : ` ${pl.checked.submissionsCompared} earlier PJPS submissions compared.`}${pl.checked.searchErrors ? ` ${pl.checked.searchErrors} search(es) failed.` : ''}</p>
+      ${pl.repository ? `<p class="muted"><b>Repository:</b> ${esc(pl.repository)}.</p>` : ''}
       <p class="muted">Repositories: ${pl.checked.databases.map(esc).join('; ')}.</p>
       <p class="muted">${esc(pl.method)}</p><p class="muted"><b>Coverage:</b> ${esc(pl.coverage)}</p></div>`;
   // clicking a source highlights only its matches in the text and scrolls to the first one

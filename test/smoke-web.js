@@ -171,6 +171,20 @@ const assert = require('assert');
   // Module 1 settings
   r = await call('admin', 'PUT', '/api/settings/age-rule', { years: 5, minShare: 40 });
   assert.ok(r.data.success && r.data.rule.minShare === 40);
+
+  // Re-check of a Full Screening Report: complete report (from the manuscript text kept in the report) or references only
+  const D = require('../src/db');
+  const adminId = (await D.one("SELECT id FROM users WHERE email = 'admin@test.local'")).id;
+  const fullResult = { kind: 'manuscript', meta: { title: 'Recheck test' }, screening: {}, references: { results: [{ index: 1, raw: 'Khan A (2019). A title. Pak J Pharm Sci 32: 1-5.' }] }, plagiarism: { document: [{ t: 'Words of the manuscript body. '.repeat(60), s: 0 }] } };
+  const mkCheck = async res => (await D.one("INSERT INTO checks(user_id, kind, title, result) VALUES($1, 'manuscript', 'Recheck test', $2) RETURNING id", [adminId, JSON.stringify(res)])).id;
+  const withText = await mkCheck(fullResult), withoutText = await mkCheck({ ...fullResult, plagiarism: null });
+  r = await call('admin', 'POST', `/api/checks/${withText}/recheck`, { scope: 'full' });
+  assert.ok(r.data.success && r.data.scope === 'full' && r.data.jobId, 'complete re-check started');
+  r = await call('admin', 'POST', `/api/checks/${withoutText}/recheck`, { scope: 'full' });
+  assert.ok(r.status === 409 && /Upload the manuscript again/.test(r.data.message), 'no kept text: asks for the file');
+  r = await call('admin', 'POST', `/api/checks/${withText}/recheck`, { scope: 'references' });
+  assert.ok(r.data.success && r.data.scope === 'references', 'references-only re-check started');
+  console.log('  ✓ Re-check: complete report or references only');
   console.log('web smoke test: all assertions passed');
   process.exit(0);
 })().catch(e => { console.error('FAILED:', e); process.exit(1); });

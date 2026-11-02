@@ -1,5 +1,5 @@
 // views/report.js - renders a check result: References, Citations, Journals, Citation pattern, Editor report
-import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, runJob, hasModule, datasetBanner } from '../core.js';
+import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, runJob, hasModule, datasetBanner, modal } from '../core.js';
 import { decisionCard } from './decision.js';
 
 export async function renderSavedReport(view, id) {
@@ -128,18 +128,26 @@ export function renderReport(el, result, { kind } = {}) {
     $$('[data-screen]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/screening?version=${b.dataset.screen}`).catch(e => toast(e.message, 'error'))));
   }
   const rc = $('#recheck', el);
-  if (rc) rc.onclick = async () => {
+  const recheck = async scope => {
     rc.disabled = true;
     try {
-      const { jobId } = await api(`/api/checks/${id}/recheck`, { body: {} });
+      const { jobId } = await api(`/api/checks/${id}/recheck`, { body: { scope } });
       const holder = document.createElement('div');
       el.prepend(holder);
-      const fresh = await runJob(jobId, holder, 'Re-checking the reference list');
+      const fresh = await runJob(jobId, holder, scope === 'full' ? 'Running the complete Full Screening Report again' : 'Re-checking the reference list');
       holder.remove();
       location.hash = `#/check/${fresh.id}`;
-      toast(fresh.changes?.rows?.length ? `${fresh.changes.rows.length} change(s) since the last run` : 'No changes since the last run');
+      toast(fresh.changes?.rows?.length ? `${fresh.changes.rows.length} reference change(s) since the last run` : 'No reference changes since the last run');
     } catch (e) { toast(e.message, 'error'); rc.disabled = false; }
   };
+  // a Full Screening Report asks what to run again: the complete report, or the reference list only
+  if (rc) rc.onclick = () => (!result.screening && (kind || result.kind) !== 'manuscript' ? recheck('references') : modal(`
+    <div class="card-head"><h2>Re-check</h2><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    <p class="muted" style="margin-top:0">What should be run again?</p>
+    <div class="grid grid-2">
+      <button class="btn" data-scope="full" style="text-align:left;padding:14px;height:auto;white-space:normal"><b>Complete report</b><div class="muted" style="font-weight:400;margin-top:4px">All modules again on the same manuscript: references, citations, PJPS style, paper mill, similarity and the rest. The figures keep their Module 5 report. Takes several minutes.</div></button>
+      <button class="btn" data-scope="references" style="text-align:left;padding:14px;height:auto;white-space:normal"><b>References only</b><div class="muted" style="font-weight:400;margin-top:4px">The reference list against the databases again, showing only what changed (new retractions, corrected records).</div></button>
+    </div>`, { onMount(m, close) { $$('[data-scope]', m).forEach(b => (b.onclick = () => { close(); recheck(b.dataset.scope); })); } }));
   const ia = $('#issue-assign', el);
   if (ia) ia.onchange = () => api(`/api/checks/${id}`, { method: 'PATCH', body: { issueId: ia.value || null } }).then(() => toast(ia.value ? 'Added to issue' : 'Removed from issue')).catch(e => toast(e.message, 'error'));
 }

@@ -125,8 +125,22 @@ router.post('/checks/:id/recheck', user, wrap(async (req, res) => {
   if (!c) return;
   if (!['references', 'manuscript'].includes(c.row.kind)) return res.status(400).json({ success: false, message: 'Only bibliography checks can be re-checked.' });
   const refs = c.result.references?.results || [];
-  const job = await createJob(req.user.id, 'check', { kind: 'references', referencesText: refs.map(r => r.raw).join('\n'), meta: { ...c.result.meta, version: null }, recheckOf: c.row.id, issueId: c.row.issue_id });
-  res.json({ success: true, jobId: job.id });
+  const referencesText = refs.map(r => r.raw).join('\n');
+  // scope 'full': the complete Full Screening Report again, from the manuscript text kept in the saved report (the
+  // highlighted text of its similarity report) and the same reference list; the figures keep their Module 5 report
+  if (req.body?.scope === 'full') {
+    if (c.row.kind !== 'manuscript') return res.status(400).json({ success: false, message: 'Only a Full Screening Report can be run again in full.' });
+    const bodyText = (c.result.plagiarism?.document || []).map(d => d.t).join('');
+    if (bodyText.split(/\s+/).length < 200) return res.status(409).json({ success: false, needsFile: true, message: 'This report does not keep the manuscript text, so it cannot be run again in full. Upload the manuscript again on the Full Screening page.' });
+    const job = await createJob(req.user.id, 'check', {
+      kind: 'manuscript', bodyText, referencesText, meta: { ...c.result.meta, version: null },
+      imagesCheckId: c.result.images?.checkId || null, imagesHandled: true, imagesNote: c.result.images?.checkId ? null : c.result.imagesNote || null,
+      recheckOf: c.row.id, issueId: c.row.issue_id
+    });
+    return res.json({ success: true, jobId: job.id, scope: 'full' });
+  }
+  const job = await createJob(req.user.id, 'check', { kind: 'references', referencesText, meta: { ...c.result.meta, version: null }, recheckOf: c.row.id, issueId: c.row.issue_id });
+  res.json({ success: true, jobId: job.id, scope: 'references' });
 }));
 registerQueued('check', runAndSaveCheck);
 

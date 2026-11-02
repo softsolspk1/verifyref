@@ -169,11 +169,26 @@ function reviewersBlocks(res) {
   ];
 }
 
+/** Module 1 reference quality (RefGuard style): four scores, comparison with earlier PJPS submissions, paratexts */
+function referenceQualityBlocks(rq) {
+  if (!rq?.scores) return [];
+  const c = rq.comparison || {};
+  const rows = [['quality', 'Quality'], ['impact', 'Impact'], ['recency', 'Recency'], ['diversity', 'Diversity']].map(([k, l]) => [l, rq.scores[k]?.score ?? '—', c.available && c[k]?.average !== null ? `${c[k].average} (${c[k].difference >= 0 ? '+' : ''}${c[k].difference})` : '—', rq.scores[k]?.facts || ''].map(String));
+  return [
+    { h2: 'Reference quality' },
+    { table: { headers: ['Score (0–100)', 'This manuscript', 'PJPS average (difference)', 'Based on'], rows } },
+    { p: c.available ? `Averages over ${c.n} manuscripts screened earlier in this system.` : `The comparison with earlier PJPS submissions appears once 10 manuscripts have been screened (${c.n || 0} so far).`, italics: true },
+    ...(rq.paratexts?.length ? [{ h3: 'References that are not research papers' }, { table: { headers: ['#', 'Type', 'Matched record', 'How it was recognised'], rows: rq.paratexts.map(p => [String(p.index), p.label, p.title, p.basis]) } }] : [])
+  ];
+}
+
 function referenceReportBlocks(result) {
   const s = result.references.summary;
   return [
     { h1: 'Reference Check Report' },
     { kv: [['Manuscript', result.meta?.title || '—'], ['References', String(s.total)], ['Verified', String(s.verified)], ['Miscited', String(s.miscited)], ['Unverified', String(s.unverified)], ['Suspicious', String(s.suspicious)], ['Retracted', String(s.retracted)]] },
+    ...referenceQualityBlocks(result.indicators?.referenceQuality),
+    { h2: 'Every reference' },
     { table: { headers: ['#', 'Status', 'Confidence', 'Reference', 'Finding', 'Suggested correction'], rows: result.references.results.map(r => [String(r.index), r.statusLabel, String(r.confidence), r.raw, [r.reason, ...r.issues.filter(i => i.severity !== 'info').map(i => i.message)].filter((v, i, a) => a.indexOf(v) === i).join('; '), r.suggestion || '']) } }
   ];
 }
@@ -671,6 +686,7 @@ function screeningBlocks(r, version = 'editor') {
   blocks.push({ h2: '1. References' }, { kv: [['Checked', String(s.total)], ['Verified', String(s.verified)], ['Wrong details', String(s.miscited)], ['Not found in any database', String(s.suspicious)], ['Retracted', String(s.retracted)]] });
   if (problemRefs.length) blocks.push({ table: { headers: ['#', 'Reference', 'Problem', 'Suggested correction'], rows: problemRefs.map(x => [String(x.index), x.raw, `${x.statusLabel}: ${x.reason}`, x.suggestion || '']) } });
   if (r.indicators?.flags?.length) blocks.push({ bullets: r.indicators.flags.map(f => f.message) });
+  blocks.push(...referenceQualityBlocks(r.indicators?.referenceQuality).map(b => (b.h2 ? { h3: b.h2 } : b.h3 ? { p: b.h3, bold: true } : b)));
   if (r.compliance) blocks.push(...complianceBlocks(r.compliance).map(b => (b.h2 ? { h2: '2. Reference style (PJPS)' } : b)));
   blocks.push({ h2: '3. In-text citations' });
   if (c) {
@@ -698,6 +714,6 @@ function screeningBlocks(r, version = 'editor') {
 
 module.exports = {
   complianceBlocks, citationsBlocks, papermillBlocks, papermillCoverage, imagesBlocks, screeningBlocks, plagiarismBlocks, noveltyBlocks, authorIdentityBlocks,
-  buildDocx, decisionSummaryBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks,
+  buildDocx, decisionSummaryBlocks, referenceQualityBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks,
   verifyBlocks, evidenceBlocks, assistantBlocks, journalFinderBlocks, conferenceBlocks, restyleBlocks, formatBlocks, authorBlocks
 };

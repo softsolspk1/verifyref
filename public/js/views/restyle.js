@@ -1,6 +1,6 @@
 // views/restyle.js - Module 2: PJPS style compliance check (rule by rule) and converter to PJPS format (Word document
 // with Track Changes, or a pasted list). Other styles remain available in the style picker.
-import { api, esc, $, $$, toast, dropzone, runJob, download, downloadJobFile, copyText, badge, ICONS } from '../core.js';
+import { api, esc, $, $$, toast, dropzone, runJob, download, downloadJobFile, copyText, badge, ICONS, styleOptions, state } from '../core.js';
 
 const STATUS = { matched: ['Matched record', 'good'], parsed: ['From the text as written', 'warn'], kept: ['Unchanged — check manually', 'bad'] };
 
@@ -22,7 +22,7 @@ export function renderRestyle(view) {
           <div class="field"><label for="list">References, one per line</label><textarea id="list" class="mono" rows="10" placeholder="Khan MA, Siddiqui A (2021). Antioxidant activity of … Pak J Pharm Sci 34(2): 455-462."></textarea></div>
         </div>
         <div class="grid grid-2" style="margin-top:14px">
-          <div class="field"><label>Correct to</label><input type="hidden" id="style" value="pjps"><div><b>PJPS reference style</b></div><div class="hint">Every reference and in-text citation is checked against the PJPS house style and corrected to it.</div></div>
+          <div class="field"><label for="style">Correct to</label><select id="style">${styleOptions('pjps')}</select><div class="hint" id="style-hint">Every reference and in-text citation is checked against the PJPS house style and corrected to it.</div></div>
           <div class="field"><label>Options</label>
             <label class="check"><input type="checkbox" id="track" checked> Show the changes in the Word file as Track Changes</label>
             <label class="check"><input type="checkbox" id="lookup" checked> Complete missing DOI, issue and pages from registered records</label>
@@ -32,9 +32,13 @@ export function renderRestyle(view) {
         <div class="field"><label for="m-code">Manuscript ID <span class="muted">(optional)</span></label><input id="m-code" type="text" placeholder="e.g. PJPS-2026-0412" style="max-width:320px"></div>
         <button class="btn btn-primary" id="run">Check &amp; convert</button>
       </div>
+      <div id="journal-styles"></div>
     </div>
     <div id="progress"></div><div id="result"></div>`;
 
+  const hint = () => { const v = $('#style', view).value; $('#style-hint', view).textContent = v === 'pjps' ? 'Every reference and in-text citation is checked against the PJPS house style and corrected to it.' : 'The compliance check stays against the PJPS house style; the conversion goes to the style chosen here.'; };
+  $('#style', view).onchange = hint;
+  journalStyles($('#journal-styles', view), () => { const v = $('#style', view).value; $('#style', view).innerHTML = styleOptions(v); hint(); });
   $$('.seg button', view).forEach(b => (b.onclick = () => {
     mode = b.dataset.mode;
     $$('.seg button', view).forEach(x => x.classList.toggle('active', x === b));
@@ -136,4 +140,47 @@ export function renderRestyleResult(el, r, { jobId, again } = {}) {
     $$('[data-f]', el).forEach(x => x.classList.toggle('active', x === b));
     $$('.entry', el).forEach(x => (x.hidden = b.dataset.f !== 'all' && x.dataset.s !== b.dataset.f));
   }));
+}
+
+// ------------------------------------------------------------------ journal styles (CSL)
+
+/** Find a journal's style by name in the Zotero Style Repository, upload a .csl file, remove installed styles */
+function journalStyles(el, changed) {
+  const installed = () => (state.app?.styles || []).filter(s => s.custom);
+  const refresh = styles => { if (styles && state.app) state.app.styles = styles; paint(); changed(); };
+  const paint = () => {
+    const list = installed();
+    el.innerHTML = `<div class="card"><div class="card-head"><h2>Journal styles</h2>${badge(`${list.length} installed`, list.length ? 'info' : 'neutral')}</div>
+      <p class="muted" style="margin-top:0">Add the official style of any journal. Styles are Citation Style Language (CSL) files, the format Zotero and Mendeley use; references are then formatted exactly as the style file says.</p>
+      <div class="grid grid-2">
+        <div class="field"><label for="js-q">Find by journal name</label><div class="row"><input id="js-q" type="text" placeholder="e.g. Journal of Ethnopharmacology" style="flex:1"><button class="btn btn-sm" id="js-find">Search</button></div><div class="hint">Searches about 10,900 journal styles in the Zotero Style Repository.</div></div>
+        <div class="field"><label for="js-file">Or upload a .csl file</label><input id="js-file" type="file" accept=".csl,.xml"></div>
+      </div>
+      <div id="js-results"></div>
+      ${list.length ? `<div class="table-wrap" style="margin-top:10px"><table class="t"><tr><th>Installed style</th><th>Type</th><th>Source</th><th></th></tr>${list.map(s => `<tr><td>${esc(s.label.replace(/ \(CSL\)$/, ''))}</td><td>${esc(s.kind)}</td><td class="muted">${esc(s.source || '')}${s.by ? ` · ${esc(s.by)}` : ''}</td><td><button class="btn btn-sm btn-ghost btn-danger" data-rm="${esc(s.key)}">Remove</button></td></tr>`).join('')}</table></div>` : ''}</div>`;
+    const find = async () => {
+      const q = $('#js-q', el).value.trim();
+      if (q.length < 3) return toast('Type at least three letters of the journal name.', 'error');
+      $('#js-results', el).innerHTML = '<p class="muted">Searching…</p>';
+      try {
+        const { results } = await api(`/api/styles/find?q=${encodeURIComponent(q)}`);
+        $('#js-results', el).innerHTML = results.length ? `<div class="table-wrap"><table class="t">${results.map(r => `<tr><td><b>${esc(r.title)}</b>${r.short ? ` <span class="muted">(${esc(r.short)})</span>` : ''}<div class="muted">${esc(r.format)}${r.dependent ? ' · uses the style of its publisher' : ''}${r.fields.length ? ` · ${esc(r.fields.join(', '))}` : ''}</div></td><td style="width:1%"><button class="btn btn-sm btn-primary" data-add="${esc(r.name)}">Add</button></td></tr>`).join('')}</table></div>` : '<p class="muted">No journal style with that name. Try a shorter name, or upload the journal\'s .csl file.</p>';
+        $$('[data-add]', el).forEach(b => (b.onclick = async () => {
+          b.disabled = true;
+          try { const out = await api('/api/styles/install', { body: { name: b.dataset.add } }); toast(`${out.title} added`); refresh(out.styles); } catch (e) { toast(e.message, 'error'); b.disabled = false; }
+        }));
+      } catch (e) { $('#js-results', el).innerHTML = ''; toast(e.message, 'error'); }
+    };
+    $('#js-find', el).onclick = find;
+    $('#js-q', el).onkeydown = e => { if (e.key === 'Enter') find(); };
+    $('#js-file', el).onchange = async e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      try { const out = await api('/api/styles/csl', { body: { xml: await f.text() } }); toast(`${out.title} added`); refresh(out.styles); } catch (err) { toast(err.message, 'error'); }
+    };
+    $$('[data-rm]', el).forEach(b => (b.onclick = async () => {
+      try { const out = await api(`/api/styles/${encodeURIComponent(b.dataset.rm)}`, { method: 'DELETE' }); refresh(out.styles); } catch (e) { toast(e.message, 'error'); }
+    }));
+  };
+  paint();
 }

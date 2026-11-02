@@ -563,7 +563,7 @@ async function checkReferences(refs, opts = {}) {
         issn: rec.issn, volume: rec.volume, issue: rec.issue, pages: rec.pages, doi: rec.doi, url: rec.url, type: rec.type, publisher: rec.publisher
       } : null,
       openalex: v.openalexRecord ? {
-        id: v.openalexRecord.openalexId, journalId: v.openalexRecord.journalId, topics: v.openalexRecord.topics, keywords: v.openalexRecord.keywords,
+        id: v.openalexRecord.openalexId, journalId: v.openalexRecord.journalId, topics: v.openalexRecord.topics, keywords: v.openalexRecord.keywords, workType: v.openalexRecord.type || null, citedBy: Number.isFinite(v.openalexRecord.citedBy) ? v.openalexRecord.citedBy : null,
         abstract: (v.openalexRecord.abstract || '').slice(0, 1500), authors: v.openalexRecord.authors.slice(0, 100).map(a => ({ name: `${a.given} ${a.family}`.trim(), id: a.openalexId, orcid: a.orcid, institutions: a.institutions }))
       } : null,
       closest: v.closest ? { source: v.closest.source, title: v.closest.title, year: v.closest.year, journal: v.closest.journal, doi: v.closest.doi, url: v.closest.url } : null,

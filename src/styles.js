@@ -319,8 +319,11 @@ S.pjps = {
 
 const STYLE_LIST = Object.entries(S).map(([key, s]) => ({ key, label: s.label, kind: s.kind }));
 const ALIASES = { apa: 'apa7', chicago: 'chicago-ad', mla: 'mla9', cse: 'cse-cs', elsevier: 'elsevier-harvard' };
-const getStyle = key => S[ALIASES[key] || key] || S.pjps;
-const styleKey = key => (S[ALIASES[key] || key] ? ALIASES[key] || key : 'pjps');
+// journal styles installed from CSL files ("csl:<name>", src/csl.js) are offered next to the built-in ones
+const cslStyle = key => (String(key || '').startsWith('csl:') ? require('./csl').get(key) : null);
+const getStyle = key => S[ALIASES[key] || key] || cslStyle(key) || S.pjps;
+const styleKey = key => (S[ALIASES[key] || key] ? ALIASES[key] || key : cslStyle(key) ? key : 'pjps');
+const styleList = () => [...STYLE_LIST, ...require('./csl').list()];
 
 // ------------------------------------------------------------------ bibliography entries
 
@@ -399,9 +402,11 @@ function inText(style, { nums = [], records = [] }) {
     if (c.italicNum) return [{ t: '(' }, { t: compressNumbers(nums), i: true }, { t: ')' }];
     return [{ t: `${c.open || '['}${compressNumbers(nums)}${c.close || ']'}` }];
   }
+  // a CSL style writes its own author-date citation (citeproc-js)
+  if (st.csl && st.citation && records.length) { try { const segs = st.citation(records); if (segs.length) return segs; } catch (e) { /* fall back below */ } }
   // author-date (note styles fall back to author-date when no notes are produced)
   const parts = records.map(r => (c.yearSep === null ? authorLabel(r, c) : `${authorLabel(r, c)}${c.yearSep ?? ', '}${yr(r)}`));
   return [{ t: `(${parts.join('; ')})` }];
 }
 
-module.exports = { STYLES: S, STYLE_LIST, getStyle, styleKey, entry, formatText, toText, toHtml, orderBibliography, inText, compressNumbers, firstFamily, authorLabel, isBook, tidy };
+module.exports = { STYLES: S, STYLE_LIST, styleList, getStyle, styleKey, entry, formatText, toText, toHtml, orderBibliography, inText, compressNumbers, firstFamily, authorLabel, isBook, tidy };

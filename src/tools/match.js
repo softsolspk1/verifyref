@@ -57,6 +57,25 @@ function negatedClaimTerm(passageText, claimTerms) {
   return null;
 }
 
+// direction of an effect, word by word (stems as written in text, lower case)
+const DIR_UP = /^(increas|elevat|enhanc|improv|rais|higher|greater|promot|stimulat|upregulat|up-regulat|induc|augment|boost|activat|accelerat|facilitat|potentiat|amplif|exacerbat|worsen|gain|overexpress)/;
+const DIR_DOWN = /^(decreas|reduc|lower|diminish|declin|inhibit|suppress|attenuat|downregulat|down-regulat|impair|imped|prevent|block|abolish|abrogat|delay|deactivat|antagoni|loss|lose|lost|ameliorat|alleviat|protect)/;
+const dirOf = w => (DIR_UP.test(w) ? 1 : DIR_DOWN.test(w) ? -1 : 0);
+
+/**
+ * Direction of the effect stated about the terms a claim and a passage share: the direction words within four words of
+ * each shared term (left out: terms that are themselves direction words). 1 up, -1 down, 0 none or mixed.
+ */
+function directionAround(text, shared) {
+  const words = normalize(text).split(' ');
+  let up = 0, down = 0;
+  words.forEach((w, i) => {
+    if (!shared.has(stem(w)) || dirOf(w)) return;
+    for (const x of words.slice(Math.max(0, i - 4), i + 5)) { const d = dirOf(x); if (d > 0) up++; else if (d < 0) down++; }
+  });
+  return up > down ? 1 : down > up ? -1 : 0;
+}
+
 function polarity(text) {
   const up = UP.test(text), down = DOWN.test(text);
   return { up: up && !down, down: down && !up, neg: NEG.test(text) };
@@ -148,8 +167,12 @@ function scorePassage(rawClaim, passage, idf) {
   const cn = numbersIn(claim), pn = numbersIn(passage.text);
   const numbersFound = cn.filter(n => pn.includes(n));
   const cp = polarity(claim), pp = polarity(passage.text);
+  // the effect around the shared terms points the other way ("X impedes Y" / "X promotes Y")
+  const shared = new Set(ct.filter(t => pt.has(t)));
+  const dc = coverage > 0.5 ? directionAround(claim, shared) : 0, dp = dc ? directionAround(ptext, shared) : 0;
   const conflict = (cp.up && pp.down) || (cp.down && pp.up) || (cp.neg !== pp.neg && /signific|effect|differ|associat|chang/i.test(claim) && coverage > 0.4)
-    || (!cp.neg && coverage > 0.4 && !!negatedClaimTerm(passage.text, ctl));
+    || (!cp.neg && coverage > 0.4 && !!negatedClaimTerm(passage.text, ctl))
+    || (dc && dp && dc !== dp);
   let score = coverage * 0.8 + bigram * 0.2;
   if (cn.length) score *= 0.75 + 0.25 * (numbersFound.length / cn.length);
   if (conflict) score *= 0.6;

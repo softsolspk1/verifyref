@@ -63,3 +63,18 @@ spliced from clean blots (normal lane edges look the same): they stay "to check"
 - End-to-end check on real data: `node test/images-report-e2e.mjs` (a figure of a paper retracted for image problems,
   re-used mirrored in a test manuscript, must give a "Strong" internal duplicate, the retracted source from the reference
   database, and the Word / PDF report with the image pairs).
+
+## Splicing: seam measures tried on 2026-11-02 (not adopted)
+
+Three hand-made measures of a joined blot were tested on BioFors CSTD, split by paper into a tuning half (101 spliced,
+1,025 clean blots) and a test half (80 spliced, 490 clean blots):
+
+| Measure | Test half: spliced found | Test half: clean blots flagged |
+|---|---|---|
+| Straight seam (column jump vs neighbouring columns, ratio 3+) | 65 / 80 | 393 / 490 |
+| Change of fine grain (noise) across a column, ratio 2+ | 57 / 80 | 361 / 490 |
+| Seam in background-only rows (no band near the column), ratio 6+ | 12 / 80 | 78 / 490 |
+
+None separates spliced from clean blots: ordinary lane edges and blot borders produce the same patterns. The existing
+detector (background step of 12+ grey levels, 15 / 124 found, 10 / 151 clean blots flagged) was kept. Better splice
+detection needs a model trained on annotated splices; it is not reachable with these measures.

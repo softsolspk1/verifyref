@@ -130,7 +130,7 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
     summary: { claims: out.length, citations: all.length, full: count('full'), partial: count('partial'), unsupported: count('unsupported'), couldNotVerify: count('could-not-verify') },
     references: { summary: refCheck.summary, results: results.map(r => ({ index: r.index, raw: r.raw, status: r.status, statusLabel: r.statusLabel, tone: r.tone, reason: r.reason, retraction: r.retraction, record: r.record ? { title: r.record.title, doi: r.record.doi, year: r.record.year, journal: r.record.journal } : null })) },
     files: { linked: [...linked.entries()].map(([refIndex, f]) => ({ name: f.name, refIndex })), unlinked, errors: uploads.filter(u => u.error).map(u => ({ name: u.name, error: u.error })) },
-    method: 'Automated comparison on this server: claim terms (weighted by rarity), figures and direction of effect are matched against the source passage. Verdicts are decision support — read the quoted evidence.'
+    method: 'Automated comparison on this server: claim terms (weighted by rarity), figures, negation and the direction of the effect stated about the shared terms are matched against the source passage. Source text, in this order: an uploaded file, open-access full text (Europe PMC, Unpaywall, OpenAlex, CORE, Semantic Scholar, bioRxiv / medRxiv, arXiv), then the abstract. Measured on SciFact expert-labelled claims (abstracts only): 2% of claims without evidence and 13% of contradicted claims pass as Full support, so verdicts are decision support — read the quoted evidence.'
   };
 }
 

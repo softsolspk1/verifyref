@@ -71,3 +71,24 @@ Consequences in Module 4: one or two Scopus-discontinued references carry no wei
 weigh 1; a hijacked-clone match by journal name only carries no weight ("check that the article comes from the genuine
 journal") - only a reference link on a clone website counts as a hijacked-journal reference; citejacked references stay a
 signal (the screener's own detector) although none occurred in this sample.
+
+## Candidate signals screened on 2026-11-02 (none adopted)
+
+The 276 benchmark papers (150 paper-mill retractions, 126 ordinary papers from the same journals and years) were split
+in two halves by PMC number; a signal had to separate the groups in both halves.
+
+| Candidate | Half A: mill / control | Half B: mill / control | Decision |
+|---|---|---|---|
+| Fewer than 30 references | 35/70 / 8/64 | 31/80 / 16/62 | not stable across halves |
+| Fewer than 30 references and no ORCID iD | 23/70 / 6/64 | 22/80 / 9/62 | not used: both are common in ordinary PJPS submissions, so most flags would be honest papers |
+| Accepted within 45 days | 14/70 / 4/64 | 13/80 / 7/62 | not stable; not known at submission anyway |
+| No funding / "none" | 51/70 / 40/64 | 59/80 / 43/62 | no separation |
+| No ORCID iD for any author | 46/70 / 39/64 | 57/80 / 37/62 | no separation |
+| Hospital affiliation | 54/70 / 40/64 | 51/80 / 36/62 | no separation |
+| Data available only on request | 34/70 / 25/64 | 45/80 / 25/62 | weak |
+| "Proliferation, migration and invasion" | 10/70 / 3/64 | 12/80 / 4/62 | already a signal (template wording) |
+| Same wording + Chinese free-mail domain | 10/70 / 2/64 | 10/80 / 2/62 | not used: it singles authors out by country of their e-mail provider |
+| ceRNA / "sponge" axis | 2/70 / 3/64 | 10/80 / 2/62 | not stable |
+
+Text and metadata alone stay weak at telling paper-mill papers apart; the reference, author (ORCID, retractions,
+watchlist) and image evidence carry most of the weight.

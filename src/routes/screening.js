@@ -224,7 +224,8 @@ router.put('/checks/:id/decision', auth.requireUser, wrap(async (req, res) => {
   res.json({ success: true, decision: entry });
 }));
 
-const confidentialBlocks = async (c, userId) => (c.row.kind === 'papermill' ? W.papermillBlocks(c.result) : c.row.kind === 'images' ? W.imagesBlocks(await IMG.withExportThumbs(c.result, userId)) : c.row.kind === 'integrity' ? require('../integrity/reports').integrityBlocks(c.result) : null);
+const confidentialBlocks = async (c, userId) => (c.row.kind === 'papermill' ? W.papermillBlocks(c.result) : c.row.kind === 'images' ? W.imagesBlocks(await IMG.withExportThumbs(c.result, userId)) : c.row.kind === 'integrity' ? require('../integrity/reports').integrityBlocks(c.result)
+  : c.row.kind === 'verify' ? W.verifyBlocks(c.result) : c.row.kind === 'citations' ? W.citationsBlocks(c.result) : null);
 
 /** Confidential Word export of a Module 4 / Module 5 report */
 router.get('/checks/:id/confidential', auth.requireUser, wrap(async (req, res) => {
@@ -241,7 +242,7 @@ router.get('/checks/:id/confidential', auth.requireUser, wrap(async (req, res) =
 // without an account (e.g. the integrity committee). It expires (1-30 days, default 7), can be revoked, and every
 // opening is written to the audit log. Only the owner of the report can create or revoke it.
 const crypto = require('crypto');
-const SHARE_KINDS = ['papermill', 'images', 'integrity'];
+const SHARE_KINDS = ['papermill', 'images', 'integrity', 'verify', 'citations'];
 
 router.post('/checks/:id/share', auth.requireUser, wrap(async (req, res) => {
   const c = await loadCheck(req.user.id, req.params.id);

@@ -5,6 +5,7 @@ const { getJson, getText, getBuffer } = require('../http');
 const { cleanDoi, titleContains, invertedIndexToText } = require('../text');
 
 const enc = encodeURIComponent;
+const CFG = require('../config');
 
 function xmlText(xml) {
   return String(xml || '')
@@ -89,6 +90,50 @@ async function coreFullText(record) {
   return null;
 }
 
+/** Semantic Scholar's open-access PDF (publisher or repository copy it has found) */
+async function semanticScholarFullText(record) {
+  if (!record.doi) return null;
+  const r = await getJson(`https://api.semanticscholar.org/graph/v1/paper/DOI:${enc(record.doi)}?fields=openAccessPdf`, { ttl: 30 * 86400, timeout: 15000, retries: 1, headers: CFG.S2_API_KEY ? { 'x-api-key': CFG.S2_API_KEY } : {} });
+  const url = r.ok && r.data?.openAccessPdf?.url;
+  if (!url) return null;
+  const pages = await pdfPages(url).catch(() => null);
+  return pages ? { pages, origin: 'Open-access full text (Semantic Scholar)', url } : null;
+}
+
+/** bioRxiv / medRxiv record of a preprint (DOI 10.1101/...): latest version with its abstract and JATS XML link */
+async function preprintRecord(record) {
+  const doi = String(record.doi || '').toLowerCase();
+  if (!doi.startsWith('10.1101/')) return null;
+  for (const server of ['biorxiv', 'medrxiv']) {
+    const r = await getJson(`https://api.biorxiv.org/details/${server}/${enc(doi)}`, { ttl: 30 * 86400, timeout: 15000, retries: 1 });
+    const latest = r.ok && (r.data?.collection || []).slice(-1)[0];
+    if (latest) return { ...latest, server };
+  }
+  return null;
+}
+
+/** bioRxiv / medRxiv full text as JATS XML (the servers often refuse scripted downloads; then the abstract is used) */
+async function preprintFullText(record) {
+  const latest = await preprintRecord(record);
+  {
+    const server = latest?.server;
+    if (!latest?.jatsxml) return null;
+    const x = await getText(latest.jatsxml, { ttl: 30 * 86400, timeout: 30000 });
+    const text = x.ok ? xmlText((x.text.match(/<body[\s\S]*<\/body>/) || [x.text])[0]) : '';
+    if (text.length > 1500) return { pages: [{ page: null, text }], origin: `Preprint full text (${server === 'biorxiv' ? 'bioRxiv' : 'medRxiv'})`, url: `https://doi.org/${record.doi}` };
+  }
+  return null;
+}
+
+/** arXiv preprints: the PDF from arxiv.org */
+async function arxivFullText(record) {
+  const id = record.arxivId || (String(record.doi || '').match(/^10\.48550\/arxiv\.(.+)$/i) || [])[1];
+  if (!id) return null;
+  const url = `https://arxiv.org/pdf/${id}`;
+  const pages = await pdfPages(url).catch(() => null);
+  return pages ? { pages, origin: 'Preprint full text (arXiv)', url } : null;
+}
+
 /** Abstract for a record: OpenAlex first, Europe PMC second, CORE third */
 async function abstractOf(record) {
   if (record.abstract && record.abstract.length > 200) return { text: record.abstract, origin: 'Abstract' };
@@ -102,6 +147,8 @@ async function abstractOf(record) {
     const c = await S.coreDoi(record.doi, record.title).catch(() => null);
     if (c?.record?.abstract?.length > 100) return { text: c.record.abstract, origin: 'Abstract (CORE)' };
   }
+  const pre = await preprintRecord(record).catch(() => null);
+  if (pre?.abstract?.length > 100) return { text: pre.abstract, origin: `Abstract (${pre.server === 'biorxiv' ? 'bioRxiv' : 'medRxiv'})` };
   return null;
 }
 
@@ -113,7 +160,7 @@ async function sourceTextFor(record, upload) {
   if (ft) return { pages: [{ page: null, text: ft.text }], origin: ft.origin, url: ft.url, fullText: true };
   const up = await unpaywallFullText(record).catch(() => null);
   if (up) return { pages: up.pages, origin: up.origin, url: up.url, fullText: true };
-  for (const fn of [openalexFullText, coreFullText]) {
+  for (const fn of [openalexFullText, coreFullText, semanticScholarFullText, preprintFullText, arxivFullText]) {
     const r = await fn(record).catch(() => null);
     if (r) return { pages: r.pages, origin: r.origin, url: r.url, fullText: true };
   }
@@ -169,4 +216,4 @@ function linkUploads(files, refs, manual = {}) {
   return { map, unlinked };
 }
 
-module.exports = { openFullText, unpaywallFullText, openalexFullText, coreFullText, abstractOf, sourceTextFor, filePages, linkUploads, europePmcCore, xmlText, invertedIndexToText };
+module.exports = { openFullText, unpaywallFullText, openalexFullText, coreFullText, semanticScholarFullText, preprintFullText, arxivFullText, abstractOf, sourceTextFor, filePages, linkUploads, europePmcCore, xmlText, invertedIndexToText };

@@ -1,5 +1,6 @@
 // views/verify.js - Verify Citations: does each cited sentence match its source?
 import { esc, $, $$, toast, dropzone, startJob, download, badge, ICONS } from '../core.js';
+import { shareButton, wireShare } from './share.js';
 
 const VTONE = { full: 'good', partial: 'warn', unsupported: 'bad', 'could-not-verify': 'neutral' };
 
@@ -67,7 +68,7 @@ export function renderVerifyResult(el, r, { again } = {}) {
   const s = r.summary;
   el.innerHTML = `
     <div class="page-head"><div><h1>${esc(r.meta?.title || 'Verify Citations')}</h1><p>${s.claims} cited claims · ${s.citations} citations · ${r.system === 'numeric' ? 'numbered' : 'author–year'} citations</p></div>
-      <div class="row no-print"><button class="btn btn-sm" id="docx">${ICONS.download} Word</button><button class="btn btn-sm" id="csv">${ICONS.download} CSV</button>${again ? '<button class="btn btn-sm btn-ghost" id="again">Check another</button>' : ''}</div></div>
+      <div class="row no-print"><button class="btn btn-sm" id="docx">${ICONS.download} Word</button><button class="btn btn-sm" id="csv">${ICONS.download} CSV</button>${shareButton(r)}${again ? '<button class="btn btn-sm btn-ghost" id="again">Check another</button>' : ''}</div></div>
     <div class="kpis">
       <div class="kpi good"><div class="n">${s.full}</div><div class="l">Full match</div></div>
       <div class="kpi warn"><div class="n">${s.partial}</div><div class="l">Partial match</div></div>
@@ -91,6 +92,7 @@ export function renderVerifyResult(el, r, { again } = {}) {
       </div>`).join('')}</div>`;
   $('#docx', el).onclick = () => download('/api/export/docx', { kind: 'verify', data: r }).catch(e => toast(e.message, 'error'));
   $('#csv', el).onclick = () => download('/api/export/csv', { kind: 'verify', data: r }).catch(e => toast(e.message, 'error'));
+  wireShare(el, r);
   if (again) $('#again', el).onclick = again;
   $$('[data-f]', el).forEach(b => (b.onclick = () => {
     $$('[data-f]', el).forEach(x => x.classList.toggle('active', x === b));

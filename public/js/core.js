@@ -137,7 +137,11 @@ export const hasModule = key => !!state.user?.permissions?.includes(key);
 /** <option>s for the citation style picker, grouped by kind */
 export function styleOptions(selected = 'apa7') {
   const groups = { 'author-date': 'Author–date', numeric: 'Numbered', note: 'Notes (footnotes)' };
-  return Object.entries(groups).map(([k, label]) => `<optgroup label="${label}">${(state.app?.styles || []).filter(s => s.kind === k).map(s => `<option value="${s.key}" ${s.key === selected ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</optgroup>`).join('');
+  const opt = s => `<option value="${s.key}" ${s.key === selected ? 'selected' : ''}>${esc(s.label)}</option>`;
+  const all = state.app?.styles || [], custom = all.filter(s => s.custom);
+  // journal styles installed from CSL files get their own group
+  return (custom.length ? `<optgroup label="Journal styles (installed)">${custom.map(opt).join('')}</optgroup>` : '')
+    + Object.entries(groups).map(([k, label]) => `<optgroup label="${label}">${all.filter(s => s.kind === k && !s.custom).map(opt).join('')}</optgroup>`).join('');
 }
 
 /** Download a file produced by a job (converted Word document) */

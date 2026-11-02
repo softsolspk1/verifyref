@@ -544,3 +544,14 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .light { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; background: var(--border-strong); }
 .light-red { background: var(--bad); } .light-amber { background: var(--warn); } .light-green { background: var(--good); } .light-grey { background: transparent; border: 2px solid var(--border-strong); }
 .light-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; }
+
+/* Module 1 reference quality (Quality / Impact / Recency / Diversity) */
+.rq-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.rq { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
+.rq-top { display: flex; justify-content: space-between; align-items: baseline; }
+.rq-label { font-weight: 700; } .rq-n { font-size: 1.6rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.rq-bar { position: relative; height: 7px; border-radius: 4px; background: var(--surface-2); }
+.rq-bar span { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--text-3); }
+.rq-bar i { position: absolute; top: -3px; width: 2px; height: 13px; background: var(--text); }
+.rq-good .rq-bar span { background: var(--good); } .rq-warn .rq-bar span { background: var(--warn); } .rq-bad .rq-bar span { background: var(--bad); }
+.rq-about { font-size: 12px; } .rq-facts { font-size: 12.5px; } .rq-cmp { font-size: 12.5px; font-weight: 600; }

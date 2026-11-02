@@ -9,7 +9,8 @@ const auth = require('./src/auth');
 const { defineJob, createJob, purgeJobs } = require('./src/jobs');
 const D = require('./src/datasets');
 const { MODULES, ROLES } = require('./src/modules');
-const { STYLE_LIST } = require('./src/styles');
+const { styleList } = require('./src/styles');
+const CSL = require('./src/csl');
 const { TEMPLATE_LIST, ARTICLE_TYPE_LIST } = require('./src/tools/msformat');
 const { isOnline, probe } = require('./src/http');
 
@@ -33,12 +34,15 @@ const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 
 // ------------------------------------------------------------------ public
 
+// installed CSL journal styles (re-read at most once a minute) before any API call that formats references
+app.use('/api', (req, res, next) => CSL.ensure().then(() => next(), () => next()));
+
 app.get('/api/app', wrap(async (req, res) => {
   res.json({
     name: cfg.APP_NAME, vendor: cfg.APP_VENDOR, version: cfg.APP_VERSION, desktop: cfg.DESKTOP, online: isOnline(),
     homeJournal: cfg.HOME_JOURNAL, user: auth.publicUser(req.user) || null,
     remoteUrl: cfg.DESKTOP ? await require('./src/desktop').remoteUrl() : null,
-    modules: MODULES, roles: ROLES, styles: STYLE_LIST, templates: TEMPLATE_LIST, articleTypes: ARTICLE_TYPE_LIST,
+    modules: MODULES, roles: ROLES, styles: styleList(), templates: TEMPLATE_LIST, articleTypes: ARTICLE_TYPE_LIST,
     uploads: { largeFiles: require('./src/uploads').enabled(), maxMb: cfg.MAX_UPLOAD_MB }
   });
 }));

@@ -100,6 +100,10 @@ async function runCheck(input, update) {
   update('Bibliography quality indicators', 96);
   const { bibliographyIndicators } = require('./checks/indicators');
   result.indicators = await bibliographyIndicators(meta, result.references.results, result.journals);
+  // RefGuard-style reference quality: paratexts, Quality / Impact / Recency / Diversity, comparison with earlier submissions
+  result.indicators.referenceQuality = await require('./checks/refQuality').referenceQuality(result.references.results, result.journals, result.indicators, { manuscriptCode: meta.manuscriptCode || null, save: opts.save !== false }).catch(() => null);
+  const rq = result.indicators.referenceQuality;
+  if (rq?.paratexts?.length) result.indicators.flags.push({ severity: 'low', code: 'paratext', message: `${rq.paratexts.length} reference(s) point to an erratum, editorial, letter, notice or abstract rather than a research paper` });
   if (result.citations?.error && kind === 'manuscript') delete result.citations.summary;
 
   if (kind === 'manuscript') await screening(result, { input, body, refs, meta, update });

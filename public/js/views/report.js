@@ -309,6 +309,22 @@ function styleTab(body, cp) {
     ${bad.map(e => `<div class="entry kept"><div><b>[${e.index}]</b> ${esc(e.original)}</div><ul class="issue-list">${e.deviations.map(d => `<li>${esc(d.message)}${d.found ? ` — <span class="diff-old">${esc(d.found)}</span>` : ''}${d.expected ? ` → <span class="diff-new">${esc(d.expected)}</span>` : ''}</li>`).join('')}</ul>${e.expected ? `<div class="suggest"><b>PJPS form:</b> ${esc(e.expected)}</div>` : ''}</div>`).join('') || '<div class="alert alert-good">All references follow the PJPS house style.</div>'}`;
 }
 
+// Reference quality as Proofig RefGuard reports it: four scores, comparison with earlier PJPS submissions, paratexts
+const RQ = [['quality', 'Quality', 'Real, citable papers from sound sources'], ['impact', 'Impact', 'Journal quartile, or citations per year'], ['recency', 'Recency', 'How recent the cited work is'], ['diversity', 'Diversity', 'Spread over journals and research groups']];
+function qualityCard(rq) {
+  if (!rq?.scores) return '';
+  const tone = v => (v === null || v === undefined ? 'neutral' : v >= 70 ? 'good' : v >= 45 ? 'warn' : 'bad');
+  const cmp = rq.comparison || {};
+  return `<div class="card"><div class="card-head"><h3>Reference quality</h3><span class="muted">${cmp.available ? `compared with ${cmp.n} earlier PJPS submissions` : `comparison appears after 10 screened manuscripts (${cmp.n || 0} so far)`}</span></div>
+    <div class="rq-grid">${RQ.map(([k, label, about]) => { const x = rq.scores[k] || {}; const c = cmp[k]; return `<div class="rq rq-${tone(x.score)}">
+      <div class="rq-top"><span class="rq-label">${label}</span><span class="rq-n">${x.score ?? '—'}</span></div>
+      <div class="rq-bar"><span style="width:${x.score ?? 0}%"></span>${c?.average !== null && c?.average !== undefined ? `<i style="left:${c.average}%" title="PJPS average ${c.average}"></i>` : ''}</div>
+      <div class="muted rq-about">${esc(about)}</div><div class="rq-facts">${esc(x.facts || '')}</div>
+      ${c?.difference !== null && c?.difference !== undefined ? `<div class="rq-cmp ${c.difference < -10 ? 'txt-bad' : ''}">${c.difference >= 0 ? '+' : ''}${c.difference} vs the PJPS average (${c.average})</div>` : ''}</div>`; }).join('')}</div>
+    ${rq.paratexts?.length ? `<h4 style="margin:14px 0 6px">Not research papers (${rq.paratexts.length})</h4><p class="muted" style="margin:0 0 6px">These references point to a notice, editorial, letter or abstract. Check that the authors meant to cite it and not the paper it refers to.</p><ul class="issue-list">${rq.paratexts.map(p => `<li>${badge(p.label, 'warn')} <a href="#" data-goto="${p.index}">[${p.index}]</a> ${esc(p.title)} <span class="muted">— ${esc(p.basis)}</span></li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+
 function indicatorsCard(ind) {
   if (!ind) return '';
   const a = ind.age;
@@ -358,6 +374,7 @@ function referencesTab(body, refs, s, indicators) {
   const totalAged = (ages.last5 || 0) + (ages.y6to10 || 0) + (ages.y11to20 || 0) + (ages.older || 0);
   const bar = (label, n) => `<div class="bar-row"><span>${label}</span><div class="bar-track"><span style="width:${pct(n, totalAged)}%"></span></div><span class="num">${n || 0}</span></div>`;
   body.innerHTML = `
+    ${qualityCard(indicators?.referenceQuality)}
     ${indicatorsCard(indicators)}
     <div class="grid grid-2">
       <div class="card"><h3>Reference age</h3><div class="bars">
@@ -373,18 +390,31 @@ function referencesTab(body, refs, s, indicators) {
       ${[['all', 'All', refs.length], ...STATUS_ORDER.filter(st => st !== 'pending' || refs.some(r => r.status === 'pending')).map(st => [st, st[0].toUpperCase() + st.slice(1), refs.filter(r => r.status === st).length]), ['doi', 'DOI found', refs.filter(r => !r.parsed?.doi && r.record?.doi).length], ['notindexed', 'Not indexed', refs.filter(r => r.notIndexed).length], ['broken', 'Broken links', refs.filter(r => r.links?.some(l => l.status === 'broken')).length]]
         .map(([f, l, c]) => `<button class="filter ${f === 'all' ? 'active' : ''}" data-f="${f}">${l} (${c})</button>`).join('')}
       <span class="spacer"></span>
+      <label class="muted">Sort <select id="ref-sort"><option value="index">Reference number</option><option value="risk">Most serious first</option><option value="confidence">Lowest confidence first</option><option value="year">Oldest first</option><option value="journal">Journal</option></select></label>
       <button class="filter" id="expand-all">Expand all</button>
     </div>
     <div id="ref-list"></div>`;
 
   const list = $('#ref-list', body);
-  const draw = f => {
+  const RISK = { retracted: 0, suspicious: 1, miscited: 2, unverified: 3, pending: 4, verified: 5 };
+  const SORTS = {
+    index: (a, b) => a.index - b.index,
+    risk: (a, b) => (RISK[a.status] ?? 9) - (RISK[b.status] ?? 9) || a.index - b.index,
+    confidence: (a, b) => (a.confidence ?? 0) - (b.confidence ?? 0) || a.index - b.index,
+    year: (a, b) => ((a.record?.year || a.parsed?.year || 9999) - (b.record?.year || b.parsed?.year || 9999)) || a.index - b.index,
+    journal: (a, b) => String(a.record?.journal || a.parsed?.journal || '~').localeCompare(String(b.record?.journal || b.parsed?.journal || '~')) || a.index - b.index
+  };
+  let current = 'all';
+  const draw = (f = current) => {
+    current = f;
     const shown = refs.filter(r => f === 'all' || r.status === f || (f === 'doi' && !r.parsed?.doi && r.record?.doi) || (f === 'notindexed' && r.notIndexed) || (f === 'broken' && r.links?.some(l => l.status === 'broken')));
+    shown.sort(SORTS[$('#ref-sort', body)?.value] || SORTS.index);
     list.innerHTML = shown.length ? shown.map(refRow).join('') : '<div class="empty">No references in this category.</div>';
     $$('.ref-head', list).forEach(h => (h.onclick = () => h.parentElement.classList.toggle('open')));
     $$('[data-copy]', list).forEach(b => (b.onclick = e => { e.stopPropagation(); copyText(b.dataset.copy); }));
   };
   $$('.filter[data-f]', body).forEach(b => (b.onclick = () => { $$('.filter[data-f]', body).forEach(x => x.classList.remove('active')); b.classList.add('active'); draw(b.dataset.f); }));
+  $('#ref-sort', body).onchange = () => draw();
   $('#expand-all', body).onclick = () => { const open = !$('.ref.open', list); $$('.ref', list).forEach(r => r.classList.toggle('open', open)); };
   $$('[data-goto]', body).forEach(a => (a.onclick = e => { e.preventDefault(); const r = $(`#ref-${a.dataset.goto}`, list); if (r) { r.classList.add('open'); r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } }));
   draw('all');

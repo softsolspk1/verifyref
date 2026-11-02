@@ -130,7 +130,7 @@ tool('verify', async (input, { userId, update }) => {
   await dropFiles(input.files);
   if (input.save !== false) {
     const s = result.summary;
-    await saveResult(userId, 'verify', result, {
+    result.id = await saveResult(userId, 'verify', result, {
       title: input.meta?.title || 'Verify Citations', manuscriptCode: input.meta?.manuscriptCode, refTotal: result.references.summary.total,
       counts: { verified: s.full, unverified: s.partial + s.couldNotVerify, suspicious: s.unsupported, retracted: result.references.summary.retracted },
       problems: [s.unsupported ? `${s.unsupported} unsupported citation(s)` : null, s.partial ? `${s.partial} partially supported` : null].filter(Boolean),
@@ -173,7 +173,7 @@ tool('citations-module', async (input, { userId, update }) => {
   await dropFiles(input.files);
   if (input.save !== false) {
     const s = result.summary;
-    await saveResult(userId, 'citations', result, {
+    result.id = await saveResult(userId, 'citations', result, {
       title: input.meta?.title || 'Citations', manuscriptCode: input.meta?.manuscriptCode, refTotal: s.references,
       counts: { verified: s.full, suspicious: s.unsupported, unverified: s.partial + s.couldNotVerify, retracted: result.claims?.references?.summary?.retracted || 0 },
       problems: citationProblems(result)
@@ -362,6 +362,38 @@ router.post('/pharma/scan', auth.requireUser, wrap(async (req, res) => {
   if (!text) return res.status(400).json({ success: false, message: 'Provide text to scan.' });
   const result = await pharma.scanManuscriptPharma(text);
   res.json({ success: true, result });
+}));
+
+// ------------------------------------------------------------------ Module 2: journal styles from CSL files
+
+const CSL = require('../csl');
+router.get('/styles', auth.requireUser, wrap(async (req, res) => { await CSL.ensure(); res.json({ success: true, styles: require('../styles').styleList() }); }));
+router.get('/styles/find', auth.requireModule('restyle'), wrap(async (req, res) => {
+  try { res.json({ success: true, results: await CSL.find(req.query.q, 25) }); } catch (e) { res.status(502).json({ success: false, message: `${e.message} Upload the journal's .csl file instead.` }); }
+}));
+router.post('/styles/install', auth.requireModule('restyle'), wrap(async (req, res) => {
+  const name = String(req.body?.name || '');
+  if (!/^[a-z0-9-]{2,120}$/.test(name)) return res.status(400).json({ success: false, message: 'Choose a style from the search results.' });
+  try {
+    const out = await CSL.installFromRepository(name, req.user.name);
+    await auth.audit(req, 'setting', 'csl_style', { installed: out.key });
+    res.json({ success: true, ...out, styles: require('../styles').styleList() });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+}));
+router.post('/styles/csl', auth.requireModule('restyle'), wrap(async (req, res) => {
+  const xml = String(req.body?.xml || '');
+  if (xml.length > 600000) return res.status(400).json({ success: false, message: 'The style file is too large (over 600 KB).' });
+  try {
+    const out = await CSL.install(xml, { by: req.user.name, source: 'uploaded', fetchParent: url => (/^https?:\/\/www\.zotero\.org\/styles\//.test(url) ? CSL.fetchStyleXml(url) : Promise.reject(new Error('The parent style is not in the Zotero Style Repository; upload the parent style file.'))) });
+    await auth.audit(req, 'setting', 'csl_style', { uploaded: out.key });
+    res.json({ success: true, ...out, styles: require('../styles').styleList() });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+}));
+router.delete('/styles/:key', auth.requireModule('restyle'), wrap(async (req, res) => {
+  if (!String(req.params.key).startsWith('csl:')) return res.status(400).json({ success: false, message: 'Built-in styles cannot be removed.' });
+  await CSL.remove(req.params.key);
+  await auth.audit(req, 'setting', 'csl_style', { removed: req.params.key });
+  res.json({ success: true, styles: require('../styles').styleList() });
 }));
 
 module.exports = router;

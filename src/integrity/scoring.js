@@ -23,7 +23,7 @@ const DIMENSIONS = {
 };
 
 // Module 4 signals that an Integrity Suite dimension already covers (counted once, there)
-const PM_COVERED = new Set(['tortured', 'hidden-text', 'duplicate', 'duplicate-partial', 'ai-leftover', 'statistics', 'statistics-minor', 'primers', 'cell-lines', 'orcid-invalid', 'orcid-empty', 'no-orcid', 'methods', 'images']);
+const PM_COVERED = new Set(['ai-writing', 'tortured', 'hidden-text', 'duplicate', 'duplicate-partial', 'ai-leftover', 'statistics', 'statistics-minor', 'primers', 'cell-lines', 'orcid-invalid', 'orcid-empty', 'no-orcid', 'methods', 'images']);
 
 // Strong signals that are close to proof on their own
 const DEFINITE = new Set(['leftover', 'archive', 'duplicate-publication', 'published-other', 'registration-not-found', 'shared-email', 'reviewer-ring', 'mill-retraction', 'author-mill-retraction', 'scigen', 'images-strong', 'paraphrase', 'hidden', 'coercive-citation', 'review-recycled']);

@@ -11,6 +11,7 @@ const { nameMatch, splitName, titleSimilarity, normalizeJournal } = require('../
 const { TORTURED, AI_LEFTOVERS, TEMPLATES, CELL_LINES, FREE_MAIL, DISPOSABLE_MAIL } = require('./lists');
 const { studyType, approvalNumber, hasDose } = require('./studyEthics');
 const DC = require('./dataChecks');
+const WL = require('./watchlist');
 const { isOnline } = require('../http');
 
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -369,6 +370,13 @@ async function detectPaperMill(input, update = () => {}) {
   signals.push(...textSigs);
   const { tortured, ai, tmpl, methods, hid, cells, stats, primers, primerIssues } = textSigs.details;
 
+  // AI-written text (as the STM Integrity Hub's AI-text signal): LLM-favoured vocabulary, uniform sentence length and
+  // stock transitions (src/integrity/aiWriting.js). Chatbot leftovers are already the ai-leftover signal above. Not on
+  // the paper-mill benchmark (those papers predate LLMs), so it counts little: an indicator to ask about AI use.
+  let aiWriting = null;
+  try { aiWriting = require('../integrity/aiWriting').analyzeAiWriting(body); } catch (e) { aiWriting = null; }
+  for (const x of (aiWriting?.signals || []).filter(x => x.code !== 'leftover')) signals.push({ ...x, group: 'text', code: 'ai-writing', weight: Math.min(1, x.weight) });
+
   // Seek & Blastn: does each primer match the gene it is claimed to amplify? (NCBI BLAST, online only)
   let blast = [];
   if (primers.length && input.blast !== false && isOnline()) {
@@ -557,6 +565,18 @@ async function detectPaperMill(input, update = () => {}) {
   const free = emails.filter(e => FREE_MAIL.test(e));
   if (emails.length && free.length === emails.length) sig('authors', 'free-mail', `All author e-mail addresses are free-mail accounts (${free.length})`, 'low', 1, free.map(e => ({ text: e })), 'Common and often legitimate in Pakistan; counts only together with other signals.');
 
+  // the editorial office's watchlist of e-mails, domains, names, ORCID iDs, institutions, phones and phrases from
+  // earlier paper-mill submissions (as the STM Integrity Hub's shared watchlists)
+  const watchEntries = await WL.load();
+  const watch = WL.match(watchEntries, { text, emails, orcids, authors, affiliations: meta.affiliations || [] });
+  if (watch.length) {
+    const top = watch.some(w => w.entry.severity === 'high') ? 'high' : watch.some(w => w.entry.severity === 'medium') ? 'medium' : 'low';
+    sig(watch.every(w => w.entry.type === 'phrase') ? 'text' : 'authors', 'watchlist', `${watch.length} entr${watch.length > 1 ? 'ies' : 'y'} of the editorial watchlist found in the manuscript`, top,
+      Math.min(6, watch.reduce((a, w) => a + ({ high: 5, medium: 3, low: 1 }[w.entry.severity] || 1), 0)),
+      watch.map(w => ({ text: `${WL.TYPES[w.entry.type]} “${w.entry.value}” — in the ${w.where}`, note: [w.entry.note, w.entry.by ? `listed by ${w.entry.by}, ${String(w.entry.at).slice(0, 10)}` : ''].filter(Boolean).join(' · ') })),
+      'The editors put these on the watchlist after earlier paper-mill or fraudulent submissions. Check that it is the same person, address or institution before acting.');
+  }
+
   const offTopicAff = (meta.affiliations || []).filter(a => NON_BIOMED.test(a));
   if (offTopicAff.length && (meta.affiliations || []).length) sig('authors', 'affiliation', 'Affiliation(s) unrelated to a pharmaceutical/biomedical topic', 'low', 1, offTopicAff.map(a => ({ text: a })), 'Interdisciplinary teams are common; check that each author\'s contribution is plausible.');
 
@@ -602,7 +622,7 @@ async function detectPaperMill(input, update = () => {}) {
 
   const risk = riskLevel(signals);
   const groups = ['text', 'references', 'authors', 'data'];
-  return {
+  const out = {
     kind: 'papermill',
     module: 4,
     meta: { ...meta, authors: authors.map(a => ({ name: a.name || `${a.given} ${a.family}`.trim(), given: a.given, family: a.family })) },
@@ -612,16 +632,19 @@ async function detectPaperMill(input, update = () => {}) {
     signals: signals.sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group) || b.weight - a.weight),
     details: {
       tortured, aiLeftovers: ai, templates: tmpl, methods, cellLines: cells, statistics: { findings: stats.findings.slice(0, 30), checked: stats.checked }, primers: { found: primers.length, issues: primerIssues.length, blast: blast.map(b => ({ gene: b.primer.gene, direction: b.primer.direction, sequence: b.primer.sequence, checked: b.checked, matches: b.matches ?? null, hits: b.hits || [], error: b.error || null })) }, affiliationSpread: spread, emails, freeMail: free, orcids: orcidResults,
+      watchlist: { entries: watchEntries.length, matches: watch.length }, aiWriting: aiWriting?.details ? { score: aiWriting.details.score, parts: aiWriting.details.parts } : null,
       authorRetractions: retr, orcidRetractions: orcidRetr, millJournals: millJ.map(j => ({ name: j.name, refs: j.refs, mill: j.mill })), duplicates: { compared: dup.compared, matches: dup.matches }, publishedElsewhere: pub, hiddenText: hid,
       references: { total: refs.length, fabricated: fake.length, retracted: refs.filter(r => r.status === 'retracted').length, millRetracted: millRetracted.length, riskyJournals: risky }
     },
     checked: {
       text: true, statistics: stats.checked.pTests + stats.checked.percentages, primers: primers.length, primersBlasted: blast.filter(b => b.checked).length, references: refs.length > 0, authors: authors.length > 0, orcid: orcids.length > 0, reviewers: !!revText.trim(),
-      previousVersion: !!prev, images: !!input.images, earlierSubmissions: dup.compared
+      previousVersion: !!prev, images: !!input.images, earlierSubmissions: dup.compared, watchlist: watchEntries.length, aiWriting: !!aiWriting?.checked
     },
     disclaimer: 'Screening aid only. The risk level shows where to look closer; it is not proof of misconduct and never rejects a paper by itself. The editor decides. Confidential — not for authors or reviewers.',
     _shingles: dup.shingles
   };
+  out.overview = require('./overview').overview(out);
+  return out;
 }
 
 function papermillProblems(r) {

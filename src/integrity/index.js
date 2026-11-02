@@ -105,6 +105,8 @@ async function runIntegrity(input, update = () => {}) {
     disclaimer: DISCLAIMER,
     references: references.length ? references.map(r => ({ index: r.index, raw: r.raw, status: r.status, statusLabel: r.statusLabel, reason: r.reason, doi: r.record?.doi || r.parsed?.doi || null, retraction: r.retraction ? { nature: r.retraction.nature, reason: r.retraction.reason } : null })) : undefined,
     papermillDetails: papermill.details,
+    // the paper-mill checks with a traffic light each (STM Integrity Hub style; src/papermill/overview.js)
+    papermillOverview: papermill.overview,
     _hashes: sim._hashes,
     _record: net._record,
     _shingles: shingles

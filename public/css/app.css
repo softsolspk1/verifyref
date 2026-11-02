@@ -521,3 +521,26 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .figure-ref { outline: 3px solid var(--bad); outline-offset: -3px; }
 @media (max-width: 720px) { .evidence-board { grid-template-columns: 1fr; } }
 .zoom-pair figure img { width: 100%; }
+
+/* Module 5 confidence scores (Low 0-32 %, Fair 33-65 %, High 66-100 %), three-view manipulation board, panel editor */
+.conf { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+.conf-high { background: var(--bad-bg); color: var(--bad); } .conf-fair { background: var(--warn-bg); color: var(--warn); }
+.conf-bar { width: 38px; height: 5px; border-radius: 3px; background: color-mix(in srgb, currentColor 22%, transparent); overflow: hidden; }
+.conf-bar span { display: block; height: 100%; background: currentColor; }
+.conf-strip { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 12px; font-size: 13px; }
+.finding.excluded { opacity: .62; }
+.evidence-board.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 720px) { .evidence-board.three { grid-template-columns: 1fr; } }
+.version-tag { text-align: right; font-size: 12px; margin-top: 10px; }
+.pe-wrap { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px; }
+.pe-list { max-height: 520px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.pe-list button { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text); cursor: pointer; font-size: 13px; }
+.pe-list button.active { background: var(--surface-2); font-weight: 700; }
+.pe-stage { position: relative; display: inline-block; max-width: 100%; user-select: none; touch-action: none; }
+.pe-stage canvas { max-width: 100%; display: block; border: 1px solid var(--border); border-radius: 6px; cursor: crosshair; }
+@media (max-width: 720px) { .pe-wrap { grid-template-columns: 1fr; } .pe-list { max-height: 160px; } }
+
+/* Module 4 traffic lights (STM Integrity Hub style) */
+.light { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; background: var(--border-strong); }
+.light-red { background: var(--bad); } .light-amber { background: var(--warn); } .light-green { background: var(--good); } .light-grey { background: transparent; border: 2px solid var(--border-strong); }
+.light-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; }

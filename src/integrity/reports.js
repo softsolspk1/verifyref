@@ -30,6 +30,9 @@ function integrityBlocks(r) {
     { h2: 'Score by dimension' },
     { table: { headers: ['Dimension', 'Signals', 'Points', 'Source'], rows: k.dimensions.map(d => [d.label, String(d.signals), `${d.points}${d.capped ? ' (capped)' : ''}`, d.source?.checkId ? link(d.source.checkId) : 'this screening']) } }
   ];
+  if ((r.papermillOverview || []).length) blocks.push({ h2: 'Paper-mill checks at a glance' },
+    { table: { headers: ['Status', 'Check', 'Result'], rows: r.papermillOverview.map(o => [{ red: 'RED', amber: 'AMBER', green: 'GREEN', grey: 'NOT CHECKED' }[o.light], o.check, o.result]) } },
+    { p: 'RED: a strong signal. AMBER: a moderate or weak signal. GREEN: checked, nothing found. NOT CHECKED: the information was not in the manuscript.', italics: true });
   for (const d of r.dimensions || []) {
     blocks.push({ h2: d.label });
     if (d.checked === false && !d.signals?.length) blocks.push({ p: 'Not enough material in the manuscript to check this dimension.', italics: true });

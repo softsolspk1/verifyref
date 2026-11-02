@@ -7,6 +7,8 @@ const { saveResult } = require('./pipeline');
 const KB = require('./imageKnowledge');
 const REFS = require('./imageRefs');
 const cfg = require('./config');
+const SCORE = require('./imageScore');
+const VERSION = require('../package.json').version;
 
 const COVERAGE = {
   duplication: { done: true, note: 'Whole, partial, rotated, mirrored, resized, cropped copies - inside the manuscript, against earlier PJPS manuscripts, published PJPS papers and papers retracted for image problems' },
@@ -79,7 +81,7 @@ async function compareChartsWithEarlier(charts, { excludeCode = null, excludeChe
 
 /** Sanitise and store a browser analysis; returns { id, earlier } */
 async function saveImageCheck(userId, input, { save = true } = {}) {
-  const meta = { title: String(input.meta?.title || '').slice(0, 300), manuscriptCode: String(input.meta?.manuscriptCode || '').slice(0, 60), filename: String(input.meta?.filename || '').slice(0, 200) };
+  const meta = { title: String(input.meta?.title || '').slice(0, 300), manuscriptCode: String(input.meta?.manuscriptCode || '').slice(0, 60), filename: String(input.meta?.filename || '').slice(0, 200), panelsAdjusted: Math.max(0, Number(input.meta?.panelsAdjusted) | 0) };
   const panels = (input.panels || []).slice(0, 400).map(p => ({
     id: String(p.id), label: String(p.label || '').slice(0, 120), letter: /^[A-Z]$/.test(String(p.letter || '')) ? String(p.letter) : null, imageId: String(p.imageId || ''), type: String(p.type || ''), blank: !!p.blank,
     box: p.box && ['x', 'y', 'w', 'h'].every(k => Number.isFinite(p.box[k])) ? { x: p.box.x | 0, y: p.box.y | 0, w: p.box.w | 0, h: p.box.h | 0 } : null,
@@ -92,7 +94,9 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     verification: f.verification && typeof f.verification === 'object' ? Object.fromEntries(['picture', 'noise', 'region'].filter(k => Number.isFinite(f.verification[k])).map(k => [k, Math.round(f.verification[k] * 100) / 100])) : null,
     thumbA: cap(f.thumbA, 160000), thumbB: cap(f.thumbB, 160000), thumbAW: f.thumbAW | 0, thumbAH: f.thumbAH | 0, thumbBW: f.thumbBW | 0, thumbBH: f.thumbBH | 0,
     // enlarged original area and copy (cloned area, overlapping part)
-    zoomA: cap(f.zoomA, 80000), zoomB: cap(f.zoomB, 80000), zoomAW: f.zoomAW | 0, zoomAH: f.zoomAH | 0, zoomBW: f.zoomBW | 0, zoomBH: f.zoomBH | 0
+    zoomA: cap(f.zoomA, 80000), zoomB: cap(f.zoomB, 80000), zoomAW: f.zoomAW | 0, zoomAH: f.zoomAH | 0, zoomBW: f.zoomBW | 0, zoomBH: f.zoomBH | 0,
+    // manipulation: enhanced view of the panel (the original and the close-up are thumbA / zoomA)
+    enhA: cap(f.enhA, 80000), enhAW: f.enhAW | 0, enhAH: f.enhAH | 0, code: cap(f.code, 40)
   })).map(f => ({ ...f, assessment: KB.assess(f) }));
   const usable = panels.filter(p => !p.blank && p.type !== 'chart');
   let earlier = await compareWithEarlier(usable, { excludeCode: meta.manuscriptCode || null });
@@ -131,8 +135,10 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     vendor: await vendorStatus(),
     guidance: KB.guidance(level),
     method: METHOD,
+    analysisVersion: VERSION,
     disclaimer: 'Screening aid only. Repeated textures (cells, tissue, gel background), legitimately re-used control images and heavily processed or denoised pictures can look like copies, edits or AI images; AI-image statistics are indicators only, and a missing marker does not prove an image is genuine; every finding must be checked by the editor, and original images requested where needed. Confidential — not for authors or reviewers.'
   };
+  result.summary.byConfidence = SCORE.scoreResult(result);
   if (!save) return { result, earlier };
   const problems = [`Image risk ${level}`, byLevel.high ? `${byLevel.high} strong image finding(s)` : null, byLevel.medium ? `${byLevel.medium} image finding(s) to check` : null, earlier.length ? `${earlier.length} figure(s) matching earlier PJPS manuscripts` : null,
     refCount ? `${refCount} figure(s) matching published PJPS / retracted-paper figures` : null].filter(Boolean);

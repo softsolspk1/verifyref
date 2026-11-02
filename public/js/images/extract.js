@@ -2,6 +2,7 @@
 // "Figure n" captions, images embedded in PDF pages (pdf.js), or separate image files. Returns canvases scaled to
 // at most MAX px on the longest side, plus a list of what could not be read.
 import { scanProvenance } from './forensics.js';
+import { decodeTiff } from './tiff.js';
 const MAX = 1600;
 const MIN = 80; // smaller images are icons, logos or equation bitmaps
 
@@ -37,6 +38,34 @@ function toCanvas(source, w, h) {
   ctx.fillRect(0, 0, c.width, c.height);
   ctx.drawImage(source, 0, 0, c.width, c.height);
   return { canvas: c, scale: k };
+}
+
+/**
+ * Any figure file as an ImageBitmap: what the browser decodes itself (PNG, JPEG / JFIF, GIF, BMP, WebP), TIFF through
+ * the built-in reader (unless the browser - Safari - reads it), SVG drawn at its own size (at least 1200 px wide).
+ */
+async function decodeBitmap(blob, name) {
+  if (/\.tiff?$/i.test(name)) {
+    try { return await createImageBitmap(blob); } catch (e) { /* not Safari */ }
+    const t = await decodeTiff(await blob.arrayBuffer());
+    return createImageBitmap(new ImageData(t.data, t.width, t.height));
+  }
+  if (/\.svg$/i.test(name)) {
+    const url = URL.createObjectURL(blob.type ? blob : new Blob([blob], { type: 'image/svg+xml' }));
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const k = Math.max(1, 1200 / (img.naturalWidth || 1200));
+      const c = document.createElement('canvas');
+      c.width = Math.round((img.naturalWidth || 1200) * k); c.height = Math.round((img.naturalHeight || 900) * k);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      return createImageBitmap(c);
+    } finally { URL.revokeObjectURL(url); }
+  }
+  return createImageBitmap(blob);
 }
 
 const FIG_RE = /^\s*(fig(?:ure)?\.?\s*[\dIVX]+[a-z]?)/i;
@@ -78,12 +107,11 @@ async function fromDocx(file, onStep) {
     const label = `${u.caption || `Image ${n}`}${u.sub ? ` (part ${u.sub})` : ''}`;
     if (seen.has(path)) { images.push({ ...seen.get(path), id: `img${n}`, label, reusedFile: seen.get(path).label }); continue; }
     onStep(`Reading figure ${n} of ${uses.length}`);
-    if (/\.(emf|wmf|svg)$/i.test(path)) { skipped.push({ name: `${label} (${path.split('/').pop()})`, reason: 'Vector drawing (EMF/WMF/SVG) — not a photograph, not analysed' }); continue; }
-    if (/\.tiff?$/i.test(path)) { skipped.push({ name: `${label} (${path.split('/').pop()})`, reason: 'TIFF cannot be read by the browser — convert the figure to PNG or JPEG' }); continue; }
+    if (/\.(emf|wmf)$/i.test(path)) { skipped.push({ name: `${label} (${path.split('/').pop()})`, reason: 'Vector drawing (EMF/WMF) — not a photograph, not analysed' }); continue; }
     try {
       const blob = await f.async('blob');
       const provenance = scanProvenance(new Uint8Array(await blob.arrayBuffer()));
-      const bmp = await createImageBitmap(blob);
+      const bmp = await decodeBitmap(blob, path);
       if (bmp.width < MIN || bmp.height < MIN) continue;
       const { canvas, scale } = toCanvas(bmp, bmp.width, bmp.height);
       const im = { id: `img${n}`, label, source: 'docx', width: bmp.width, height: bmp.height, canvas, scale, provenance };
@@ -160,7 +188,7 @@ async function fromPdf(file, onStep) {
 
 async function fromImage(file, n) {
   const provenance = scanProvenance(new Uint8Array(await file.arrayBuffer()));
-  const bmp = await createImageBitmap(file);
+  const bmp = await decodeBitmap(file, file.name);
   const { canvas, scale } = toCanvas(bmp, bmp.width, bmp.height);
   return { id: `file${n}`, label: file.name.replace(/\.[a-z]+$/i, ''), source: 'file', width: bmp.width, height: bmp.height, canvas, scale, provenance };
 }
@@ -173,8 +201,7 @@ export async function extractFigures(files, onStep = () => {}) {
     try {
       if (/\.docx$/i.test(f.name)) { const r = await fromDocx(f, onStep); images.push(...r.images); skipped.push(...r.skipped); }
       else if (/\.pdf$/i.test(f.name)) { const r = await fromPdf(f, onStep); images.push(...r.images); skipped.push(...r.skipped); }
-      else if (/\.(png|jpe?g|gif|bmp|webp)$/i.test(f.name)) images.push(await fromImage(f, ++n));
-      else if (/\.tiff?$/i.test(f.name)) skipped.push({ name: f.name, reason: 'TIFF cannot be read by the browser — save the figure as PNG or JPEG' });
+      else if (/\.(png|jpe?g|jfif|gif|bmp|webp|tiff?|svg)$/i.test(f.name)) images.push(await fromImage(f, ++n));
       else if (/\.doc$/i.test(f.name)) skipped.push({ name: f.name, reason: 'Old Word format (.doc) — save as .docx' });
       else skipped.push({ name: f.name, reason: 'Unsupported file type' });
     } catch (e) {

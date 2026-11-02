@@ -1,0 +1,142 @@
+PJPS DATA INTEGRITY SYSTEM
+Module 4 (Paper Mill) and Module 5 (Image Integrity) compared with
+STM Integrity Hub, Proofig AI and ImageTwin
+Date: 2 November 2026
+=====================================================================================
+
+SUMMARY
+-------
+Every published feature of the three products was listed and compared with Modules 4
+and 5. All gaps that can be built inside PJPS have now been built and tested on the web
+portal (the desktop app gets them with its next build, because it uses the same code).
+
+Three things cannot be copied by software alone, because they are data or shared
+membership, not features. They are listed at the end.
+
+Sources: the ImageTwin and Proofig user manuals and product pages (saved in data/new),
+and public STM Integrity Hub descriptions (STM, Scholarly Kitchen, Editage interview).
+
+
+1. MODULE 5 vs IMAGETWIN AND PROOFIG
+------------------------------------
+Feature                                         ImageTwin  Proofig   PJPS Module 5
+----------------------------------------------  ---------  --------  -------------------
+Duplicates in the manuscript (rotated, mirrored,
+  resized, cropped, partial overlap)            yes        yes       yes (before)
+Cloned areas, splicing, erasure, retouching     yes        yes       yes (before)
+AI-generated image detection                    yes        yes       yes (markers +
+                                                                     statistics)
+AI generator attribution ("most probable
+  generator")                                   yes        no        NEW - when the file
+                                                                     names the generator
+Graph / chart duplication                       yes (XRD)  yes       yes (before)
+Comparison with published figures               160 M      155 M     PJPS databases +
+                                                                     PubMed Central OA +
+                                                                     retracted papers
+Private repository / "My Database"              yes        yes       yes: earlier PJPS
+                                                                     manuscripts and the
+                                                                     authors' OA papers
+Confidence score 0-100 % per finding            yes        no        NEW (Low/Fair/High,
+                                                                     ImageTwin bands)
+Confidence filter, Low hidden by default        yes        no        NEW (slider)
+Manual panel adjustment ("Adjust panels")       yes        no        NEW
+"Analysed images" view                          yes        yes       yes (tab renamed)
+Manipulation: original / enhanced / close-up    yes        -         NEW
+Forensic toolbox: auto-align, overlay, swipe,
+  difference, flicker, filters, zoom            yes        yes       yes (before)
+  + solarize, background visualisation          yes        -         NEW
+  + brightness / contrast sliders               yes        yes       NEW
+  + heatmap of the suspicious area              yes        -         NEW
+  + matched keypoints joined by lines           yes        -         NEW
+Editor marks per finding                        -          yes       yes (before)
+Select which findings go into the report        -          yes       NEW ("Include in
+                                                                     report"; false
+                                                                     alarms left out)
+PDF report: page 1 summary (file, date and
+  time, overall risk, counts)                   yes        yes       NEW layout
+PDF report: page 2 external publication matches yes        -         NEW
+Algorithm version shown on result and report    yes        -         NEW
+Shared link to a result                         yes        yes       NEW (expires in
+                                                                     1-30 days,
+                                                                     revocable, audited)
+File types PDF, DOCX, JPG, PNG, GIF, BMP, WebP  yes        yes       yes (before)
+File types TIF/TIFF, SVG, JFIF                  yes        yes       NEW
+Author query letter                             -          yes       yes (before)
+API / bulk scanning                             yes        yes       yes (API v1, before)
+
+
+2. MODULE 4 vs STM INTEGRITY HUB (PAPERMILL CHECKER)
+----------------------------------------------------
+Hub signal                                      PJPS Module 4
+----------------------------------------------  ----------------------------------------
+Tortured phrases                                yes (before)
+References retracted / in Retraction Watch      yes (before)
+References to papers questioned in audits       yes (before; audit-flagged papers list)
+PubPeer comments on cited papers                not searched (PubPeer's API needs a
+                                                key); links to PubPeer in Module 5
+Unusual citation patterns / stacking            yes (before)
+Watchlists (fake e-mails, domains, identities)  NEW - editorial watchlist: e-mail,
+                                                domain, name, ORCID iD, institution,
+                                                phone, phrase; weak/moderate/strong;
+                                                bulk paste
+AI-generated text                               NEW signal in Module 4 (the Integrity
+                                                Suite already had it as a dimension;
+                                                it is not counted twice)
+Duplicate submission (metadata: title,
+  authors; full text)                           yes - earlier PJPS submissions only
+Image duplication / manipulation                yes (Module 5 linked)
+Flag shown to the editor per signal             NEW - traffic light per check (red,
+                                                amber, green, not checked) on screen,
+                                                in Word / PDF, and in the Integrity
+                                                Suite report
+Shared link to the result                       NEW (Modules 4 and 5, Integrity Suite)
+
+PJPS already checks more than the Hub publishes: ORCID records, author retractions,
+cell lines (ICLAC, Cellosaurus), microRNAs (miRBase), primers (NCBI BLAST),
+statistics, ethics approvals, hijacked / predatory / discontinued journals.
+
+
+3. WHAT CANNOT BE MADE "100% THE SAME"
+--------------------------------------
+a) The 155-160 million figure databases of Proofig and ImageTwin. They are licensed
+   from publishers. PJPS compares with its own databases (PJPS archive, PubMed Central
+   open access, retracted papers, RSIID, BioFors, BINDER). A figure copied from a
+   paywalled paper that is in none of these is not found. Only a vendor contract closes
+   this, and PJPS policy currently keeps figures in-house.
+b) Cross-publisher duplicate submissions (STM Integrity Hub). This needs Hub
+   membership: the other publishers' submissions are only visible to members.
+   PJPS detects duplicates among its own submissions.
+c) Trained AI-image classifiers. Proofig and ImageTwin use models trained on hundreds
+   of thousands of images. PJPS uses file markers (strong evidence) and statistics
+   (indicators only). The generator is named only when the file itself names it;
+   PJPS does not guess one.
+
+No tool in this group finds every problem. ImageTwin states 80-90 % detection. PJPS
+benchmark figures are in docs/benchmark-images.md and docs/benchmark-papermill.md.
+
+
+4. TESTS
+--------
+- New: test/image-confidence.mjs (confidence bands, AI attribution, TIFF reader:
+  uncompressed, LZW, Deflate, PackBits, strips, RGB, 16-bit).
+- Extended: test/smoke-web.js (watchlist match, traffic lights, confidence on save,
+  report selection, shared link create / open without sign-in / revoke).
+- Passing: smoke-web, papermill-signals, images-engine, forensics, image-refs,
+  images-report-e2e, demo-check, integrity-suite, screening-embedded-images.
+- Checked in Chrome on a local server: panel editor (delete, reset, scan with the
+  edited panels), confidence badges and slider, three-view manipulation cards,
+  viewer (keypoints, heatmap, solarize), PDF and Word exports, Module 4 watchlist
+  and traffic lights, shared link for an Integrity Suite report.
+
+
+5. FILES
+--------
+New:      src/imageScore.js, src/papermill/watchlist.js, src/papermill/overview.js,
+          public/js/images/panelEditor.js, public/js/images/tiff.js,
+          public/js/views/share.js, test/image-confidence.mjs
+Changed:  src/images.js, src/docx.js, src/pdf.js, src/routes/screening.js,
+          src/papermill/index.js, src/integrity/index.js, src/integrity/reports.js,
+          src/integrity/scoring.js, public/js/views/images.js, papermill.js,
+          integrity.js, public/js/images/viewer.js, extract.js, worker.js,
+          public/css/app.css, README.md, package.json, test/smoke-web.js
+Not yet:  committed, deployed, desktop build.

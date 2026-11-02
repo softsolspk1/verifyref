@@ -2,6 +2,8 @@
 // similarity, AI-written content, research data integrity, pharmaceutical validation, research ethics, authors &
 // affiliations and submission-network patterns, combined with Module 5 / 1 findings into one explained risk score.
 import { api, esc, $, $$, toast, runJob, badge, download, fmtDate, ICONS, hasModule } from '../core.js';
+import { renderWatchlist, overviewTable } from './papermill.js';
+import { shareButton, wireShare } from './share.js';
 import { decisionCard } from './decision.js';
 import { riskBanner, explanationCard, signalList, openCase } from './integrityCommon.js';
 
@@ -51,6 +53,7 @@ export function renderIntegrity(view) {
         </div>
         <div class="row"><button class="btn btn-primary" id="run">Run Paper Mill Detection</button></div>
       </div>
+      <div id="watchlist"></div>
     </div>
     <div id="progress"></div>
     <div id="result"></div>`;
@@ -63,6 +66,7 @@ export function renderIntegrity(view) {
   zone.ondragleave = () => zone.classList.remove('over');
   zone.ondrop = e => { e.preventDefault(); zone.classList.remove('over'); if (e.dataTransfer.files[0]) take(e.dataTransfer.files[0]); };
   input.onchange = () => { if (input.files[0]) take(input.files[0]); input.value = ''; };
+  renderWatchlist($('#watchlist', view));
   if (hasModule('images')) api('/api/checks?kind=images').then(d => { $('#m-img', view).innerHTML += d.checks.slice(0, 50).map(c => `<option value="${c.id}">${esc(c.manuscript_code || '')} ${esc(c.title || '')} · ${fmtDate(c.created_at)}</option>`).join(''); }).catch(() => {});
 
   $('#run', view).onclick = async () => {
@@ -92,12 +96,13 @@ export function renderIntegrityResult(el, r) {
     <div class="page-head">
       <div><h1>${esc(r.meta?.title || 'Paper Mill Detection')}</h1>
         <p>${r.meta?.manuscriptCode ? `<b>${esc(r.meta.manuscriptCode)}</b> · ` : ''}${fmtDate(r.createdAt)} · <span class="badge b-bad">Confidential — editor only</span></p></div>
-      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="x-docx">${ICONS.download} Report (Word)</button><button class="btn btn-sm" id="x-pdf">${ICONS.download} PDF</button>${hasModule('papermill') ? '<button class="btn btn-sm btn-primary" id="x-case">Open integrity case</button>' : ''}` : ''}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print</button></div>
+      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="x-docx">${ICONS.download} Report (Word)</button><button class="btn btn-sm" id="x-pdf">${ICONS.download} PDF</button>${shareButton(r)}${hasModule('papermill') ? '<button class="btn btn-sm btn-primary" id="x-case">Open integrity case</button>' : ''}` : ''}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print</button></div>
     </div>
     ${riskBanner(r.risk, 'Integrity risk', r.disclaimer)}
     <div class="dim-grid">${dims.map((d, i) => { const s = scoreOf(d.key); const cap = s.points ? Math.min(100, s.points * 10) : 0; return `<button class="dim ${d.signals.some(x => x.severity === 'high') ? 'hot' : d.signals.length ? '' : 'clear'} ${i === 0 ? 'active' : ''}" data-i="${i}">
       <div class="dim-name">${esc(d.label)}</div><div class="dim-meta">${d.checked === false && !d.signals.length ? 'not enough material' : `${d.signals.length} signal(s) · ${s.points} pts`}${d.source?.checkId ? ' · linked report' : ''}</div><div class="dim-bar"><span style="width:${d.signals.length ? Math.max(6, cap) : 100}%"></span></div></button>`; }).join('')}</div>
     <div class="card" id="dim-card"></div>
+    ${(r.papermillOverview || []).length ? `<div class="card"><h3>Paper-mill checks at a glance</h3>${overviewTable({ overview: r.papermillOverview })}</div>` : ''}
     ${explanationCard(r.risk)}
     <div class="card"><h3>Linked evidence</h3><ul class="checked">
       <li>${r.linked?.images ? `✓ Image Integrity — ${esc(r.linked.images.level || '')} · <a href="#/check/${r.linked.images.checkId}">open</a>` : '— Image Integrity: no report for this manuscript ID (run Module 5 to include figures)'}</li>
@@ -119,6 +124,7 @@ export function renderIntegrityResult(el, r) {
     const c = $('#x-case', el);
     if (c) c.onclick = () => openCase(r.id);
   }
+  wireShare(el, r);
   decisionCard($('#decision', el), r, 'integrity');
 }
 

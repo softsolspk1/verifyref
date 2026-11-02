@@ -36,7 +36,8 @@ function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
     const ensure = h => { if (doc.y + h > bottom()) doc.addPage(); };
 
     for (const b of blocks) {
-      if (b.h1 && b === blocks[0]) {
+      if (b.pageBreak) { if (doc.y > doc.page.margins.top + 10) doc.addPage(); }
+      else if (b.h1 && b === blocks[0]) {
         // cover banner: report title on a coloured band across the top of the first page
         const bandH = 78;
         doc.rect(0, 0, doc.page.width, bandH).fill(HEAD);

@@ -151,6 +151,7 @@ defineJob('author-figures', async (input, { userId, update }) => {
     return { ...splitName(name), orcid };
   });
   const out = await AF.checkAuthorFigures({ authors, panels: input.panels }, update);
+  for (const m of out.matches || []) Object.assign(m, require('../imageScore').matchConfidence(m));
   out.checkedAt = new Date().toISOString();
   if (input.checkId) {
     const c = await loadCheck(userId, input.checkId);
@@ -214,21 +215,78 @@ router.put('/checks/:id/decision', auth.requireUser, wrap(async (req, res) => {
     if (entry.decision || entry.notes) r.decisionHistory = [...(r.decisionHistory || []), entry].slice(-20);
   }
   if (Array.isArray(b.findingMarks)) r.findingMarks = b.findingMarks.slice(0, 500);
+  // Module 5: findings the editor left out of the Word / PDF report, and the lowest confidence shown (ImageTwin default 33 %)
+  if (Array.isArray(b.reportExclude)) r.reportExclude = b.reportExclude.map(String).slice(0, 500);
+  if (Number.isFinite(b.confidenceThreshold)) r.confidenceThreshold = Math.max(0, Math.min(100, Math.round(b.confidenceThreshold)));
   await db.query('UPDATE checks SET result = $1 WHERE id = $2', [JSON.stringify(r), row.id]);
   await require('../reportStore').offload(row.id, r);
   await auth.audit(req, 'decision', `check ${row.id}`, { kind: row.kind, decision: entry?.decision || null });
   res.json({ success: true, decision: entry });
 }));
 
+const confidentialBlocks = async (c, userId) => (c.row.kind === 'papermill' ? W.papermillBlocks(c.result) : c.row.kind === 'images' ? W.imagesBlocks(await IMG.withExportThumbs(c.result, userId)) : c.row.kind === 'integrity' ? require('../integrity/reports').integrityBlocks(c.result) : null);
+
 /** Confidential Word export of a Module 4 / Module 5 report */
 router.get('/checks/:id/confidential', auth.requireUser, wrap(async (req, res) => {
   const c = await loadCheck(req.user.id, req.params.id);
   if (!c?.result) return res.status(404).json({ success: false, message: 'Report not found.' });
   const kind = c.row.kind;
-  const blocks = kind === 'papermill' ? W.papermillBlocks(c.result) : kind === 'images' ? W.imagesBlocks(await IMG.withExportThumbs(c.result, req.user.id)) : null;
+  const blocks = await confidentialBlocks(c, req.user.id);
   if (!blocks) return res.status(400).json({ success: false, message: 'No confidential export for this report.' });
   if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(blocks), `${kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.pdf`, 'application/pdf');
   sendFile(res, await W.buildDocx(blocks), `${kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.docx`, DOCX);
+}));
+
+// ---- shared link (as ImageTwin's "Shared link"): a read-only link to the PDF of a Module 4 / 5 report, for a colleague
+// without an account (e.g. the integrity committee). It expires (1-30 days, default 7), can be revoked, and every
+// opening is written to the audit log. Only the owner of the report can create or revoke it.
+const crypto = require('crypto');
+const SHARE_KINDS = ['papermill', 'images', 'integrity'];
+
+router.post('/checks/:id/share', auth.requireUser, wrap(async (req, res) => {
+  const c = await loadCheck(req.user.id, req.params.id);
+  if (!c?.result || !SHARE_KINDS.includes(c.row.kind)) return res.status(404).json({ success: false, message: 'Report not found.' });
+  const days = Math.max(1, Math.min(30, parseInt(req.body?.days, 10) || 7));
+  if (c.result.share?.token) await db.setMeta(`share:${c.result.share.token}`, '');
+  const token = crypto.randomBytes(24).toString('base64url');
+  const share = { token, expires: new Date(Date.now() + days * 864e5).toISOString(), by: req.user.name, at: new Date().toISOString() };
+  await db.setMeta(`share:${token}`, JSON.stringify({ checkId: c.row.id, userId: req.user.id, expires: share.expires }));
+  const r = await require('../reportStore').load(c.row.result);
+  r.share = share;
+  await db.query('UPDATE checks SET result = $1 WHERE id = $2', [JSON.stringify(r), c.row.id]);
+  await require('../reportStore').offload(c.row.id, r);
+  await auth.audit(req, 'share-create', `check ${c.row.id}`, { kind: c.row.kind, days });
+  res.json({ success: true, share, url: `/api/shared/${token}` });
+}));
+
+router.delete('/checks/:id/share', auth.requireUser, wrap(async (req, res) => {
+  const c = await loadCheck(req.user.id, req.params.id);
+  if (!c?.result) return res.status(404).json({ success: false, message: 'Report not found.' });
+  if (c.result.share?.token) await db.setMeta(`share:${c.result.share.token}`, '');
+  const r = await require('../reportStore').load(c.row.result);
+  delete r.share;
+  await db.query('UPDATE checks SET result = $1 WHERE id = $2', [JSON.stringify(r), c.row.id]);
+  await require('../reportStore').offload(c.row.id, r);
+  await auth.audit(req, 'share-revoke', `check ${c.row.id}`, {});
+  res.json({ success: true });
+}));
+
+/** The shared report itself (no sign-in): the confidential PDF while the link is valid */
+router.get('/shared/:token', wrap(async (req, res) => {
+  const token = String(req.params.token || '');
+  let entry = null;
+  if (/^[\w-]{20,64}$/.test(token)) { try { entry = JSON.parse((await db.getMeta(`share:${token}`)) || 'null'); } catch { entry = null; } }
+  if (!entry) return res.status(404).type('text/plain').send('This shared link does not exist or was revoked.');
+  if (new Date(entry.expires) < new Date()) return res.status(410).type('text/plain').send('This shared link has expired. Ask the editor for a new one.');
+  const c = await loadCheck(entry.userId, entry.checkId);
+  if (!c?.result || c.result.share?.token !== token) return res.status(404).type('text/plain').send('This shared link does not exist or was revoked.');
+  const blocks = await confidentialBlocks(c, entry.userId);
+  await auth.audit({ ip: req.ip, user: { id: entry.userId, email: 'shared link' } }, 'share-open', `check ${c.row.id}`, null);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${`${c.row.kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.pdf`.replace(/[^\w.\-]+/g, '_')}"`);
+  res.send(await require('../pdf').buildPdf(blocks));
 }));
 
 /** Full Screening Report as Word: editor version (all modules) or author version (Modules 1-3) */
@@ -264,6 +322,22 @@ router.put('/settings/tortured', mod('papermill'), wrap(async (req, res) => {
   const list = (Array.isArray(req.body?.list) ? req.body.list : []).map(x => ({ phrase: String(x.phrase || '').trim().toLowerCase(), correct: String(x.correct || '').trim() })).filter(x => x.phrase.length >= 5 && x.correct).slice(0, 2000);
   await db.setMeta('tortured_custom', JSON.stringify(list));
   await auth.audit(req, 'setting', 'tortured_custom', { count: list.length });
+  res.json({ success: true, list });
+}));
+
+// Module 4 editorial watchlist (STM Integrity Hub style): e-mails, domains, names, ORCID iDs, institutions, phones, phrases
+const WL = require('../papermill/watchlist');
+router.get('/settings/watchlist', mod('papermill'), wrap(async (req, res) => res.json({ success: true, list: await WL.load(), types: WL.TYPES })));
+router.put('/settings/watchlist', mod('papermill'), wrap(async (req, res) => {
+  const list = await WL.save(req.body?.list, req.user.name);
+  await auth.audit(req, 'setting', 'papermill_watchlist', { count: list.length });
+  res.json({ success: true, list });
+}));
+router.post('/settings/watchlist', mod('papermill'), wrap(async (req, res) => {
+  const e = WL.entryOf(req.body || {}, req.user.name);
+  if (!e) return res.status(400).json({ success: false, message: 'Give a type and a valid value (e-mail, domain, name, ORCID iD, institution, phone or phrase).' });
+  const list = await WL.save([...(await WL.load()), e], req.user.name);
+  await auth.audit(req, 'setting', 'papermill_watchlist', { added: e.type });
   res.json({ success: true, list });
 }));
 

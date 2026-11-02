@@ -1,7 +1,7 @@
 // docx.js - Word exports built from simple blocks: {h1|h2|p|bullets|table|kv}
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, ImageRun,
-  Header, Footer, PageNumber
+  Header, Footer, PageNumber, PageBreak
 } = require('docx');
 const cfg = require('./config');
 
@@ -62,7 +62,8 @@ function markedParagraphs(segments) {
 async function buildDocx(blocks, { rtl = false, title = cfg.APP_NAME } = {}) {
   const children = [];
   for (const b of blocks) {
-    if (b.h1) children.push(para(b.h1, { heading: HeadingLevel.HEADING_1, rtl, after: 120 }));
+    if (b.pageBreak) children.push(new Paragraph({ children: [new PageBreak()] }));
+    else if (b.h1) children.push(para(b.h1, { heading: HeadingLevel.HEADING_1, rtl, after: 120 }));
     else if (b.h2) children.push(para(b.h2, { heading: HeadingLevel.HEADING_2, rtl, after: 100 }));
     else if (b.h3) children.push(para(b.h3, { heading: HeadingLevel.HEADING_3, rtl, after: 80 }));
     else if (b.p !== undefined) children.push(para(b.p, { rtl, bold: b.bold, italics: b.italics, color: b.color }));
@@ -312,6 +313,8 @@ const pmEvidence = e => `${e.text || ''}${e.quote ? ` — “${e.quote}”` : ''
 
 /** What Module 4 checked, as [check, result] rows (the same list as on screen) */
 function papermillCoverage(r) {
+  // traffic-light overview (STM Integrity Hub style) for reports made since it was added
+  if (r.signals && r.checked) return require('./papermill/overview').overview(r).map(o => [{ red: 'RED', amber: 'AMBER', green: 'GREEN', grey: 'NOT CHECKED' }[o.light], o.check, o.result]);
   const c = r.checked || {}, d = r.details || {};
   const no = why => `Not checked${why ? ` — ${why}` : ''}`;
   const millRefs = (d.millJournals || []).reduce((n, j) => n + (j.refs || []).length, 0);
@@ -377,7 +380,11 @@ function papermillBlocks(r, { section = null } = {}) {
       }
     }
   }
-  blocks.push(sub(4, 'What was checked'), { table: { headers: ['Check', 'Result'], rows: papermillCoverage(r) } });
+  const cov = papermillCoverage(r);
+  blocks.push(sub(4, 'What was checked'), cov[0]?.length === 3
+    ? { table: { headers: ['Status', 'Check', 'Result'], rows: cov } }
+    : { table: { headers: ['Check', 'Result'], rows: cov } });
+  if (cov[0]?.length === 3) blocks.push({ p: 'RED: a strong signal. AMBER: a moderate or weak signal. GREEN: checked, nothing found. NOT CHECKED: the information was not in the manuscript.', italics: true });
   if (r.guidance?.available) blocks.push(sub(5, 'Suggested handling for this risk level'), { kv: [['Before publication', r.guidance.decision.desk], ['After publication', r.guidance.decision.post]] }, { bullets: r.guidance.evidence });
   blocks.push(sub(6, 'How the risk level is set'), { bullets: [
     'Every signal has a weight. The weights were set on a benchmark of 150 papers retracted for paper-mill reasons and 126 ordinary papers from the same journals and years.',
@@ -437,8 +444,14 @@ function imagesBlocks(r, { section = null } = {}) {
   const s = r.summary;
   const marks = new Map((r.findingMarks || []).map(m => [m.id, m.mark]));
   const label = { confirmed: 'Confirmed by editor', false: 'False alarm', ask: 'Ask the authors' };
-  const findings = r.findings || [];
-  const refs = r.references || [];
+  // the editor's report selection (Proofig) and the confidence threshold (ImageTwin: Low < 33 % hidden by default)
+  const excluded = new Set(r.reportExclude || []);
+  const threshold = Number.isFinite(r.confidenceThreshold) ? r.confidenceThreshold : 33;
+  const keep = x => !excluded.has(x.id) && (x.confidence === undefined || x.confidence >= threshold);
+  const findings = (r.findings || []).filter(keep);
+  const refs = (r.references || []).filter(m => m.confidence === undefined || m.confidence >= threshold);
+  const omitted = { selection: (r.findings || []).filter(f => excluded.has(f.id)).length, low: (r.findings || []).filter(f => !excluded.has(f.id) && f.confidence !== undefined && f.confidence < threshold).length + (r.references || []).length - refs.length };
+  const conf = x => (x.confidence !== undefined ? `${x.confidence}% (${x.bandLabel})` : '—');
   const panelThumb = new Map((r.panels || []).map(p => [p.id, p]));
   // the sharpest saved picture of a panel: the 340 px view kept for matched panels, else the 150 px thumbnail
   const view = id => {
@@ -451,8 +464,9 @@ function imagesBlocks(r, { section = null } = {}) {
   const h = t => (section ? { h2: `${section}. ${t}` } : { h2: t });
   const blocks = [
     section ? { h2: `${section}. Image integrity (confidential)` } : { h1: 'CONFIDENTIAL — Module 5 Image Integrity Report' },
-    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || r.meta?.filename || '—'}`], ['File analysed', r.meta?.filename || '—'], ['Date', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : '—']] },
+    { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || r.meta?.filename || '—'}`], ['File analysed', r.meta?.filename || '—'], ['Date and time of the scan', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '—'], ['Overall risk assessment', s.level], ...(r.analysisVersion ? [['Analysis version', r.analysisVersion]] : [])] },
     { callout: { level: { HIGH: 'bad', MEDIUM: 'warn', LOW: 'ok' }[s.level] || 'na', title: `Image risk: ${s.level}`, text: s.findings ? `${s.byLevel.high || 0} strong finding(s), ${s.byLevel.medium || 0} to check, in ${s.panels} panels from ${s.images} figure(s).` : `No duplicated, re-used or altered content was found in ${s.panels} panels from ${s.images} figure(s).` } },
+    ...(s.byConfidence ? [{ p: `Confidence of the findings and matches: ${s.byConfidence.high} High (66–100 %), ${s.byConfidence.fair} Fair (33–65 %), ${s.byConfidence.low} Low (0–32 %). This report shows those of ${threshold} % and above${omitted.low ? ` (${omitted.low} below it left out)` : ''}${omitted.selection ? `; ${omitted.selection} finding(s) left out by the editor` : ''}.` }] : []),
     { table: { headers: ['Check', 'Result'], rows: [
       ['(a) Duplication & reuse inside the manuscript', String(findings.filter(f => (f.category || 'duplication') === 'duplication').length)],
       ['(b) Alteration & manipulation', String(findings.filter(f => f.category === 'manipulation').length)],
@@ -480,15 +494,20 @@ function imagesBlocks(r, { section = null } = {}) {
       ['Earlier PJPS manuscripts screened in this system', '—', '—', '—']
     ] } }, { p: `Matches are reported only against these ${(r.referencesSearched.refs || 0).toLocaleString('en')} reference panels and earlier PJPS manuscripts. A figure re-used from a paper outside them (for example a paywalled article) cannot be detected here.`, italics: true });
   }
+  // external publication matches on their own page (as page 2 of the ImageTwin PDF report)
+  const external = [...refs.map(m => [m.panelLabel, `${m.title || '—'}${m.journal ? `, ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}`, m.doi ? `https://doi.org/${m.doi}` : m.url || '—', m.sourceName, conf(m)]),
+    ...(r.authorFigures?.matches || []).filter(m => m.confidence === undefined || m.confidence >= threshold).map(m => [m.panelLabel || '', `${m.article || m.pmcid}${m.journal ? `, ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}`, m.url || '—', 'Authors\' earlier papers', conf(m)])];
+  if (external.length && !section) blocks.push({ pageBreak: true }, { h2: 'External publication matches' }, { p: `${external.length} panel(s) of this manuscript match figures published elsewhere. Each match is shown with both pictures further below.` }, { table: { headers: ['This manuscript', 'Publication', 'Link', 'Database', 'Confidence'], rows: external } });
   if (r.guidance?.available) blocks.push({ p: `Suggested handling — ${r.guidance.decision.action}. ${r.guidance.decision.desk}`, bold: true });
   if (r.disclaimer) blocks.push({ p: r.disclaimer, italics: true });
 
   if (findings.length) {
-    blocks.push(h('Findings overview'), { table: { headers: ['#', 'Finding', 'Location', 'Transformation', 'Measured agreement', 'Severity', 'Editor'], rows: findings.map((f, i) => [String(i + 1), `${IMG_KIND[f.kind] || f.kind} (${IMG_CAT[f.category || 'duplication']})`, loc(f), f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? imgTransform(f.transform) : '—', imgEvidence(f), sev(f.level), label[marks.get(f.id)] || '—']) } });
+    blocks.push(h('Findings overview'), { table: { headers: ['#', 'Finding', 'Location', 'Transformation', 'Measured agreement', 'Severity', 'Confidence', 'Editor'], rows: findings.map((f, i) => [String(i + 1), `${IMG_KIND[f.kind] || f.kind} (${IMG_CAT[f.category || 'duplication']})`, loc(f), f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? imgTransform(f.transform) : '—', imgEvidence(f), sev(f.level), conf(f), label[marks.get(f.id)] || '—']) } });
     blocks.push(h('Findings in detail'));
     findings.forEach((f, i) => {
       blocks.push({ p: `Finding ${i + 1}: ${IMG_KIND[f.kind] || f.kind} — ${loc(f)}`, bold: true, color: f.level === 'high' ? '9B1C1C' : '8A5300' });
-      blocks.push({ kv: [['Severity', `${sev(f.level)}${marks.get(f.id) ? ` · ${label[marks.get(f.id)]}` : ''}`], ['What was found', f.description], ...(f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? [['Transformation', imgTransform(f.transform)]] : []), ['Measured agreement', imgEvidence(f)]] });
+      blocks.push({ kv: [['Severity', `${sev(f.level)}${marks.get(f.id) ? ` · ${label[marks.get(f.id)]}` : ''}`], ['Confidence', conf(f)], ['What was found', f.description],
+        ...(f.attribution ? [['AI assessment', f.attribution.generators.length ? `most probable generator: ${f.attribution.generators.map(g => `${g.name} (${g.share} %)`).join(', ')} — ${f.attribution.basis}` : f.attribution.basis]] : []), ...(f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? [['Transformation', imgTransform(f.transform)]] : []), ['Measured agreement', imgEvidence(f)]] });
       if ((f.details || []).length) blocks.push({ bullets: f.details });
       if (f.assessment) blocks.push({ p: `Type: ${f.assessment.name} (usual risk ${f.assessment.risk}, false-alarm risk ${f.assessment.falsePositiveRisk}). Often harmless when: ${f.assessment.falseAlarms.join('; ') || '—'}.`, italics: true });
       const two = f.a.panel !== f.b.panel;
@@ -498,12 +517,15 @@ function imagesBlocks(r, { section = null } = {}) {
       ].filter(Boolean);
       if (pics.length) blocks.push({ images: pics, caption: f.kind === 'partial' ? 'The matching part is outlined in both panels.' : f.kind === 'clone' ? 'The original area and its copy are outlined.' : f.kind === 'alteration' ? 'The flagged area is outlined.' : '' });
       // cloned area / overlap: both areas enlarged, original first
+      // manipulation: the enhanced view and the suspicious area close up (ImageTwin shows original, enhanced, close-up)
+      const views3 = [f.enhA && { src: f.enhA, width: f.enhAW, height: f.enhAH, label: 'Enhanced view (contrast and background)', maxWidth: 230 }, f.zoomA && !f.zoomB && { src: f.zoomA, width: f.zoomAW, height: f.zoomAH, label: 'Suspicious area, close up', tone: 'bad', maxWidth: 230, upscale: true }].filter(Boolean);
+      if (views3.length) blocks.push({ images: views3 });
       if (f.zoomA && f.zoomB) blocks.push({ images: [{ src: f.zoomA, width: f.zoomAW, height: f.zoomAH, label: f.kind === 'clone' ? 'Enlarged: original area' : `Enlarged: region in ${f.a.label}`, maxWidth: 230, upscale: true }, { src: f.zoomB, width: f.zoomBW, height: f.zoomBH, label: f.kind === 'clone' ? 'Enlarged: cloned copy' : `Enlarged: same region in ${f.b.label}`, tone: 'bad', maxWidth: 230, upscale: true }], caption: f.kind === 'clone' ? `The copy may be ${imgTransform(f.transform) === 'none (same orientation and size)' ? 'an exact copy' : imgTransform(f.transform)}.` : '' });
     });
   }
 
   if (refs.length) {
-    blocks.push(h('Matches with published and reference figures'), { table: { headers: ['#', 'This manuscript', 'Database', 'Source paper', 'Figure', 'Measured agreement', 'Severity'], rows: refs.map((m, i) => [String(i + 1), m.panelLabel, m.sourceName, `${m.title || ''}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}${m.doi ? ` doi:${m.doi}` : ''}`, m.figure, `fingerprint distance ${m.distance}/64${m.correlation !== null && m.correlation !== undefined ? `, pixel correlation ${m.correlation}` : ''}`, sev(m.level)]) } });
+    blocks.push(h('Matches with published and reference figures'), { table: { headers: ['#', 'This manuscript', 'Database', 'Source paper', 'Figure', 'Measured agreement', 'Severity', 'Confidence'], rows: refs.map((m, i) => [String(i + 1), m.panelLabel, m.sourceName, `${m.title || ''}${m.journal ? ` — ${m.journal}` : ''}${m.year ? ` (${m.year})` : ''}${m.doi ? ` doi:${m.doi}` : ''}`, m.figure, `fingerprint distance ${m.distance}/64${m.correlation !== null && m.correlation !== undefined ? `, pixel correlation ${m.correlation}` : ''}`, sev(m.level), conf(m)]) } });
     refs.forEach((m, i) => {
       const mine = view(m.panel);
       const pics = [mine && { ...mine, label: `This manuscript: ${m.panelLabel}` }, m.refThumb && { src: m.refThumb, width: m.refThumbW, height: m.refThumbH, label: `Source figure: ${m.sourceName}, ${m.figure}`, tone: m.source === 'retracted' ? 'bad' : '' }].filter(Boolean);

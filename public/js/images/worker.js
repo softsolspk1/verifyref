@@ -14,7 +14,8 @@ self.onmessage = e => {
     images.forEach((im, n) => {
       const img = { width: im.width, height: im.height, data: new Uint8ClampedArray(im.data) };
       const gray = E.toGray(img);
-      const boxes = E.splitPanels(img);
+      // panels set by the editor (Adjust panels) replace the automatic split
+      const boxes = Array.isArray(im.boxes) && im.boxes.length ? im.boxes.map(b => ({ x: Math.max(0, b.x | 0), y: Math.max(0, b.y | 0), w: Math.min(b.w | 0, im.width - Math.max(0, b.x | 0)), h: Math.min(b.h | 0, im.height - Math.max(0, b.y | 0)) })) : E.splitPanels(img);
       boxes.forEach((b, i) => {
         if (b.w < 48 || b.h < 48) return;
         // panel letter read from the corner (A, B, C ...) so a finding can say "Fig. 2C vs Fig. 4A"

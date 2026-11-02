@@ -1,8 +1,10 @@
 // images/viewer.js - forensic viewer for the editor (Module 5.4). Filters: contrast boost, error level analysis, noise
-// map, edges, false colour, invert. With a second image (B, aligned to A using the detected rotation / mirroring /
-// scale): side by side, overlay with an opacity slider, swipe slider, difference image and flicker. Zoom, magnifier,
-// and "Save view" (PNG) for the editorial file. Filters are aids for looking closer, never proof.
+// map, edges, false colour, invert, solarize, background; brightness and contrast sliders. With a second image (B,
+// auto-aligned to A using the detected rotation / mirroring / scale): side by side (optionally with the matched
+// keypoints joined by lines), overlay with an opacity slider, swipe slider, difference image, heatmap and flicker. Zoom,
+// magnifier, and "Save view" (PNG) for the editorial file. Filters are aids for looking closer, never proof.
 import { modal, esc, $ } from '../core.js';
+import { toGray, resizeGray, orb, matchFeatures, ransac } from './engine.js';
 
 async function loadSource(src) {
   if (src instanceof HTMLCanvasElement) return src;
@@ -143,8 +145,92 @@ async function render(base, mode, gain) {
   else if (mode === 'edges') id = convolve(id, 'sobel', gain / 2);
   else if (mode === 'false') falseColour(id.data, gain);
   else if (mode === 'invert') for (let i = 0; i < id.data.length; i += 4) { id.data[i] = 255 - id.data[i]; id.data[i + 1] = 255 - id.data[i + 1]; id.data[i + 2] = 255 - id.data[i + 2]; }
+  else if (mode === 'solarize') solarize(id.data, gain);
+  else if (mode === 'background') background(id.data, gain);
   ctx.putImageData(id, 0, 0);
   return c;
+}
+
+/** Solarisation: grey levels folded several times (more folds with more strength), so smooth gradients turn into
+ * contour bands and a pasted patch or a cleaned background breaks the bands */
+function solarize(d, gain) {
+  const folds = Math.max(2, Math.round(gain / 4));
+  for (let i = 0; i < d.length; i += 4) for (let k = 0; k < 3; k++) {
+    const t = (d[i + k] / 255) * folds;
+    d[i + k] = (Math.floor(t) % 2 ? 1 - (t % 1) : t % 1) * 255;
+  }
+}
+
+/** Background visualisation: the brightest (or darkest) background levels stretched over the whole grey range, so
+ * erased bands, rectangles of a different background and splice edges show up on blots and gels */
+function background(d, gain) {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 4) hist[(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0]++;
+  let acc = 0, med = 128;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= d.length / 8) { med = v; break; } }
+  const light = med > 127;                       // most blots: light background, dark bands
+  const span = Math.max(4, 64 - gain * 2);       // stronger = narrower window around the background level
+  let lo = light ? 255 - span : 0, hi = light ? 255 : span;
+  for (let v = 255, a = 0; v >= 0 && light; v--) { a += hist[v]; if (a >= d.length / 4 * 0.6) { lo = Math.max(0, v - span / 2); hi = Math.min(255, lo + span); break; } }
+  for (let i = 0; i < d.length; i += 4) for (let k = 0; k < 3; k++) d[i + k] = Math.max(0, Math.min(255, (d[i + k] - lo) / (hi - lo) * 255));
+}
+
+/** Brightness (-100..100) and contrast (-100..100) on a copy */
+function adjust(c, bright, contrast) {
+  if (!bright && !contrast) return c;
+  const o = document.createElement('canvas');
+  o.width = c.width; o.height = c.height;
+  const ctx = o.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(c, 0, 0);
+  const id = ctx.getImageData(0, 0, o.width, o.height), d = id.data;
+  const f = (259 * (contrast * 2.55 + 255)) / (255 * (259 - contrast * 2.55)), b = bright * 2.55;
+  for (let i = 0; i < d.length; i += 4) for (let k = 0; k < 3; k++) d[i + k] = f * (d[i + k] - 128) + 128 + b;
+  ctx.putImageData(id, 0, 0);
+  return o;
+}
+
+/** Heatmap: A in grey with the agreement of A and B coloured over it - red where the two are (nearly) the same
+ * picture, nothing where they differ (8 px blocks) */
+function heatmap(a, b) {
+  const w = a.width, h = a.height, B = 8;
+  const da = a.getContext('2d').getImageData(0, 0, w, h).data, db = b.getContext('2d').getImageData(0, 0, w, h).data;
+  const o = document.createElement('canvas');
+  o.width = w; o.height = h;
+  const ctx = o.getContext('2d');
+  ctx.filter = 'grayscale(1) opacity(0.65)';
+  ctx.drawImage(a, 0, 0);
+  ctx.filter = 'none';
+  let same = 0, blocks = 0;
+  for (let y = 0; y < h; y += B) for (let x = 0; x < w; x += B) {
+    let s = 0, n = 0;
+    for (let yy = y; yy < Math.min(h, y + B); yy++) for (let xx = x; xx < Math.min(w, x + B); xx++) {
+      const i = (yy * w + xx) * 4;
+      s += Math.abs(da[i] + da[i + 1] + da[i + 2] - db[i] - db[i + 1] - db[i + 2]) / 3; n++;
+    }
+    const diff = s / n;
+    blocks++;
+    if (diff < 14) {
+      same++;
+      ctx.fillStyle = `rgba(230, 20, 60, ${0.55 * (1 - diff / 14) + 0.1})`;
+      ctx.fillRect(x, y, B, B);
+    }
+  }
+  return { canvas: o, same: same / Math.max(1, blocks) };
+}
+
+/** Matched keypoints of A and B (ORB + RANSAC, B already aligned): [{ ax, ay, bx, by }] in canvas pixels */
+function matchedKeypoints(a, b) {
+  const gray = c => {
+    const g = toGray(c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, c.width, c.height));
+    const k = Math.min(1, 360 / Math.max(g.w, g.h));
+    return { k, img: k < 1 ? resizeGray(g, Math.round(g.w * k), Math.round(g.h * k)) : g };
+  };
+  const A = gray(a), Bg = gray(b);
+  const fa = orb(A.img, { max: 400 }), fb = orb(Bg.img, { max: 400 });
+  const m = matchFeatures(fa, fb, { maxDist: 70, ratio: 0.9 });
+  const fit = ransac(m, fa, fb, { tol: 5 });
+  const use = fit && fit.inliers.length >= 4 ? fit.inliers : [];
+  return use.slice(0, 120).map(x => ({ ax: fa.pts[x.i].x / A.k, ay: fa.pts[x.i].y / A.k, bx: fb.pts[x.j].x / Bg.k, by: fb.pts[x.j].y / Bg.k }));
 }
 
 /** |A - B| per pixel, amplified: identical areas turn black, differences light up */
@@ -179,7 +265,7 @@ function outlined(c, boxes, colour) {
   return o;
 }
 
-const MODES = [['original', 'Original'], ['contrast', 'Contrast boost'], ['ela', 'Error level'], ['noise', 'Noise map'], ['edges', 'Edges'], ['false', 'False colour'], ['invert', 'Invert']];
+const MODES = [['original', 'Original'], ['contrast', 'Contrast boost'], ['ela', 'Error level'], ['noise', 'Noise map'], ['edges', 'Edges'], ['false', 'False colour'], ['invert', 'Invert'], ['solarize', 'Solarize'], ['background', 'Background']];
 const HELP = {
   original: 'The image as extracted from the manuscript.',
   contrast: 'Histogram equalisation: reveals faint edges, erased bands and pasted backgrounds in dark or washed-out areas.',
@@ -187,15 +273,18 @@ const HELP = {
   noise: 'Noise map: the fine grain of the image. A pasted or cleaned area often has smoother or different grain than its surroundings.',
   edges: 'Edge view: sharp straight boundaries around a band or cell can show where something was inserted.',
   false: 'False colour: small differences in grey level become different colours, so an evenly “cleaned” background or a pasted rectangle stands out.',
-  invert: 'Negative image: helps to see faint bands on blots and gels.'
+  invert: 'Negative image: helps to see faint bands on blots and gels.',
+  solarize: 'Solarisation: grey levels are folded into contour bands. Smooth backgrounds become rings and stripes; a pasted patch or an erased area interrupts them.',
+  background: 'Background visualisation: only the background grey levels are stretched over the full range, so erased bands, pasted rectangles and splice lines on blots and gels become visible.'
 };
-const VIEWS = [['single', 'A / B'], ['side', 'Side by side'], ['overlay', 'Overlay'], ['swipe', 'Swipe'], ['diff', 'Difference'], ['flicker', 'Flicker']];
+const VIEWS = [['single', 'A / B'], ['side', 'Side by side'], ['overlay', 'Overlay'], ['swipe', 'Swipe'], ['diff', 'Difference'], ['heat', 'Heatmap'], ['flicker', 'Flicker']];
 const VIEW_HELP = {
   single: 'One image at a time; “Show B” switches.',
   side: 'Both images next to each other, B turned and mirrored like A, with the same filter.',
   overlay: 'B laid over A; move the slider to fade between them. Re-used content stays still while the rest changes.',
   swipe: 'A on the left of the line, B on the right; drag the slider across the image.',
   diff: 'Absolute difference of A and B: matching content turns black, changes light up.',
+  heat: 'Heatmap of agreement: A in grey, red where A and B show the same picture. A re-used area is a solid red block.',
   flicker: 'A and B alternate quickly; re-used areas stay still, differences jump.'
 };
 
@@ -211,15 +300,18 @@ export async function openViewer({ a, b = null, transform = null, title = 'Foren
     try { const srcB = await loadSource(b.src); baseB = alignTo(baseA, b.box ? crop(srcB, b.box) : srcB, transform); } catch (e) { baseB = null; }
   }
   const markA = a.marks?.map(m => ({ x: m.x - (a.box?.x || 0), y: m.y - (a.box?.y || 0), w: m.w, h: m.h }));
-  let mode = 'original', gain = 10, view = baseB ? 'side' : 'single', showB = false, mix = 50, zoom = 0, timer = null;
+  let mode = 'original', gain = 10, view = baseB ? 'side' : 'single', showB = false, mix = 50, zoom = 0, timer = null, bright = 0, contrast = 0, keypoints = false, kp = null;
   modal(`
     <div class="card-head"><h2>${esc(title)}</h2><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
     ${baseB ? `<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:6px"><span class="muted">Compare:</span>${VIEWS.map(([k, l]) => `<button class="filter ${k === view ? 'active' : ''}" data-view="${k}">${l}</button>`).join('')}
       <label class="muted" id="mix-wrap" hidden style="margin-left:8px"><span id="mix-label">A ↔ B</span> <input type="range" id="mix" min="0" max="100" value="50" style="vertical-align:middle;width:160px"></label>
-      <button class="btn btn-sm btn-ghost" id="swap" hidden>Show B</button></div>` : ''}
+      <button class="btn btn-sm btn-ghost" id="swap" hidden>Show B</button>
+      <label class="muted" style="margin-left:8px"><input type="checkbox" id="kp"> Matched keypoints</label></div>` : ''}
     <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px"><span class="muted">Filter:</span>
       ${MODES.map(([k, l]) => `<button class="filter ${k === 'original' ? 'active' : ''}" data-mode="${k}">${l}</button>`).join('')}
       <label class="muted" style="margin-left:8px">Strength <input type="range" id="gain" min="2" max="30" value="10" style="vertical-align:middle"></label>
+      <label class="muted">Brightness <input type="range" id="bright" min="-100" max="100" value="0" style="vertical-align:middle;width:90px"></label>
+      <label class="muted">Contrast <input type="range" id="contr" min="-100" max="100" value="0" style="vertical-align:middle;width:90px"></label>
       <span class="spacer"></span>
       <button class="btn btn-sm btn-ghost" id="zout" title="Zoom out">−</button><span class="muted" id="zl">fit</span><button class="btn btn-sm btn-ghost" id="zin" title="Zoom in">+</button>
       <button class="btn btn-sm" id="save">Save view</button>
@@ -231,10 +323,10 @@ export async function openViewer({ a, b = null, transform = null, title = 'Foren
       const vc = $('#vc', m);
       const fit = c => Math.min(1, 880 / c.width, 560 / c.height) || 1;
       const draw = async () => {
-        const fa = outlined(await render(baseA, mode, gain), markA, '#ff1f5a');
+        const fa = outlined(adjust(await render(baseA, mode, gain), bright, contrast), markA, '#ff1f5a');
         let out = fa, label = a.label || 'A';
         if (baseB) {
-          const fb = await render(baseB, mode, gain);
+          const fb = adjust(await render(baseB, mode, gain), bright, contrast);
           if (view === 'single') { out = showB ? fb : fa; label = showB ? `${b.label || 'B'} (aligned to A)` : label; }
           else if (view === 'flicker') { out = showB ? fb : fa; label = showB ? `B — ${b.label || ''}` : `A — ${a.label || ''}`; }
           else if (view === 'side') {
@@ -245,6 +337,17 @@ export async function openViewer({ a, b = null, transform = null, title = 'Foren
             ctx.fillStyle = '#111'; ctx.fillRect(0, 0, out.width, out.height);
             ctx.drawImage(fa, 0, 0); ctx.drawImage(fb, fa.width + gap, 0);
             label = `A: ${a.label || ''}   |   B: ${b.label || ''}`;
+            if (keypoints) {
+              kp = kp || matchedKeypoints(baseA, baseB);
+              ctx.lineWidth = Math.max(1, fa.width / 400);
+              kp.forEach((p, i) => {
+                ctx.strokeStyle = `hsl(${(i * 47) % 360} 90% 55%)`;
+                ctx.beginPath(); ctx.moveTo(p.ax, p.ay); ctx.lineTo(p.bx + fa.width + gap, p.by); ctx.stroke();
+                ctx.fillStyle = ctx.strokeStyle;
+                ctx.fillRect(p.ax - 2, p.ay - 2, 4, 4); ctx.fillRect(p.bx + fa.width + gap - 2, p.by - 2, 4, 4);
+              });
+              label += ` · ${kp.length} matched keypoints`;
+            }
           } else if (view === 'overlay') {
             out = document.createElement('canvas');
             out.width = fa.width; out.height = fa.height;
@@ -263,6 +366,10 @@ export async function openViewer({ a, b = null, transform = null, title = 'Foren
             const d = difference(fa, fb, gain);
             out = d.canvas;
             label = `Difference A − B · ${Math.round(d.same * 100)}% of pixels nearly identical`;
+          } else if (view === 'heat') {
+            const hm = heatmap(fa, fb);
+            out = hm.canvas;
+            label = `Heatmap · ${Math.round(hm.same * 100)}% of the area agrees`;
           }
         }
         const scale = zoom ? zoom : Math.max(fit(out), Math.min(3, 360 / Math.max(out.width, out.height)));
@@ -287,6 +394,12 @@ export async function openViewer({ a, b = null, transform = null, title = 'Foren
         draw();
       });
       $('#gain', m).oninput = e => { gain = +e.target.value; draw(); };
+      $('#bright', m).oninput = e => { bright = +e.target.value; draw(); };
+      $('#contr', m).oninput = e => { contrast = +e.target.value; draw(); };
+      if (baseB) $('#kp', m).onchange = e => {
+        keypoints = e.target.checked;
+        if (keypoints && view !== 'side') m.querySelector('[data-view=side]').click(); else draw();
+      };
       if (baseB) {
         $('#mix', m).oninput = e => { mix = +e.target.value; draw(); };
         $('#swap', m).onclick = () => { showB = !showB; $('#swap', m).textContent = showB ? 'Show A' : 'Show B'; draw(); };

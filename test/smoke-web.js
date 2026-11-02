@@ -108,6 +108,17 @@ const assert = require('assert');
   j = await wait(r.data.jobId);
   assert.ok(j.result.signals.some(x => x.code === 'duplicate'), 'duplicate submission detected');
   console.log('  ✓ Module 4: duplicate submission found');
+  // Editorial watchlist (STM Integrity Hub style) and the traffic-light overview
+  r = await call('admin', 'POST', '/api/settings/watchlist', { type: 'email', value: 'ahmad@gmail.com', severity: 'high', note: 'case 12' });
+  assert.ok(r.data.success && r.data.list.length === 1, 'watchlist entry added');
+  assert.strictEqual((await call('admin', 'POST', '/api/settings/watchlist', { type: 'email', value: 'not-an-address' })).status, 400, 'invalid watchlist entry refused');
+  r = await call('admin', 'POST', '/api/papermill', { text: ms, manuscriptCode: 'PJPS-TEST-3' });
+  j = await wait(r.data.jobId);
+  const wl = j.result.signals.find(x => x.code === 'watchlist');
+  assert.ok(wl && wl.severity === 'high' && /ahmad@gmail\.com/.test(wl.evidence[0].text), 'watchlist match is a strong signal');
+  assert.ok(j.result.overview.some(o => /watchlist/i.test(o.check) && o.light === 'red') && j.result.overview.some(o => o.light === 'green'), 'traffic-light overview');
+  await call('admin', 'PUT', '/api/settings/watchlist', { list: [] });
+  console.log('  ✓ Module 4: watchlist match and traffic-light overview');
   // Decision record + confidential export
   r = await call('admin', 'PUT', `/api/checks/${pmId}/decision`, { decision: 'investigate', notes: 'Asked for raw data' });
   assert.ok(r.data.success && r.data.decision.label === 'Needs investigation');
@@ -128,6 +139,22 @@ const assert = require('assert');
   resp = await fetch(base + `/api/checks/${imgId}/confidential`, { headers: { Cookie: jar.admin } });
   assert.strictEqual(resp.status, 200, 'image report Word export with images');
   console.log('  ✓ Module 5: saved, earlier-manuscript match, confidential export');
+  // Confidence scores (ImageTwin bands), report selection, shared link
+  r = await call('admin', 'GET', `/api/checks/${imgId}`);
+  const saved5 = r.data.result || r.data.check?.result || r.data;
+  const f1 = (saved5.findings || []).find(f => f.id === 'f1');
+  assert.ok(f1 && f1.confidence >= 66 && f1.band === 'high' && saved5.summary.byConfidence, 'confidence score of a strong finding');
+  r = await call('admin', 'PUT', `/api/checks/${imgId}/decision`, { decision: null, notes: '', findingMarks: [], reportExclude: ['f1'], confidenceThreshold: 50 });
+  assert.ok(r.data.success, 'report selection saved');
+  r = await call('admin', 'POST', `/api/checks/${imgId}/share`, { days: 3 });
+  assert.ok(r.data.success && r.data.url.startsWith('/api/shared/'), 'shared link created');
+  const shareUrl = r.data.url;
+  resp = await fetch(base + shareUrl);
+  assert.ok(resp.status === 200 && resp.headers.get('content-type') === 'application/pdf' && (await resp.arrayBuffer()).byteLength > 2000, 'shared link opens the PDF without signing in');
+  assert.strictEqual((await fetch(base + '/api/shared/' + 'x'.repeat(32))).status, 404, 'unknown shared link');
+  await call('admin', 'DELETE', `/api/checks/${imgId}/share`);
+  assert.strictEqual((await fetch(base + shareUrl)).status, 404, 'revoked shared link');
+  console.log('  ✓ Module 5: confidence scores, report selection, shared link');
 
   // Module 5 (b)-(d): alteration, AI-image and chart findings; chart data compared with earlier manuscripts
   const bars = (code, label, v) => ({ label, kind: 'bars', v, spread: 0.7 });

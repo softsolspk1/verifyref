@@ -48,12 +48,20 @@ router.post('/extract', user, upload.single('file'), wrap(async (req, res) => {
     return res.json({ success: true, filename: req.file.originalname, format: doc.format, structured: doc.entries, referencesText: doc.entries.map(e => e.raw).join('\n'), bodyText: '', meta: {}, referenceCount: doc.entries.length });
   }
   const sec = P.findReferenceSection(doc.text);
-  const meta = sec.found ? P.extractManuscriptMeta(sec.body) : {};
-  const { entries } = P.splitReferences(sec.found ? sec.references : doc.text);
+  // no reference list found: a file of references (Module 1), or a manuscript whose list could not be found - then its
+  // paragraphs are the manuscript text, not references
+  let noList = false;
+  if (!sec.found) {
+    const parts = P.splitReferences(doc.text).entries;
+    noList = doc.text.split(/\s+/).length >= 300 && parts.filter(P.looksLikeReference).length < parts.length * 0.5;
+  }
+  const body = sec.found ? sec.body : noList ? doc.text : '';
+  const refsText = sec.found ? sec.references : noList ? '' : doc.text;
+  const { entries } = P.splitReferences(refsText);
   res.json({
     success: true, filename: req.file.originalname, format: doc.format,
-    fullManuscript: sec.found && sec.body.trim().length > 500,
-    referencesText: sec.found ? sec.references : doc.text, bodyText: sec.found ? sec.body : '', meta, referenceCount: entries.length
+    fullManuscript: body.trim().length > 500, noReferenceList: noList,
+    referencesText: refsText, bodyText: body, meta: body ? P.extractManuscriptMeta(body) : {}, referenceCount: refsText ? entries.length : 0
   });
 }));
 

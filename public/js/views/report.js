@@ -81,6 +81,7 @@ export function renderReport(el, result, { kind } = {}) {
       </div>
     </div>
     ${datasetBanner(result)}
+    ${result.noReferenceList ? `<div class="alert alert-warn">${esc(result.noReferenceList)}</div>` : ''}
     ${result.changes ? changesBanner(result.changes) : ''}
     ${kind !== 'citations' ? kpis(s) : ''}
     ${s.suspicious || s.retracted ? `<div class="alert alert-bad"><b>Publication integrity alert:</b> ${s.suspicious ? `${s.suspicious} reference(s) could not be found in any of the databases searched (possibly fabricated)` : ''}${s.suspicious && s.retracted ? '; ' : ''}${s.retracted ? `${s.retracted} retracted work(s) cited` : ''}.</div>` : ''}

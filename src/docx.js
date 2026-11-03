@@ -728,7 +728,8 @@ function screeningBlocks(r, version = 'editor') {
   const c = r.citations && !r.citations.error ? r.citations : null;
   const blocks = [
     { h1: version === 'editor' ? 'Full Screening Report — editor version (confidential)' : 'Manuscript screening — items to correct' },
-    { kv: [['Manuscript', `${meta.manuscriptCode ? meta.manuscriptCode + ' — ' : ''}${meta.title || '—'}`], ['Version', String(meta.version || 1)], ['Date', new Date(r.createdAt).toISOString().slice(0, 10)]] }
+    { kv: [['Manuscript', `${meta.manuscriptCode ? meta.manuscriptCode + ' — ' : ''}${meta.title || '—'}`], ['Version', String(meta.version || 1)], ['Date', new Date(r.createdAt).toISOString().slice(0, 10)]] },
+    ...(r.noReferenceList ? [{ p: r.noReferenceList, bold: true, color: '8A5300' }] : [])
   ];
   if (version === 'editor') {
     blocks.push({ h2: 'Summary' }, { callout: { level: { proceed: 'ok', return: 'warn', investigate: 'bad' }[sc.recommendation] || 'na', title: `Recommendation: ${sc.recommendationLabel || '—'}`, text: (sc.reasons || []).join(' · ') } });

@@ -41,7 +41,8 @@ References
   };
   const wait = async (who, id, prefix = '/api/jobs/', headers) => {
     for (let i = 0; i < 300; i++) {
-      await new Promise(res => setTimeout(res, 400));
+      // the Research Integrity API allows 60 requests a minute per key: poll it below that
+      await new Promise(res => setTimeout(res, headers ? 1100 : 400));
       const j = (await call(who, 'GET', prefix + id, null, headers)).data;
       if (j.status === 'done' || j.status === 'error') return j;
     }

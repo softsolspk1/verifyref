@@ -206,6 +206,21 @@ const assert = require('assert');
   }
   assert.strictEqual((await call('res', 'PATCH', `/api/checks/${simId}/similarity`, { excluded: [] })).status === 200, false, 'another user cannot change the report');
   console.log('  ✓ Similarity report: filters saved, own Word / PDF export');
+
+  // a plain Word manuscript without a "References" heading: body and list are both found on upload
+  const { Document, Packer, Paragraph } = require('docx');
+  const plain = ['Antioxidant activity of plant extracts in diabetic rats', ...Array(8).fill('Diabetes is a growing burden in Pakistan and plant extracts are used in traditional medicine for it, as earlier studies reported (Khan et al., 2020). We treated diabetic rats for six weeks and measured glucose, liver enzymes and antioxidant enzymes at the end of the study.'),
+    'Khan A, Ali B and Noor C (2020). Diabetes prevalence in Pakistan. Pak. J. Pharm. Sci., 33(2): 101-108.', 'Ahmed S and Shah K (2018). Medicinal plants of Sindh. J. Ethnopharmacol., 210: 1-10.', 'Zhang Y (2019). Antioxidant enzymes in diabetes. Free Radic. Biol. Med., 130: 20-30.'];
+  const upload = async paras => {
+    const fd = new FormData();
+    fd.append('file', new Blob([await Packer.toBuffer(new Document({ sections: [{ children: paras.map(t => new Paragraph(t)) }] }))]), 'plain.docx');
+    return (await fetch(`${base}/api/extract`, { method: 'POST', body: fd, headers: { Cookie: jar.admin } })).json();
+  };
+  let ex = await upload(plain);
+  assert.ok(ex.success && ex.referenceCount === 3 && ex.fullManuscript && !ex.noReferenceList, 'no heading: 3 references and the manuscript text');
+  ex = await upload(plain.slice(0, 9));
+  assert.ok(ex.success && ex.noReferenceList && ex.referenceCount === 0 && ex.bodyText.length > 1000, 'no reference list: the text is the manuscript body, not references');
+  console.log('  ✓ Plain Word manuscript: list found without a heading; no list -> text-only review');
   console.log('web smoke test: all assertions passed');
   process.exit(0);
 })().catch(e => { console.error('FAILED:', e); process.exit(1); });

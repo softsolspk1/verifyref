@@ -107,9 +107,12 @@ export function renderCheckForm(view, kind) {
       Object.assign(doc, { referencesText: d.referencesText, bodyText: d.bodyText, structured: d.structured || null, filename: d.filename, edited: null, file: /\.(docx|pdf)$/i.test(file.name) ? file : null });
       paste.value = '';
       paste.placeholder = `Using ${d.filename}`;
-      const warn = m.needsBody && !d.fullManuscript ? ' — no manuscript body detected; in-text citations cannot be checked.' : '';
+      const warn = d.noReferenceList
+        ? (m.screening ? ' — no reference list was found in the document: the bibliography, PJPS style and citation checks will be skipped; the similarity, paper-mill, image and author checks still run. Use “Review references” to paste the list if it is there.'
+          : ' — no reference list was found in the document. Paste the list, or use “Review references” to add it.')
+        : m.needsBody && !d.fullManuscript ? ' — no manuscript body detected; in-text citations cannot be checked.' : '';
       info.className = `alert ${warn ? 'alert-warn' : 'alert-good'}`;
-      info.textContent = `${d.filename}: ${d.referenceCount} references found${d.fullManuscript ? ' and the manuscript text was detected' : ''}${warn}`;
+      info.textContent = d.noReferenceList ? `${d.filename}: manuscript text read${warn}` : `${d.filename}: ${d.referenceCount} references found${d.fullManuscript ? ' and the manuscript text was detected' : ''}${warn}`;
       const meta = d.meta || {};
       if ($('#m-title', view) && meta.title) $('#m-title', view).value = meta.title;
       if ($('#m-authors', view) && meta.authors?.length) $('#m-authors', view).value = meta.authors.map(a => a.name).join('\n');
@@ -131,7 +134,7 @@ export function renderCheckForm(view, kind) {
   // Module 1.1 - edit / split / merge the detected reference list before it is checked
   $('#review', view).onclick = async () => {
     const text = paste.value.trim();
-    if (!text && !doc.referencesText && !doc.structured) return toast('Upload a file or paste the text first.', 'error');
+    if (!text && !doc.referencesText && !doc.bodyText && !doc.structured) return toast('Upload a file or paste the text first.', 'error');
     let items = doc.edited;
     if (!items) {
       try {
@@ -150,7 +153,7 @@ export function renderCheckForm(view, kind) {
 
   $('#run', view).onclick = async () => {
     const text = paste.value.trim();
-    if (!text && !doc.referencesText && !doc.structured) return toast('Upload a file or paste the text first.', 'error');
+    if (!text && !doc.referencesText && !doc.bodyText && !doc.structured) return toast('Upload a file or paste the text first.', 'error');
     const body = {
       kind,
       issueId: $('#issue', view).value || null,

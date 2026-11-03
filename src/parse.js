@@ -5,7 +5,14 @@ const DOI_REGEX = /10\.\d{4,9}\/[^\s"'<>,]*[^\s"'<>.,;:]/i;
 const NUMBERED_PREFIX = /^\s*(?:\[\d{1,4}\]|\(\d{1,4}\)|\d{1,4}[.)](?!\d))\s*/;
 const BULLET_PREFIX = /^\s*[•▪·*-]\s+/;
 const YEAR_RE = /\b(1[6-9]\d{2}|20\d{2})[a-z]?\b/;
-const REF_HEADING = /^\s*(?:\d+\.?\s*)?(references?|bibliography|literature cited|works cited|reference list|cited literature|kaynak[çc]a)\s*:?\s*$/im;
+// the heading of the reference list, as authors write it in a plain Word file: "References", "REFERENCES.", "7. References:",
+// "Literature cited", "References and notes", "Bibliography" ...
+const REF_WORDS = '(?:references?(?:\\s+(?:and\\s+notes|cited|list))?|bibliography|bibliographic\\s+references|literature(?:\\s+cited)?|works\\s+cited|cited\\s+(?:literature|references)|reference\\s+list|sources|kaynak[çc]a)';
+const REF_HEADING = new RegExp(`^\\s*(?:\\d+\\.?\\s*)?${REF_WORDS}\\s*[:.]?\\s*$`, 'im');
+// the heading and the first reference in one paragraph: "References: 1. Khan A ..."
+const REF_HEADING_INLINE = new RegExp(`^\\s*(?:\\d+\\.?\\s*)?${REF_WORDS}\\s*[:.\\-–]\\s+(\\S.{20,})$`, 'i');
+// headings that are also ordinary words: accepted only when references follow
+const WEAK_HEADING = /^\s*(?:\d+\.?\s*)?(?:sources|literature)\s*[:.]?\s*$/i;
 const END_HEADINGS = /^\s*(?:appendix|appendices|tables?|figure legends|figure captions|captions|list of (?:tables|figures)|supplementary (?:material|information)|author contributions|conflicts? of interest)\b/im;
 // A wrapped line that starts with the year ("2020. 46(11): p. 1819-1831.") is not a new numbered entry
 const YEAR_LINE = /^\s*(?:1[6-9]|20)\d{2}[a-z]?[.,;]\s/;
@@ -185,10 +192,28 @@ function parseRis(src) {
 
 // ------------------------------------------------------------------ splitting
 
+/** A paragraph holding several numbered references ("1. Khan A ... 2. Ali B ...") as one line per reference */
+function splitInlineNumbered(line) {
+  if (line.length < 150) return [line];
+  const marks = [...line.matchAll(/(?:^|\s)\[?(\d{1,3})[.)\]]\s+(?=\p{Lu})/gu)].map(m => ({ n: +m[1], at: m.index + (m[0].startsWith(' ') ? 1 : 0) }));
+  // the longest chain of consecutive numbers (1, 2, 3 ...) among the marks
+  let best = [];
+  for (let i = 0; i < marks.length; i++) {
+    const chain = [marks[i]];
+    for (let j = i + 1; j < marks.length; j++) if (marks[j].n === chain[chain.length - 1].n + 1) chain.push(marks[j]);
+    if (chain.length > best.length) best = chain;
+  }
+  if (best.length < 2 || (best[0].n !== 1 && best.length < 3)) return [line];
+  const out = [];
+  if (best[0].at > 0) out.push(line.slice(0, best[0].at).trim());
+  best.forEach((m, k) => out.push(line.slice(m.at, k + 1 < best.length ? best[k + 1].at : line.length).trim()));
+  return out.filter(Boolean);
+}
+
 function splitReferences(rawText, strategy = 'auto') {
   const text = repairText(rawText).trim();
   if (!text) return { entries: [], strategy: 'empty' };
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean).flatMap(splitInlineNumbered);
 
   if (strategy === 'one-per-line') return { entries: lines, strategy };
   if (strategy === 'blank-line') return { entries: splitBlank(text), strategy };
@@ -604,20 +629,58 @@ function splitSentences(s) {
 
 // ------------------------------------------------------------------ manuscript structure
 
+/**
+ * A line that reads like a reference-list entry, not like prose: it starts with an author ("Khan A,", "Khan, A.", "1. Khan AB",
+ * "[3] Smith J") or an organisation followed by "(2021)", and it carries a year
+ */
+function looksLikeReference(line) {
+  const l = String(line || '').trim();
+  if (l.length < 25 || l.length > 1500 || !/\b(?:1[89]|20)\d{2}[a-z]?\b/.test(l)) return false;
+  const lead = l.replace(/^(?:\[\d{1,3}\]|\d{1,3}[.)])\s*/, '');
+  return /^(?:[\p{Ll}]{1,4}\s){0,2}\p{Lu}[\p{L}'’-]+,?\s+(?:\p{Lu}\.?[\s-]?){1,3}(?:[,.;&]|\s(?:and|et)\b|\s\(|$)/u.test(lead)
+    || /^\p{Lu}[\p{L}\s&.,'’-]{2,120}?\s\((?:1[89]|20)\d{2}[a-z]?\)\.\s/u.test(lead);
+}
+
+/** No heading: the run of reference-like lines at the end of the document (back matter after it is left out) */
+function trailingReferences(lines) {
+  let end = -1;
+  for (let i = lines.length - 1; i >= 0 && end < 0; i--) if (looksLikeReference(lines[i])) end = i;
+  if (end < 0) return null;
+  let start = end, hits = 0, misses = 0;
+  for (let i = end; i >= 0; i--) {
+    if (!lines[i].trim()) continue;
+    if (looksLikeReference(lines[i])) { start = i; hits++; misses = 0; } else if (++misses >= 2) break;
+  }
+  const bodyWords = lines.slice(0, start).join(' ').split(/\s+/).filter(Boolean).length;
+  return hits >= 3 && bodyWords >= 100 ? { start, end: end + 1 } : null;
+}
+
 function findReferenceSection(text) {
   const lines = text.split('\n');
-  let start = -1;
+  let start = -1, inline = null;
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (REF_HEADING.test(lines[i]) && lines[i].trim().length < 40) { start = i; break; }
+    const l = lines[i].trim();
+    if (REF_HEADING.test(lines[i]) && l.length < 40) {
+      // "Sources" / "Literature" alone are ordinary words too: a heading only when references follow
+      if (WEAK_HEADING.test(l) && lines.slice(i + 1, i + 6).filter(looksLikeReference).length < 2) continue;
+      start = i; break;
+    }
+    const m = l.length < 1600 && l.match(REF_HEADING_INLINE);
+    if (m && looksLikeReference(m[1])) { start = i; inline = m[1]; break; }
   }
-  if (start === -1) return { body: text, references: '', found: false };
   let end = lines.length;
+  if (start === -1) {
+    // no heading at all (a plain Word document): the reference-like lines at the end are the list
+    const t = trailingReferences(lines);
+    if (!t) return { body: text, references: '', found: false };
+    return { body: lines.slice(0, t.start).join('\n'), references: lines.slice(t.start, t.end).join('\n').trim(), found: true, headingless: true };
+  }
   for (let i = start + 1; i < lines.length; i++) {
     if (END_HEADINGS.test(lines[i]) && lines[i].trim().length < 60) { end = i; break; }
   }
   return {
     body: lines.slice(0, start).join('\n'),
-    references: lines.slice(start + 1, end).join('\n').trim(),
+    references: [inline, ...lines.slice(start + 1, end)].filter(x => x !== null).join('\n').trim(),
     found: true
   };
 }
@@ -773,6 +836,6 @@ function addAuthorYear(cites, authorStr, years, m, body) {
 
 module.exports = {
   DOI_REGEX, repairText, extractDocument, parseBibtex, parseRis, splitReferences, parseReferenceEntry,
-  parseAuthors, findReferenceSection, extractManuscriptMeta, extractNumericCitations, extractAuthorYearCitations,
+  parseAuthors, findReferenceSection, looksLikeReference, extractManuscriptMeta, extractNumericCitations, extractAuthorYearCitations,
   expandRange, splitSentences
 };

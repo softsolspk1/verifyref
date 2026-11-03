@@ -11,14 +11,21 @@ const { analyzeCitationPattern } = require('./editor/pattern');
 const { problemsOf } = require('./editor/reports');
 const { splitName } = require('./text');
 
-/** Split a whole manuscript (or a bare list) into body + parsed references */
-function prepare({ text, referencesText, bodyText, entries }) {
+/**
+ * Split a whole manuscript (or a bare list) into body + parsed references. kind 'manuscript': a document with no
+ * reference list that can be found is reviewed as text only (noList), instead of reading its paragraphs as references.
+ */
+function prepare({ text, referencesText, bodyText, entries, kind }) {
   let body = bodyText || '';
   let refsText = referencesText || '';
   if (!refsText && text) {
     const sec = P.findReferenceSection(text);
     if (sec.found) { body = body || sec.body; refsText = sec.references; }
-    else refsText = text;
+    else if (kind === 'manuscript' && text.split(/\s+/).length >= 300) {
+      const parts = P.splitReferences(text).entries;
+      if (parts.filter(P.looksLikeReference).length < parts.length * 0.5) return { body: body || text, refs: [], truncated: false, totalFound: 0, noList: true };
+      refsText = text;
+    } else refsText = text;
   }
   let refs;
   if (Array.isArray(entries) && entries.length) {
@@ -60,10 +67,13 @@ async function runCheck(input, update) {
   const opts = { citations: kind !== 'references', journals: kind !== 'citations', pattern: kind === 'manuscript', ...(input.options || {}) };
   const meta = normalizeMeta(input.meta);
   update('Reading the reference list', 2);
-  const { body, refs, truncated, totalFound } = prepare(input);
-  if (!refs.length) throw new Error('No references were found. Paste the reference list or upload the full manuscript with a "References" heading.');
+  const { body, refs, truncated, totalFound, noList } = prepare({ ...input, kind });
+  // a Full Screening without a reference list still reviews the text (similarity, paper mill, images, authors)
+  const textOnly = !refs.length && kind === 'manuscript' && String(body || '').split(/\s+/).length >= 300;
+  if (!refs.length && !textOnly) throw new Error('No references were found. Paste the reference list, or upload the full manuscript (Word or PDF) - the list is found with or without a "References" heading.');
 
   const result = { kind, meta, createdAt: new Date().toISOString(), truncated, totalFound, datasets: await require('./datasets').datasetHealth() };
+  if (textOnly) result.noReferenceList = noList ? 'No reference list was found in the document, so the bibliography, PJPS style and citation checks were not run. The other modules reviewed the text.' : 'The reference list is empty.';
 
   if (kind === 'citations') {
     update('Matching in-text citations with the reference list', 30);
@@ -79,7 +89,9 @@ async function runCheck(input, update) {
     onProgress: (d, n) => update(`Checking references (${d}/${n}) against all ${dbCount} databases and Retraction Watch`, 5 + d / n * refWeight)
   });
 
-  if (opts.citations && body && body.trim().length > 200) {
+  if (opts.citations && result.noReferenceList) {
+    result.citations = { error: result.noReferenceList };
+  } else if (opts.citations && body && body.trim().length > 200) {
     update('Matching in-text citations with the reference list', 72);
     result.citations = checkCitations(body, refs);
   } else if (opts.citations) {
@@ -116,7 +128,7 @@ async function screening(result, { input, body, refs, meta, update }) {
   update('Module 2: PJPS style compliance', 97);
   const recById = new Map(result.references.results.map(r => [r.index, r.record && r.status !== 'suspicious' ? r.record : null]));
   const records = refs.map(r => recById.get(r.index) || null);
-  result.compliance = checkCompliance(refs, { records, body, nlm: await nlmForRefs(refs, records) });
+  result.compliance = refs.length ? checkCompliance(refs, { records, body, nlm: await nlmForRefs(refs, records) }) : null;
 
   update('Module 4: paper-mill signals', 98);
   const { detectPaperMill } = require('./papermill');
@@ -186,12 +198,13 @@ function screeningSummary(r) {
   else if (pl?.level === 'warn') escalate('return', `Text overlap ${pl.similarity}% with published papers — check the matching passages`);
   const aiHigh = ai ? ai.flags.filter(f => f.severity === 'high') : [];
   if (aiHigh.length) escalate('return', `Author identity: ${aiHigh.slice(0, 2).map(f => f.text).join('; ')}`);
+  if (r.noReferenceList) escalate('return', 'No reference list was found in the document');
   const label = { proceed: 'Proceed to peer review', return: 'Return to the authors for corrections', investigate: 'Investigate before any further processing' }[rec];
   return {
     recommendation: rec, recommendationLabel: label, reasons,
     lines: {
-      bibliography: `${s.verified} verified, ${s.miscited} miscited, ${s.suspicious} suspicious, ${s.retracted} retracted (of ${s.total})`,
-      style: cp ? `${cp.score}% PJPS compliant (${cp.nonCompliant} reference(s) to fix${cp.inTextIssues ? `, ${cp.inTextIssues} in-text problem(s)` : ''})` : 'not checked',
+      bibliography: r.noReferenceList ? 'No reference list found in the document - not checked' : `${s.verified} verified, ${s.miscited} miscited, ${s.suspicious} suspicious, ${s.retracted} retracted (of ${s.total})`,
+      style: r.noReferenceList ? 'not checked (no reference list)' : cp ? `${cp.score}% PJPS compliant (${cp.nonCompliant} reference(s) to fix${cp.inTextIssues ? `, ${cp.inTextIssues} in-text problem(s)` : ''})` : 'not checked',
       citations: c ? `${c.missing} missing, ${c.uncited} uncited, ${(c.yearMismatch || 0) + (c.etAlIssues || 0)} year / “et al.” problem(s)` : 'manuscript text not available',
       papermill: pm ? `${pm.level} (score ${pm.score})` : 'not checked',
       plagiarism: pl ? (pl.internet !== undefined

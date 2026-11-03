@@ -23,6 +23,22 @@ What changed: the direction of the effect is now read next to the terms the clai
 against "X promotes Y"), not only for the text as a whole. A rule for negated word forms (inaccurate / accurate) was
 tried and dropped: on the train split it flagged as many supported claims as contradicted ones.
 
+## 2026-11-03: opposite wording and proportions in words
+
+| | Train before | Train after | Dev (held out) before | Dev after |
+|---|---|---|---|---|
+| Contradicted claims passed as Full | 27/194 (14%) | 18/194 (9%) | 9/71 (13%) | 9/71 (13%) |
+| Contradicted claims flagged | 27 (14%) | 33 (17%) | 10 (14%) | 10 (14%) |
+| Supported claims found (Full or Partial) | 213/370 | 213/370 | 83/138 | 83/138 |
+| No-evidence claims passed as Full | 3/355 | 3/355 | 3/131 | 2/131 |
+
+What changed: a curated table of opposite wordings about the same subject ("UCP1-dependent" / "UCP1-independent",
+"scarce" / "expanded", "immune to" / "hypersensitive", "ineffective" / "improved outcomes", "slows" / "promoted"), and
+proportions and amounts written in words ("one in two" against "one in five", "$5 billion" against "$750 million") are
+compared like figures. It costs nothing on supported claims. On the held-out dev split the gain is small (one fewer
+no-evidence claim passed as Full): the remaining contradictions need an understanding of meaning, which a word-based
+matcher does not have.
+
 ## Limits
 
 The matcher compares words, numbers, negation and direction of effect; it does not understand meaning. Most remaining

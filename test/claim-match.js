@@ -12,7 +12,14 @@ const cases = [
   ['Curcumin reduces the expression of TNF-alpha in macrophages.', 'In macrophages exposed to curcumin, the expression of TNF-alpha was strongly reduced compared with controls.', 'full'],
   ['Metformin lowers fasting blood glucose in diabetic rats.', 'Oral metformin lowered fasting blood glucose in streptozotocin-induced diabetic rats after four weeks.', 'full'],
   // a negative finding reported correctly is support, as before
-  ['The extract showed no activity against Escherichia coli.', 'No activity was observed against Escherichia coli at any concentration tested.', 'full']
+  ['The extract showed no activity against Escherichia coli.', 'No activity was observed against Escherichia coli at any concentration tested.', 'full'],
+  // opposite wording about the same subject
+  ['Ca2+ cycling is a UCP1-dependent thermogenic mechanism in beige fat.', 'Here we report a robust UCP1-independent thermogenic mechanism in beige fat that involves enhanced Ca2+ cycling.', 'unsupported'],
+  ['TG2-specific IgA plasma cells are scarce in the duodenal mucosa in active celiac disease.', 'TG2-specific IgA plasma cells are markedly expanded within the duodenal mucosa in active celiac disease.', 'unsupported'],
+  ['Ca2+ cycling is a UCP1-independent thermogenic mechanism in beige fat.', 'Here we report a robust UCP1-independent thermogenic mechanism in beige fat that involves enhanced Ca2+ cycling.', 'full'],
+  // proportions written in words must agree
+  ['One in two surgical randomised controlled trials are discontinued early.', 'One in five surgical randomised controlled trials are discontinued early, one in three completed trials remain unpublished.', 'partial'],
+  ['One in five surgical randomised controlled trials are discontinued early.', 'One in five surgical randomised controlled trials are discontinued early, one in three completed trials remain unpublished.', 'full']
 ];
 for (const [claim, source, want] of cases) assert.strictEqual(judge(claim, source).verdict, want, `${claim} → expected ${want}`);
 console.log(`claim-match test passed (${cases.length} cases)`);

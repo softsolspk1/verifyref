@@ -88,6 +88,42 @@ function templateWording(text) {
   return out;
 }
 
+// ---- paper-mill profiles, set from the benchmark of 150 paper-mill retractions vs 126 papers of the same journals
+// (tuned on one half, checked on the other; docs/benchmark-papermill.md)
+const MILL_TECH = /\b(big data|deep learning|neural networks?|internet of things|IoT|intelligent|cloud computing|edge computing|machine learning|data mining|5G|blockchain|artificial intelligence|wireless sensors?|fuzzy|genetic algorithm|particle swarm|virtual reality|computer vision|mobile edge|optimi[sz]ation (algorithm|model)|multimedia|network environment|new media|information technology|digital twin|BD mining)\b/i;
+const MILL_OFFTOPIC = /\b(education|college|universit(y|ies)|teaching|students?|music|sports?|athletes?|arts?|ideolog\w*|political|civics|marxis\w*|english|economic\w*|enterprises?|tourism|legal|law|management|culture|cultural|marketing|financ\w*|accounting|forestry|traffic|pavement|agricultur\w*|rural|urban|landscape|architect\w*|furniture|dance|painting|literature|translation|vocal|piano|employment|entrepreneur\w*|logistics|supply chain|gas field|tax\w*|corporate|social responsibility|building construction|library)\b/i;
+const MILL_BIO = /\b(patients?|cells?|clinical|disease|cancer|tumou?r|rats?|mice|drugs?|therap\w*|treatment|diagnos\w*|medic\w*|health|nursing|hospital|proteins?|genes?|pharma\w*|ultrasound|imaging|psycholog\w*|plants?|extracts?)\b/i;
+const MILL_ASSAYS = [/CCK-?8|MTT assay/i, /transwell/i, /wound[- ]healing|scratch assay/i, /colony formation/i, /flow cytometr/i, /western blot/i, /qRT-PCR|RT-qPCR|quantitative real-time PCR/i, /dual[- ]luciferase/i, /xenograft/i, /TUNEL/i, /\bEdU\b/, /RNA immunoprecipitation|\bRIP assay/, /chromatin immunoprecipitation|\bChIP\b/, /immunohistochemi/i, /ELISA/i];
+const MILL_LINES = /\b(A549|HCT116|SW480|SW620|HepG2|Huh-?7|MCF-?7|MDA-MB-231|HeLa|SGC-?7901|BGC-?823|U87|U251|PANC-1|HT-?29|LoVo|T24|PC-?3|DU145|SKOV3|Hep3B|MKN-?45|AGS|LNCaP|H1299|HK-2|HUVECs?)\b/g;
+
+/** The title: given, or the first short line of the manuscript */
+function titleOf(text, given) {
+  if (given) return String(given);
+  const line = (text || '').split('\n').map(l => l.trim()).find(l => l.length >= 20);
+  return line && line.length <= 300 && !/[.:]$/.test(line) ? line : '';
+}
+
+/**
+ * The two profiles that recur in paper-mill output:
+ *  - offScope: a technology buzzword applied to a non-biomedical subject ("big data" + ideological education, music,
+ *    forestry economics...), submitted to a biomedical / pharmaceutical journal: mass special-issue mills.
+ *  - template: the molecular-oncology template (non-coding RNA "axis" title, the same stack of assays, standard cancer
+ *    cell lines, xenograft in nude mice). Each element is legitimate; the full stack together is the template.
+ */
+function millProfile(text, title) {
+  const offScope = !!title && MILL_TECH.test(title) && MILL_OFFTOPIC.test(title) && !MILL_BIO.test(title);
+  const assays = MILL_ASSAYS.filter(r => r.test(text)).length;
+  const lines = new Set((text.match(MILL_LINES) || []).map(x => x.toUpperCase().replace(/-/g, ''))).size;
+  const lineMentions = (text.match(MILL_LINES) || []).length;
+  const parts = [];
+  if (/\b(lnc ?rna|circ ?rna|circ[_-]\w|mir-\d|microrna|long non-?coding|ceRNA)/i.test(title)) parts.push({ pts: 2, text: 'Non-coding RNA in the title' });
+  if (/\b(by|via|through)\b.*\b(regulat|target|activat|inhibit|modulat|suppress|mediat|spong|upregulat|downregulat)\w*/i.test(title)) parts.push({ pts: 1, text: 'Title of the form "X does Y via regulating Z"' });
+  if (assays >= 5) parts.push({ pts: assays >= 7 ? 2 : 1, text: `${assays} standard assays stacked (CCK-8/MTT, Transwell, wound healing, colony formation, flow cytometry, western blot, qRT-PCR, luciferase ...)` });
+  if (lineMentions >= 5) parts.push({ pts: 1, text: `Standard cancer cell lines used throughout (${lines} line(s), ${lineMentions} mentions)` });
+  if (/xenograft|nude mice/i.test(text)) parts.push({ pts: 1, text: 'Xenograft in nude mice' });
+  return { offScope, template: parts.reduce((a, p) => a + p.pts, 0), parts };
+}
+
 /** Methods that cannot be repeated: no supplier, catalogue number, dose, sample size or ethics approval */
 function methodsGaps(text) {
   const methods = (text.match(/(?:^|\n)\s*(?:\d+\.?\s*)?(?:materials? and methods|methods?|methodology|experimental(?: section| procedures)?)\s*\n([\s\S]{200,30000}?)(?:\n\s*(?:\d+\.?\s*)?(?:results|results and discussion|discussion)\s*\n|$)/i) || [])[1] || '';
@@ -309,9 +345,15 @@ function riskLevel(signals) {
 }
 
 /** The text-only signals (no network): the exact logic used by detectPaperMill and by the benchmark. */
-async function textSignals(text, body = text, custom = []) {
+async function textSignals(text, body = text, custom = [], opts = {}) {
   const signals = [];
   const sig = (group, code, title, severity, weight, evidence = [], note = '') => signals.push({ group, code, title, severity, weight, evidence, note });
+  const title = titleOf(text, opts.title);
+  const mp = millProfile(body, title);
+  if (mp.offScope) sig('text', 'off-scope', 'Technology buzzwords applied to a subject outside biomedicine', 'medium', 4, [{ text: `Title: “${title.slice(0, 200)}”` }],
+    'The profile of the mass special-issue paper mills (big data / deep learning / IoT with education, music, ideology, economics ...): 7 of 150 known mill papers against 0 genuine biomedical papers in the benchmark. Out of scope for a pharmaceutical journal in any case.');
+  if (mp.template >= 4) sig('text', 'mill-template', `Molecular-oncology paper-mill template (${mp.template} of 8 features)`, mp.template >= 6 ? 'medium' : 'low', mp.template >= 6 ? 4 : mp.template >= 5 ? 2 : 1, mp.parts.map(p => ({ text: p.text })),
+    'Every element is legitimate on its own. Together they form the template of many retracted paper-mill papers (6+ features: 13 of 150 mill papers, 0 of 126 genuine papers in the benchmark). Check the figures (Module 5) and the raw data.');
   const screener = await screenerMatches(body);
   const tortured = torturedPhrases(body, custom);
   const known = new Set(tortured.map(t => t.phrase.toLowerCase()));
@@ -368,7 +410,7 @@ async function detectPaperMill(input, update = () => {}) {
 
   await D.warmEmailDomains();
   update('Searching for tortured phrases and AI-text leftovers', 2);
-  const textSigs = await textSignals(text, body, await customPhrases());
+  const textSigs = await textSignals(text, body, await customPhrases(), { title: meta.title });
   signals.push(...textSigs);
   const { tortured, ai, tmpl, methods, hid, cells, stats, primers, primerIssues } = textSigs.details;
 
@@ -657,4 +699,4 @@ function papermillProblems(r) {
   return [`Paper mill risk ${r.risk.level} (score ${r.risk.score})`, ...r.signals.filter(s => s.severity !== 'low').slice(0, 5).map(s => s.title)];
 }
 
-module.exports = { textSignals, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv, riskLevel };
+module.exports = { textSignals, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv, riskLevel };

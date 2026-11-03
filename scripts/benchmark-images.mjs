@@ -10,7 +10,8 @@ import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
-import * as E from '../public/js/images/engine.js';
+// IMG_ENGINE: another engine file to compare (e.g. a previous version saved next to engine.js)
+const E = await import(process.env.IMG_ENGINE || '../public/js/images/engine.js');
 import * as F from '../public/js/images/forensics.js';
 
 const require = createRequire(import.meta.url);
@@ -56,7 +57,7 @@ const DUMP = process.argv.includes('--dump'), dump = [];
 if (TASK === 'all' || TASK === 'edd') {
   let gt = 0, testable = 0, found = 0, foundHigh = 0, extra = 0, extraHigh = 0, pairsTested = 0, t0 = Date.now(), docsDone = 0;
   const byKind = { duplicate: 0, partial: 0 };
-  const extraExamples = [];
+  const extraExamples = [], foundKeys = [];
   for (const doc of limit(edd)) {
     const names = Object.keys(cls[doc] || {});
     const panels = names.map(n => panel(doc, n)).filter(Boolean);
@@ -70,12 +71,13 @@ if (TASK === 'all' || TASK === 'edd') {
     const got = new Map();
     for (const f of fnd) { const k = pairKey(f.a.panel, f.b.panel); if (!got.has(k) || f.level === 'high') got.set(k, f); }
     for (const [k, f] of got) {
-      if (truth.has(k)) { found++; if (f.level === 'high') foundHigh++; byKind[f.kind]++; }
+      if (truth.has(k)) { foundKeys.push(`${doc}: ${k} ${f.kind}/${f.level}`); found++; if (f.level === 'high') foundHigh++; byKind[f.kind]++; }
       else { extra++; if (f.level === 'high') { extraHigh++; if (extraExamples.length < 40) extraExamples.push(`${doc}: ${f.kind}/${f.level} ${f.a.panel} ~ ${f.b.panel} - ${f.description}`); } }
     }
     if (++docsDone % 20 === 0) process.stdout.write(`\redd: ${docsDone} papers, ${((Date.now() - t0) / 1000).toFixed(0)} s   `);
   }
   console.log();
+  if (arg('found', null)) fs.writeFileSync(arg('found', null), foundKeys.join('\n'));
   report.edd = { papers: docsDone, groundTruthPairs: gt, testablePairs: testable, found, foundHigh, extraReports: extra, extraHigh, pairsTested, byKind, extraExamples };
 }
 

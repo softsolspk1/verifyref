@@ -61,6 +61,9 @@ function checkEntry(ref, record, nlm = null) {
   if (/\b[A-Z]\.\s?[A-Z]?\.?(?=,|\s+and\b|\s*$)/.test(authorSeg) || /\b[A-Z]\.[A-Z]\./.test(authorSeg)) add('authors', 'Initials without full stops (Khan MA, not Khan M.A.)', authorSeg.match(/\b[A-Z]\.(?:\s?[A-Z]\.)*/)?.[0] || null, null, 'low');
   if (/^[A-Z][\w'’-]+,\s+[A-Z]/.test(authorSeg)) add('authors', 'No comma between surname and initials (Khan A, not Khan, A)', authorSeg.split(/\s+/).slice(0, 2).join(' '), null, 'low');
   if (/^(?:[A-Z]\.\s*)+[A-Z][a-z]/.test(authorSeg)) add('authors', 'Surname first, then initials (Khan A, not A. Khan)', authorSeg.split(',')[0]);
+  else if (/^[A-Z][a-z]{2,}\s+(?:[A-Z]\.\s*)+[A-Z][a-z]{2,}/.test(authorSeg)) add('authors', 'Surname first, then initials (Livak KJ, not Kenneth J. Livak)', authorSeg.split(/,|\s+and\s/)[0]);
+  // two or more authors: "and" before the last one (Khan A, Ali B and Shah C)
+  if (!web && ref.authors?.length >= 2 && /,/.test(authorSeg) && !/\s(?:and|&)\s/i.test(authorSeg) && !/\bet\s+al\b/i.test(authorSeg)) add('authors', 'Use “and” before the last author (Khan A, Ali B and Shah C)', authorSeg.split(',').slice(-1)[0].trim(), null, 'low');
   if (!web && /^[A-Z][a-z]+\s+[A-Z][a-z]{2,}\b/.test(authorSeg) && !/^(?:van|von|de|del|al|el)\b/i.test(authorSeg.split(/\s+/)[1] || '')) add('authors', 'Use initials for first names (Khan A, not Ahmed Khan / Khan Ahmed)', authorSeg.split(/[,]/)[0], null, 'low');
 
   // ---- year
@@ -87,6 +90,8 @@ function checkEntry(ref, record, nlm = null) {
       const exp = nlm?.isoAbbrev || record?.journalAbbrev || abbreviateJournal(jname);
       add('journal', `Journal name abbreviated (ISO / NLM abbreviation${nlm ? `, from the ${nlm.source === 'ISSN LTWA' ? 'ISSN List of Title Word Abbreviations' : /^JabRef/.test(nlm.source || '') ? nlm.source : 'NLM Catalog'}` : ''})`, jname, exp);
     }
+    // Journal, Volume(Issue): pages - a comma after the journal name
+    if (/^[A-Za-z][^,\d]*[A-Za-z.]\s+\d+\s*(?:\(|:)/.test(source)) add('journal', 'Comma after the journal name (J. Pharm. Sci., 85(5): 511-517)', source.match(/^[^,\d]*[A-Za-z.]\s+\d+/)[0], null, 'low');
     if (/\bpp?\.\s*\d/i.test(source)) add('pages', 'No “pp.” before page numbers', 'pp.', null, 'low');
     if (/\b(?:vol|volume|no|issue)\.?\s*\d/i.test(source)) add('volume', 'Write volume and issue as 32(1), without “Vol.” or “No.”', source.match(/\b(?:vol|volume|no|issue)\.?\s*\d+/i)[0], null, 'low');
     if (/\d\s*[–—]\s*\d/.test(source)) add('pages', 'Page range with a hyphen (1-5), not a dash', source.match(/\d+\s*[–—]\s*\d+/)[0], null, 'low');

@@ -1,0 +1,92 @@
+PJPS DATA INTEGRITY SYSTEM - ACCURACY IMPROVEMENTS, MODULES 1 TO 5
+Date: 3 November 2026 (version 3.2.10)
+=====================================================================================
+
+Each module was measured against test sets with known answers, before and after the change.
+
+
+1. RESULTS
+----------
+
+Module                 Test set                                   Before            After
+---------------------  -----------------------------------------  ----------------  ---------------------------
+1 Reference check      30 new cases not used for tuning: correct  30/30             30/30; invented references
+                       references, one planted error each,                          marked Suspicious in 3 of 4
+                       invented references, retractions                             (was 1 of 4)
+2 PJPS style           6 correct references + 21 planted style    24/28             27/27, no false alarms
+                       errors
+3 Claim support        SciFact (public set of expert-labelled     14% of contra-    9%, no cost to supported
+                       scientific claims), tuning half            dicted claims     claims
+                                                                  passed as "Full"
+3 Claim support        SciFact, half not used for tuning          13%               13% (no change)
+4 Paper mill           150 known paper-mill papers vs 126         4% caught,        16% caught,
+                       ordinary papers from the same journals     0 false alarms    2 false alarms
+5 Images               BioFors (public set of real figures        59% of marked     52%; "Strong" findings
+                       marked by experts)                         duplicates found  46 -> 49; still 0 false
+                                                                                    alarms on 17,571
+                                                                                    unrelated pairs
+
+
+2. WHAT CHANGED
+---------------
+
+Module 1 - Reference check (src/checks/reference.js)
+  Previously, an invented reference with real author names was marked "Unverified -
+  databases did not respond" whenever a few small databases timed out. Now, if the main
+  indexes (Crossref, OpenAlex, PubMed / Europe PMC) all answered and found nothing in a
+  well-indexed journal, it is marked Suspicious. This also applies when the closest record
+  found is plainly a different publication.
+
+Module 2 - PJPS style (src/checks/compliance.js)
+  Now also reported: full first names ("Kenneth J. Livak" instead of "Livak KJ"), a
+  missing "and" before the last author, and a missing comma after the journal name.
+  Still not caught: a missing full stop after the title (it cannot be told apart from the
+  journal name).
+
+Module 3 - Claim support (src/tools/match.js)
+  Spots opposite wording about the same subject ("UCP1-dependent" vs "UCP1-independent",
+  "scarce" vs "expanded", "immune to" vs "hypersensitive", "ineffective" vs "improved
+  outcomes"), and compares figures written in words ("one in two" vs "one in five",
+  "$5 billion" vs "$750 million").
+  Limit: this barely helped on the untuned half. The remaining misses need software that
+  understands meaning, i.e. a language model. That would send manuscript text to an
+  outside service unless the model runs locally - a decision for PJPS.
+
+Module 4 - Paper mill (src/papermill/index.js)
+  Two new signals, each tuned on half the papers and confirmed on the other half:
+  - Off-topic paper: technology buzzwords applied to a non-medical subject ("big data"
+    with ideological education, music, forestry economics ...). MEDIUM on its own.
+  - The cancer "non-coding RNA" paper template: ncRNA "axis" title, "X via regulating Z"
+    title, a stack of standard assays, standard cancer cell lines, xenograft in nude mice.
+    MEDIUM at 6 or more of 8 points (13 of 150 mill papers, 0 of 126 ordinary papers).
+  Both false alarms are off-topic papers in medical journals (furniture design with
+  wireless sensors, building construction), which may themselves be undetected mill
+  papers. Most mill papers are still only detectable through their references, authors or
+  images, not their text.
+
+Module 5 - Images (rule from version 3.2.9)
+  The lower detection rate is the cost of the 80% similarity rule: about 10 marked
+  duplicates that are less than 80% similar are no longer reported. Strong findings
+  outside the experts' list stayed at about 1 per paper; most of those inspected look like
+  real duplicates the experts did not list.
+
+
+3. NOT FINISHED
+---------------
+- Module 1: re-run of the original 27-case audit after this change (27/27 before). It was
+  stopped because the computer ran low on memory.
+- Module 5: comparison showing which 10 duplicates the 80% rule dropped, to see whether
+  they were brightness-edited copies that a different similarity measure could still
+  catch at 80%. Also stopped for low memory.
+
+
+4. TESTS
+--------
+- New: test/audit-m1-hard.js (live databases, 30 cases), test/style-errors.js (27 cases,
+  part of npm test).
+- Extended: test/claim-match.js (opposite wording, proportions), test/papermill-signals.js
+  (off-topic and template signals).
+- Passing: claim-match, papermill-signals, style-errors, pjps-style, csl-styles,
+  ref-quality, remediation, citation-forms, similarity-engine, unformatted-docs.
+- Benchmark notes updated: docs/benchmark-claims.md, docs/benchmark-papermill.md.
+- Desktop app: run npm run desktop:dist to pick up these changes.

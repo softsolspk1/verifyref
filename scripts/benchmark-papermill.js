@@ -97,9 +97,9 @@ const pct = x => `${(x * 100).toFixed(1)}%`;
       const xml = await fullText(p.pmcid);
       k++;
       if (!xml) continue;
-      const { text } = xmlToText(xml);
+      const { title, text } = xmlToText(xml);
       if (text.length < 3000) continue;   // abstract-only or very short records are not a fair test
-      const sigs = await textSignals(text, text, []);
+      const sigs = await textSignals(text, text, [], { title });
       const risk = riskLevel(sigs);
       rows.push({ group, pmcid: p.pmcid, doi: p.doi, journal: p.journal, year: p.year, title: p.title, words: text.split(/\s+/).length, level: risk.level, score: risk.score, signals: sigs.map(s => `${s.code}:${s.severity}`) });
       process.stdout.write(`\r${group}: ${k}/${list.length}   `);

@@ -419,6 +419,10 @@ async function classify(v, retraction) {
   const high = issues.filter(i => i.severity === 'high');
   const medium = issues.filter(i => i.severity === 'medium');
   const errors = Object.values(v.checked).filter(o => o === 'error').length;
+  // the search is complete enough to call a work missing when the indexes that hold nearly every journal article answered:
+  // Crossref and OpenAlex, and PubMed or Europe PMC. Smaller databases (DBLP, ERIC, CORE ...) that time out prove nothing.
+  const answered = n => v.checked[n] === 'found' || v.checked[n] === 'not-found';
+  const incomplete = !(answered('Crossref') && answered('OpenAlex') && (answered('PubMed') || answered('Europe PMC'))) || errors >= 8;
   const anyFound = !!record;
   let status, reason;
 
@@ -445,6 +449,18 @@ async function classify(v, retraction) {
     status = 'unverified';
     const about = [v.closest.authors?.[0]?.family, v.closest.year, v.closest.journal].filter(Boolean).join(', ');
     reason = `Not found — the closest record${about ? ` (${about})` : ''} is a different publication; check manually`;
+    // a journal article in a well-indexed journal that no index holds, whose nearest record is plainly another work: the
+    // pattern of an invented reference (real authors and journal, title that was never published)
+    const idFailed = issues.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code));
+    if (!incomplete && ref.journal && !ref.looksLikeBook && !ref.looksLikeWeb && !REGIONAL.test(ref.journal) && scoreCandidate(ref, v.closest).tSim < 0.6) {
+      const journal = await journalProfile(ref.journal).catch(() => null);
+      if (journal && sameJournalName(ref.journal, journal.name) && journal.works > 300 && (!ref.year || (ref.year >= (journal.first || 0) && ref.year <= (journal.last || 9999)))) {
+        status = 'suspicious';
+        reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles); the closest record${about ? ` (${about})` : ''} is a different publication`;
+        v.journalProfile = journal;
+      }
+    }
+    if (idFailed && status === 'unverified') reason += '. The identifier given does not exist';
   } else if (!anyFound) {
     const grey = ref.looksLikeWeb || (ref.looksLikeBook && !ref.doi) || (!ref.journal && !ref.doi && !ref.pmid);
     const idFailed = issues.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code));
@@ -456,7 +472,7 @@ async function classify(v, retraction) {
     const regional = REGIONAL.test(ref.journal || '') && !idFailed;
     if (idFailed) { status = 'suspicious'; reason = 'Identifier does not exist and no matching record was found'; }
     // databases that did not answer prove nothing: never call a reference fabricated when the search was incomplete
-    else if (errors >= 4) { status = 'unverified'; reason = 'Verification could not be completed (several databases did not respond); it will be clearer on a re-check'; }
+    else if (incomplete) { status = 'unverified'; reason = 'Verification could not be completed (several databases did not respond); it will be clearer on a re-check'; }
     else if (regional) { status = 'unverified'; reason = `Not indexed — ${ref.journal} is a regional journal that the scholarly databases do not cover fully; check manually (not a sign of fabrication)`; v.notIndexed = true; }
     else if (wellIndexed) {
       status = 'suspicious';

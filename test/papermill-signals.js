@@ -82,6 +82,18 @@ const ok = (c, m) => { assert.ok(c, m); n++; };
   const low = A.assess({ ...rep, risk: { level: 'LOW', score: 1 }, signals: [sigs[3]] });
   ok(low.convergence.flagged === 0 && low.ask.length === 0 && A.queryLetter({ ...rep, signals: [sigs[3]] }, low) === '' && low.action.tone === 'good', 'LOW with a weak signal: no query, continue');
 
+  // paper-mill profiles (benchmark: docs/benchmark-papermill.md)
+  const P = require('../src/papermill');
+  const millBody = 'Cell viability was measured by CCK-8 assay. Transwell and wound healing assays, colony formation, flow cytometry, western blot, qRT-PCR and dual-luciferase reporter assays were performed in A549 and H1299 cells. A549 cells, H1299 cells and A549 xenografts in nude mice were used; A549 and H1299 lines.';
+  const mt = await P.textSignals(millBody, millBody, [], { title: 'LncRNA ABC1 promotes lung cancer progression via regulating the miR-21/PTEN axis' });
+  ok(mt.some(s => s.code === 'mill-template' && s.severity === 'medium' && s.weight === 4), 'molecular-oncology template: ncRNA title + assay stack + cell lines + xenograft');
+  const one = await P.textSignals(millBody, millBody, [], { title: 'Effect of quercetin on A549 cells' });
+  ok(!one.some(s => s.code === 'mill-template' && s.severity === 'medium'), 'the same assays without the template title: not MEDIUM');
+  const off = await P.textSignals('Body text.', 'Body text.', [], { title: 'Analysis on the Construction of Marxist Ideological Discourse Power in the Environment of Big Data' });
+  ok(off.some(s => s.code === 'off-scope'), 'technology buzzwords on a non-biomedical subject: off-scope');
+  const onTopic = await P.textSignals('Body text.', 'Body text.', [], { title: 'Deep learning prediction of drug toxicity in hospital patients' });
+  ok(!onTopic.some(s => s.code === 'off-scope'), 'a biomedical machine-learning paper is not off-scope');
+
   console.log(`papermill-signals: ${n} checks passed`);
   await db.close?.();
   process.exit(0);

@@ -32,6 +32,13 @@ function numbersIn(text) {
     if (!m[2] && v < 10 && !n.includes('.')) continue;                  // small counts / list numbers
     out.push(n.replace(/\.0+$/, ''));
   }
+  // proportions and amounts written in words: "one in five" = 1/5, "half" = 1/2, "$5 billion" = 5e9
+  const WORD_N = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twenty: 20, hundred: 100, thousand: 1000 };
+  for (const m of t.matchAll(/\b(one|two|three|\d+) (?:in|out of) (two|three|four|five|six|seven|eight|nine|ten|twenty|hundred|thousand|\d+)\b/gi)) {
+    const a = WORD_N[m[1].toLowerCase()] ?? +m[1], b = WORD_N[m[2].toLowerCase()] ?? +m[2];
+    if (a && b) out.push(`${a}/${b}`);
+  }
+  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(million|billion|trillion)\b/gi)) out.push(`${m[1].replace(',', '.')} ${m[2].toLowerCase()}`);
   return [...new Set(out)];
 }
 
@@ -74,6 +81,40 @@ function directionAround(text, shared) {
     for (const x of words.slice(Math.max(0, i - 4), i + 5)) { const d = dirOf(x); if (d > 0) up++; else if (d < 0) down++; }
   });
   return up > down ? 1 : down > up ? -1 : 0;
+}
+
+/**
+ * Word pairs of opposite meaning: the claim uses one side and the passage only the other ("UCP1-dependent" / "UCP1-
+ * independent", "scarce" / "expanded", "ineffective" / "effective"). Curated; a pair is used only when the passage does
+ * not also use the claim's own word. Set on the SciFact train split, checked on the held-out dev split.
+ */
+const OPPOSITES = [
+  [/\b\w+-dependent\b|\bdependent on\b/, /\b\w+-independent\b|\bindependent of\b/],
+  [/\bineffective\b|\bnot effective\b|\bno benefit\b/, /\b(effective|efficacious|improved outcomes?|improvements?|beneficial)\b/],
+  [/\binaccurate\b|\bunreliable\b/, /\b(more |highly )?(accurate|reliable)\b/],
+  [/\bincapable\b|\bunable\b|\bcannot\b/, /\b(elicit\w*|produc\w*|capable|able to|induc\w*|generat\w*)\b/],
+  [/\bscarce\b|\brare\b|\babsent\b|\bdepleted\b/, /\b(expanded|abundant|enriched|accumulat\w*|prevalent|frequent)\b/],
+  [/\bimmune to\b|\bresistant to\b|\bprotected (from|against)\b/, /\b(hypersensitive|susceptib\w*|vulnerab\w*|prone to|sensiti[sz]ed)\b/],
+  [/\b(vulnerab\w*|susceptib\w*|prone to)\b/, /\b(protected|resistant|immune)\b/],
+  [/\bunrelated\b|\bnot (associated|related|linked)\b|\bno (association|relationship)\b/, /\b(increased odds|associated with (a |an )?(higher|increased|greater|lower|reduced|decreased))\b/],
+  [/\b(dispensable|nonessential|non-essential|not required)\b/, /\b(required|essential|necessary|indispensable)\b/],
+  [/\b(required|essential|necessary|indispensable)\b/, /\b(dispensable|nonessential|non-essential|not required)\b/],
+  [/\bdeactivat\w*\b/, /\bactivat\w*\b/],
+  [/\b(harmful|detrimental|damag\w*|impairs?)\b/, /\b(beneficial|protect\w*|leads to (early )?control|improv\w*)\b/],
+  [/\bslows?\b|\bdelays?\b|\bretards?\b/, /\b(promot\w*|accelerat\w*|speed\w* up|hasten\w*)\b/],
+  [/\bincreases? (the )?(risk|incidence|odds)\b/, /\b(lower|reduced|decreased) (risk|incidence|odds)\b|\brisk ratio[^.]{0,20}\b0\.\d/],
+  [/\bdecreases? (the )?(risk|incidence|odds)\b/, /\b(higher|increased|greater) (risk|incidence|odds)\b/]
+];
+function oppositeWording(claim, passage) {
+  const c = claim.toLowerCase(), p = passage.toLowerCase();
+  for (const [a, b] of OPPOSITES) {
+    const ma = c.match(a);
+    if (!ma || !b.test(p)) continue;
+    if (p.includes(ma[0])) continue;                         // the source uses the claim's own word as well
+    if (b.test(c)) continue;                                   // the claim itself carries both sides
+    return { claim: ma[0], source: p.match(b)[0] };
+  }
+  return null;
 }
 
 function polarity(text) {
@@ -172,7 +213,8 @@ function scorePassage(rawClaim, passage, idf) {
   const dc = coverage > 0.5 ? directionAround(claim, shared) : 0, dp = dc ? directionAround(ptext, shared) : 0;
   const conflict = (cp.up && pp.down) || (cp.down && pp.up) || (cp.neg !== pp.neg && /signific|effect|differ|associat|chang/i.test(claim) && coverage > 0.4)
     || (!cp.neg && coverage > 0.4 && !!negatedClaimTerm(passage.text, ctl))
-    || (dc && dp && dc !== dp);
+    || (dc && dp && dc !== dp)
+    || (coverage > 0.45 && !!oppositeWording(claim, passage.text));
   let score = coverage * 0.8 + bigram * 0.2;
   if (cn.length) score *= 0.75 + 0.25 * (numbersFound.length / cn.length);
   if (conflict) score *= 0.6;

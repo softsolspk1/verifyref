@@ -64,10 +64,14 @@ Known limit: sections are found from the headings. A table cell that reads only 
                                                          the text in their own confidential
                                                          report; other versions of the same
                                                          manuscript ID left out.
-  S3 Exclude quotes / exclude bibliography     P2        Quotes are dropped before matching,
-     are always on; the editor cannot switch             so switching them needs the matches
-     them off as in Turnitin                             inside quotes kept in the report
-                                                         (engine change + a re-run).
+  S3 Exclude quotes: editor can now include  DONE      Matches inside quotation marks are kept
+     quotations (Filters tab), as in Turnitin            in the report and left out by default;
+                                                         reports made from now on. (Quoted text
+                                                         is still not searched online, only
+                                                         compared with the sources found.)
+     Include bibliography: not built           -         The reference list matching other
+                                                         reference lists only inflates the
+                                                         index; Turnitin users switch it off.
   S4 Paraphrase detection: matching is word-   P2        Synonym-tolerant matching or local
      for-word (up to 2 changed words per run);           sentence embeddings. Must run
      heavily reworded text is missed                     locally (privacy).
@@ -79,20 +83,26 @@ Known limit: sections are found from the headings. A table cell that reads only 
   S7 Old reports (made before today) get the   P3        None needed: the section table is
      section table in the Word / PDF only                worked out again on screen; saving
      after the editor saves filters once                 filters writes it to the report.
-  S8 AI-writing indicator inside the           P3        Exists in Module 4 / Integrity Suite;
-     Similarity Report (Turnitin shows one)              could be linked into this report.
+  S8 AI-writing indicator inside the           DONE      Module 4's indicator (0-100, with its
+     Similarity Report (Turnitin shows one)              reasons) shown in the report header and
+                                                         in the Word / PDF; labelled "indicator,
+                                                         not proof".
 
 
 4. MODULE-BY-MODULE GAPS AGAINST THE SPECIFICATION
 --------------------------------------------------
 Module 1 - Check Bibliography: COMPLETE
-  M1-a  Re-run the original 27-case audit (test/audit-m1.js) after the 3 Nov change to
-        invented-reference handling. It was stopped for low memory. (P1, run only)
-  M1-b  Invented references: 3 of 4 marked Suspicious; 1 still "Unverified". (P2)
+  M1-a  DONE - original audit re-run: 27/27 correct.
+  M1-b  DONE - invented references: 4 of 4 now Suspicious (was 3 of 4). The missed one
+        had a closest record on the same theme (a book chapter "Lowry and Bradford assays
+        for protein") with none of the cited authors and another journal; that now counts
+        as "plainly a different publication". Held-out audit 30/30, original audit 27/27,
+        Pakistani regional journals still "Unverified", never Suspicious.
 
 Module 2 - Reference Style & PJPS Converter: COMPLETE
-  M2-a  A missing full stop after the title is not reported (it cannot be told apart from
-        the journal name). (P3)
+  M2-a  DONE - a missing full stop after the title is now reported when Module 1 matched
+        the reference (the record shows where the title ends). Without a match it still
+        cannot be told apart from the journal name. Style test 32/32, no false alarms.
   M2-b  Spec note "CONFIRM PJPS style with the current author guidelines before release":
         the official examples pass (test/pjps-style.js); get the editor's written
         sign-off. (P2, non-code)
@@ -106,9 +116,12 @@ Module 3 - Citations: COMPLETE, ACCURACY LIMIT
         repository. (P3)
 
 Module 4 - Paper Mill Detection: COMPLETE, ACCURACY LIMIT
-  M4-a  Text signals catch 16% of known mill papers (2 false alarms in 126). Most mill
-        papers are only detectable through references, authors or images. More profiles
-        (e.g. other template families) can be added the same way as the ncRNA one. (P2)
+  M4-a  Text signals catch 16% of known mill papers (2 false alarms in 126). Checked on
+        3 Nov: the largest missed group is clinical studies dressed in AI buzzwords
+        ("Intelligent algorithm-based CT ...", Hindawi 2022). Their titles match 11/150 mill
+        papers but also 5/126 ordinary ones, so a profile would wrongly flag honest AI
+        imaging papers - NOT added. Most mill papers are only detectable through
+        references, authors or images. (Measured limit)
   M4-b  PubPeer comments on cited papers are not searched (PubPeer API needs a key). (P2)
   M4-c  Cross-publisher duplicate submissions need STM Integrity Hub membership. (P3,
         membership)

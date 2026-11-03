@@ -1,6 +1,9 @@
 // test/external-similarity.js - the external full-text similarity service in the Similarity Report, without the network:
 // callback signatures, which side of the service's comparison is the manuscript (both orientations), the fallback when
 // its positions do not fit the text, paraphrased passages, and the credit in the report. Run: node test/external-similarity.js
+// the in-memory database, set before any module connects (never the DATABASE_URL of .env)
+process.env.PGLITE_DIR = 'memory://';
+delete process.env.DATABASE_URL;
 process.env.COPYLEAKS_API_KEY = process.env.COPYLEAKS_API_KEY || 'test-key';
 const assert = require('assert');
 const X = require('../src/externalSimilarity');
@@ -70,9 +73,8 @@ const ok = m => console.log(`  ✓ ${m}`);
   assert.ok(!/copyleaks/i.test(JSON.stringify(d)), 'the service is not named');
   ok('external database matches are submitted works; the service is never named');
   // the callbacks as stored for the waiting report (in-memory database)
-  process.env.PGLITE_DIR = 'memory://';
-  delete process.env.DATABASE_URL;
   const db = require('../src/db');
+  assert.ok(db.EMBEDDED, 'the test must run on the in-memory database, never on DATABASE_URL');
   await db.init();
   await db.query("INSERT INTO ext_scans(scan_id, text_hash) VALUES('pjpstest1', 'h')");
   await X.receive('pjpstest1', 'creditsChecked', null, {});

@@ -29,6 +29,7 @@ const { titleSimilarity, cleanDoi } = require('../text');
 const cfg = require('../config');
 const corpus = require('../corpus');
 const WEB = require('../webSearch');
+const EXT = require('../externalSimilarity');
 
 const EPMC = 'https://www.ebi.ac.uk/europepmc/webservices/rest';
 const WEB_PHRASES = Math.max(0, parseInt(cfg.WEB_PHRASES || 60, 10) || 0); // passages no literature index has, searched on the web per report
@@ -239,6 +240,74 @@ async function earlierSubmissions(body, { excludeCode = null, excludeCheckIds = 
   return out;
 }
 
+/**
+ * The matches of the external full-text similarity service as report sources: its positions (characters of the text
+ * submitted, which is prep.text) become word ranges of the report, so its sources are credited, highlighted and
+ * filtered like the others. Which side of its comparison is the submitted text is checked on the identical matches
+ * (the words must agree); when neither side fits, the identical matches are found again by their wording.
+ * -> [{ key, type, title, url, via, compared, hit, passages }]
+ */
+function externalSources(ext, prep) {
+  const words = prep.words, text = prep.text;
+  const ends = words.map(w => w.end);
+  const firstWordEndingAfter = c => { let lo = 0, hi = words.length; while (lo < hi) { const m = (lo + hi) >> 1; if (ends[m] <= c) lo = m + 1; else hi = m; } return lo; };
+  const toWords = (s, len) => { const a = firstWordEndingAfter(s); let b = a; while (b < words.length && words[b].start < s + len) b++; return [a, b]; };
+  const normWords = t => SIM.tokenize(t).map(x => x.n);
+  const segs = (res, k, side) => { const c = res.comparison?.[k]?.[side]?.chars; return c ? c.starts.map((s, i) => [s, c.lengths[i] || 0]) : []; };
+  // n-gram index of the manuscript for the fallback
+  const KEY = 5, at = new Map();
+  for (let i = 0; i + KEY <= words.length; i++) { const key = words.slice(i, i + KEY).map(w => w.n).join(' '); if (!at.has(key)) at.set(key, i); }
+  const out = [];
+  for (const item of ext.items || []) {
+    const res = ext.results?.[item.id];
+    if (!res) continue;
+    // which side is the manuscript: the identical matches must read the same on both sides
+    const agree = (mine, theirs) => {
+      const pairs = segs(res, 'identical', mine).map((s, i) => [s, segs(res, 'identical', theirs)[i]]).filter(p => p[1]).slice(0, 12);
+      if (!pairs.length) return 0;
+      return pairs.filter(([[a, al], [b, bl]]) => { const x = normWords(text.slice(a, a + al)), y = normWords(String(res.value).slice(b, b + bl)); return x.length && x.join(' ') === y.join(' '); }).length / pairs.length;
+    };
+    const sides = [['source', 'suspected'], ['suspected', 'source']].map(([m, t]) => ({ m, t, score: agree(m, t) })).sort((a, b) => b.score - a.score);
+    const hit = new Uint8Array(words.length);
+    const passages = [];
+    const addRange = (a, b, src, kind) => { if (b <= a) return; for (let k = a; k < b; k++) hit[k] = 1; passages.push({ from: a, to: b, words: b - a, text: words.slice(a, b).map(w => w.raw).join(' ').slice(0, 600), source: String(src || '').replace(/\s+/g, ' ').trim().slice(0, 600), ...(kind === 'relatedMeaning' ? { paraphrased: true } : {}) }); };
+    if (sides[0].score >= 0.6) {
+      const { m, t } = sides[0];
+      for (const kind of ['identical', 'minorChanges', 'relatedMeaning']) {
+        const mine = segs(res, kind, m), theirs = segs(res, kind, t);
+        mine.forEach(([s, len], i) => { if (s + len > text.length + 5) return; const [a, b] = toWords(s, len); const th = theirs[i]; addRange(a, b, th ? String(res.value).slice(th[0], th[0] + th[1]) : '', kind); });
+      }
+    } else {
+      // positions do not fit the text: find the identical passages by their wording
+      for (const [s, len] of segs(res, 'identical', 'suspected').concat(segs(res, 'identical', 'source'))) {
+        const w = normWords(String(res.value).slice(s, s + len));
+        if (w.length < KEY) continue;
+        const i = at.get(w.slice(0, KEY).join(' '));
+        if (i === undefined) continue;
+        let e = i;
+        while (e < words.length && e - i < w.length && words[e].n === w[e - i]) e++;
+        if (e - i >= KEY) addRange(i, e, String(res.value).slice(s, s + len), 'identical');
+      }
+    }
+    if (!passages.length) continue;
+    // neighbouring pieces of one match form one passage (as the in-house matching joins runs)
+    passages.sort((a, b) => a.from - b.from);
+    const joined = [];
+    for (const p of passages) {
+      const last = joined[joined.length - 1];
+      if (last && p.from <= last.to + GAP) { last.to = Math.max(last.to, p.to); last.words = last.to - last.from; last.text = words.slice(last.from, last.to).map(w => w.raw).join(' ').slice(0, 600); last.source = `${last.source} … ${p.source}`.slice(0, 600); last.paraphrased = last.paraphrased || p.paraphrased; }
+      else joined.push({ ...p });
+    }
+    const host = (() => { try { return item.url ? new URL(item.url).hostname.replace(/^www\./, '') : null; } catch (e) { return null; } })();
+    const db = item.kind !== 'internet';
+    out.push({ key: `ext:${item.url || item.id}`, type: db ? 'submission' : 'internet', title: item.title || host || (db ? 'Submitted document (external database)' : 'Web page'),
+      journal: db ? 'External database of submitted documents' : host, year: item.metadata?.publishDate ? String(item.metadata.publishDate).slice(0, 4) : null, doi: null, url: item.url || null,
+      via: db ? 'Full-text similarity service (database of submitted documents)' : 'Full-text similarity service (web and publications)', compared: 'full text, paraphrase included (external service)',
+      hit, passages: joined.sort((a, b) => b.words - a.words) });
+  }
+  return out;
+}
+
 /** Stable repository key of a source found by the search */
 const sourceKeyOf = c => (c.pmcid ? `pmc:${c.pmcid}` : c.pmid ? `pmid:${c.pmid}` : c.doi ? `doi:${String(c.doi).toLowerCase()}` : c.url ? `url:${c.url}` : `title:${String(c.title || '').toLowerCase().slice(0, 200)}`);
 
@@ -328,6 +397,8 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
     if (self && !selfMatches.some(s => s.title === c.title)) selfMatches.push({ title: c.title, journal: c.journal || null, year: c.year || null, doi: c.doi || null, url: c.url || null });
     return self;
   };
+  // the external full-text comparison runs alongside the in-house search (it waits for the service's callbacks)
+  const extRun = EXT.enabled() ? EXT.scanText(prep.text, { update }) : null;
   const covered = new Uint8Array(mine.length); // words already matched by a compared full text: not searched again
   const markCovered = hit => hit.forEach((h, k) => { if (h) covered[k] = 1; });
   const stats = { queries: 0, searchErrors: 0, webSearches: 0, openalexSearches: 0, windows: 0, windowsFound: 0, neighbours: 0, common: 0 };
@@ -478,12 +549,25 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
     phraseSources.push({ key, type: c.rec.type, title: c.rec.title, journal: c.rec.journal, year: c.rec.year, doi: c.rec.doi, url: c.rec.url, via: c.rec.via, compared: 'matching passages (full text not open)', hit, passages: passages.sort((a, b) => b.words - a.words) });
   }
 
+  // 4b. the external full-text comparison: its sources join the others; one the in-house search found too keeps one
+  // entry, with the matches of both
+  const ext = extRun ? await extRun : null;
+  const extSources = ext && !ext.error ? externalSources(ext, prep) : [];
+  const own = [...fromSubs, ...fromRepo, ...compared, ...phraseSources];
+  const sameAs = (a, b) => (a.url && b.url && String(a.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') === String(b.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''));
+  for (const x of extSources) {
+    const twin = own.find(o => sameAs(o, x));
+    if (!twin) { own.push(x); continue; }
+    x.hit.forEach((h, k) => { if (h) twin.hit[k] = 1; });
+    twin.passages = finishRuns(twin.hit.slice(), mine).sort((a, b) => b.words - a.words).map(p => twin.passages.find(q => q.from <= p.from && q.to >= p.to) || x.passages.find(q => q.from <= p.from && q.to >= p.to) || p);
+  }
+
   // 5. primary sources (shared with the report view: public/js/shared/similarity.js)
-  const all = [...fromSubs, ...fromRepo, ...compared, ...phraseSources].map(src => ({
+  const all = own.map(src => ({
     key: src.key, type: src.type, title: String(src.title || '').replace(/<[^>]+>/g, ''), journal: src.journal || null, year: src.year || null, doi: src.doi || null, url: src.url || null, checkId: src.checkId || null,
     via: src.via, compared: src.compared, matchedWords: src.passages.reduce((a, p) => a + p.words, 0),
     ranges: src.passages.map(p => [p.from, p.to]).sort((a, b) => a[0] - b[0]),
-    passages: src.passages.slice(0, MAX_PASSAGES).map(p => ({ from: p.from, to: p.to, words: p.words, text: p.text.slice(0, 600), ...(p.source ? { source: p.source.slice(0, 600) } : {}) }))
+    passages: src.passages.slice(0, MAX_PASSAGES).map(p => ({ from: p.from, to: p.to, words: p.words, text: p.text.slice(0, 600), ...(p.source ? { source: p.source.slice(0, 600) } : {}), ...(p.paraphrased ? { paraphrased: true } : {}) }))
   }));
   // word ranges inside quotation marks: left out of the matches unless the editor includes quotations
   const quoted = [];
@@ -492,17 +576,20 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
   const s = view.summary;
 
   const subsOn = Array.isArray(submissions);
-  const databases = [...(subsOn ? [`Earlier PJPS submissions (opt-in): ${submissions.length} sharing text with this manuscript compared in full`] : []), 'PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
+  const extUsed = !!(ext && !ext.error);
+  const databases = [...(extUsed ? [`External full-text similarity service: the whole text compared with web pages, publications and its database of submitted documents, paraphrase included (${extSources.length} source(s) matched)`] : ext?.error ? [`External full-text similarity service: not used for this report (${ext.error})`] : []),
+    ...(subsOn ? [`Earlier PJPS submissions (opt-in): ${submissions.length} sharing text with this manuscript compared in full`] : []), 'PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
     ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches)`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
   return {
     kind: 'plagiarism',
     version: 3,
     summary: s,
     repository: subsOn ? `not stored: this manuscript was not added to any repository; earlier PJPS submissions were compared at the editor's request (${submissions.length} sharing text)` : 'not stored: this manuscript was not added to any repository, and earlier unpublished PJPS submissions were not compared (no-repository setting, as in Turnitin)',
-    submissions: { compared: subsOn, candidates: subsOn ? submissions.length : 0, matched: fromSubs.length },
+    submissions: { compared: subsOn || extSources.some(x => x.type === 'submission'), candidates: subsOn ? submissions.length : 0, matched: fromSubs.length + extSources.filter(x => x.type === 'submission').length },
+    external: ext ? { used: extUsed, sources: extSources.length, paraphrased: extSources.some(x => x.passages.some(p => p.paraphrased)), aiText: extUsed ? EXT.aiEstimate(ext.completed) : null, ...(ext.error ? { error: ext.error } : {}) } : null,
     privacy: {
       stored: false,
-      statement: `The manuscript was not stored, indexed or added to any repository.${subsOn ? ' At the editor\'s request it was compared with earlier PJPS submissions, read from their own confidential reports inside PJPS.' : ''} Its text is kept only inside this confidential report, which a later report reads only when an editor turns on the comparison with earlier PJPS submissions. Only separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read.`
+      statement: `The manuscript was not stored, indexed or added to any repository.${subsOn ? ' At the editor\'s request it was compared with earlier PJPS submissions, read from their own confidential reports inside PJPS.' : ''} Its text is kept only inside this confidential report, which a later report reads only when an editor turns on the comparison with earlier PJPS submissions. ${extUsed || ext?.pending ? `The full text (without the reference list) was compared by an external full-text similarity service under a no-storage setting: it was not added to that service's database and the scan expires there after ${2} hours. Apart from that, only` : 'Only'} separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read.`
     },
     sources: view.sources,
     alsoMatched: view.alsoMatched,
@@ -513,7 +600,7 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
     filters: { bibliography: prep.bibliographyExcluded ? 'excluded' : 'not found in the text (body only was compared)', quotes: `excluded (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)`, citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
     checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, databases },
-    coverage: `Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
+    coverage: `${extUsed ? 'The whole text with an external full-text similarity service (web pages, publications, its database of submitted documents, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
     method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match), paywalled ones by the passages found in them. The bibliography and quotations are excluded, and so are matches shorter than ${MIN_MATCH} words. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };
 }
@@ -556,4 +643,4 @@ function toCsv(pl) {
     [...(pl.sources || []), ...(pl.alsoMatched || [])].map(row));
 }
 
-module.exports = { checkPlagiarism, earlierSubmissions, applySettings, toCsv, prepare, overlap, finishRuns, citeSpans, searchWindows, shared };
+module.exports = { checkPlagiarism, earlierSubmissions, externalSources, applySettings, toCsv, prepare, overlap, finishRuns, citeSpans, searchWindows, shared };

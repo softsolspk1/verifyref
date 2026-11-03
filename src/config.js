@@ -36,6 +36,11 @@ module.exports = {
   ADMIN_EMAIL: env.ADMIN_EMAIL || '',
   ADMIN_PASSWORD: env.ADMIN_PASSWORD || '',
   OPENALEX_API_KEY: env.OPENALEX_API_KEY || '',
+  // Similarity report: full-text comparison by the external similarity service (Copyleaks; its name is not shown to
+  // users). Login = account e-mail + API key. SANDBOX=1: test scans that use no credits (mock results)
+  COPYLEAKS_EMAIL: env.COPYLEAKS_EMAIL || '',
+  COPYLEAKS_API_KEY: env.COPYLEAKS_API_KEY || '',
+  COPYLEAKS_SANDBOX: /^(1|true|yes)$/i.test(env.COPYLEAKS_SANDBOX || ''),
   S2_API_KEY: env.S2_API_KEY || '',
   NCBI_API_KEY: env.NCBI_API_KEY || '',
   GOOGLE_BOOKS_API_KEY: env.GOOGLE_BOOKS_API_KEY || '',

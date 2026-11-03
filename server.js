@@ -55,6 +55,7 @@ app.post('/api/auth/password', auth.requireUser, wrap(auth.changePassword));
 
 // ------------------------------------------------------------------ feature routers
 
+app.use('/api', require('./src/routes/hooks'));
 app.use('/api', require('./src/routes/core'));
 app.use('/api', require('./src/routes/tools'));
 app.use('/api', require('./src/routes/activity'));

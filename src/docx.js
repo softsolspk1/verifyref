@@ -669,6 +669,7 @@ function similarityReportBlocks(r) {
     { kv: [['Filters', simFilters(pl)], ['Repository', pl.repository || 'not stored']] }
   ];
   if (pl.privacy) blocks.push({ p: pl.privacy.statement, italics: true });
+  if (Number.isFinite(pl.external?.aiText)) blocks.push({ kv: [['AI-text detector', `${pl.external.aiText}% likely AI-written - an estimate, not proof`]] });
   if (pl.aiWriting) blocks.push({ kv: [['AI-writing indicator', `${pl.aiWriting.score}/100${pl.aiWriting.leftovers ? ` - chatbot text left in the manuscript (${pl.aiWriting.leftovers})` : ''} - an indicator, not proof${pl.aiWriting.parts?.length ? `: ${pl.aiWriting.parts.join('; ')}` : ''}`]] });
   if (pl.selfMatches?.length) blocks.push({ p: `Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => `${x.title}${x.year ? ` (${x.year})` : ''}`).join('; ')}`, italics: true });
   if (pl.sections?.length > 1) blocks.push({ h2: 'Similarity by section' }, simSectionsTable(pl));

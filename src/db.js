@@ -444,6 +444,26 @@ CREATE TABLE IF NOT EXISTS fingerprints (
 );
 CREATE INDEX IF NOT EXISTS idx_fingerprints_kind ON fingerprints(kind, created_at);
 
+-- Similarity report: full-text scans by the external similarity service (src/externalSimilarity.js). The callbacks of
+-- the service (scan completed, each exported result) are kept here until the report has read them; rows older than a
+-- day are deleted. text_hash finds the scan of the same text again when a stopped job resumes.
+CREATE TABLE IF NOT EXISTS ext_scans (
+  scan_id TEXT PRIMARY KEY,
+  text_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'submitted',     -- submitted | completed | error | exported
+  completed JSONB,
+  results JSONB NOT NULL DEFAULT '{}',
+  error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ext_scans_hash ON ext_scans(text_hash, created_at);
+CREATE TABLE IF NOT EXISTS ext_tokens (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL,
+  expires TIMESTAMPTZ NOT NULL
+);
+
 -- Module 5 image reference databases: published PJPS papers, open-access papers retracted / corrected for image
 -- problems, and reference figures uploaded by the Super Admin. One row per paper (image_ref_docs) and per panel.
 CREATE TABLE IF NOT EXISTS image_ref_docs (

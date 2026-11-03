@@ -64,6 +64,32 @@ function negatedClaimTerm(passageText, claimTerms) {
   return null;
 }
 
+/**
+ * The claim says its subject relies on / is based on / uses a thing, and the passage says the subject does without it:
+ * "the Transformer relies on recurrent networks" / "the Transformer ... dispensing with recurrence". A word of doing
+ * without, followed within three words by a claim term, in a passage that also names another claim term (the subject).
+ * Unambiguous words only: "without" and "free of" also describe groups ("women without cancer"), and "depends on" states
+ * a condition, not a component (both gave false contradictions on SciFact).
+ */
+const RELY = /\b(?:rel(?:y|ies|ied|ying) (?:up)?on|(?:is |are |was |were )?(?:based|built|centred|centered) on|(?:uses?|using|employs?|requires?)\b)/i;
+const DO_WITHOUT = new Set(['dispensing', 'dispenses', 'dispensed', 'eschewing', 'eschews', 'eschewed', 'instead', 'abandoning', 'abandons', 'replacing', 'replaces', 'avoiding', 'avoids']);
+function doneWithout(claim, passageText, claimTerms) {
+  // a claim that itself does without something ("uses attention without recurrence") agrees with such a passage
+  if (!RELY.test(claim) || normalize(claim).split(' ').some(w => DO_WITHOUT.has(w) || NEG_WORD.has(w))) return null;
+  const keys = new Set(claimTerms.filter(t => t.length >= 5).map(t => t.slice(0, 5)));
+  const words = normalize(passageText).split(' ');
+  for (let i = 0; i < words.length; i++) {
+    if (!DO_WITHOUT.has(words[i])) continue;
+    const hit = words.slice(i + 1, i + 4).find(w => w.length >= 5 && keys.has(stem(w).slice(0, 5)));
+    if (!hit) continue;
+    // the subject: another claim term, compared on six letters ("transformer" is not "transduction")
+    const keys6 = new Set(claimTerms.filter(t => t.length >= 6).map(t => t.slice(0, 6)));
+    const other = words.find((w, j) => (j < i || j > i + 3) && w.length >= 6 && keys6.has(stem(w).slice(0, 6)) && stem(w).slice(0, 5) !== stem(hit).slice(0, 5));
+    if (other) return { term: hit, subject: stem(other).slice(0, 6) };
+  }
+  return null;
+}
+
 // direction of an effect, word by word (stems as written in text, lower case)
 const DIR_UP = /^(increas|elevat|enhanc|improv|rais|higher|greater|promot|stimulat|upregulat|up-regulat|induc|augment|boost|activat|accelerat|facilitat|potentiat|amplif|exacerbat|worsen|gain|overexpress)/;
 const DIR_DOWN = /^(decreas|reduc|lower|diminish|declin|inhibit|suppress|attenuat|downregulat|down-regulat|impair|imped|prevent|block|abolish|abrogat|delay|deactivat|antagoni|loss|lose|lost|ameliorat|alleviat|protect)/;
@@ -215,12 +241,16 @@ function scorePassage(rawClaim, passage, idf) {
     || (!cp.neg && coverage > 0.4 && !!negatedClaimTerm(passage.text, ctl))
     || (dc && dp && dc !== dp)
     || (coverage > 0.45 && !!oppositeWording(claim, passage.text));
+  // a narrower contradiction, decided at a low coverage only (a passage restating the claim is not one): the source does
+  // without what the claim says is relied on
+  const without = !conflict && coverage >= 0.2 && coverage <= 0.5 ? doneWithout(claim, passage.text, ctl) : null;
+  const exclusion = !!without;
   let score = coverage * 0.8 + bigram * 0.2;
   if (cn.length) score *= 0.75 + 0.25 * (numbersFound.length / cn.length);
-  if (conflict) score *= 0.6;
+  if (conflict || exclusion) score *= 0.6;
   // A passage that itself cites other work is background (a secondary citation), not this source's finding
   if (/\[\d|\b(?:et al\.?|and [A-Z]\w+),?\s\(?(?:19|20)\d{2}|\([A-Z]\w+(?: et al\.)?,? (?:19|20)\d{2}|\[\s*,/.test(passage.text)) score *= 0.85;
-  return { score, coverage, bigram, numbers: { claim: cn, found: numbersFound }, conflict, missing: missing.slice(0, 8), pair: !!passage.pair };
+  return { score, coverage, bigram, numbers: { claim: cn, found: numbersFound }, conflict: conflict || exclusion, exclusion, subject: without?.subject || null, missing: missing.slice(0, 8), pair: !!passage.pair };
 }
 
 /** Best passages for a claim among passages [{ text, origin, page, ... }] */
@@ -232,8 +262,13 @@ function bestPassages(claim, passages, n = 3) {
   // a passage that covers the claim at least as well as the best one and contradicts it decides the verdict: the source
   // speaks to this claim and says the opposite (its score was lowered by the conflict, so it would otherwise rank below)
   const top = ranked[0];
-  const against = ranked.filter(p => p.conflict && p.coverage > 0.5 && p.coverage >= top.coverage).sort((a, b) => b.coverage - a.coverage)[0];
-  if (against && against !== top) ranked.splice(ranked.indexOf(against), 1), ranked.unshift(against);
+  const against = ranked.filter(p => p.conflict && (p.coverage > 0.5 || p.exclusion) && p.coverage >= top.coverage).sort((a, b) => b.coverage - a.coverage)[0];
+  // or a passage that does without what the claim relies on and is the one naming the claim's subject ("the Transformer")
+  // while the best-scored passage does not (background on the thing relied on: "recurrent networks are established")
+  const hasSubject = (p, sub) => normalize(p.text).split(' ').some(w => stem(w).slice(0, 6) === sub);
+  const without = against ? null : ranked.find(p => p.exclusion && p.subject && !hasSubject(top, p.subject));
+  const lead = against || without;
+  if (lead && lead !== top) ranked.splice(ranked.indexOf(lead), 1), ranked.unshift(lead);
   return ranked.slice(0, n);
 }
 
@@ -246,7 +281,7 @@ function verdictOf(best, { fullText }) {
   if (!fullText) notes.push('Compared with the abstract only');
   let verdict;
   if (best.score >= 0.58 && !best.conflict && !(best.numbers?.claim?.length && !best.numbers.found.length)) verdict = 'full';
-  else if (best.conflict && (best.score >= 0.45 || best.coverage > 0.5)) { verdict = 'unsupported'; notes.push('The source contradicts the claim: it reports the opposite direction or a negative finding'); }
+  else if (best.conflict && (best.score >= 0.45 || best.coverage > 0.5 || best.exclusion)) { verdict = 'unsupported'; notes.push('The source contradicts the claim: it reports the opposite direction or a negative finding'); }
   else if (best.score >= 0.33) verdict = 'partial';
   else verdict = fullText ? 'unsupported' : 'unsupported';
   if (verdict === 'unsupported' && !fullText) notes.push('Unsupported by the abstract — the full text may still support it; upload the PDF to check');

@@ -22,12 +22,12 @@ function strength(f) {
   switch (f.kind) {
     case 'duplicate': {
       const parts = [];
-      if (Number.isFinite(v.picture)) parts.push(norm(v.picture, 0.75, 1));
+      if (Number.isFinite(v.picture)) parts.push(norm(v.picture, 0.8, 1));
       if (Number.isFinite(v.noise)) parts.push(norm(v.noise, 0.3, 1));
       if (!parts.length) parts.push(norm(f.score, 0.9, 1));
       return mean(parts);
     }
-    case 'partial': return Number.isFinite(v.region) ? 0.6 * norm(v.region, 0.5, 1) + 0.4 * norm(f.score, 10, 40) : 0.6 * norm(f.score, 10, 40);
+    case 'partial': return Number.isFinite(v.region) ? 0.6 * norm(v.region, 0.8, 1) + 0.4 * norm(f.score, 10, 40) : 0.6 * norm(f.score, 10, 40);
     // keypoint clones report 8-40 matching points, DCT block clones 30-300 blocks
     case 'clone': return f.score > 60 ? norm(f.score, 30, 200) : norm(f.score, 6, 30);
     case 'chart': return norm(f.score, 95, 100);

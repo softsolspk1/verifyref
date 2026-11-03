@@ -44,16 +44,31 @@ async function compareWithEarlier(panels, { excludeCode = null, excludeCheck = n
       const hv = parse(h.h);
       const theirWindows = (h.v || []).filter(isHex).map(parse);
       for (const p of mine) {
-        const d = Math.min(...p.hv.map(x => dist(x, hv)));
-        if (d <= MATCH_DISTANCE) { out.push({ panel: p.id, panelLabel: p.label, checkId: r.check_id, manuscriptCode: r.manuscript_code, title: r.title, label: h.label, thumb: h.thumb || null, distance: d, how: 'whole', date: r.created_at }); continue; }
+        const ds = p.hv.map(x => dist(x, hv));
+        const d = Math.min(...ds);
+        const base = { panel: p.id, panelLabel: p.label, checkId: r.check_id, manuscriptCode: r.manuscript_code, title: r.title, label: h.label, thumb: h.thumb || null, date: r.created_at, _q: p.thumb || null };
+        if (d <= MATCH_DISTANCE) { out.push({ ...base, distance: d, how: 'whole', k: ds.indexOf(d) }); continue; }
         // cropped re-use: this panel = a crop of the earlier one, or the reverse (5 windows of 75%, stricter limit)
-        const dc = Math.min(99, ...theirWindows.flatMap(w => p.hv.map(x => dist(x, w))));
-        const dw = Math.min(99, ...p.wv.map(w => dist(w, hv)));
-        if (Math.min(dc, dw) <= MATCH_DISTANCE - 1) out.push({ panel: p.id, panelLabel: p.label, checkId: r.check_id, manuscriptCode: r.manuscript_code, title: r.title, label: h.label, thumb: h.thumb || null, distance: Math.min(dc, dw), how: dc <= dw ? 'crop' : 'contains', date: r.created_at });
+        let dc = 99, kc = 0, wc = 0, dw = 99, ww = 0;
+        theirWindows.forEach((w, j) => p.hv.forEach((x, k) => { const v = dist(x, w); if (v < dc) { dc = v; kc = k; wc = j; } }));
+        p.wv.forEach((w, j) => { const v = dist(w, hv); if (v < dw) { dw = v; ww = j; } });
+        if (Math.min(dc, dw) <= MATCH_DISTANCE - 1) out.push({ ...base, distance: Math.min(dc, dw), ...(dc <= dw ? { how: 'crop', k: kc, window: wc } : { how: 'contains', k: 0, window: ww }) });
       }
     }
   }
-  return out.sort((a, b) => a.distance - b.distance).slice(0, 50);
+  // Module 5 match rule: the two pictures must be at least 80 % similar pixel by pixel, aligned as the fingerprints say.
+  // Two figures of the same kind (blots, micrographs) can have close fingerprints without being the same image.
+  const R = require('./imageRefs');
+  const kept = [];
+  for (const m of out.sort((a, b) => a.distance - b.distance).slice(0, 120)) {
+    const corr = m._q && m.thumb ? await R.verifyThumbs(m._q, m.thumb, m).catch(() => null) : null;
+    delete m._q;
+    // without both pictures only near-identical whole-panel fingerprints count
+    if (corr === null ? m.distance > 2 || m.how !== 'whole' : corr < R.VERIFY) continue;
+    kept.push({ ...m, correlation: corr === null ? null : Math.round(corr * 100) / 100, similarity: corr === null ? null : Math.round(corr * 100) });
+    if (kept.length >= 50) break;
+  }
+  return kept;
 }
 
 const KINDS = ['duplicate', 'partial', 'clone', 'alteration', 'ai', 'chart'];

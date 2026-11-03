@@ -41,6 +41,18 @@ function sides(f) {
   if (f.kind === 'duplicate' || f.kind === 'chart') return [f.a.label, `${f.b.label} (copy)`];
   return [f.a.label, f.b.label];
 }
+// how similar a match is, pixel by pixel (Module 5 reports a match only from 80 %)
+const simBadge = m => (Number.isFinite(m?.similarity) || Number.isFinite(m?.correlation)
+  ? `<span class="sim-badge" title="Pixel similarity of the two images, aligned (rotation, mirror, crop). Module 5 reports a match only from 80 %.">${Number.isFinite(m.similarity) ? m.similarity : Math.round(m.correlation * 100)}% similar</span>`
+  : '<span class="sim-badge plain" title="Fingerprints near-identical; no picture was available to compare pixel by pixel">fingerprint match</span>');
+// the source figure turned the way the fingerprints matched (orient(this panel, k) = source), so the two line up
+const alignCss = (k, t) => {
+  const rot = Number.isFinite(k) ? (k % 4) * 90 : t ? Math.round((t.rotation || 0) / (Math.PI / 2)) * 90 : 0;
+  const flip = Number.isFinite(k) ? k >= 4 : !!t?.flip;
+  return rot || flip ? `transform:${flip ? 'scaleX(-1) ' : ''}rotate(${-rot}deg)` : '';
+};
+const alignNote = (k, t) => (alignCss(k, t) ? ' <span class="muted">(turned to line up with this manuscript)</span>' : '');
+
 const pic = (src, view, cap) => `<figure>${src ? `<img src="${src}" alt="" data-view="${view}">` : '<div class="muted">no picture</div>'}<figcaption>${cap}</figcaption></figure>`;
 
 /** A finding's pictures: the whole panel(s) with the areas outlined and, for a cloned area or an overlap, both areas enlarged */
@@ -473,10 +485,10 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     const chartsTable = ec.length ? `<div class="card"><h3>Graph / chart data matching earlier manuscripts</h3><div class="table-wrap"><table class="t"><tr><th>This manuscript</th><th>Earlier manuscript</th><th>Earlier chart</th><th class="num">Correlation</th></tr>${ec.map(x => `<tr><td>${esc(x.chart)}</td><td>${x.onPlatform ? `<strong>${esc(x.manuscriptCode || 'Report #' + x.checkId)}</strong> <span class="tag">web platform</span>` : `<a href="#/check/${x.checkId}">${esc(x.manuscriptCode || 'Report #' + x.checkId)}</a>`}<div class="muted">${esc(x.title || '')} · ${fmtDate(x.date)}</div></td><td>${esc(x.label)}</td><td class="num">${x.correlation}</td></tr>`).join('')}</table></div></div>` : '';
     const code = x => (x.onPlatform ? `<strong>${esc(x.manuscriptCode || 'Report #' + x.checkId)}</strong> <span class="tag">web platform</span>` : `<a href="#/check/${x.checkId}">${esc(x.manuscriptCode || 'Report #' + x.checkId)}</a>`);
     body.innerHTML = e.length ? `<p class="muted">Panels whose fingerprint matches a figure in an earlier PJPS manuscript (fingerprint distance: 0 = identical, smaller = closer).</p>`
-      + e.filter(x => shown(x, minConf)).map((x, i) => `<div class="card finding"><div class="card-head"><h3>${i + 1}. ${esc(x.panelLabel)} matches ${esc(x.manuscriptCode || 'an earlier manuscript')}</h3><div class="row">${confBadge(x)}${badge(x.distance <= 3 ? 'Strong' : 'Check', x.distance <= 3 ? 'bad' : 'warn')}</div></div>
+      + e.filter(x => shown(x, minConf)).map((x, i) => `<div class="card finding"><div class="card-head"><h3>${i + 1}. ${esc(x.panelLabel)} matches ${esc(x.manuscriptCode || 'an earlier manuscript')}</h3><div class="row">${simBadge(x)}${confBadge(x)}${badge(x.distance <= 3 ? 'Strong' : 'Check', x.distance <= 3 ? 'bad' : 'warn')}</div></div>
         <div class="ref-meta"><b>Earlier manuscript:</b> ${code(x)} <span class="muted">· ${esc(x.title || '')} · ${fmtDate(x.date)}</span></div>
-        <div class="pair">${pic(viewOf(x.panel), '', `<span class="tagline">This manuscript:</span>${esc(x.panelLabel)}`)}${pic(x.thumb, '', `<span class="tagline">Earlier manuscript:</span>${esc(x.label || '')}`)}</div>
-        <table class="facts"><tr><td>Measured agreement</td><td>fingerprint distance ${x.distance} of 64${x.how && x.how !== 'whole' ? ` (${x.how === 'crop' ? 'a crop of the earlier figure' : 'contains the earlier figure'})` : ''}</td></tr></table></div>`).join('')
+        <div class="pair">${pic(viewOf(x.panel), '', `<span class="tagline">This manuscript:</span>${esc(x.panelLabel)}`)}<figure>${x.thumb ? `<img src="${x.thumb}" alt="" style="${alignCss(x.k)}">` : '<div class="muted">no picture</div>'}<figcaption><span class="tagline">Earlier manuscript:</span>${esc(x.label || '')}${alignNote(x.k)}</figcaption></figure></div>
+        <table class="facts"><tr><td>Similarity</td><td>${Number.isFinite(x.similarity) ? `<b>${x.similarity}%</b> pixel similarity of the aligned images` : 'fingerprints near-identical (no picture to compare pixel by pixel)'}</td></tr><tr><td>Fingerprint</td><td>distance ${x.distance} of 64${x.how && x.how !== 'whole' ? ` (${x.how === 'crop' ? 'a crop of the earlier figure' : 'contains the earlier figure'})` : ''}</td></tr></table></div>`).join('')
       : (ec.length ? '' : '<div class="alert alert-good">No figure or chart matches an earlier PJPS manuscript screened in this system.</div>');
     body.innerHTML += chartsTable;
   };
@@ -487,14 +499,14 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     const sr = result.referencesSearched;
     const searched = sr ? `<p class="muted">${sr.panels} panel(s) compared with ${sr.refs.toLocaleString()} reference panel(s): ${Object.values(sr.bySource || {}).map(x => `${esc(x.name)} — ${x.papers.toLocaleString()} papers`).join(' · ')}.</p>` : '';
     const card = (m, i) => `<div class="card finding" data-ref="${i}">
-        <div class="card-head"><h3>${i + 1}. ${esc(m.panelLabel)} matches ${esc(m.sourceName)}</h3><div class="row">${confBadge(m)}${badge(m.level === 'high' ? 'Strong' : 'Check', levelTone(m.level))}${badge(m.sourceName, m.source === 'retracted' ? 'bad' : 'info')}</div></div>
+        <div class="card-head"><h3>${i + 1}. ${esc(m.panelLabel)} matches ${esc(m.sourceName)}</h3><div class="row">${simBadge(m)}${confBadge(m)}${badge(m.level === 'high' ? 'Strong' : 'Check', levelTone(m.level))}${badge(m.sourceName, m.source === 'retracted' ? 'bad' : 'info')}</div></div>
         <div class="ref-meta"><b>Source paper:</b> ${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title || m.doi || 'Source paper')}</a>` : esc(m.title || '—')}<span class="muted">${[m.journal, m.year, m.doi ? 'doi:' + m.doi : ''].filter(Boolean).map(x => ' · ' + esc(x)).join('')}</span>${m.doi ? ` · <a href="https://pubpeer.com/search?q=${encodeURIComponent(m.doi)}" target="_blank" rel="noopener">Check on PubPeer</a>` : ''}
           ${m.note ? `<div class="muted" style="margin-top:4px">${esc(m.note)}</div>` : ''}</div>
         <div class="pair">
           <figure>${viewOf(m.panel) ? `<img src="${viewOf(m.panel)}" alt="" data-view>` : '<div class="muted">no picture</div>'}<figcaption><span class="tagline">This manuscript:</span>${esc(m.panelLabel)}</figcaption></figure>
-          <figure>${m.hasThumb || m.refThumb ? `<img src="${m.refThumb || `/api/images/refs/${m.refId}/thumb`}" alt="" data-view class="${m.source === 'retracted' ? 'figure-ref' : ''}">` : '<div class="muted">no picture</div>'}<figcaption><span class="tagline ${m.source === 'retracted' ? 'src-a' : ''}">Source figure:</span>${esc(m.sourceName)} — ${esc(m.figure)}</figcaption></figure>
+          <figure>${m.hasThumb || m.refThumb ? `<img src="${m.refThumb || `/api/images/refs/${m.refId}/thumb`}" alt="" data-view class="${m.source === 'retracted' ? 'figure-ref' : ''}" style="${alignCss(m.k, m.transform)}">` : `<div class="muted">No picture of the source figure is stored${m.url ? ` — <a href="${esc(m.url)}" target="_blank" rel="noopener">open the source paper</a>` : ''}</div>`}<figcaption><span class="tagline ${m.source === 'retracted' ? 'src-a' : ''}">Source paper figure:</span>${esc(m.sourceName)} — ${esc(m.figure)}${alignNote(m.k, m.transform)}</figcaption></figure>
         </div>
-        <table class="facts"><tr><td>How it matches</td><td>${esc(m.description)}</td></tr><tr><td>Measured agreement</td><td>fingerprint distance ${m.distance} of 64 (0 = identical)${m.correlation !== null && m.correlation !== undefined ? ` · pixel correlation of the aligned images ${m.correlation}` : ''}</td></tr>${m.transform ? `<tr><td>Transformation</td><td>${esc(transformText(m.transform))}</td></tr>` : ''}</table>
+        <table class="facts"><tr><td>Similarity</td><td>${m.correlation !== null && m.correlation !== undefined ? `<b>${Math.round(m.correlation * 100)}%</b> pixel similarity of the aligned images` : 'fingerprints near-identical (no stored picture to compare pixel by pixel)'}</td></tr><tr><td>How it matches</td><td>${esc(m.description)}</td></tr><tr><td>Fingerprint</td><td>distance ${m.distance} of 64 (0 = identical)</td></tr>${m.transform ? `<tr><td>Transformation</td><td>${esc(transformText(m.transform))}</td></tr>` : ''}</table>
         <div class="row no-print" style="margin-top:8px"><button class="btn btn-sm" data-open>Open forensic viewer</button></div>
       </div>`;
     body.innerHTML = searched + (result.referencesError ? `<div class="alert alert-warn">The image databases could not be searched: ${esc(result.referencesError)}</div>` : '')

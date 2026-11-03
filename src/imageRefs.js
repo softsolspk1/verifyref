@@ -28,7 +28,7 @@ const MAX_FIGURE = 1600;     // longest side, as in the browser
 const THUMB = 240;
 const WHOLE = 6;             // max differing bits (of 64) for the whole panel
 const WINDOW = 5;            // ... for a crop window (stricter: windows are smaller and match more easily by chance)
-const VERIFY = 0.8;          // pixel correlation of the aligned thumbnails needed to report a match
+const VERIFY = 0.8;          // pixel correlation of the aligned thumbnails needed to report a match (Module 5: at least 80 % similar)
 
 let engine = null, forensics = null;
 async function lib() {
@@ -791,6 +791,14 @@ async function verify(E, qThumb, rThumb, c) {
   } catch { return null; }
 }
 
+/** Pixel correlation (-1..1) of two thumbnails (data URLs or buffers) aligned as candidate c ({ how, k, window }), or null */
+async function verifyThumbs(qThumb, rThumb, c) {
+  const q = Buffer.isBuffer(qThumb) ? qThumb : fromDataUrl(qThumb), r = Buffer.isBuffer(rThumb) ? rThumb : fromDataUrl(rThumb);
+  if (!q || !r) return null;
+  const { E } = await lib();
+  return verify(E, q, r, c);
+}
+
 async function refThumb(key) {
   if (!key || !R2.enabled()) return null;
   const res = await fetch(R2.presign('GET', key)).catch(() => null);
@@ -832,12 +840,13 @@ async function matchManuscript(panels, chartList = []) {
       if (!thumbs.has(ref.id)) thumbs.set(ref.id, await refThumb(ref.thumb_key));
       const rt = thumbs.get(ref.id);
       const corr = q && rt ? await verify(E, q, rt, c) : null;
-      // without thumbnails only near-identical fingerprints are reported
-      if (corr === null ? c.distance > 3 || c.how !== 'whole' : corr < VERIFY) continue;
+      // at least 80 % similar pixel by pixel; without pictures to compare, only near-identical whole-panel fingerprints
+      if (corr === null ? c.distance > 2 || c.how !== 'whole' : corr < VERIFY) continue;
       matches.push({
         panel: c.panel, panelLabel: p?.label || c.panel, refId: ref.id, source: ref.source, sourceName: SOURCES[ref.source]?.short || ref.source,
         figure: ref.panel || ref.figure, doi: ref.doi, title: ref.title, journal: ref.journal, year: ref.year, url: ref.url, note: ref.note, how: c.how, distance: c.distance,
-        correlation: corr === null ? null : Math.round(corr * 100) / 100, transform: { rotation: (c.k % 4) * Math.PI / 2, flip: c.k >= 4, scale: 1 }, description: describe(c),
+        correlation: corr === null ? null : Math.round(corr * 100) / 100, similarity: corr === null ? null : Math.round(corr * 100), k: c.k, window: c.window ?? null,
+        transform: { rotation: (c.k % 4) * Math.PI / 2, flip: c.k >= 4, scale: 1 }, description: describe(c),
         level: (corr ?? (c.distance <= 2 ? 1 : 0)) >= 0.9 && c.distance <= 4 ? 'high' : 'medium', hasThumb: !!rt
       });
     }
@@ -1014,5 +1023,5 @@ const thumbKey = async id => (await db.one('SELECT thumb_key FROM image_refs WHE
 
 module.exports = {
   SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, latestPjpsId, indexRetracted, indexPmc, indexPublisherOa, growImageDatabases, indexUpload,
-  matchManuscript, candidates, loadIndex, loadCharts, exportIndex, compactIndex, packSegment, unpackSegment, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
+  matchManuscript, candidates, verifyThumbs, VERIFY, loadIndex, loadCharts, exportIndex, compactIndex, packSegment, unpackSegment, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
 };

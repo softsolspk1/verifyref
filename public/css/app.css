@@ -652,3 +652,8 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .pm-checklist input:checked ~ * { opacity: .6; }
 .pm-letter { width: 100%; font-family: var(--serif); font-size: 13.5px; line-height: 1.55; }
 @media print { .pm-letter { border: 0; height: auto; } }
+
+/* Module 5: pixel similarity of a match */
+.sim-badge { display: inline-flex; align-items: center; font: 700 12.5px var(--font); padding: 2px 10px; border-radius: 999px; background: var(--brand-soft); color: var(--brand); border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent); white-space: nowrap; }
+.sim-badge.plain { font-weight: 600; background: var(--neutral-bg); color: var(--text-2); border-color: var(--border); }
+.pair figure img[style*="transform"] { transition: transform .2s; }

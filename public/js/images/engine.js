@@ -655,16 +655,120 @@ function verifyWhole(A, B, k) {
   return { lp: corr(i => ha.g[i], i => hb.g[i]), hp: corr(i => a.g[i] - ha.g[i], i => b.g[i] - hb.g[i]) };
 }
 
-/** Pixel check of the regions matched by keypoints (upright or mirrored matches only): correlation of the two crops */
-function verifyRegions(A, B, part) {
-  const rot = Math.abs(((part.transform.rotation % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
-  if (rot > 0.12) return null;                                              // rotated: not compared this simply
-  const N = 48;
-  const a = resizeGray(A.workGray, N, N, part.regionA);
-  let b = resizeGray(B.workGray, N, N, part.regionB);
-  if (part.transform.flip) b = flipH(b);
-  return ncc(normalized(a), normalized(b));
+// Match rule of Module 5: two images (or two areas) are reported as the same only when they are at least 80 % similar
+// pixel by pixel (correlation of the aligned pictures >= MIN_SIMILARITY) AND share their fine noise pattern
+// (>= MIN_NOISE). Images of the same kind - two western blots, two dark-field micrographs, two stained sections - can
+// look alike and even share a layout, but a different photograph never shares the noise; so "similar type" is not a match.
+export const MIN_SIMILARITY = 0.8;
+export const MIN_NOISE = 0.3;
+
+/** Least-squares affine map from points a to points b (the keypoint correspondences): x' = p0 x + p1 y + p2, y' = p3 x + p4 y + p5 */
+function fitAffine(a, b) {
+  let sxx = 0, sxy = 0, syy = 0, sx = 0, sy = 0, n = a.length;
+  const r = [0, 0, 0, 0, 0, 0]; // sums for x' and y' against x, y, 1
+  for (let i = 0; i < n; i++) {
+    const { x, y } = a[i];
+    sxx += x * x; sxy += x * y; syy += y * y; sx += x; sy += y;
+    r[0] += x * b[i].x; r[1] += y * b[i].x; r[2] += b[i].x; r[3] += x * b[i].y; r[4] += y * b[i].y; r[5] += b[i].y;
+  }
+  const M = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]];
+  const det = M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+  if (Math.abs(det) < 1e-6) return null;
+  const solve = v => [0, 1, 2].map(c => {
+    const m = M.map((row, i) => row.map((x, j) => (j === c ? v[i] : x)));
+    return (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])) / det;
+  });
+  return [...solve([r[0], r[1], r[2]]), ...solve([r[3], r[4], r[5]])];
 }
+
+const bilinear = (src, x, y) => {
+  if (x < 0 || y < 0 || x > src.w - 1 || y > src.h - 1) return null;
+  const x0 = Math.floor(x), y0 = Math.floor(y), x1 = Math.min(src.w - 1, x0 + 1), y1 = Math.min(src.h - 1, y0 + 1), fx = x - x0, fy = y - y0;
+  const g = src.g;
+  return (g[y0 * src.w + x0] * (1 - fx) + g[y0 * src.w + x1] * fx) * (1 - fy) + (g[y1 * src.w + x0] * (1 - fx) + g[y1 * src.w + x1] * fx) * fy;
+};
+function pearson(a, b) {
+  let n = 0, sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+  for (let i = 0; i < a.length; i++) { if (a[i] === null || b[i] === null) continue; n++; sa += a[i]; sb += b[i]; saa += a[i] * a[i]; sbb += b[i] * b[i]; sab += a[i] * b[i]; }
+  if (n < 50) return null;
+  const v = (n * saa - sa * sa) * (n * sbb - sb * sb);
+  return v > 1e-9 ? (n * sab - sa * sb) / Math.sqrt(v) : null;
+}
+
+/** The affine map through three point pairs (exact): for maps built from a known geometry */
+function affineFrom(fn) {
+  const o = fn(0, 0), ex = fn(1, 0), ey = fn(0, 1);
+  return [ex.x - o.x, ey.x - o.x, o.x, ex.y - o.y, ey.y - o.y, o.y];
+}
+
+/**
+ * Picture and noise of area `region` of panel PA (work pixels) laid onto panel PB through the affine map T (PA work ->
+ * PB work), measured at the resolution of the coarser of the two so a resized copy is not penalised. The noise is the
+ * residual after a light blur, taken only on flat pixels (edges and bands left out, 8 % margin left out): film grain and
+ * sensor noise are unique to one photograph, while two images of the same kind share their edges and layout.
+ * -> { picture, noise } (correlations) or null when it cannot be measured
+ */
+function nativeCheck(PA, PB, T, region) {
+  if (!T) return null;
+  const det = Math.abs(T[0] * T[4] - T[1] * T[3]);
+  if (!(det > 1e-4)) return null;
+  const k = Math.sqrt(det);                                   // PB pixels per PA pixel
+  let step = Math.max(1, 1 / k);                               // sample PA no finer than PB holds detail
+  const cap = 200;
+  step = Math.max(step, region.w / cap, region.h / cap);
+  const nw = Math.max(8, Math.floor(region.w / step)), nh = Math.max(8, Math.floor(region.h / step));
+  const srcA = step > 1.25 ? blur(PA.workGray, 0.5 * step) : PA.workGray;
+  const srcB = step * k > 1.25 ? blur(PB.workGray, 0.5 * step * k) : PB.workGray;
+  const a = { w: nw, h: nh, g: new Float32Array(nw * nh) }, b = { w: nw, h: nh, g: new Float32Array(nw * nh) };
+  const ok = new Uint8Array(nw * nh);
+  let outside = 0;
+  for (let j = 0; j < nh; j++) for (let i = 0; i < nw; i++) {
+    const x = region.x + (i + 0.5) * step, y = region.y + (j + 0.5) * step;
+    const va = bilinear(srcA, x, y), vb = bilinear(srcB, T[0] * x + T[1] * y + T[2], T[3] * x + T[4] * y + T[5]);
+    if (va === null || vb === null) { outside++; continue; }
+    a.g[j * nw + i] = va; b.g[j * nw + i] = vb; ok[j * nw + i] = 1;
+  }
+  if (outside > nw * nh * 0.25) return null;
+  const sa = blur(a, 1.2), sb = blur(b, 1.2);
+  const pic = [[], []];
+  for (let i = 0; i < ok.length; i++) if (ok[i]) { pic[0].push(sa.g[i]); pic[1].push(sb.g[i]); }
+  const picture = pearson(pic[0], pic[1]);
+  // flat pixels only: gradient of the smoothed picture below the median, away from the margin
+  const ra = blur(a, 1), rb = blur(b, 1);
+  const grad = new Float32Array(nw * nh);
+  for (let j = 1; j < nh - 1; j++) for (let i = 1; i < nw - 1; i++) { const q = j * nw + i; grad[q] = Math.abs(sa.g[q + 1] - sa.g[q - 1]) + Math.abs(sa.g[q + nw] - sa.g[q - nw]); }
+  const mg = Math.max(2, Math.round(0.08 * Math.min(nw, nh)));
+  // clipped pixels (pure white background, saturated bands, black) carry no noise: left out
+  const live = q => ok[q] && a.g[q] > 3 && a.g[q] < 252 && b.g[q] > 3 && b.g[q] < 252;
+  const inner = [];
+  for (let j = mg; j < nh - mg; j++) for (let i = mg; i < nw - mg; i++) if (live(j * nw + i)) inner.push(grad[j * nw + i]);
+  inner.sort((x, y) => x - y);
+  const lim = inner[Math.floor(inner.length * 0.5)] ?? 0;
+  const nz = [[], []];
+  for (let j = mg; j < nh - mg; j++) for (let i = mg; i < nw - mg; i++) {
+    const q = j * nw + i;
+    if (live(q) && grad[q] <= lim) { nz[0].push(a.g[q] - ra.g[q]); nz[1].push(b.g[q] - rb.g[q]); }
+  }
+  const noise = pearson(nz[0], nz[1]);
+  return picture === null ? null : { picture, noise: noise ?? 0 };
+}
+
+/** Area matched by keypoints: the map fitted to the matching points */
+const verifyMapped = (PA, PB, ptsA, ptsB, region) => (ptsA.length >= 3 ? nativeCheck(PA, PB, fitAffine(ptsA, ptsB), region) : null);
+
+/** Whole panels in orientation k (0-3: k x 90 degrees, 4-7 mirrored), as orient() lays panel B onto panel A */
+function wholeMap(A, B, k) {
+  return affineFrom((x, y) => {
+    // pixel centres: (x + 0.5) / width, so a mirror maps the first column exactly onto the last
+    let u = (x + 0.5) / A.work.w, v = (y + 0.5) / A.work.h;
+    for (let i = 0; i < k % 4; i++) [u, v] = [v, 1 - u];
+    if (k >= 4) u = 1 - u;
+    return { x: u * B.work.w - 0.5, y: v * B.work.h - 0.5 };
+  });
+}
+
+export { nativeCheck, wholeMap };
+const similarEnough = v => !!v && v.picture >= MIN_SIMILARITY && v.noise >= MIN_NOISE;
 
 /** Prepare one panel: reduced grayscale, hashes in 8 orientations, ORB features (normal and mirrored) */
 export function preparePanel(img, box, meta, gray = null) {
@@ -738,7 +842,7 @@ function pairPartial(A, B) {
     // labels, scale bars: a small matching patch needs many agreeing points to count (and is only "to check", never "strong")
     const strongPatch = r.inliers.length >= 15;
     if (Math.min(areaA, areaB) < (strongPatch ? 0.02 : 0.05) || ba.w < (strongPatch ? 22 : 30) || ba.h < (strongPatch ? 14 : 20) || bb.w < (strongPatch ? 22 : 30) || bb.h < (strongPatch ? 14 : 20)) continue;
-    if (!best || r.inliers.length > best.inliers) best = { kind: 'partial', inliers: r.inliers.length, matches: matches.length, regionA: ba, regionB: bb, coverage: Math.round(Math.max(areaA, areaB) * 100), transform: { rotation: flip ? -r.rotation : r.rotation, flip, scale: r.scale } };
+    if (!best || r.inliers.length > best.inliers) best = { kind: 'partial', inliers: r.inliers.length, matches: matches.length, regionA: ba, regionB: bb, ptsA, ptsB, coverage: Math.round(Math.max(areaA, areaB) * 100), transform: { rotation: flip ? -r.rotation : r.rotation, flip, scale: r.scale } };
   }
   return best;
 }
@@ -853,12 +957,23 @@ function pairRegistered(A, B) {
   if (!lpc || lpc.c < 0.88) return null;
   const hpr = nccMaskedAt(a.hp.g, best.v.hp.g, mA, mB, w, h, best.dx, best.dy, 'both');
   if (!hpr || hpr.c < 0.5) return null;                                     // same look, different noise: different image
+  // and at full resolution, edges left out: blots and gels of one layout share their bands but never their grain
+  const mx = best.v.name === 'mirror' || best.v.name === 'rot180', my = best.v.name === 'flipV' || best.v.name === 'rot180';
+  const T = affineFrom((X, Y) => {
+    let xb = (X + 0.5) * w / A.work.w - 0.5 - best.dx, yb = (Y + 0.5) * h / A.work.h - 0.5 - best.dy;
+    if (mx) xb = w - 1 - xb;
+    if (my) yb = h - 1 - yb;
+    return { x: (xb + 0.5) * B.work.w / w - 0.5, y: (yb + 0.5) * B.work.h / h - 0.5 };
+  });
+  const sxr = A.work.w / w, syr = A.work.h / h;
+  const nat = nativeCheck(A, B, T, { x: best.x0 * sxr, y: best.y0 * syr, w: (best.x1 - best.x0) * sxr, h: (best.y1 - best.y0) * syr });
+  if (!similarEnough(nat)) return null;
   const sx = A.work.w / w, sy = A.work.h / h;
   const regionA = { x: best.x0 * sx, y: best.y0 * sy, w: (best.x1 - best.x0) * sx, h: (best.y1 - best.y0) * sy };
   const bx0 = best.x0 - best.dx, bx1 = best.x1 - best.dx, by0 = best.y0 - best.dy, by1 = best.y1 - best.dy;
   const tx = B.work.w / w, ty = B.work.h / h;
   const regionB = { x: bx0 * tx, y: by0 * ty, w: (bx1 - bx0) * tx, h: (by1 - by0) * ty };
-  return { kind: best.overlap >= 0.85 && Math.abs(best.dx) + Math.abs(best.dy) <= 4 ? 'duplicate' : 'partial', correlation: Math.round(best.c * 100) / 100, noise: Math.round(hpr.c * 100) / 100, overlap: best.overlap, regionA, regionB,
+  return { kind: best.overlap >= 0.85 && Math.abs(best.dx) + Math.abs(best.dy) <= 4 ? 'duplicate' : 'partial', correlation: Math.round(Math.min(best.c, nat.picture) * 100) / 100, noise: Math.round(nat.noise * 100) / 100, overlap: best.overlap, regionA, regionB,
     transform: { rotation: best.v.rot, flip: best.v.flip, scale: Math.sqrt((B.box.w * B.box.h) / (A.box.w * A.box.h)) } };
 }
 
@@ -872,7 +987,9 @@ function selfClone(P) {
       if (r && r.inliers.length >= 13) {
         const a = bbox(r.inliers.map(m => P.features.pts[m.i])), b = bbox(r.inliers.map(m => P.features.pts[m.j]));
         const overlap = !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
-        if (!overlap && a.w > 12 && a.h > 12) out.push({ kind: 'clone', method: 'keypoints', inliers: r.inliers.length, regionA: a, regionB: b, transform: { rotation: r.rotation, flip: false, scale: r.scale } });
+        // the copied area must be at least 80 % similar pixel by pixel and share its noise (repeated textures do not)
+        const v = !overlap && a.w > 12 && a.h > 12 ? verifyMapped(P, P, r.inliers.map(m => P.features.pts[m.i]), r.inliers.map(m => P.features.pts[m.j]), a) : null;
+        if (similarEnough(v)) out.push({ kind: 'clone', method: 'keypoints', inliers: r.inliers.length, pixel: { lp: v.picture, hp: v.noise }, regionA: a, regionB: b, transform: { rotation: r.rotation, flip: false, scale: r.scale } });
       }
     }
   }
@@ -880,7 +997,7 @@ function selfClone(P) {
     // tolerant block matching (survives JPEG recompression), every candidate verified pixel by pixel
     for (const c of copyMoveBlocks(P.workGray, { quant: 20, neigh: 12, minBlocks: 15, minVar: 15, verify: true })) {
       // the copied area must also share its fine noise; repeated textures (membrane, tissue) match only in the picture
-      if ((c.pixel?.hp ?? 1) < 0.55) continue;
+      if ((c.pixel?.hp ?? 1) < 0.55 || (c.pixel?.lp ?? 1) < MIN_SIMILARITY) continue;
       if (out.some(o => Math.abs(o.regionA.x - c.a.x) < 20 && Math.abs(o.regionA.y - c.a.y) < 20)) continue;
       out.push({ kind: 'clone', method: 'blocks', blocks: c.blocks, pixel: c.pixel, regionA: c.a, regionB: c.b, transform: { rotation: 0, flip: false, scale: 1 } });
     }
@@ -911,9 +1028,14 @@ export function findIssues(panels, progress = () => {}) {
       const dup = pairDuplicate(A, B);
       if (dup) {
         // a strong finding needs the full-resolution picture and its fine noise to agree, not just the 64 x 64 thumbnails
-        const v = A.type === 'chart' || B.type === 'chart' ? null : verifyWhole(A, B, dup.k);
+        const v0 = A.type === 'chart' || B.type === 'chart' ? null : verifyWhole(A, B, dup.k);
+        // the noise of the two photographs compared at full resolution, edges left out (verifyWhole's thumbnail noise
+        // still follows the band and edge layout, which images of the same kind share)
+        const nat = v0 ? nativeCheck(A, B, wholeMap(A, B, dup.k), { x: 0, y: 0, w: A.work.w, h: A.work.h }) : null;
+        const v = v0 ? { lp: Math.min(v0.lp, nat ? nat.picture : v0.lp), hp: nat ? nat.noise : 0 } : null;
         const strong = !!v && v.lp >= 0.85 && v.hp >= 0.5 && !channels;
-        if (!v || v.lp >= 0.75 || dup.correlation >= 0.97) {
+        // at least 80 % similar at full resolution and the same noise; charts (no photographic noise) need 0.97
+        if (v ? v.lp >= MIN_SIMILARITY && v.hp >= MIN_NOISE : dup.correlation >= 0.97) {
           findings.push({ kind: 'duplicate', level: strong ? 'high' : 'medium', a: { panel: A.id, box: A.box }, b: { panel: B.id, box: B.box }, transform: dup.transform, score: dup.correlation,
             verification: v ? { picture: Math.round(v.lp * 100) / 100, noise: Math.round(v.hp * 100) / 100 } : null,
             description: `The same image appears twice (${describeTransform(dup.transform)}; correlation ${dup.correlation}${v ? `, full-resolution match ${v.lp.toFixed(2)}, noise pattern ${v.hp.toFixed(2)}` : ''})${channels ? CHANNEL_NOTE : ''}` });
@@ -927,11 +1049,12 @@ export function findIssues(panels, progress = () => {}) {
         continue;
       }
       const part = pairPartial(A, B);
-      // the matched regions must look alike pixel by pixel: shared labels, scale bars or instrument overlays match as keypoints only
-      const pv = part ? verifyRegions(A, B, part) : null;
-      if (part && (pv === null || pv >= 0.5)) {
-        findings.push({ kind: 'partial', level: part.inliers >= 25 && pv !== null && pv >= 0.75 && !channels ? 'high' : 'medium', verification: pv === null ? null : { region: Math.round(pv * 100) / 100 }, a: { panel: A.id, box: toImage(A, part.regionA) }, b: { panel: B.id, box: toImage(B, part.regionB) }, transform: part.transform, score: part.inliers,
-          description: `Overlapping image content (${part.inliers} matching points, ${part.coverage}% of the panel; ${describeTransform(part.transform)}${pv !== null ? `; matched regions correlate ${pv.toFixed(2)}` : ''})${channels ? CHANNEL_NOTE : ''}` });
+      // the matched areas must be at least 80 % similar pixel by pixel, in whatever orientation, and share their noise:
+      // shared labels, scale bars, instrument overlays or images of the same kind match as keypoints only
+      const pv = part ? verifyMapped(A, B, part.ptsA, part.ptsB, part.regionA) : null;
+      if (part && similarEnough(pv)) {
+        findings.push({ kind: 'partial', level: part.inliers >= 25 && pv.picture >= 0.9 && pv.noise >= 0.5 && !channels ? 'high' : 'medium', verification: { region: Math.round(pv.picture * 100) / 100, noise: Math.round(pv.noise * 100) / 100 }, a: { panel: A.id, box: toImage(A, part.regionA) }, b: { panel: B.id, box: toImage(B, part.regionB) }, transform: part.transform, score: part.inliers,
+          description: `Overlapping image content (${part.inliers} matching points, ${part.coverage}% of the panel; ${describeTransform(part.transform)}; matched areas ${Math.round(pv.picture * 100)}% similar, noise pattern ${pv.noise.toFixed(2)})${channels ? CHANNEL_NOTE : ''}` });
       }
     }
   }
@@ -939,7 +1062,7 @@ export function findIssues(panels, progress = () => {}) {
     for (const c of selfClone(P)) {
       const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.8;
       findings.push({ kind: 'clone', level: strong ? 'high' : 'medium', a: { panel: P.id, box: toImage(P, c.regionA) }, b: { panel: P.id, box: toImage(P, c.regionB) }, transform: c.transform, score: c.inliers || c.blocks,
-        description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)})` : `Possible cloned area inside one panel (${c.blocks} matching blocks${c.pixel ? `, pixel match ${c.pixel.lp.toFixed(2)}, noise pattern ${c.pixel.hp.toFixed(2)}` : ''})` });
+        description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)}; ${Math.round(c.pixel.lp * 100)}% similar, noise pattern ${c.pixel.hp.toFixed(2)})` : `Possible cloned area inside one panel (${c.blocks} matching blocks${c.pixel ? `, pixel match ${c.pixel.lp.toFixed(2)}, noise pattern ${c.pixel.hp.toFixed(2)}` : ''})` });
     }
   });
   return findings.sort((a, b) => (a.level === b.level ? b.score - a.score : a.level === 'high' ? -1 : 1));

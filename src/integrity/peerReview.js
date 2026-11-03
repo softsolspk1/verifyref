@@ -139,4 +139,4 @@ async function storeReviews(checkId, code, reviews) {
   for (const r of reviews || []) await db.query('INSERT INTO review_records(check_id, manuscript_code, reviewer_name, reviewer_email, sentence_hashes) VALUES($1,$2,$3,$4,$5)', [checkId || null, code || null, r.name || null, r.email || null, JSON.stringify(r.hashes)]);
 }
 
-module.exports = { analyzePeerReview, storeReviews, specificity };
+module.exports = { analyzePeerReview, storeReviews, specificity, coauthorships };

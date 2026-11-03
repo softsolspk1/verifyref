@@ -251,6 +251,16 @@ router.get('/checks/:id/export', user, wrap(async (req, res) => {
   const results = c.result.references?.results || [];
   const base = `references-${c.row.manuscript_code || c.row.id}`;
   const fmt = req.query.format;
+  // a Full Screening Report's other modules as CSV: ?format=csv&part=compliance | citations | papermill
+  if (fmt === 'csv' && req.query.part) {
+    const CSV = require('../moduleCsv');
+    const r = c.result;
+    const part = String(req.query.part);
+    if (part === 'papermill' && !require('../modules').permissionsOf(req.user).includes('papermill')) return res.status(403).json({ success: false, message: 'Module 4 is for editors only.' });
+    const csv = part === 'compliance' ? CSV.compliance(r.compliance) : part === 'citations' && r.citations ? CSV.citations({ ...r.citations, pattern: r.pattern }) : part === 'papermill' && r.papermill ? CSV.papermill(r.papermill) : null;
+    if (!csv) return res.status(404).json({ success: false, message: 'This report has no such section.' });
+    return sendFile(res, Buffer.from(csv, 'utf8'), `${part}-${c.row.manuscript_code || c.row.id}.csv`, 'text/csv; charset=utf-8');
+  }
   if (fmt === 'csv') {
     const csv = F.toCsv(['#', 'Status', 'Confidence', 'Reference as written', 'Finding', 'Issues', 'Registered title', 'Registered authors', 'Year', 'Journal', 'DOI', 'Found in', 'Retraction', 'Suggested correction', 'Links'],
       results.map(r => [r.index, r.statusLabel, r.confidence, r.raw, r.reason, (r.issues || []).map(i => i.message).join('; '), r.record?.title || '', (r.record?.authors || []).map(a => `${a.family} ${a.given || ''}`.trim()).join('; '),

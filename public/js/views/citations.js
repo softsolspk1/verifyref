@@ -125,7 +125,7 @@ export function renderCitationsResult(el, r, { again } = {}) {
   const refs = r.references?.results || [];
   el.innerHTML = `
     <div class="page-head"><div><h1>${esc(r.meta?.title || 'Citations')}</h1><p>${r.meta?.manuscriptCode ? `<b>${esc(r.meta.manuscriptCode)}</b> · ` : ''}${fmtDate(r.createdAt)} · ${s.references} references · ${s.citations} in-text citations</p></div>
-      <div class="row no-print"><button class="btn btn-sm" id="docx">${ICONS.download} Word report</button><button class="btn btn-sm" id="pdf">${ICONS.download} PDF report</button><button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>${shareButton(r)}${again ? '<button class="btn btn-sm btn-ghost" id="again">Check another</button>' : ''}</div></div>
+      <div class="row no-print"><button class="btn btn-sm" id="docx">${ICONS.download} Word report</button><button class="btn btn-sm" id="pdf">${ICONS.download} PDF report</button><button class="btn btn-sm" id="csv">${ICONS.download} CSV</button><button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>${shareButton(r)}${again ? '<button class="btn btn-sm btn-ghost" id="again">Check another</button>' : ''}</div></div>
     ${datasetBanner(r)}
     <div class="kpis">
       <div class="kpi ${s.missing ? 'bad' : 'good'}"><div class="n">${s.missing}</div><div class="l">Missing from list</div></div>
@@ -157,6 +157,7 @@ export function renderCitationsResult(el, r, { again } = {}) {
   show('a');
   $('#pdf', el).onclick = () => download('/api/export/pdf', { kind: 'citations', data: r }).catch(e => toast(e.message, 'error'));
   $('#docx', el).onclick = () => download('/api/export/docx', { kind: 'citations', data: r }).catch(e => toast(e.message, 'error'));
+  $('#csv', el).onclick = () => download('/api/export/csv', { kind: 'citations', data: r }).catch(e => toast(e.message, 'error'));
   wireShare(el, r);
   if (again) $('#again', el).onclick = again;
 }

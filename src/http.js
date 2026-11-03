@@ -89,6 +89,9 @@ async function probe() {
 
 // Hosts that rate-limited us: hostname -> time until which they are not called
 const cooldown = new Map();
+// Time until which the OpenAlex API key is left off (its daily budget is spent), and the URL without it
+let openalexKeyOut = 0;
+const withoutKey = url => url.replace(/([?&])api_key=[^&]*&?/, '$1').replace(/[?&]$/, '');
 
 // Two-tier cache: in-process LRU in front of the PostgreSQL cache table
 const MEM_MAX = 5000;
@@ -180,6 +183,9 @@ async function request(url, options = {}) {
   }
 
   const host = new URL(url).hostname;
+  // OpenAlex with our key once its daily budget is spent: the free shared allowance still answers, so the key is left off
+  // until the budget resets (midnight UTC) instead of failing every lookup of Modules 1, 3, 4 and the similarity report
+  if (host === 'api.openalex.org' && openalexKeyOut > Date.now() && /[?&]api_key=/.test(url)) return request(withoutKey(url), options);
   // A host that keeps answering "too many requests" is skipped for a while instead of retried for every lookup
   const cool = cooldown.get(host);
   if (cool && cool > Date.now()) return { ok: false, status: 429, error: 'rate-limited (cooling down)' };
@@ -220,6 +226,14 @@ async function request(url, options = {}) {
       release(host);
     }
 
+    // the key's daily budget is spent ("Insufficient budget"): not a rate limit to wait out, so no retries and no cooldown
+    // of the host - the same request goes again without the key
+    if (result.status === 429 && host === 'api.openalex.org' && /[?&]api_key=/.test(url) && /budget/i.test(result.text || '')) {
+      const after = parseInt(result.headers?.['retry-after'] || '0', 10);
+      openalexKeyOut = Date.now() + Math.min(Math.max(after, 600), 86400) * 1000;
+      console.warn(`OpenAlex: the API key's daily budget is spent; using the free allowance for ${Math.round(Math.min(Math.max(after, 600), 86400) / 3600)} h`);
+      return request(withoutKey(url), options);
+    }
     const retryable = result.status === 429 || result.status >= 500 || result.status === 0;
     if (!retryable || attempt >= retries) break;
     attempt++;

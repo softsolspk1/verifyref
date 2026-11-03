@@ -360,7 +360,7 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       <div><h1>${esc(result.meta?.title || result.meta?.filename || 'Image Integrity')}</h1>
         <p>${result.meta?.manuscriptCode ? `<b>${esc(result.meta.manuscriptCode)}</b> · ` : ''}${fmtDate(result.createdAt)} · <span class="badge b-bad">Confidential — editor only</span></p></div>
       <div class="row no-print">
-        ${result.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button><button class="btn btn-sm" id="export-pdf">${ICONS.download} PDF</button>` : ''}${shareButton(result)}
+        ${result.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button><button class="btn btn-sm" id="export-pdf">${ICONS.download} PDF</button><button class="btn btn-sm" id="export-csv">${ICONS.download} CSV</button>` : ''}${shareButton(result)}
         <button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>
       </div>
     </div>
@@ -583,6 +583,8 @@ export function renderImagesResult(el, result, { live = null } = {}) {
   if (ex) ex.onclick = () => download(`/api/checks/${result.id}/confidential`).catch(e => toast(e.message, 'error'));
   const exp = $('#export-pdf', el);
   if (exp) exp.onclick = () => download(`/api/checks/${result.id}/confidential?format=pdf`).catch(e => toast(e.message, 'error'));
+  const exc = $('#export-csv', el);
+  if (exc) exc.onclick = () => download(`/api/checks/${result.id}/confidential?format=csv`).catch(e => toast(e.message, 'error'));
   wireShare(el, result);
   decisionCard($('#decision', el), result, 'images', { getExtra: () => ({ findingMarks: result.findingMarks || [] }) });
 }

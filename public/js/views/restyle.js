@@ -102,7 +102,7 @@ export function renderRestyleResult(el, r, { jobId, again } = {}) {
       <div class="row no-print">
         ${jobId && r.file ? `<button class="btn btn-primary btn-sm" id="dl">${ICONS.download} Download converted Word file</button>` : ''}
         <button class="btn btn-sm" id="copy">${ICONS.copy} Copy reference list</button>
-        <button class="btn btn-sm" id="rep">${ICONS.download} Word report</button>
+        <button class="btn btn-sm" id="rep">${ICONS.download} Word report</button><button class="btn btn-sm" id="rep-pdf">${ICONS.download} PDF report</button><button class="btn btn-sm" id="rep-csv">${ICONS.download} CSV</button>
         ${again ? '<button class="btn btn-sm btn-ghost" id="again">Convert another</button>' : ''}
       </div></div>
     <div class="kpis">
@@ -135,6 +135,8 @@ export function renderRestyleResult(el, r, { jobId, again } = {}) {
   if ($('#dl', el)) $('#dl', el).onclick = () => downloadJobFile(jobId).catch(e => toast(e.message, 'error'));
   $('#copy', el).onclick = () => copyText(r.entries.map(e => e.text).join('\n'));
   $('#rep', el).onclick = () => download('/api/export/docx', { kind: 'restyle', data: r }).catch(e => toast(e.message, 'error'));
+  $('#rep-pdf', el).onclick = () => download('/api/export/pdf', { kind: 'restyle', data: r }).catch(e => toast(e.message, 'error'));
+  $('#rep-csv', el).onclick = () => download('/api/export/csv', { kind: 'restyle', data: r }).catch(e => toast(e.message, 'error'));
   if (again) $('#again', el).onclick = again;
   $$('[data-f]', el).forEach(b => (b.onclick = () => {
     $$('[data-f]', el).forEach(x => x.classList.toggle('active', x === b));

@@ -311,6 +311,10 @@ router.post('/export/csv', auth.requireUser, wrap(async (req, res) => {
   if (kind === 'authors') {
     return sendFile(res, Buffer.from(F.toCsv(['Year', 'Title', 'Journal', 'DOI', 'Citations', 'Reference'], data.works.map(w => [w.year, w.title, w.journal, w.doi || '', w.citedBy ?? '', w.text])), 'utf8'), 'author-publications.csv', 'text/csv; charset=utf-8');
   }
+  // Modules 2-4 from the result on screen (Module 4 and 5 saved reports use /checks/:id/confidential?format=csv)
+  const CSV = require('../moduleCsv');
+  if (kind === 'citations' && data) return sendFile(res, Buffer.from(CSV.citations(data), 'utf8'), 'citations.csv', 'text/csv; charset=utf-8');
+  if (kind === 'restyle' && data) return sendFile(res, Buffer.from(CSV.compliance(data.compliance, data.entries), 'utf8'), 'pjps-style.csv', 'text/csv; charset=utf-8');
   if (kind === 'bibtex' || kind === 'ris') {
     const recs = data.records || [];
     return sendFile(res, Buffer.from(kind === 'bibtex' ? F.toBibtex(recs) : F.toRis(recs), 'utf8'), `references.${kind === 'bibtex' ? 'bib' : 'ris'}`, 'text/plain; charset=utf-8');

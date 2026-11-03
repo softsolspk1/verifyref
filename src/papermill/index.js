@@ -646,7 +646,24 @@ async function detectPaperMill(input, update = () => {}) {
       else if (authorDomains.has(e.split('@')[1])) issues.push({ text: `${e} — same institution e-mail domain as an author` });
     }
     for (const a of authors) if (new RegExp(`\\b${esc(a.family)}\\b`, 'i').test(revText) && a.family.length > 3) issues.push({ text: `A suggested reviewer shares the surname “${a.family}” with an author` });
-    if (issues.length) sig('authors', 'reviewers', `Suggested reviewers raise concerns (${issues.length})`, issues.length >= 2 ? 'medium' : 'low', issues.length >= 2 ? 2 : 1, issues, 'Fake reviewer accounts with free-mail addresses are a known paper-mill technique.');
+    // links to the authors: papers the suggested reviewer co-authored with an author in the last 10 years (OpenAlex), as
+    // the Integrity Suite checks assigned reviewers. One reviewer per line: "Name, institution, e-mail" (ORCID iD optional)
+    if (isOnline() && authors.length && input.coauthorCheck !== false) {
+      const { coauthorships } = require('../integrity/peerReview');
+      const people = revText.split(/\n+/).map(l => {
+        const orcid = (l.match(/\d{4}-\d{4}-\d{4}-\d{3}[\dX]/) || [])[0] || null;
+        const name = l.replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, ' ').replace(/https?:\/\/\S+|\d{4}-\d{4}-\d{4}-\d{3}[\dX]/g, ' ')
+          .split(/[,;(<|\t]|\s[-–]\s/)[0].replace(/^\s*(?:\d+[.)]\s*|(?:prof(?:essor)?|dr|mr|mrs|ms)\.?\s+)+/i, '').trim();
+        return { name, orcid };
+      }).filter(p => p.orcid || (/^\p{Lu}[\p{L}.'-]*(?:\s+[\p{L}.'-]+){1,3}$/u.test(p.name) && !authors.some(a => nameMatch(splitName(p.name), a) === 'exact'))).slice(0, 5);
+      for (const p of people) {
+        const co = await coauthorships(p, authors).catch(() => null);
+        if (co?.items?.length) issues.push({ text: `${co.displayName || p.name}: co-authored ${co.items.length} paper(s) with ${[...new Set(co.items.flatMap(i => i.with))].join(', ')} in the last 10 years`, link: co.items[0].link, severe: co.items.length >= 2 });
+      }
+    }
+    // a suggested reviewer who often publishes with the authors is a conflict of interest in itself (ICMJE / COPE)
+    const strongTie = issues.some(i => i.severe);
+    if (issues.length) sig('authors', 'reviewers', `Suggested reviewers raise concerns (${issues.length})`, issues.length >= 2 || strongTie ? 'medium' : 'low', issues.length >= 2 || strongTie ? 2 : 1, issues.map(({ severe, ...i }) => i), 'Fake reviewer accounts with free-mail addresses, and reviewers who are the authors\' own co-authors, are known paper-mill techniques. ICMJE / COPE: recent co-authors should not review.');
   }
 
   update('Checking cell lines and earlier submissions', 70);

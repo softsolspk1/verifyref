@@ -232,6 +232,14 @@ router.get('/checks/:id/confidential', auth.requireUser, wrap(async (req, res) =
   const c = await loadCheck(req.user.id, req.params.id);
   if (!c?.result) return res.status(404).json({ success: false, message: 'Report not found.' });
   const kind = c.row.kind;
+  // CSV of the findings (Module 4 signals, Module 5 findings and matches), confidential like the Word / PDF
+  if (req.query.format === 'csv') {
+    const CSV = require('../moduleCsv');
+    const csv = kind === 'papermill' ? CSV.papermill(c.result) : kind === 'images' ? CSV.images(c.result) : null;
+    if (!csv) return res.status(400).json({ success: false, message: 'No CSV export for this report.' });
+    await auth.audit(req, 'export', `check ${c.row.id}`, { format: 'csv', kind });
+    return sendFile(res, Buffer.from(csv, 'utf8'), `${kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.csv`, 'text/csv; charset=utf-8');
+  }
   const blocks = await confidentialBlocks(c, req.user.id);
   if (!blocks) return res.status(400).json({ success: false, message: 'No confidential export for this report.' });
   if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(blocks), `${kind}-${c.row.manuscript_code || c.row.id}-CONFIDENTIAL.pdf`, 'application/pdf');

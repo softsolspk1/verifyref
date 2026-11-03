@@ -147,7 +147,7 @@ export function renderPaperMillResult(el, r) {
     <div class="page-head">
       <div><h1>${esc(r.meta?.title || 'Paper Mill Detection')}</h1>
         <p>${r.meta?.manuscriptCode ? `<b>${esc(r.meta.manuscriptCode)}</b> · ` : ''}${fmtDate(r.createdAt)} · <span class="badge b-bad">Confidential — editor only</span></p></div>
-      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button><button class="btn btn-sm" id="export-pdf">${ICONS.download} PDF</button>` : ''}${shareButton(r)}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button></div>
+      <div class="row no-print">${r.id ? `<button class="btn btn-sm" id="export">${ICONS.download} Confidential report (Word)</button><button class="btn btn-sm" id="export-pdf">${ICONS.download} PDF</button><button class="btn btn-sm" id="export-csv">${ICONS.download} CSV</button>` : ''}${shareButton(r)}<button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button></div>
     </div>
     ${datasetBanner(r)}
     <div class="risk-banner risk-${r.risk.level.toLowerCase()}"><div class="risk-level">${esc(r.risk.level)}</div><div style="flex:1">
@@ -178,6 +178,8 @@ export function renderPaperMillResult(el, r) {
   if (ex) ex.onclick = () => download(`/api/checks/${r.id}/confidential`).catch(e => toast(e.message, 'error'));
   const exp = $('#export-pdf', el);
   if (exp) exp.onclick = () => download(`/api/checks/${r.id}/confidential?format=pdf`).catch(e => toast(e.message, 'error'));
+  const exc = $('#export-csv', el);
+  if (exc) exc.onclick = () => download(`/api/checks/${r.id}/confidential?format=csv`).catch(e => toast(e.message, 'error'));
   wireShare(el, r);
   // jump from a main reason or an area tile to the signal; filter by strength; open or close every evidence list
   const flash = node => { if (!node) return; node.scrollIntoView({ block: 'center', behavior: 'smooth' }); node.classList.add('flash'); setTimeout(() => node.classList.remove('flash'), 1600); };

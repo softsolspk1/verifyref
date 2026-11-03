@@ -114,7 +114,7 @@ const ROUTES = [
 ];
 
 function firstAllowedPath() {
-  return '/home';
+  return state.user.role === 'super_admin' ? '/dashboard' : '/home';
 }
 
 function renderNav() {

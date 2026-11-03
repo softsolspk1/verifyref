@@ -43,6 +43,67 @@ router.get('/activity', user, wrap(async (req, res) => {
   res.json({ success: true, items: rows });
 }));
 
+// ------------------------------------------------------------------ Reports (Super Admin: every report by every user)
+
+router.get('/reports', user, auth.requireSuperAdmin, wrap(async (req, res) => {
+  const params = [];
+  let where = 'c.embedded_in IS NULL';
+  const days = parseInt(req.query.days || '0', 10);
+  if (days > 0) { params.push(String(Math.min(days, 3650))); where += ` AND c.created_at > now() - ($${params.length} || ' days')::interval`; }
+  if (req.query.user) { params.push(parseInt(req.query.user, 10) || 0); where += ` AND c.user_id = $${params.length}`; }
+  if (req.query.kind) { params.push(String(req.query.kind).split(',')); where += ` AND c.kind = ANY($${params.length}::text[])`; }
+  if (req.query.q) { params.push(`%${req.query.q}%`); where += ` AND (c.title ILIKE $${params.length} OR c.manuscript_code ILIKE $${params.length} OR u.name ILIKE $${params.length} OR u.email ILIKE $${params.length})`; }
+  const rows = await db.all(`SELECT c.id, c.user_id, c.kind, c.manuscript_code, c.version, c.title, c.ref_total, c.verified, c.suspicious, c.unverified, c.miscited, c.retracted, c.problems,
+    c.created_at, c.origin, (c.result IS NOT NULL) AS has_result, u.name AS user_name, u.email AS user_email, u.role AS user_role
+    FROM checks c JOIN users u ON u.id = c.user_id WHERE ${where} ORDER BY c.created_at DESC LIMIT 2000`, params);
+  const users = await db.all('SELECT id, name, email, role FROM users ORDER BY name');
+  res.json({ success: true, items: rows, users });
+}));
+
+// ------------------------------------------------------------------ Dashboard analytics (Super Admin: all users; others: their own)
+
+const RISK_RE = /\b(?:risk|Image risk) (LOW|MODERATE|MEDIUM|HIGH|CRITICAL)\b/i;
+
+router.get('/dashboard', user, wrap(async (req, res) => {
+  const days = Math.min(Math.max(parseInt(req.query.days || '90', 10) || 90, 1), 3650);
+  const all = auth.isSuper(req.user);
+  const params = [String(days)];
+  let where = "c.embedded_in IS NULL AND c.created_at > now() - ($1 || ' days')::interval";
+  if (!all) { params.push(req.user.id); where += ` AND c.user_id = $${params.length}`; } else if (req.query.user) { params.push(parseInt(req.query.user, 10) || 0); where += ` AND c.user_id = $${params.length}`; }
+  const [totals, byKind, byDay, byUser, riskRows, topFlagged] = await Promise.all([
+    db.one(`SELECT COUNT(*)::int AS reports, COUNT(DISTINCT COALESCE(NULLIF(c.manuscript_code, ''), NULLIF(c.title, ''), c.id::text))::int AS articles,
+      COUNT(DISTINCT c.user_id)::int AS users, COALESCE(SUM(c.ref_total), 0)::int AS refs, COALESCE(SUM(c.verified), 0)::int AS verified,
+      COALESCE(SUM(c.suspicious), 0)::int AS suspicious, COALESCE(SUM(c.unverified), 0)::int AS unverified, COALESCE(SUM(c.miscited), 0)::int AS miscited,
+      COALESCE(SUM(c.retracted), 0)::int AS retracted, COALESCE(SUM(c.missing_citations), 0)::int AS missing_citations,
+      COALESCE(SUM(c.uncited_references), 0)::int AS uncited_references, COALESCE(SUM(c.journal_flags), 0)::int AS journal_flags,
+      COUNT(*) FILTER (WHERE c.suspicious > 0 OR c.retracted > 0)::int AS flagged
+      FROM checks c WHERE ${where}`, params),
+    db.all(`SELECT c.kind, COUNT(*)::int AS runs, COALESCE(SUM(c.ref_total), 0)::int AS refs, COALESCE(SUM(c.suspicious), 0)::int AS suspicious, COALESCE(SUM(c.retracted), 0)::int AS retracted
+      FROM checks c WHERE ${where} GROUP BY c.kind ORDER BY runs DESC`, params),
+    db.all(`SELECT to_char(date_trunc('day', c.created_at), 'YYYY-MM-DD') AS day, COUNT(*)::int AS runs
+      FROM checks c WHERE ${where} GROUP BY 1 ORDER BY 1`, params),
+    all ? db.all(`SELECT u.id, u.name, u.email, u.role, COUNT(c.id)::int AS runs, COALESCE(SUM(c.ref_total), 0)::int AS refs,
+      COALESCE(SUM(c.suspicious), 0)::int AS suspicious, COALESCE(SUM(c.retracted), 0)::int AS retracted, MAX(c.created_at) AS last_run
+      FROM checks c JOIN users u ON u.id = c.user_id WHERE ${where} GROUP BY u.id ORDER BY runs DESC LIMIT 50`, params) : [],
+    db.all(`SELECT c.kind, c.problems FROM checks c WHERE ${where} AND c.kind IN ('papermill', 'images', 'integrity', 'peer-review', 'manuscript') LIMIT 5000`, params),
+    db.all(`SELECT c.id, c.kind, c.manuscript_code, c.title, c.suspicious, c.retracted, c.miscited, c.ref_total, c.created_at, u.name AS user_name
+      FROM checks c JOIN users u ON u.id = c.user_id WHERE ${where} AND (c.suspicious > 0 OR c.retracted > 0 OR c.miscited > 0)
+      ORDER BY (c.retracted * 3 + c.suspicious * 2 + c.miscited) DESC, c.created_at DESC LIMIT 10`, params)
+  ]);
+  // Risk levels are written into the first findings line of paper-mill and image reports
+  const risk = {};
+  for (const r of riskRows) {
+    const m = (r.problems || []).map(p => String(p).match(RISK_RE)).find(Boolean);
+    if (!m) continue;
+    const group = r.kind === 'images' ? 'images' : r.kind === 'peer-review' ? 'peer-review' : r.kind === 'manuscript' ? 'manuscript' : 'papermill';
+    const level = m[1].toUpperCase() === 'MEDIUM' ? 'MODERATE' : m[1].toUpperCase();
+    risk[group] = risk[group] || { LOW: 0, MODERATE: 0, HIGH: 0, CRITICAL: 0 };
+    risk[group][level]++;
+  }
+  res.json({ success: true, days, scope: all ? 'all' : 'mine', totals, byKind, byDay, byUser, risk, topFlagged,
+    users: all ? await db.all('SELECT id, name FROM users ORDER BY name') : [] });
+}));
+
 // ------------------------------------------------------------------ notifications
 
 router.get('/notifications', user, wrap(async (req, res) => {

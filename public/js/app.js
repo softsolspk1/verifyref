@@ -30,11 +30,15 @@ import { renderPeerReview } from './views/peerReview.js';
 import { renderMonitoring } from './views/monitoring.js';
 import { renderCases, renderCase } from './views/cases.js';
 import { renderApiKeys } from './views/apiKeys.js';
+import { renderDashboard } from './views/dashboard.js';
+import { renderReports } from './views/reports.js';
 
 // PJPS v4: the five modules and the Full Screening Report. The earlier tools stay in the code (routes below) but are
 // switched off in src/modules.js, so they are not shown and their routes refuse access.
 const NAV = [
   { path: '/home', label: 'Home', icon: 'home' },
+  { path: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { path: '/reports', label: 'Reports', icon: 'report', admin: true },
   { group: 'PJPS modules' },
   { path: '/manuscript', label: 'Full Screening Report', icon: 'manuscript', module: 'manuscript', hidden: true },
   { path: '/references', label: '1 · Check Bibliography', icon: 'refs', module: 'references' },
@@ -74,6 +78,8 @@ const ROUTES = [
   [/^\/manuscript$/, guard('manuscript', v => renderCheckForm(v, 'manuscript'))],
   [/^\/references$/, guard('references', v => renderCheckForm(v, 'references'))],
   [/^\/home$/, renderHome],
+  [/^\/dashboard$/, renderDashboard],
+  [/^\/reports$/, adminOnly(renderReports)],
   [/^\/demo$/, renderDemo],
   [/^\/citations$/, guard('citations', renderCitations)],
   [/^\/papermill$/, guard('papermill', renderIntegrity)],

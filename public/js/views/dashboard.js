@@ -1,4 +1,4 @@
-// views/dashboard.js - analytics of the articles checked: Super Admin sees every user, everyone else their own reports
+// views/dashboard.js - Super Admin: analytics of every article checked on the platform, by every user
 import { api, esc, $, $$, fmtDate, state } from '../core.js';
 import { KIND_LABEL } from './activity.js';
 

@@ -52,15 +52,12 @@ const assert = require('assert');
   assert.strictEqual(r.data.risk.images.LOW, 1);
   assert.strictEqual(r.data.byUser.length, 3);
 
-  // An editor: no Reports page, dashboard of their own reports only
+  // An editor: no Reports page and no Dashboard
   r = await call('ed', 'POST', '/api/auth/login', { email: 'ed@test.local', password: 'editor-pass-1' });
   assert.ok(r.data.success);
   if (r.data.user.mustChangePassword) await call('ed', 'POST', '/api/auth/password', { current: 'editor-pass-1', password: 'editor-pass-2x' });
   assert.strictEqual((await call('ed', 'GET', '/api/reports')).status, 403, 'reports is Super Admin only');
-  r = await call('ed', 'GET', '/api/dashboard?days=30');
-  assert.strictEqual(r.data.scope, 'mine');
-  assert.strictEqual(r.data.totals.reports, 2);
-  assert.strictEqual(r.data.byUser.length, 0);
+  assert.strictEqual((await call('ed', 'GET', '/api/dashboard?days=30')).status, 403, 'dashboard is Super Admin only');
   console.log('reports-dashboard: all checks passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

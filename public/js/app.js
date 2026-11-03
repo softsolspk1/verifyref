@@ -37,7 +37,7 @@ import { renderReports } from './views/reports.js';
 // switched off in src/modules.js, so they are not shown and their routes refuse access.
 const NAV = [
   { path: '/home', label: 'Home', icon: 'home' },
-  { path: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { path: '/dashboard', label: 'Dashboard', icon: 'dashboard', admin: true },
   { path: '/reports', label: 'Reports', icon: 'report', admin: true },
   { group: 'PJPS modules' },
   { path: '/manuscript', label: 'Full Screening Report', icon: 'manuscript', module: 'manuscript', hidden: true },
@@ -78,7 +78,7 @@ const ROUTES = [
   [/^\/manuscript$/, guard('manuscript', v => renderCheckForm(v, 'manuscript'))],
   [/^\/references$/, guard('references', v => renderCheckForm(v, 'references'))],
   [/^\/home$/, renderHome],
-  [/^\/dashboard$/, renderDashboard],
+  [/^\/dashboard$/, adminOnly(renderDashboard)],
   [/^\/reports$/, adminOnly(renderReports)],
   [/^\/demo$/, renderDemo],
   [/^\/citations$/, guard('citations', renderCitations)],

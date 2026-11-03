@@ -60,11 +60,11 @@ router.get('/reports', user, auth.requireSuperAdmin, wrap(async (req, res) => {
   res.json({ success: true, items: rows, users });
 }));
 
-// ------------------------------------------------------------------ Dashboard analytics (Super Admin: all users; others: their own)
+// ------------------------------------------------------------------ Dashboard analytics (Super Admin only: every user's reports)
 
 const RISK_RE = /\b(?:risk|Image risk) (LOW|MODERATE|MEDIUM|HIGH|CRITICAL)\b/i;
 
-router.get('/dashboard', user, wrap(async (req, res) => {
+router.get('/dashboard', user, auth.requireSuperAdmin, wrap(async (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days || '90', 10) || 90, 1), 3650);
   const all = auth.isSuper(req.user);
   const params = [String(days)];

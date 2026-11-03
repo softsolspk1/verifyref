@@ -2,8 +2,8 @@
 // broken down into Internet sources and Publications, a numbered list of primary sources whose percentages add up to the
 // index, and the manuscript text highlighted in each source's colour, every match shown next to the source's own wording.
 //
-//   1. Filters as in Turnitin: the bibliography is excluded, quoted text is excluded, matches shorter than MIN_MATCH words
-//      are excluded. In-text citation markers ([12], (Smith et al., 2020)) are ignored on both sides, so a copied
+//   1. Filters as in Turnitin: the bibliography is excluded, quoted text is excluded (the editor can include it: matches
+//      inside quotation marks are kept in the report, marked), matches shorter than MIN_MATCH words are excluded. In-text citation markers ([12], (Smith et al., 2020)) are ignored on both sides, so a copied
 //      sentence whose citation was changed or removed is still one match.
 //   2. Source discovery, as Turnitin compares every sentence: the PJPS repository of published texts; the open-access
 //      full texts of papers on the same subject; then every stretch of WINDOW words not matched yet - aligned on the
@@ -179,8 +179,8 @@ function bridgeCites(hit, mine) {
 }
 
 /**
- * Words of the manuscript inside K-word sequences that also occur in the source (quoted words never match), and for
- * every match the source's own wording (Turnitin's side-by-side view)
+ * Words of the manuscript inside K-word sequences that also occur in the source (quoted words too: the report leaves them
+ * out unless the editor includes quotations), and for every match the source's own wording (Turnitin's side-by-side view)
  */
 function overlap(prep, theirs) {
   const mine = prep.words, seq = prep.seq;
@@ -188,10 +188,7 @@ function overlap(prep, theirs) {
   const pos = new Map();
   for (let k = 0; k + K <= tw.length; k++) { const key = tw.slice(k, k + K).map(x => x.n).join(' '); if (!pos.has(key)) pos.set(key, k); }
   const hit = new Uint8Array(mine.length);
-  for (let j = 0; j < prep.keys.length; j++) {
-    if (mine[seq[j]].quoted || mine[seq[j + K - 1]].quoted) continue;
-    if (pos.has(prep.keys[j])) for (let t = j; t < j + K; t++) hit[seq[t]] = 1;
-  }
+  for (let j = 0; j < prep.keys.length; j++) if (pos.has(prep.keys[j])) for (let t = j; t < j + K; t++) hit[seq[t]] = 1;
   bridgeCites(hit, mine);
   const passages = finishRuns(hit, mine).sort((a, b) => b.words - a.words);
   // where each match sits in the source: its first matching sequence, and the source text of the same length from there
@@ -488,7 +485,10 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
     ranges: src.passages.map(p => [p.from, p.to]).sort((a, b) => a[0] - b[0]),
     passages: src.passages.slice(0, MAX_PASSAGES).map(p => ({ from: p.from, to: p.to, words: p.words, text: p.text.slice(0, 600), ...(p.source ? { source: p.source.slice(0, 600) } : {}) }))
   }));
-  const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT });
+  // word ranges inside quotation marks: left out of the matches unless the editor includes quotations
+  const quoted = [];
+  mine.forEach((w, k) => { if (!w.quoted) return; const last = quoted[quoted.length - 1]; if (last && last[1] === k) last[1] = k + 1; else quoted.push([k, k + 1]); });
+  const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT, quoted });
   const s = view.summary;
 
   const subsOn = Array.isArray(submissions);
@@ -508,7 +508,8 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
     alsoMatched: view.alsoMatched,
     document: view.document,
     sections: view.sections,
-    settings: { excluded: [], minWords: MIN_MATCH, excludeSections: [], minPercent: 0 },
+    quoted,
+    settings: { excluded: [], minWords: MIN_MATCH, excludeSections: [], minPercent: 0, includeQuotes: false },
     filters: { bibliography: prep.bibliographyExcluded ? 'excluded' : 'not found in the text (body only was compared)', quotes: `excluded (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)`, citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
     checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, databases },
@@ -522,7 +523,7 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
  * higher minimum match length (Turnitin), sections left out of the comparison (iThenticate's "exclude abstract /
  * methods") and sources under a percentage left out (Turnitin's "exclude sources under x %")
  */
-async function applySettings(pl, { excluded = [], minWords = MIN_MATCH, excludeSections = [], minPercent = 0 } = {}) {
+async function applySettings(pl, { excluded = [], minWords = MIN_MATCH, excludeSections = [], minPercent = 0, includeQuotes = false } = {}) {
   await shared();
   if (!pl || pl.error || (pl.version || 0) < 3) return pl;
   const text = (pl.document || []).map(d => d.t).join('');
@@ -534,11 +535,13 @@ async function applySettings(pl, { excluded = [], minWords = MIN_MATCH, excludeS
   const secKeys = new Set(SIM.sectionsOf(text, tokens, pl.summary.words).map(s => s.key));
   const exSec = [...new Set([].concat(excludeSections || []))].filter(k => secKeys.has(k) && k !== 'body');
   const minPct = Math.max(0, Math.min(10, Number(minPercent) || 0));
-  const view = SIM.recompute(all, text, { tokens, total: pl.summary.words, excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct });
+  const inclQ = !!includeQuotes && !!pl.quoted?.length;
+  const view = SIM.recompute(all, text, { tokens, total: pl.summary.words, excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct, quoted: pl.quoted || [], includeQuotes: inclQ });
+  const qWords = (pl.quoted || []).reduce((a, [p, q]) => a + q - p, 0);
   const { sources: _s, smallSources: _p, sections: _c, ...filters } = pl.filters || {};
   return { ...pl, summary: view.summary, sources: view.sources, alsoMatched: view.alsoMatched, document: view.document, sections: view.sections,
-    settings: { excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct },
-    filters: { ...filters, smallMatches: `excluded (fewer than ${min} words)`,
+    settings: { excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct, includeQuotes: inclQ },
+    filters: { ...filters, smallMatches: `excluded (fewer than ${min} words)`, ...(pl.quoted ? { quotes: `${inclQ ? 'included' : 'excluded'} (${qWords} quoted words)` } : {}),
       ...(ex.length ? { sources: `${ex.length} source(s) excluded by the editor` } : {}),
       ...(minPct ? { smallSources: `sources under ${minPct}% excluded` } : {}),
       ...(exSec.length ? { sections: `excluded from the comparison: ${view.sections.filter(x => x.excluded).map(x => x.label).join(', ')}` } : {}) } };

@@ -53,15 +53,17 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
   const tokens = tokenize(text);
   const all = [...(original.sources || []), ...(original.alsoMatched || [])].map(x => ({ ...x, excluded: undefined }));
   const st = original.settings || {};
-  const saved = { excluded: [...(st.excluded || [])], minWords: st.minWords || MIN_MATCH, excludeSections: [...(st.excludeSections || [])], minPercent: st.minPercent || 0 };
-  const state = { excluded: new Set(saved.excluded), minWords: saved.minWords, excludeSections: new Set(saved.excludeSections), minPercent: saved.minPercent, open: null, focus: null, panel: 'overview', at: -1 };
+  const saved = { excluded: [...(st.excluded || [])], minWords: st.minWords || MIN_MATCH, excludeSections: [...(st.excludeSections || [])], minPercent: st.minPercent || 0, includeQuotes: !!st.includeQuotes };
+  const state = { excluded: new Set(saved.excluded), minWords: saved.minWords, excludeSections: new Set(saved.excludeSections), minPercent: saved.minPercent, includeQuotes: saved.includeQuotes, open: null, focus: null, panel: 'overview', at: -1 };
+  const quoted = original.quoted || null; // reports made before quotations could be included have no quoted ranges
+  const quotedWords = (quoted || []).reduce((a, [p, q]) => a + q - p, 0);
   let pl = original;
 
   const sameSet = (set, list) => set.size === list.length && list.every(k => set.has(k));
-  const dirty = () => state.minWords !== saved.minWords || state.minPercent !== saved.minPercent || !sameSet(state.excluded, saved.excluded) || !sameSet(state.excludeSections, saved.excludeSections);
-  const filtered = () => state.excluded.size || state.minWords > MIN_MATCH || state.excludeSections.size || state.minPercent > 0;
+  const dirty = () => state.minWords !== saved.minWords || state.minPercent !== saved.minPercent || state.includeQuotes !== saved.includeQuotes || !sameSet(state.excluded, saved.excluded) || !sameSet(state.excludeSections, saved.excludeSections);
+  const filtered = () => state.excluded.size || state.minWords > MIN_MATCH || state.excludeSections.size || state.minPercent > 0 || state.includeQuotes;
   const compute = () => {
-    const v = recompute(all, text, { tokens, total: original.summary.words, excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent });
+    const v = recompute(all, text, { tokens, total: original.summary.words, excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent, quoted: quoted || [], includeQuotes: state.includeQuotes });
     pl = { ...original, ...v };
   };
 
@@ -77,6 +79,7 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
         <div class="sim-facts"><span><b>${(s.compared ?? s.words).toLocaleString()}</b> words compared${s.compared !== undefined && s.compared < s.words ? ` <span class="muted">of ${s.words.toLocaleString()} (sections excluded)</span>` : ''}</span><span><b>${s.sources}</b> primary source${s.sources === 1 ? '' : 's'}</span><span>largest source <b>${pctText(s.largestSource)}</b></span></div>
         ${bar('Publications', s.publications, 'pub')}
         ${bar('Internet sources', s.internet, 'web')}
+        ${pl.aiWriting ? `<div class="sim-ai" title="${esc((pl.aiWriting.parts || []).join(' · ') || 'No AI writing pattern found')}"><b>AI-writing indicator:</b> ${pl.aiWriting.leftovers ? `<span class="badge b-bad">chatbot text left in the manuscript (${pl.aiWriting.leftovers})</span> ` : ''}<span class="badge b-${pl.aiWriting.score >= 55 ? 'bad' : pl.aiWriting.score >= 25 ? 'warn' : 'good'}">${pl.aiWriting.score}/100</span> <span class="muted">an indicator, not proof (vocabulary, sentence rhythm, stock transitions); details in Module 4</span></div>` : ''}
         ${pl.submissions?.compared ? bar('Submitted works (earlier PJPS submissions)', s.submissions, 'sub') : bar('Submitted works', 0, '', 'not compared')}
         <div class="sim-private" title="${esc(pl.privacy?.statement || pl.repository || '')}">🔒 <b>Not stored · no repository.</b> ${esc(pl.submissions?.compared ? `This manuscript was not saved to any database. At your request it was compared with ${pl.submissions.candidates} earlier PJPS submission(s) sharing text.` : pl.privacy ? 'This manuscript was not saved to any database. Earlier PJPS submissions were not compared (opt-in on the Full Screening form).' : 'This manuscript was not added to any repository.')}</div>
       </div></div>`;
@@ -145,7 +148,7 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
         </div>`
       : state.panel === 'filters' ? `<div class="sim-filters">
           <p><b>Bibliography</b> — ${esc(pl.filters.bibliography)}</p>
-          <p><b>Quotations</b> — ${esc(pl.filters.quotes)}</p>
+          <p><b>Quotations</b> — ${quoted ? `<label class="row" style="display:inline-flex;gap:6px;margin:0"><input type="checkbox" id="sim-quotes" ${state.includeQuotes ? '' : 'checked'}> exclude quoted text (${quotedWords} words in quotation marks)</label>` : esc(pl.filters.quotes)}</p>
           ${pl.filters.citations ? `<p><b>In-text citations</b> — ${esc(pl.filters.citations)}</p>` : ''}
           <p><b>Small matches</b> — excluded (fewer than ${state.minWords} words)</p>
           <p><b>Small sources</b> — ${state.minPercent ? `sources under ${state.minPercent}% left out (${others.filter(x => x.small).length})` : 'all counted'}</p>
@@ -212,6 +215,8 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
     $$('[data-dl]', body).forEach(b => (b.onclick = () => download(`/api/checks/${checkId}/similarity?format=${b.dataset.dl}`).catch(e => toast(e.message, 'error'))));
     $('#sim-min', body).onchange = e => { state.minWords = +e.target.value; state.at = -1; paint(); };
     $('#sim-pct', body).onchange = e => { state.minPercent = +e.target.value; state.at = -1; paint(); };
+    const q = $('#sim-quotes', body);
+    if (q) q.onchange = () => { state.includeQuotes = !q.checked; state.at = -1; paint(); };
     $$('[data-section]', body).forEach(b => (b.onchange = () => {
       if (b.checked) state.excludeSections.delete(b.dataset.section); else state.excludeSections.add(b.dataset.section);
       state.at = -1; state.focus = null;
@@ -247,18 +252,19 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
     if (save) save.onclick = async () => {
       save.disabled = true;
       try {
-        const d = await api(`/api/checks/${checkId}/similarity`, { method: 'PATCH', body: { excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent } });
+        const d = await api(`/api/checks/${checkId}/similarity`, { method: 'PATCH', body: { excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent, includeQuotes: state.includeQuotes } });
         const ns = d.plagiarism.settings;
         saved.excluded = [...ns.excluded];
         saved.minWords = ns.minWords;
         saved.excludeSections = [...(ns.excludeSections || [])];
         saved.minPercent = ns.minPercent || 0;
+        saved.includeQuotes = !!ns.includeQuotes;
         toast('Filters saved — the Word / PDF report uses them');
         paint();
       } catch (e) { toast(e.message, 'error'); save.disabled = false; }
     };
     const reset = $('#sim-reset', body);
-    if (reset) reset.onclick = () => { state.excluded = new Set(saved.excluded); state.minWords = saved.minWords; state.excludeSections = new Set(saved.excludeSections); state.minPercent = saved.minPercent; paint(); };
+    if (reset) reset.onclick = () => { state.excluded = new Set(saved.excluded); state.minWords = saved.minWords; state.excludeSections = new Set(saved.excludeSections); state.minPercent = saved.minPercent; state.includeQuotes = saved.includeQuotes; paint(); };
   }
 
   paint();

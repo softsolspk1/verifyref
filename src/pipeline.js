@@ -161,6 +161,9 @@ async function screening(result, { input, body, refs, meta, update }) {
     // an earlier PJPS submission with the same text (Module 4 fingerprints) belongs in the overlap report too
     const dup = (pm.signals || []).find(x => x.code === 'duplicate');
     if (dup && result.plagiarism && !result.plagiarism.error) result.plagiarism.earlierSubmissions = (dup.evidence || []).map(e => e.text);
+    // Turnitin shows an AI-writing indicator next to the similarity: Module 4's (same text, computed once, local only)
+    const aw = pm.details?.aiWriting;
+    if (aw && result.plagiarism && !result.plagiarism.error) result.plagiarism.aiWriting = { score: aw.score, parts: aw.parts || [], leftovers: (pm.details.aiLeftovers || []).length };
   } else result.plagiarism = { kind: 'plagiarism', error: 'Upload the full manuscript text to check for plagiarism (only a reference list was provided).' };
   update('Novelty and citation outlook (OpenAlex)', 99);
   result.novelty = await require('./checks/novelty').checkNovelty({ meta, journal: { name: cfg.HOME_JOURNAL.name, issn: cfg.HOME_JOURNAL.issn[0] } })

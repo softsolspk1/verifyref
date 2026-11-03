@@ -37,10 +37,16 @@ const ok = m => console.log(`  ✓ ${m}`);
   assert.ok(o2.passages[0]?.words >= 18, `match across a citation in the source: ${o2.passages[0]?.words} words`);
   ok('a citation inside the source sentence does not split the match');
 
-  // quoted text never matches
+  // quoted text is matched but left out of the report unless the editor includes quotations
   const p3 = P.prepare(`As they wrote, "${copied}" and we agree with that view entirely in this paper.`);
-  assert.strictEqual(P.overlap(p3, src).passages.length, 0, 'quotation excluded');
-  ok('quoted text is not matched');
+  const o3 = P.overlap(p3, src);
+  const q3 = [];
+  p3.words.forEach((w, k) => { if (w.quoted) { const l = q3[q3.length - 1]; if (l && l[1] === k) l[1] = k + 1; else q3.push([k, k + 1]); } });
+  const s3 = [{ key: 'q', type: 'publication', title: 'Q', ranges: o3.passages.map(x => [x.from, x.to]) }];
+  assert.strictEqual(SIM.recompute(s3, p3.text, { tokens: p3.words, quoted: q3 }).summary.similarity, 0, 'quotation excluded by default');
+  const in3 = SIM.recompute(s3, p3.text, { tokens: p3.words, quoted: q3, includeQuotes: true });
+  assert.ok(in3.summary.similarity > 50, `quotation counted when included: ${in3.summary.similarity}%`);
+  ok('quoted text left out by default, counted when the editor includes quotations');
 
   // ---- search stretches are aligned on the sentences
   const sents = ['Alpha beta gamma delta epsilon zeta theta iota kappa lambda.', 'Murmur nuance xylem omicron pistil rhodium sigma taurine upsilon phial chimera psyche omega.', 'Unus duo tres quattuor quinque sex septem octo novem decem.'];

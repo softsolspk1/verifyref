@@ -315,7 +315,7 @@ router.patch('/checks/:id/similarity', auth.requireUser, wrap(async (req, res) =
   if (!pl || pl.error) return res.status(404).json({ success: false, message: 'Similarity report not found.' });
   if ((pl.version || 0) < 3) return res.status(409).json({ success: false, message: 'This report was made with an earlier method; run the screening again to use the filters.' });
   const b = req.body || {};
-  const next = await require('../checks/plagiarism').applySettings(pl, { excluded: b.excluded, minWords: b.minWords, excludeSections: b.excludeSections, minPercent: b.minPercent });
+  const next = await require('../checks/plagiarism').applySettings(pl, { excluded: b.excluded, minWords: b.minWords, excludeSections: b.excludeSections, minPercent: b.minPercent, includeQuotes: b.includeQuotes === true });
   const store = require('../reportStore');
   const r = await store.load(c.row.result);
   r.plagiarism = next;

@@ -1,5 +1,6 @@
 // test/style-errors.js - Module 2 accuracy: correct PJPS references are compliant, and each planted single style error is
-// reported under the right rule. (A missing full stop after the title cannot be told apart from the journal and is not tested.)
+// reported under the right rule. A missing full stop after the title can only be told apart from the journal with the
+// matched record (Module 1), so those cases carry the record's title.
 const P = require('../src/parse');
 const { checkEntry } = require('../src/checks/compliance');
 const GOOD = [
@@ -34,7 +35,21 @@ const BAD = [
   ['Kilkenny C, Browne WJ, Cuthill IC, Emerson M, Altman DG (2010). Improving bioscience research reporting: the ARRIVE guidelines for reporting animal research. PLoS Biol., 8(6): e1000412.', 'authors', 'no "and" before last author'],
   ['Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Anal. Biochem. 72(1-2): 248-254.', 'journal', 'no comma after journal']
 ];
+// [text, record title]: the full stop after the title is missing (caught), or present (no false alarm)
+const STOP = [
+  ['Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding Anal. Biochem., 72(1-2): 248-254.', 'A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding', true],
+  ['Korsmeyer RW, Gurny R, Doelker E, Buri P and Peppas NA (1983). Mechanisms of solute release from porous hydrophilic polymers, Int. J. Pharm., 15(1): 25-35.', 'Mechanisms of solute release from porous hydrophilic polymers', true],
+  ['Ahmad N, Bibi S and Iqbal Z (2019). Evaluation of antibacterial activity of selected medicinal plants of Khyber Pakhtunkhwa Pak. J. Pharm. Sci., 32(3): 1121-1127.', 'Evaluation of antibacterial activity of selected medicinal plants of Khyber Pakhtunkhwa', true],
+  ['Ahmad N, Bibi S and Iqbal Z (2019). Evaluation of antibacterial activity of selected medicinal plants of Khyber Pakhtunkhwa. Pak. J. Pharm. Sci., 32(3): 1121-1127.', 'Evaluation of antibacterial activity of selected medicinal plants of Khyber Pakhtunkhwa', false],
+  ['Livak KJ and Schmittgen TD (2001). Analysis of relative gene expression data using real-time quantitative PCR and the 2(-Delta Delta C(T)) method. Methods, 25(4): 402-408.', 'Analysis of Relative Gene Expression Data Using Real-Time Quantitative PCR and the 2−ΔΔCT Method', false]
+];
 let ok = 0, n = 0;
+for (const [t, recTitle, missing] of STOP) {
+  n++;
+  const c = checkEntry(P.parseReferenceEntry(t, 1), { title: recTitle, type: 'journal-article', volume: '1', pages: '1' });
+  const hit = c.deviations.some(d => d.rule === 'title' && /full stop/.test(d.message));
+  if (hit === missing) ok++; else console.log(missing ? 'MISSED  missing full stop after title' : 'FALSE ALARM full stop', t.slice(0, 60));
+}
 for (const t of GOOD) { n++; const c = checkEntry(P.parseReferenceEntry(t, 1), null); const bad = c.deviations.filter(d => d.severity !== 'info'); if (!bad.length) ok++; else console.log('FALSE ALARM', t.slice(0, 60), '|', bad.map(d => d.message).join('; ')); }
 for (const [t, rule, what] of BAD) { n++; const c = checkEntry(P.parseReferenceEntry(t, 1), null); const hit = c.deviations.filter(d => d.severity !== 'info'); if (hit.some(d => d.rule === rule)) ok++; else console.log('MISSED', what.padEnd(28), '| got:', hit.map(d => `${d.rule}: ${d.message}`).join('; ') || 'compliant'); }
 console.log(`style-errors test: ${ok}/${n}`);

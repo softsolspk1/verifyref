@@ -452,7 +452,11 @@ async function classify(v, retraction) {
     // a journal article in a well-indexed journal that no index holds, whose nearest record is plainly another work: the
     // pattern of an invented reference (real authors and journal, title that was never published)
     const idFailed = issues.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code));
-    if (!incomplete && ref.journal && !ref.looksLikeBook && !ref.looksLikeWeb && !REGIONAL.test(ref.journal) && scoreCandidate(ref, v.closest).tSim < 0.6) {
+    // plainly another work: a different title, or a title on the same theme ("Lowry and Bradford assays for protein" for
+    // an invented "Comparison of dye-binding and Folin methods…") with none of the cited authors and another journal
+    const cs = scoreCandidate(ref, v.closest);
+    const plainlyOther = cs.tSim < 0.6 || (cs.tSim < 0.85 && cs.authorScore === 0 && (ref.authors?.length || 0) > 0 && cs.journalScore < 0.5);
+    if (!incomplete && ref.journal && !ref.looksLikeBook && !ref.looksLikeWeb && !REGIONAL.test(ref.journal) && plainlyOther) {
       const journal = await journalProfile(ref.journal).catch(() => null);
       if (journal && sameJournalName(ref.journal, journal.name) && journal.works > 300 && (!ref.year || (ref.year >= (journal.first || 0) && ref.year <= (journal.last || 9999)))) {
         status = 'suspicious';

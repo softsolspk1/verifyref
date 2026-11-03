@@ -132,13 +132,15 @@ export const levelOf = (similarity, largest) => (similarity >= 25 || largest >= 
  * tokens: tokenize(text) (passed in when already made); total: words compared (the report's summary.words, always the
  * whole compared text, whatever the filters); excludeSections: section keys of sectionsOf() left out of the comparison
  * (iThenticate's "exclude abstract / methods": their words count neither as matched nor in the total); minPercent:
- * sources whose share stays under this percentage are left out (Turnitin's "exclude sources under x %").
+ * sources whose share stays under this percentage are left out (Turnitin's "exclude sources under x %"); quoted: word
+ * ranges inside quotation marks, left out of the matches unless includeQuotes (Turnitin's "exclude quotes"; they stay in
+ * the total, as in Turnitin).
  * -> { sources (credited, numbered by share), alsoMatched (matched, but every word credited to a larger source, excluded
  *      by the editor, or under minPercent), sections: [{ key, label, words, matched, similarity, excluded }],
  *      summary: { similarity, internet, publications, submissions, largestSource, sources, level, words, compared },
  *      document: [{ t, s, x? }] (text in runs of one source number, 0 = not matched; x = in an excluded section) }
  */
-export function recompute(all, text, { tokens = null, total = null, excluded = [], minWords = MIN_MATCH, maxText = Infinity, excludeSections = [], minPercent = 0 } = {}) {
+export function recompute(all, text, { tokens = null, total = null, excluded = [], minWords = MIN_MATCH, maxText = Infinity, excludeSections = [], minPercent = 0, quoted = [], includeQuotes = false } = {}) {
   const words = tokens || tokenize(text);
   const n = total ?? words.length;
   const secs = sectionsOf(text, words, n);
@@ -146,11 +148,17 @@ export function recompute(all, text, { tokens = null, total = null, excluded = [
   const blocked = new Uint8Array(n);
   for (const sec of secs) if (skip.has(sec.key)) for (const [p, q] of sec.ranges) blocked.fill(1, p, q);
   const base = Math.max(1, n - blocked.reduce((a, b) => a + b, 0)); // the words still compared
+  // quotations: not matched, but still compared words
+  let unmatched = blocked;
+  if (!includeQuotes && quoted.length) {
+    unmatched = blocked.slice();
+    for (const [p, q] of quoted) unmatched.fill(1, Math.max(0, p), Math.min(n, q));
+  }
   const ex = new Set(excluded);
-  let { owner, credited } = attribute(all, n, { excluded: [...ex], minWords, blocked });
+  let { owner, credited } = attribute(all, n, { excluded: [...ex], minWords, blocked: unmatched });
   // sources under minPercent are dropped once; their words go to a larger source that also has them, or stay unmatched
   const small = new Set(minPercent > 0 ? all.filter((s, i) => credited[i] > 0 && pct(credited[i], base) < minPercent).map(s => s.key) : []);
-  if (small.size) ({ owner, credited } = attribute(all, n, { excluded: [...ex, ...small], minWords, blocked }));
+  if (small.size) ({ owner, credited } = attribute(all, n, { excluded: [...ex, ...small], minWords, blocked: unmatched }));
   const ranked = all.map((s, i) => ({ s, i, words: credited[i] })).filter(x => x.words > 0).sort((a, b) => b.words - a.words || a.i - b.i);
   const number = new Map(ranked.map((x, j) => [x.i, j + 1]));
   const sources = ranked.map((x, j) => ({ ...x.s, no: j + 1, percent: pct(x.words, base), similarity: pct(x.words, base), words: x.words }));

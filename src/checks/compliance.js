@@ -77,6 +77,15 @@ function checkEntry(ref, record, nlm = null) {
   if (title) {
     if (titleCaseRatio(title) > 0.6) add('title', 'Title in sentence case (only the first word and proper nouns capitalised)', title.slice(0, 90), null);
     if (p && !/[.?!]$/.test(title)) add('title', 'Title ends with a full stop', title.slice(-20), null, 'low');
+    // without its full stop the title runs into the journal name ("…dye binding Anal. Biochem.,") and the split above
+    // cannot see it; the matched record knows where the title ends: the reference's own words of it, then a capital
+    // (the journal) or a comma, mean the full stop is missing
+    else if (record?.title && !book) {
+      const words = String(record.title).replace(/<[^>]+>/g, ' ').match(/[\p{L}\p{N}]+/gu) || [];
+      const after = text.replace(/^.*?\(\s*(?:\d{4}[a-z]?|n\.d\.)\s*\)\s*\.?\s*/, '');
+      const m = words.length >= 3 ? after.match(new RegExp(words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^\\p{L}\\p{N}]+'), 'iu')) : null;
+      if (m && m.index <= 3 && /^\s*(?:,|\s\p{Lu})/u.test(after.slice(m.index + m[0].length))) add('title', 'Title ends with a full stop', m[0].slice(-20), `${m[0].slice(-20)}.`, 'low');
+    }
     if (/^[“"']|[”"']\.?$/.test(title)) add('title', 'Article titles are not put in quotation marks', null, null, 'low');
   } else add('missing', 'Title missing', null, null, 'high');
 

@@ -611,6 +611,7 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .sim-filters { padding: 12px 16px; font-size: 13px; }
 .sim-filters p { margin: 0 0 8px; }
 .sim-x { color: var(--text-3); opacity: .6; }
+.sim-ai { font-size: 12.5px; margin: 6px 0 2px; }
 .sim-diff { background: color-mix(in srgb, var(--warn, #e0a100) 28%, transparent); border-radius: 2px; text-decoration: underline dotted; }
 .sim-secs { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .sim-secs th, .sim-secs td { text-align: left; padding: 5px 4px; border-bottom: 1px solid var(--border); vertical-align: middle; }

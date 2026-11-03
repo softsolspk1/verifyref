@@ -573,6 +573,7 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .sim-bar.sm { height: 4px; margin-top: 5px; }
 .sim-bar > span { display: block; height: 100%; border-radius: 4px; background: var(--brand); transition: width .3s; }
 .sim-bar > span.web { background: var(--accent); }
+.sim-bar > span.sub { background: var(--warn); }
 .sim-private { margin-top: 10px; font-size: 12.5px; color: var(--good); background: var(--good-bg); border-radius: 8px; padding: 6px 10px; }
 .sim-layout { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
 .sim-docwrap { padding: 0; overflow: hidden; }

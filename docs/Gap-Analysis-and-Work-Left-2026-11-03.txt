@@ -57,11 +57,13 @@ Known limit: sections are found from the headings. A table cell that reads only 
      "Internet sources" bar is always 0% and             it in .env and on Vercel. Check
      copied web pages / theses / blogs are               Vercel's env vars; the key may be
      missed                                              set there already.
-  S2 Earlier PJPS submissions ("Submitted      P2        A PJPS policy decision. Module 4.5
-     works") are not compared - by design                already finds duplicate submissions;
-     (no-repository privacy setting)                     the similarity report could show
-                                                         them as "Submitted works" with an
-                                                         opt-in setting.
+  S2 Earlier PJPS submissions ("Submitted      DONE      Opt-in tick box on the Full Screening
+     works")                                             form (off by default; kept on
+                                                         re-check). Candidates picked by the
+                                                         Module 4 fingerprints, compared with
+                                                         the text in their own confidential
+                                                         report; other versions of the same
+                                                         manuscript ID left out.
   S3 Exclude quotes / exclude bibliography     P2        Quotes are dropped before matching,
      are always on; the editor cannot switch             so switching them needs the matches
      them off as in Turnitin                             inside quotes kept in the report

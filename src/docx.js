@@ -665,7 +665,7 @@ function similarityReportBlocks(r) {
     { p: 'Confidential - for the editor. This report contains the text of an unpublished manuscript.', bold: true, color: '9B1C1C' },
     { kv: [['Manuscript ID', meta.manuscriptCode || '-'], ['Title', meta.title || '-'], ['Checked on', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : '-'], ...(r.id ? [['Report no.', String(r.id)]] : []), ['Words compared', `${(s.compared ?? s.words).toLocaleString()}${s.compared !== undefined && s.compared < s.words ? ` of ${s.words.toLocaleString()} (sections excluded)` : ''}`]] },
     { callout: { level: { ok: 'ok', warn: 'warn', bad: 'bad' }[s.level] || 'na', title: `Similarity Index: ${simPt(s.similarity)}`,
-      text: `Publications ${simPt(s.publications)} - Internet sources ${simPt(s.internet)} - Submitted works: not compared (no repository). ${s.sources} primary source(s), the largest ${simPt(s.largestSource)}.` } },
+      text: `Publications ${simPt(s.publications)} - Internet sources ${simPt(s.internet)} - Submitted works: ${pl.submissions?.compared ? `${simPt(s.submissions)} (earlier PJPS submissions, compared at the editor's request)` : 'not compared (no repository)'}. ${s.sources} primary source(s), the largest ${simPt(s.largestSource)}.` } },
     { kv: [['Filters', simFilters(pl)], ['Repository', pl.repository || 'not stored']] }
   ];
   if (pl.privacy) blocks.push({ p: pl.privacy.statement, italics: true });

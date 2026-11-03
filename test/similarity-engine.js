@@ -120,6 +120,27 @@ const ok = m => console.log(`  ✓ ${m}`);
   assert.ok(csv.charCodeAt(0) === 0xFEFF && csv.slice(1).startsWith('No.,Similarity %') && /Intro source/.test(csv) && /Methods source/.test(csv), 'sources CSV lists credited and other sources');
   ok('sections found and excluded, small sources dropped, section breakdown, CSV of the sources');
 
+  // ---- "Submitted works" (opt-in): earlier PJPS submissions picked by their fingerprints, text from their own report
+  const PM = require('../src/papermill');
+  const words = n => Array.from({ length: n }, (_, i) => `term${i}x`).join(' ');
+  const shared = `${words(300)} The extract markedly reduced paw oedema in a dose dependent manner in rats.`;
+  const earlierText = `${shared} ${Array.from({ length: 100 }, (_, i) => `other${i}y`).join(' ')}`;
+  const uid = (await db.one("INSERT INTO users(email, name, password_hash, role) VALUES('sim@test.local', 'Sim', 'x', 'editor') RETURNING id")).id;
+  const addEarlier = async code => {
+    const id = (await db.one("INSERT INTO checks(user_id, kind, manuscript_code, title, result) VALUES($1, 'manuscript', $2, 'Earlier paper', $3) RETURNING id",
+      [uid, code, JSON.stringify({ plagiarism: { document: [{ t: earlierText, s: 0 }] } })])).id;
+    await PM.storeFingerprint({ checkId: id, userId: uid, meta: { manuscriptCode: code, title: 'Earlier paper', authors: [] }, shingles: PM.shingles(earlierText) });
+    return id;
+  };
+  const otherId = await addEarlier('PJPS-2026-0001');
+  const sameId = await addEarlier('PJPS-2026-0099');
+  const newMs = `${shared} ${Array.from({ length: 100 }, (_, i) => `fresh${i}z`).join(' ')}`;
+  const subs = await P.earlierSubmissions(newMs, { excludeCode: 'PJPS-2026-0099' });
+  assert.deepStrictEqual(subs.map(x => x.checkId), [otherId], 'other manuscripts found; another version of the same manuscript left out');
+  assert.ok(subs[0].text.includes('paw oedema'), 'text read from the earlier report');
+  assert.deepStrictEqual((await P.earlierSubmissions(newMs, { excludeCheckIds: [otherId, sameId] })).length, 0, 'the report being re-run is left out');
+  ok('earlier PJPS submissions (opt-in) found by fingerprint, same manuscript and re-run report left out');
+
   // ---- privacy: a phrase search is cached under a hash with the records found only
   const phrase = 'zyxomirol permeation across excised goat skin was measured';
   const server = http.createServer((req, res) => {

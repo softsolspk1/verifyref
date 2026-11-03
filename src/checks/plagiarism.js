@@ -16,8 +16,9 @@
 //   4. Attribution (public/js/shared/similarity.js, shared with the report view): every matched word is credited to one
 //      source only, the source with the most matched text first (Turnitin's "primary sources"), so the source
 //      percentages add up to the Similarity Index. The view can exclude sources and raise the minimum match length.
-// Privacy - no repository: the manuscript is never stored or indexed, and earlier unpublished PJPS submissions are not
-// compared (Turnitin's "no repository" setting). Only 8-word passages are sent to the search services, and their
+// Privacy - no repository: the manuscript is never stored or indexed. Earlier unpublished PJPS submissions are compared
+// only when the editor turns it on for this report ("Submitted works", opt-in): their text is read from the confidential
+// report of their own Full Screening, picked by the sampled hashes Module 4 keeps of every screened manuscript. Only 8-word passages are sent to the search services, and their
 // answers are cached under a hash of the query with the public records found, never the passage itself (http.js).
 // Coverage: open-access literature, PubMed abstracts, publisher full texts indexed by OpenAlex (passage search only when
 // paywalled) and the open web with a search key. Turnitin's own archive of student papers is not available.
@@ -210,6 +211,37 @@ function overlap(prep, theirs) {
   return { hit, passages };
 }
 
+/**
+ * Earlier PJPS submissions sharing text with the manuscript (opt-in "Submitted works"): the screened manuscripts whose
+ * sampled 6-word hashes (Module 4 fingerprints) share at least minShared with this one, most shared first, with their
+ * text from the confidential similarity report of their Full Screening. Other versions of the same manuscript (same
+ * manuscript ID) and the report being run again are left out.
+ * -> [{ checkId, manuscriptCode, title, date, shared, text }]
+ */
+async function earlierSubmissions(body, { excludeCode = null, excludeCheckIds = [], limit = 10, minShared = 3 } = {}) {
+  const db = require('../db');
+  const store = require('../reportStore');
+  const mine = new Set(require('../papermill').shingles(body));
+  if (!mine.size) return [];
+  const skip = new Set(excludeCheckIds.filter(Boolean).map(Number));
+  const rows = await db.all("SELECT check_id, manuscript_code, title, data, created_at FROM fingerprints WHERE kind = 'text' AND check_id IS NOT NULL ORDER BY created_at DESC LIMIT 5000");
+  const best = new Map();
+  for (const r of rows) {
+    if (skip.has(Number(r.check_id)) || (excludeCode && r.manuscript_code && r.manuscript_code === excludeCode)) continue;
+    let n = 0;
+    for (const h of r.data?.shingles || []) if (mine.has(h)) n++;
+    if (n >= minShared && n > (best.get(r.check_id)?.shared || 0)) best.set(r.check_id, { checkId: r.check_id, manuscriptCode: r.manuscript_code || null, title: r.title || null, date: r.created_at, shared: n });
+  }
+  const out = [];
+  for (const c of [...best.values()].sort((a, b) => b.shared - a.shared).slice(0, limit)) {
+    const row = await db.one('SELECT result FROM checks WHERE id = $1', [c.checkId]).catch(() => null);
+    const res = row ? await store.load(row.result) : null;
+    const text = (res?.plagiarism?.document || []).map(d => d.t).join('');
+    if (text.split(/\s+/).length >= 200) out.push({ ...c, text });
+  }
+  return out;
+}
+
 /** Stable repository key of a source found by the search */
 const sourceKeyOf = c => (c.pmcid ? `pmc:${c.pmcid}` : c.pmid ? `pmid:${c.pmid}` : c.doi ? `doi:${String(c.doi).toLowerCase()}` : c.url ? `url:${c.url}` : `title:${String(c.title || '').toLowerCase().slice(0, 200)}`);
 
@@ -287,7 +319,7 @@ const epmcRecord = x => ({ type: 'publication', title: x.title, journal: x.journ
  *   sources: [{ key, no, type, percent, ranges, passages: [{ from, to, words, text, source }], ... }], alsoMatched,
  *   document: [{ t, s }], settings: { excluded, minWords }, filters, selfMatches, checked, privacy, method }
  */
-async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
+async function checkPlagiarism({ body, meta = {}, submissions = null }, update = () => {}) {
   await shared();
   const prep = prepare(body);
   const mine = prep.words;
@@ -314,6 +346,15 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
     markCovered(o.hit);
     return { key: d.sourceKey, type: d.kind, title: d.title, journal: m.journal || null, year: m.year || null, doi: m.doi || null, url: m.url || null,
       via: `${m.via || 'Repository'} (PJPS repository)`, compared: `${m.scope || 'text'} (PJPS repository)`, hit: o.hit, passages: o.passages };
+  }).filter(Boolean);
+
+  // 1b. earlier PJPS submissions, only when the editor turned it on (submissions = [] when on and none share text)
+  const fromSubs = (submissions || []).map(d => {
+    const o = overlap(prep, d.text);
+    if (!o.passages.length) return null;
+    markCovered(o.hit);
+    return { key: `check:${d.checkId}`, type: 'submission', title: `${d.manuscriptCode ? `${d.manuscriptCode} - ` : ''}${d.title || 'Earlier PJPS submission'}`, journal: 'Earlier PJPS submission',
+      year: d.date ? new Date(d.date).getFullYear() : null, checkId: d.checkId, via: 'Earlier PJPS submissions (opt-in)', compared: 'full text (confidential PJPS report)', hit: o.hit, passages: o.passages };
   }).filter(Boolean);
 
   // 2. papers on the same subject: their open-access full texts compared with the whole manuscript
@@ -441,7 +482,7 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
   }
 
   // 5. primary sources (shared with the report view: public/js/shared/similarity.js)
-  const all = [...fromRepo, ...compared, ...phraseSources].map(src => ({
+  const all = [...fromSubs, ...fromRepo, ...compared, ...phraseSources].map(src => ({
     key: src.key, type: src.type, title: String(src.title || '').replace(/<[^>]+>/g, ''), journal: src.journal || null, year: src.year || null, doi: src.doi || null, url: src.url || null, checkId: src.checkId || null,
     via: src.via, compared: src.compared, matchedWords: src.passages.reduce((a, p) => a + p.words, 0),
     ranges: src.passages.map(p => [p.from, p.to]).sort((a, b) => a[0] - b[0]),
@@ -450,16 +491,18 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
   const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT });
   const s = view.summary;
 
-  const databases = ['PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
+  const subsOn = Array.isArray(submissions);
+  const databases = [...(subsOn ? [`Earlier PJPS submissions (opt-in): ${submissions.length} sharing text with this manuscript compared in full`] : []), 'PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
     ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches)`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
   return {
     kind: 'plagiarism',
     version: 3,
     summary: s,
-    repository: 'not stored: this manuscript was not added to any repository, and earlier unpublished PJPS submissions were not compared (no-repository setting, as in Turnitin)',
+    repository: subsOn ? `not stored: this manuscript was not added to any repository; earlier PJPS submissions were compared at the editor's request (${submissions.length} sharing text)` : 'not stored: this manuscript was not added to any repository, and earlier unpublished PJPS submissions were not compared (no-repository setting, as in Turnitin)',
+    submissions: { compared: subsOn, candidates: subsOn ? submissions.length : 0, matched: fromSubs.length },
     privacy: {
       stored: false,
-      statement: 'The manuscript was not stored, indexed or added to any repository, and it is never compared with later submissions. Only separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read. The text below is kept only inside this confidential report.'
+      statement: `The manuscript was not stored, indexed or added to any repository.${subsOn ? ' At the editor\'s request it was compared with earlier PJPS submissions, read from their own confidential reports inside PJPS.' : ''} Its text is kept only inside this confidential report, which a later report reads only when an editor turns on the comparison with earlier PJPS submissions. Only separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read.`
     },
     sources: view.sources,
     alsoMatched: view.alsoMatched,
@@ -468,8 +511,8 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
     settings: { excluded: [], minWords: MIN_MATCH, excludeSections: [], minPercent: 0 },
     filters: { bibliography: prep.bibliographyExcluded ? 'excluded' : 'not found in the text (body only was compared)', quotes: `excluded (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)`, citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
-    checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: 0, searchErrors: stats.searchErrors, databases },
-    coverage: `Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. Turnitin's own archive of student papers and earlier unpublished PJPS submissions are not compared.`,
+    checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, databases },
+    coverage: `Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
     method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match), paywalled ones by the passages found in them. The bibliography and quotations are excluded, and so are matches shorter than ${MIN_MATCH} words. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };
 }
@@ -510,4 +553,4 @@ function toCsv(pl) {
     [...(pl.sources || []), ...(pl.alsoMatched || [])].map(row));
 }
 
-module.exports = { checkPlagiarism, applySettings, toCsv, prepare, overlap, finishRuns, citeSpans, searchWindows, shared };
+module.exports = { checkPlagiarism, earlierSubmissions, applySettings, toCsv, prepare, overlap, finishRuns, citeSpans, searchWindows, shared };

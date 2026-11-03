@@ -154,7 +154,10 @@ async function screening(result, { input, body, refs, meta, update }) {
   // Plagiarism (text overlap with the literature) and novelty / citation outlook; neither may stop the report
   update('Similarity report: comparing the text with published papers, the web and earlier PJPS submissions', 98);
   if (body && body.trim().length > 1500) {
-    result.plagiarism = await require('./checks/plagiarism').checkPlagiarism({ body, meta }).catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
+    const PL = require('./checks/plagiarism');
+    // "Submitted works" (opt-in): earlier PJPS submissions sharing text, other versions of this manuscript left out
+    const submissions = input.compareSubmissions ? await PL.earlierSubmissions(body, { excludeCode: meta.manuscriptCode || null, excludeCheckIds: [input.recheckOf] }).catch(() => []) : null;
+    result.plagiarism = await PL.checkPlagiarism({ body, meta, submissions }).catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
     // an earlier PJPS submission with the same text (Module 4 fingerprints) belongs in the overlap report too
     const dup = (pm.signals || []).find(x => x.code === 'duplicate');
     if (dup && result.plagiarism && !result.plagiarism.error) result.plagiarism.earlierSubmissions = (dup.evidence || []).map(e => e.text);

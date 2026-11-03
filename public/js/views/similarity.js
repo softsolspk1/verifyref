@@ -77,8 +77,8 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
         <div class="sim-facts"><span><b>${(s.compared ?? s.words).toLocaleString()}</b> words compared${s.compared !== undefined && s.compared < s.words ? ` <span class="muted">of ${s.words.toLocaleString()} (sections excluded)</span>` : ''}</span><span><b>${s.sources}</b> primary source${s.sources === 1 ? '' : 's'}</span><span>largest source <b>${pctText(s.largestSource)}</b></span></div>
         ${bar('Publications', s.publications, 'pub')}
         ${bar('Internet sources', s.internet, 'web')}
-        ${bar('Submitted works', 0, '', 'not compared')}
-        <div class="sim-private" title="${esc(pl.privacy?.statement || pl.repository || '')}">🔒 <b>Not stored · no repository.</b> ${esc(pl.privacy ? 'This manuscript was not saved to any database and will never be compared with later submissions.' : 'This manuscript was not added to any repository.')}</div>
+        ${pl.submissions?.compared ? bar('Submitted works (earlier PJPS submissions)', s.submissions, 'sub') : bar('Submitted works', 0, '', 'not compared')}
+        <div class="sim-private" title="${esc(pl.privacy?.statement || pl.repository || '')}">🔒 <b>Not stored · no repository.</b> ${esc(pl.submissions?.compared ? `This manuscript was not saved to any database. At your request it was compared with ${pl.submissions.candidates} earlier PJPS submission(s) sharing text.` : pl.privacy ? 'This manuscript was not saved to any database. Earlier PJPS submissions were not compared (opt-in on the Full Screening form).' : 'This manuscript was not added to any repository.')}</div>
       </div></div>`;
   };
 

@@ -101,14 +101,14 @@ function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
         // similarity report text: matched runs in their source's colour, prefixed with the source number
         const COLORS = ['#D7263D', '#1B998B', '#3A50D9', '#F46036', '#8E44AD', '#2E86AB', '#C2185B', '#8D6E63', '#6B8E23', '#283593', '#E0A100', '#00897B', '#7B1FA2', '#5D4037', '#455A64'];
         const paras = [[]];
-        for (const seg of b.marked) String(seg.t).split(/\n+/).forEach((line, i) => { if (i > 0) paras.push([]); if (line) paras[paras.length - 1].push({ t: line, s: i === 0 ? seg.s : seg.s && -seg.s }); });
+        for (const seg of b.marked) String(seg.t).split(/\n+/).forEach((line, i) => { if (i > 0) paras.push([]); if (line) paras[paras.length - 1].push({ t: line, s: i === 0 ? seg.s : seg.s && -seg.s, x: seg.x }); });
         for (const parts of paras.filter(x => x.length)) {
           ensure(30);
           doc.font('Helvetica').fontSize(9);
           parts.forEach((p, i) => {
             const no = Math.abs(p.s || 0), last = i === parts.length - 1;
             if (no) doc.font('Helvetica-Bold').fillColor(COLORS[(no - 1) % COLORS.length]).text(`${p.s > 0 ? `[${no}] ` : ''}${safe(p.t)}`, { continued: !last, width: width() });
-            else doc.font('Helvetica').fillColor(INK).text(safe(p.t), { continued: !last, width: width() });
+            else doc.font('Helvetica').fillColor(p.x ? '#9AA0A6' : INK).text(safe(p.t), { continued: !last, width: width() }); // greyed: excluded section
           });
           doc.moveDown(0.4);
         }

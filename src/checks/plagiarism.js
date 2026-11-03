@@ -464,7 +464,8 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
     sources: view.sources,
     alsoMatched: view.alsoMatched,
     document: view.document,
-    settings: { excluded: [], minWords: MIN_MATCH },
+    sections: view.sections,
+    settings: { excluded: [], minWords: MIN_MATCH, excludeSections: [], minPercent: 0 },
     filters: { bibliography: prep.bibliographyExcluded ? 'excluded' : 'not found in the text (body only was compared)', quotes: `excluded (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)`, citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
     checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: 0, searchErrors: stats.searchErrors, databases },
@@ -473,18 +474,40 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
   };
 }
 
-/** The report with sources excluded or a higher minimum match length (Turnitin's filters), recomputed for display or export */
-async function applySettings(pl, { excluded = [], minWords = MIN_MATCH } = {}) {
+/**
+ * The report with the editor's filters, recomputed for display or export (shared with the view): sources excluded, a
+ * higher minimum match length (Turnitin), sections left out of the comparison (iThenticate's "exclude abstract /
+ * methods") and sources under a percentage left out (Turnitin's "exclude sources under x %")
+ */
+async function applySettings(pl, { excluded = [], minWords = MIN_MATCH, excludeSections = [], minPercent = 0 } = {}) {
   await shared();
   if (!pl || pl.error || (pl.version || 0) < 3) return pl;
   const text = (pl.document || []).map(d => d.t).join('');
-  const all = [...(pl.sources || []), ...(pl.alsoMatched || [])].map(x => ({ ...x, excluded: undefined }));
+  const all = [...(pl.sources || []), ...(pl.alsoMatched || [])].map(x => ({ ...x, excluded: undefined, small: undefined }));
   const min = Math.max(MIN_MATCH, Math.min(200, parseInt(minWords, 10) || MIN_MATCH));
   const keys = new Set(all.map(x => x.key));
   const ex = [...new Set([].concat(excluded || []))].filter(k => keys.has(k));
-  const view = SIM.recompute(all, text, { total: pl.summary.words, excluded: ex, minWords: min });
-  return { ...pl, summary: view.summary, sources: view.sources, alsoMatched: view.alsoMatched, document: view.document, settings: { excluded: ex, minWords: min },
-    filters: { ...pl.filters, smallMatches: `excluded (fewer than ${min} words)`, ...(ex.length ? { sources: `${ex.length} source(s) excluded by the editor` } : {}) } };
+  const tokens = SIM.tokenize(text);
+  const secKeys = new Set(SIM.sectionsOf(text, tokens, pl.summary.words).map(s => s.key));
+  const exSec = [...new Set([].concat(excludeSections || []))].filter(k => secKeys.has(k) && k !== 'body');
+  const minPct = Math.max(0, Math.min(10, Number(minPercent) || 0));
+  const view = SIM.recompute(all, text, { tokens, total: pl.summary.words, excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct });
+  const { sources: _s, smallSources: _p, sections: _c, ...filters } = pl.filters || {};
+  return { ...pl, summary: view.summary, sources: view.sources, alsoMatched: view.alsoMatched, document: view.document, sections: view.sections,
+    settings: { excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct },
+    filters: { ...filters, smallMatches: `excluded (fewer than ${min} words)`,
+      ...(ex.length ? { sources: `${ex.length} source(s) excluded by the editor` } : {}),
+      ...(minPct ? { smallSources: `sources under ${minPct}% excluded` } : {}),
+      ...(exSec.length ? { sections: `excluded from the comparison: ${view.sections.filter(x => x.excluded).map(x => x.label).join(', ')}` } : {}) } };
 }
 
-module.exports = { checkPlagiarism, applySettings, prepare, overlap, finishRuns, citeSpans, searchWindows, shared };
+/** The primary sources (then the sources whose words all went to larger ones) as CSV, for the editorial file */
+function toCsv(pl) {
+  const F = require('../format');
+  const row = x => [x.no ?? '', x.no ? x.percent : 0, x.words ?? 0, x.matchedWords ?? '', String(x.title || '').replace(/<[^>]+>/g, ''), x.type === 'internet' ? 'Internet source' : x.type === 'submission' ? 'Submitted work' : 'Publication',
+    x.journal || '', x.year || '', x.doi || '', x.url || '', x.via || '', x.compared || '', x.no ? '' : x.excluded ? 'excluded by the editor' : x.small ? 'under the source percentage filter' : 'all words credited to larger sources'];
+  return F.toCsv(['No.', 'Similarity %', 'Words credited', 'Words matched', 'Source', 'Type', 'Journal / site', 'Year', 'DOI', 'Link', 'Found via', 'Compared', 'Not counted because'],
+    [...(pl.sources || []), ...(pl.alsoMatched || [])].map(row));
+}
+
+module.exports = { checkPlagiarism, applySettings, toCsv, prepare, overlap, finishRuns, citeSpans, searchWindows, shared };

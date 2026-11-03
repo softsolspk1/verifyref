@@ -54,7 +54,8 @@ function markedParagraphs(segments) {
       if (!line) return;
       const cur = paras[paras.length - 1];
       if (seg.s && i === 0) cur.push(new TextRun({ text: String(seg.s), superScript: true, bold: true, color: markColor(seg.s), font: 'Calibri', size: 17 }));
-      cur.push(new TextRun({ text: line, font: 'Calibri', size: 19, ...(seg.s ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: lighten(markColor(seg.s)) } } : {}) }));
+      // text of a section the editor excluded from the comparison is greyed
+      cur.push(new TextRun({ text: line, font: 'Calibri', size: 19, ...(seg.s ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill: lighten(markColor(seg.s)) } } : seg.x ? { color: '9AA0A6' } : {}) }));
     });
   }
   return paras.filter(r => r.length).map(r => new Paragraph({ children: r, spacing: { after: 100, line: 276 } }));
@@ -635,7 +636,10 @@ function plagiarismBlocks(pl) {
 
 const SIM_TYPE = { internet: 'Internet source', publication: 'Publication', submission: 'Submitted to PJPS' };
 const simPt = v => (v > 0 && v < 1 ? '<1%' : `${Math.round(v)}%`);
-const simFilters = pl => [`bibliography ${pl.filters.bibliography}`, `quotes ${pl.filters.quotes}`, ...(pl.filters.citations ? [`in-text citations ${pl.filters.citations}`] : []), `small matches ${pl.filters.smallMatches}`, ...(pl.filters.sources ? [pl.filters.sources] : [])].join('; ');
+const simFilters = pl => [`bibliography ${pl.filters.bibliography}`, `quotes ${pl.filters.quotes}`, ...(pl.filters.citations ? [`in-text citations ${pl.filters.citations}`] : []), `small matches ${pl.filters.smallMatches}`,
+  ...(pl.filters.smallSources ? [pl.filters.smallSources] : []), ...(pl.filters.sources ? [pl.filters.sources] : []), ...(pl.filters.sections ? [`sections ${pl.filters.sections}`] : [])].join('; ');
+/** Similarity of each section of the manuscript (only when its headings were found) */
+const simSectionsTable = pl => ({ table: { headers: ['Section', 'Words', 'Matched words', 'Similarity'], rows: pl.sections.map(x => [x.label, x.words.toLocaleString(), x.excluded ? '-' : x.matched.toLocaleString(), x.excluded ? 'excluded by the editor' : simPt(x.similarity)]) } });
 const simSourcesTable = pl => ({ table: { headers: ['No.', 'Match', 'Source', 'Type', 'Words'], rows: pl.sources.map(x => [String(x.no), simPt(x.percent),
   `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : x.url && !x.checkId ? ` (${x.url})` : ''}`, SIM_TYPE[x.type] || x.type, String(x.words ?? '')]) } });
 
@@ -659,20 +663,21 @@ function similarityReportBlocks(r) {
   const blocks = [
     { h1: 'Similarity Report' },
     { p: 'Confidential - for the editor. This report contains the text of an unpublished manuscript.', bold: true, color: '9B1C1C' },
-    { kv: [['Manuscript ID', meta.manuscriptCode || '-'], ['Title', meta.title || '-'], ['Checked on', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : '-'], ...(r.id ? [['Report no.', String(r.id)]] : []), ['Words compared', s.words.toLocaleString()]] },
+    { kv: [['Manuscript ID', meta.manuscriptCode || '-'], ['Title', meta.title || '-'], ['Checked on', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : '-'], ...(r.id ? [['Report no.', String(r.id)]] : []), ['Words compared', `${(s.compared ?? s.words).toLocaleString()}${s.compared !== undefined && s.compared < s.words ? ` of ${s.words.toLocaleString()} (sections excluded)` : ''}`]] },
     { callout: { level: { ok: 'ok', warn: 'warn', bad: 'bad' }[s.level] || 'na', title: `Similarity Index: ${simPt(s.similarity)}`,
       text: `Publications ${simPt(s.publications)} - Internet sources ${simPt(s.internet)} - Submitted works: not compared (no repository). ${s.sources} primary source(s), the largest ${simPt(s.largestSource)}.` } },
     { kv: [['Filters', simFilters(pl)], ['Repository', pl.repository || 'not stored']] }
   ];
   if (pl.privacy) blocks.push({ p: pl.privacy.statement, italics: true });
   if (pl.selfMatches?.length) blocks.push({ p: `Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => `${x.title}${x.year ? ` (${x.year})` : ''}`).join('; ')}`, italics: true });
+  if (pl.sections?.length > 1) blocks.push({ h2: 'Similarity by section' }, simSectionsTable(pl));
   blocks.push({ h2: 'Primary sources' });
   if (!pl.sources.length) blocks.push({ p: 'No matching text was found in the sources searched.' });
   else {
     blocks.push(simSourcesTable(pl));
     if (pl.version >= 3) blocks.push({ h2: 'Matches next to the source' }, ...simMatchBlocks(pl, 8));
   }
-  if (pl.document?.length) blocks.push({ pageBreak: true }, { h2: 'Manuscript text' }, { p: 'Matched text is highlighted in the colour of its source, with the source number.', italics: true }, { marked: pl.document });
+  if (pl.document?.length) blocks.push({ pageBreak: true }, { h2: 'Manuscript text' }, { p: `Matched text is highlighted in the colour of its source, with the source number.${pl.document.some(d => d.x) ? ' Text of the excluded sections is grey.' : ''}`, italics: true }, { marked: pl.document });
   const c = pl.checked || {};
   blocks.push({ h2: 'What was searched' }, { p: `${c.passages} passages searched (${c.passagesFound ?? '-'} found elsewhere); ${c.queries} literature searches${c.openalexSearches ? `, ${c.openalexSearches} in publisher full texts` : ''}${c.webSearches ? `, ${c.webSearches} on the web` : ''}; ${c.candidates} candidate sources, ${c.sourcesCompared} compared in full.` },
     { bullets: c.databases || [] }, { p: pl.method, italics: true }, { p: `Coverage: ${pl.coverage}`, italics: true });

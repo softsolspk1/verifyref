@@ -1,0 +1,159 @@
+PJPS DATA INTEGRITY SYSTEM - GAP ANALYSIS AND WORK LEFT
+Date: 3 November 2026 (version 3.2.10 + this session's changes)
+Measured against: docs/PJPS-Final-5-Modules.txt (the 5-module specification), the Similarity
+Report's own target (Turnitin / iThenticate), and the open items in the latest audit,
+parity and accuracy reports.
+=====================================================================================
+
+
+1. OVERALL POSITION
+-------------------
+Every feature in the 5-module specification exists in the code and runs end to end
+(docs/Module1-3-Audit-Report-2026-10-30.txt, docs/Module4-5-Parity-Report-2026-11-02.txt).
+What remains is not missing screens but:
+  a) accuracy limits in Modules 3, 4 and 5 (measured, documented below);
+  b) coverage that needs data, keys or contracts rather than code;
+  c) operational items (desktop rebuild, data loads, unfinished benchmark runs);
+  d) a few smaller feature gaps, mostly in the Similarity Report (the main one is the
+     missing web search key, section 3).
+
+
+2. DONE IN THIS SESSION - SIMILARITY REPORT
+-------------------------------------------
+Gaps closed against Turnitin / iThenticate (web portal and desktop app; the desktop gets them
+with its next build):
+
+  Feature                                        Before          Now
+  ---------------------------------------------  --------------  ----------------------------
+  Exclude sections (Abstract, Methods ...),      no              yes - "Sections" tab, tick /
+    as iThenticate                                               untick; words leave the total
+  Similarity of each section                     no              yes - table on screen and in
+                                                                 the Word / PDF report
+  Exclude sources under x % (Turnitin)           no              yes - off / 0.5 / 1 / 2 / 3 / 5 %
+  Changed words marked in the side-by-side       no              yes - "n words changed",
+    match view (shows rewording)                                 differing words highlighted
+  CSV export of the sources                      no              yes - Word / PDF / CSV buttons
+  Excluded section text in the report            -               greyed on screen, Word and PDF
+  Full Screening front page after the editor     stale (old %)   updated with the saved filters
+    saves filters
+
+All of these are recomputed by the shared code (public/js/shared/similarity.js), so the screen,
+the saved report and the Word / PDF / CSV exports always give the same Similarity Index.
+Files: public/js/shared/similarity.js, public/js/views/similarity.js, public/css/app.css,
+src/checks/plagiarism.js, src/routes/screening.js, src/docx.js, src/pdf.js.
+Tests: test/similarity-engine.js extended (sections, exclusion, % filter, export parity, CSV);
+remediation, unformatted-docs and smoke-web pass (smoke-web failed once, then passed on a rerun;
+it uses live data and the network).
+Known limit: sections are found from the headings. A table cell that reads only "Results" or
+"Methods" can start a new section early; manuscripts without headings are one section.
+
+
+3. SIMILARITY REPORT - REMAINING GAPS
+-------------------------------------
+  Gap                                          Priority  What it takes
+  -------------------------------------------  --------  -----------------------------------
+  S1 Internet sources are not searched: no     P1        Buy a key (SerpApi, Brave Search or
+     web search key in the local .env, so the            Google Programmable Search) and set
+     "Internet sources" bar is always 0% and             it in .env and on Vercel. Check
+     copied web pages / theses / blogs are               Vercel's env vars; the key may be
+     missed                                              set there already.
+  S2 Earlier PJPS submissions ("Submitted      P2        A PJPS policy decision. Module 4.5
+     works") are not compared - by design                already finds duplicate submissions;
+     (no-repository privacy setting)                     the similarity report could show
+                                                         them as "Submitted works" with an
+                                                         opt-in setting.
+  S3 Exclude quotes / exclude bibliography     P2        Quotes are dropped before matching,
+     are always on; the editor cannot switch             so switching them needs the matches
+     them off as in Turnitin                             inside quotes kept in the report
+                                                         (engine change + a re-run).
+  S4 Paraphrase detection: matching is word-   P2        Synonym-tolerant matching or local
+     for-word (up to 2 changed words per run);           sentence embeddings. Must run
+     heavily reworded text is missed                     locally (privacy).
+  S5 Translated plagiarism (Urdu / Chinese     P3        Translation + matching; needs an
+     source rewritten in English)                        outside service or a local model.
+  S6 Paywalled sources: only OpenAlex          P3        Commercial index (Crossref
+     passage search (150 per report); the                Similarity Check / iThenticate
+     wording of the source is not shown                  membership) - contract, not code.
+  S7 Old reports (made before today) get the   P3        None needed: the section table is
+     section table in the Word / PDF only                worked out again on screen; saving
+     after the editor saves filters once                 filters writes it to the report.
+  S8 AI-writing indicator inside the           P3        Exists in Module 4 / Integrity Suite;
+     Similarity Report (Turnitin shows one)              could be linked into this report.
+
+
+4. MODULE-BY-MODULE GAPS AGAINST THE SPECIFICATION
+--------------------------------------------------
+Module 1 - Check Bibliography: COMPLETE
+  M1-a  Re-run the original 27-case audit (test/audit-m1.js) after the 3 Nov change to
+        invented-reference handling. It was stopped for low memory. (P1, run only)
+  M1-b  Invented references: 3 of 4 marked Suspicious; 1 still "Unverified". (P2)
+
+Module 2 - Reference Style & PJPS Converter: COMPLETE
+  M2-a  A missing full stop after the title is not reported (it cannot be told apart from
+        the journal name). (P3)
+  M2-b  Spec note "CONFIRM PJPS style with the current author guidelines before release":
+        the official examples pass (test/pjps-style.js); get the editor's written
+        sign-off. (P2, non-code)
+
+Module 3 - Citations: COMPLETE, ACCURACY LIMIT
+  M3-a  Claim support: 13% of contradicted claims still pass as "Full support" on the
+        untuned SciFact half. Closing this needs a language model. To keep the "no
+        manuscript text sent outside" rule it must run locally (e.g. a small model on the
+        server / desktop). PJPS decision + build. (P1 accuracy)
+  M3-b  test/audit-m3c.js needs its source PDF (vaswani.pdf), which is not in the
+        repository. (P3)
+
+Module 4 - Paper Mill Detection: COMPLETE, ACCURACY LIMIT
+  M4-a  Text signals catch 16% of known mill papers (2 false alarms in 126). Most mill
+        papers are only detectable through references, authors or images. More profiles
+        (e.g. other template families) can be added the same way as the ncRNA one. (P2)
+  M4-b  PubPeer comments on cited papers are not searched (PubPeer API needs a key). (P2)
+  M4-c  Cross-publisher duplicate submissions need STM Integrity Hub membership. (P3,
+        membership)
+
+Module 5 - Image Integrity: COMPLETE, ACCURACY LIMIT
+  M5-a  BioFors: 52% of marked duplicates found since the 80% rule (59% before), no false
+        alarms in 17,571 unrelated pairs. Unfinished: list the ~10 duplicates the 80% rule
+        dropped and test whether a brightness-tolerant measure recovers them. (P1, stopped
+        for low memory)
+  M5-b  Cloned areas found in about 1 in 3 cases; splicing is an indicator only;
+        flow-cytometry plots can still give false alarms. (P2)
+  M5-c  5.7 vendor connection (ImageTwin / Proofig) was built, then removed by PJPS policy
+        (figures stay in-house). So the 155-160 M figure databases are not searched and
+        AI-image detection uses file markers + statistics only. Re-enable only if PJPS
+        changes the policy and signs a vendor contract. (Decision)
+  M5-d  Figure data loads: the PJPS archive figure index (about 1,550 of 7,281 articles on
+        31 Oct) and then PubMed Central figures. D:\pjps-tmp\module5.log was last written
+        on 1 Nov and ends with the job stopped. Restart run-module5.cmd. (P1, operational)
+
+Shared requirements
+  X-a   Roles: Reviewer gets Modules 1-3 only; Modules 4, 5, Full Screening and letters
+        are editor-only (src/modules.js). Complete.
+  X-b   Exports Word / PDF / CSV (+ BibTeX / RIS): complete; Similarity CSV added today.
+  X-c   Desktop app: package.json and desktop are both 3.2.10, but the installer has not
+        been rebuilt since the 3 Nov accuracy changes and today's Similarity Report
+        changes. Run npm run desktop:dist after freeing space on C:. (P1, operational)
+
+
+5. OPERATIONAL / HOUSEKEEPING
+-----------------------------
+  O1  C: drive nearly full: blocks the desktop build (NSIS exit code 2) and the memory-heavy
+      benchmark runs (M1-a, M5-a). Free space first. (P1)
+  O2  Uncommitted docs: docs/Module4-5-Audit-Report-2026-10-30.txt and
+      docs/Database-Options-2026-10-31.txt have edits not committed. The card number /
+      password noted on 31 Oct are no longer found in the audit report, but read it once
+      before committing. A Word lock file (docs/~$PS-Audit-Report-Modules-1-5.docx) is also
+      untracked: close Word, then delete it. (P2)
+  O3  Commit and deploy today's Similarity Report changes (not committed yet). (P1)
+
+
+6. RECOMMENDED ORDER
+--------------------
+  1. Free space on C: (O1), commit and deploy (O3), rebuild the desktop app (X-c).
+  2. Add a web search key for the Similarity Report (S1) - the largest coverage gain.
+  3. Restart the Module 5 figure loads (M5-d); re-run the M1 audit and the M5 80% rule
+     comparison (M1-a, M5-a).
+  4. PJPS decisions: local language model for claim support (M3-a); "Submitted works"
+     opt-in (S2); vendor / Hub memberships (M5-c, M4-c, S6).
+  5. Engine work: quote / bibliography toggles (S3), paraphrase matching (S4), more
+     paper-mill text profiles (M4-a).

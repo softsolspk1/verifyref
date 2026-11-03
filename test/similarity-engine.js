@@ -80,6 +80,46 @@ const ok = m => console.log(`  ✓ ${m}`);
   assert.strictEqual(back.summary.similarity, v.summary.similarity, 'including the source again restores the index');
   ok('applySettings (export) matches the view and is reversible');
 
+  // ---- sections (iThenticate's "exclude abstract / methods") and the small-source filter (Turnitin's "under x %")
+  const para = (tag, n) => Array.from({ length: n }, (_, i) => `${tag}${i}`).join(' ');
+  const paper = `Title of the paper here\n\nAbstract: ${para('ab', 20)}\n\n1. INTRODUCTION\n${para('in', 20)}\n\nMaterials and Methods\n${para('me', 40)}\n\nResults and discussion\n${para('re', 20)}\n\nAcknowledgements\n${para('ak', 5)}`;
+  const ptok = SIM.tokenize(paper);
+  const secs = SIM.sectionsOf(paper, ptok);
+  assert.deepStrictEqual(secs.map(x => x.key), ['front', 'abstract', 'introduction', 'methods', 'results', 'back'], 'headings found, inline "Abstract:" too');
+  assert.strictEqual(secs.find(x => x.key === 'results').label, 'Results and discussion');
+  assert.strictEqual(secs.reduce((a, x) => a + x.words, 0), ptok.length, 'sections cover every word once');
+  assert.strictEqual(SIM.sectionsOf('Just some text\nwithout any headings at all').length, 1, 'no headings: one section');
+  const meth = secs.find(x => x.key === 'methods').ranges[0];
+  const intro = secs.find(x => x.key === 'introduction').ranges[0];
+  const pall = [
+    { key: 'm', type: 'publication', title: 'Methods source', ranges: [[meth[0] + 2, meth[0] + 32]] },
+    { key: 'i', type: 'publication', title: 'Intro source', ranges: [[intro[0] + 2, intro[0] + 12]] }
+  ];
+  const pv = SIM.recompute(pall, paper, { tokens: ptok });
+  assert.strictEqual(pv.summary.compared, ptok.length);
+  assert.strictEqual(pv.sections.find(x => x.key === 'methods').matched, 30, 'section breakdown counts matched words');
+  const pe = SIM.recompute(pall, paper, { tokens: ptok, excludeSections: ['methods'] });
+  assert.deepStrictEqual(pe.sources.map(x => x.key), ['i'], 'a match inside an excluded section no longer counts');
+  assert.strictEqual(pe.summary.compared, ptok.length - secs.find(x => x.key === 'methods').words, 'excluded words leave the total');
+  assert.strictEqual(pe.summary.similarity, Math.round(10 / pe.summary.compared * 1000) / 10);
+  assert.ok(pe.document.some(d => d.x) && pe.document.map(d => d.t).join('') === paper, 'excluded text marked, text intact');
+  assert.ok(pe.sections.find(x => x.key === 'methods').excluded);
+  const pp = SIM.recompute(pall, paper, { tokens: ptok, minPercent: 10 });
+  assert.deepStrictEqual(pp.sources.map(x => x.key), ['m'], 'a source under 10 % is dropped');
+  assert.ok(pp.alsoMatched.find(x => x.key === 'i').small, 'and listed as under the filter');
+  const prep2 = { kind: 'plagiarism', version: 3, summary: { ...pv.summary }, sources: pv.sources, alsoMatched: pv.alsoMatched, document: pv.document, filters: {} };
+  const s1 = await P.applySettings(prep2, { excludeSections: ['methods', 'nonsense'], minPercent: 0 });
+  assert.deepStrictEqual(s1.settings.excludeSections, ['methods'], 'unknown section keys dropped');
+  assert.strictEqual(s1.summary.similarity, pe.summary.similarity, 'export matches the view');
+  assert.strictEqual(s1.summary.words, ptok.length, 'the full word count is kept, so filters never compound');
+  assert.ok(/Materials and methods/.test(s1.filters.sections));
+  const s2 = await P.applySettings(s1, { excludeSections: [] });
+  assert.strictEqual(s2.summary.similarity, pv.summary.similarity, 'including the section again restores the index');
+  assert.ok(!s2.filters.sections, 'the filter note goes with it');
+  const csv = P.toCsv(s1);
+  assert.ok(csv.charCodeAt(0) === 0xFEFF && csv.slice(1).startsWith('No.,Similarity %') && /Intro source/.test(csv) && /Methods source/.test(csv), 'sources CSV lists credited and other sources');
+  ok('sections found and excluded, small sources dropped, section breakdown, CSV of the sources');
+
   // ---- privacy: a phrase search is cached under a hash with the records found only
   const phrase = 'zyxomirol permeation across excised goat skin was measured';
   const server = http.createServer((req, res) => {

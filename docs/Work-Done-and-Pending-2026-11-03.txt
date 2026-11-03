@@ -1,0 +1,103 @@
+PJPS DATA INTEGRITY SYSTEM - WORK DONE AND STILL PENDING
+Date: 3 November 2026
+Checked against: docs/PJPS-Final-5-Modules.txt and docs/Gap-Analysis-and-Work-Left-2026-11-03.txt
+=====================================================================================
+
+
+1. BUILT AND FIXED TODAY (web portal; the desktop app gets them with its next build)
+------------------------------------------------------------------------------------
+
+Similarity Report (Turnitin / iThenticate parity)
+  - Exclude sections (Abstract, Materials and methods ...) from the comparison, as
+    iThenticate does; similarity of each section shown on screen and in Word / PDF.
+  - Exclude sources under 0.5-5 % of the manuscript, as Turnitin does.
+  - Words that differ from the source are marked in the side-by-side match view.
+  - Include quotations: the editor can now switch "exclude quotes" off (Filters tab).
+  - AI-writing indicator (0-100, from Module 4) shown next to the similarity, labelled
+    "an indicator, not proof".
+  - "Submitted works": optional comparison with earlier PJPS submissions (tick box on
+    the Full Screening form, off by default, kept on re-check).
+  - CSV export of the sources.
+  - Fix: the Full Screening front page now follows the editor's saved filters.
+
+Module 1 - Check Bibliography
+  - Invented references: 4 of 4 now marked Suspicious (was 3 of 4). A same-theme
+    closest record with none of the cited authors and another journal now counts as
+    "plainly a different publication".
+  - Audits: original 27-case audit 27/27, held-out 30-case audit 30/30. Pakistani
+    regional journals still "Unverified", never Suspicious.
+
+Module 2 - PJPS Style
+  - A missing full stop after the title is now reported when Module 1 matched the
+    reference (the record shows where the title ends). Style test 32/32, no false
+    alarms.
+  - PDF and CSV report buttons added (only Word existed).
+
+Module 3 - Citations
+  - The audit with a real uploaded PDF now runs: 6 of 6 correct (was 5 of 6). A source
+    that does without what the claim says is relied on ("dispensing with recurrence")
+    now contradicts the claim. SciFact (1,259 expert-labelled pairs): unchanged, no new
+    false contradictions.
+  - CSV export added.
+
+Module 4 - Paper Mill Detection
+  - Spec 4.3 "suggested reviewers ... with links to the authors": each suggested
+    reviewer is now checked for papers co-authored with an author in the last 10 years
+    (OpenAlex). Tested on a real pair.
+  - CSV export added (confidential, like the Word / PDF).
+  - Checked and NOT added: a profile for clinical papers dressed in AI buzzwords
+    (Hindawi 2022). It matched 11 of 150 mill papers but also 5 of 126 ordinary papers,
+    so it would wrongly flag honest authors.
+
+Module 5 - Image Integrity
+  - Near-identical partial overlaps (95 % alike, 20+ matching points) whose fine noise
+    was wiped by re-saving are now reported as findings "to check", never "Strong".
+  - The same idea for whole images was tried and removed: it flagged two different
+    blots with the same band layout.
+  - Expected detection about 85 of 155 known duplicates (55 %, was 52 %). This figure is
+    an estimate: the re-run was stopped because the computer ran out of memory. The run
+    before it showed no false alarms on 17,571 pairs of unrelated figures.
+  - CSV export added (confidential).
+
+Whole portal
+  - Word / PDF / CSV exports now exist for every module, as the specification asks. The
+    Full Screening export menu offers the Module 2-4 CSVs too.
+  - OpenAlex: the API key's $1 daily budget ran out today. Every keyed OpenAlex lookup
+    then failed (Module 1 indexes, journal profiles, similarity publisher search). The
+    portal now uses OpenAlex's free allowance until the budget resets.
+
+
+2. ACTION FOR YOU
+-----------------
+  a) Re-check any reports run on 3 November after mid-afternoon. While the OpenAlex
+     budget was spent, Module 1 may have marked references "Unverified (verification
+     could not be completed)".
+  b) Free space on drive C: (about 150 MB left). Without it the tests, the image
+     benchmark re-run and the desktop build (npm run desktop:dist) cannot run.
+  c) Web search key for the Similarity Report's "Internet sources": add SERPAPI_KEY, or
+     BRAVE_API_KEY, or GOOGLE_CSE_KEY + GOOGLE_CSE_CX to .env and to Vercel's
+     environment variables. No code change is needed.
+  d) PubPeer: send the API key and the API documentation that comes with it; the
+     connection will be built then.
+  e) Decide on the Anthropic API for Module 3 claim support and paraphrase detection.
+     Sending text does not make the manuscript public or add it to any plagiarism
+     database, and API data is not used for training by default, but manuscript
+     sentences leave PJPS servers. Read Anthropic's current commercial terms first.
+  f) OpenAlex budget: consider raising it at openalex.org/pricing. One Full Screening
+     can use up to 150 searches at $0.001 each.
+  g) Restart nothing: the Module 5 figure indexing (D:\pjps-tmp\run-module5.cmd) is
+     still running. Leave it until module5.log ends with "=== finished".
+
+
+3. STILL PENDING (needs data, keys, memory or a decision)
+---------------------------------------------------------
+  - Module 5 benchmark re-run for the final figure (needs free memory / C: space).
+  - Module 5: about 62 of the missed known duplicates never become candidates; a better
+    candidate stage is the next real gain.
+  - Module 3: contradicted claims still pass as "Full" in about 10 % of SciFact cases;
+    closing that needs a language model (decision e).
+  - Paraphrase and translated plagiarism in the Similarity Report (decision e).
+  - Comparison with the 155-160 million figures of Proofig / ImageTwin and
+    cross-publisher duplicate submissions (STM Integrity Hub): contracts or membership,
+    not code.
+  - Desktop installer rebuild (after b).

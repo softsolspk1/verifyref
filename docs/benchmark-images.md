@@ -1,5 +1,31 @@
 # Module 5 Image Integrity - benchmark on BioFors
 
+## 2026-11-03: re-saved copies (same command, same 60 papers)
+
+The 80 % rule (version 3.2.9) had lowered detection from 59 % to 52 %. A diagnostic of the 74 annotated pairs still
+missed showed that about 62 never become candidates (the hash / keypoint stage does not pair them), and about 6 are
+95-99 % identical pictures whose fine noise was wiped, as when one copy was re-saved or compressed again. Those now count
+as findings "to check" (never "Strong"), only with structural support: thumbnail noise agreeing (whole image) or at least
+20 matching keypoints (partial overlap).
+
+| | Before | After |
+|---|---|---|
+| Annotated duplicate pairs found | 81 / 155 (52 %) | 87 / 155 (56 %) |
+| ... as "Strong" | 49 | 49 |
+| Unrelated figures (17,571 pairs): reports | 0 | 0 |
+| Reports outside the annotations, "Strong" | 64 | 64 |
+| Reports outside the annotations, "to check" | 95 | 103 |
+| Cloned areas (IDD) / cut lines (CSTD) | unchanged | unchanged |
+
+The remaining misses need a better candidate stage (pairs the hashes and keypoints never bring together), not a looser
+match rule.
+
+Correction, same day: the figures above are from a first version that also accepted whole images on thumbnail noise.
+test/image-similarity.mjs showed that this version reports two different blots with the same band layout (99 % alike,
+thumbnail "noise" following the bands), so the whole-image part was removed; only partial overlaps with 20+ matching
+points remain. The two blot pairs it had recovered are dropped again, so expect about 85 / 155. The re-run of this
+version was stopped for lack of memory and is still to be done.
+
 Run 2026-10-31 with `node scripts/benchmark-images.mjs --task all --docs 60 --neg 300` on BioFors (Sabir et al., ICCV 2021,
 CC0): real figure panels from published papers with expert (Bik) annotations. Each BioFors image is a single panel, so the
 panel-splitting step of the live tool is not exercised here.

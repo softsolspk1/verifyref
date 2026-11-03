@@ -112,8 +112,11 @@ Module 3 - Citations: COMPLETE, ACCURACY LIMIT
         untuned SciFact half. Closing this needs a language model. To keep the "no
         manuscript text sent outside" rule it must run locally (e.g. a small model on the
         server / desktop). PJPS decision + build. (P1 accuracy)
-  M3-b  test/audit-m3c.js needs its source PDF (vaswani.pdf), which is not in the
-        repository. (P3)
+  M3-b  DONE - audit with a real uploaded PDF (arXiv 1706.03762, downloaded to test/, not
+        committed) now runs: 6 of 6. The one miss ("relies on recurrent networks" against
+        "dispensing with recurrence") is fixed by a narrow rule: the source does without
+        what the claim says is relied on, in the passage naming the claim's subject.
+        SciFact (1,259 pairs) unchanged: no new false contradictions.
 
 Module 4 - Paper Mill Detection: COMPLETE, ACCURACY LIMIT
   M4-a  Text signals catch 16% of known mill papers (2 false alarms in 126). Checked on
@@ -122,29 +125,43 @@ Module 4 - Paper Mill Detection: COMPLETE, ACCURACY LIMIT
         papers but also 5/126 ordinary ones, so a profile would wrongly flag honest AI
         imaging papers - NOT added. Most mill papers are only detectable through
         references, authors or images. (Measured limit)
-  M4-b  PubPeer comments on cited papers are not searched (PubPeer API needs a key). (P2)
+  M4-b  PubPeer comments on cited papers are not searched. PJPS will provide a key; the
+        connection is built once PubPeer's API documentation comes with it. (Waiting)
+  M4-d  DONE - spec 4.3 "suggested reviewers ... with links to the authors": besides
+        free-mail, same e-mail domain and shared surname, each suggested reviewer is now
+        checked for papers co-authored with an author in the last 10 years (OpenAlex), as
+        the Integrity Suite does for assigned reviewers. Live-tested.
   M4-c  Cross-publisher duplicate submissions need STM Integrity Hub membership. (P3,
         membership)
 
 Module 5 - Image Integrity: COMPLETE, ACCURACY LIMIT
-  M5-a  BioFors: 52% of marked duplicates found since the 80% rule (59% before), no false
-        alarms in 17,571 unrelated pairs. Unfinished: list the ~10 duplicates the 80% rule
-        dropped and test whether a brightness-tolerant measure recovers them. (P1, stopped
-        for low memory)
+  M5-a  Investigated 3 Nov. Of the 74 annotated duplicates still missed in the 60-paper
+        benchmark, about 62 never become candidates (hash / keypoint stage) - not the 80%
+        rule. About 6 are 95-99% identical areas whose fine noise was wiped by re-saving.
+        Partial overlaps of that kind (20+ matching points) are now "to check" findings.
+        Whole images of that kind are NOT accepted: two different blots with the same band
+        layout look 99% alike too (regression test). Remaining work: a better candidate
+        stage. See docs/benchmark-images.md for the figures.
   M5-b  Cloned areas found in about 1 in 3 cases; splicing is an indicator only;
         flow-cytometry plots can still give false alarms. (P2)
   M5-c  5.7 vendor connection (ImageTwin / Proofig) was built, then removed by PJPS policy
         (figures stay in-house). So the 155-160 M figure databases are not searched and
         AI-image detection uses file markers + statistics only. Re-enable only if PJPS
         changes the policy and signs a vendor contract. (Decision)
-  M5-d  Figure data loads: the PJPS archive figure index (about 1,550 of 7,281 articles on
-        31 Oct) and then PubMed Central figures. D:\pjps-tmp\module5.log was last written
-        on 1 Nov and ends with the job stopped. Restart run-module5.cmd. (P1, operational)
+  M5-d  Figure data loads: restarted 3 Nov 11:28. All 7,948 retracted / paper-mill papers
+        indexed; PubMed Central subject areas in progress (8 of 19 done at 14:24). (Running)
 
 Shared requirements
   X-a   Roles: Reviewer gets Modules 1-3 only; Modules 4, 5, Full Screening and letters
         are editor-only (src/modules.js). Complete.
-  X-b   Exports Word / PDF / CSV (+ BibTeX / RIS): complete; Similarity CSV added today.
+  X-b   DONE - Exports Word / PDF / CSV for every module. CSV was missing for Modules 2-5
+        and Module 2 had no PDF button; both added (Module 4 / 5 CSV confidential, like their
+        Word / PDF). The Full Screening export menu offers the Module 2-4 CSVs too.
+  X-d   DONE - OpenAlex key budget: the key's $1/day budget ran out on 3 Nov, and every keyed
+        lookup (Module 1 indexes, journal profiles, similarity publisher search) failed with
+        429; one 429 also put the whole host on a cooldown. Now the key is left off until the
+        budget resets and OpenAlex's free allowance is used. Consider a larger budget at
+        openalex.org/pricing (a Full Screening can use up to 150 searches at $0.001).
   X-c   Desktop app: package.json and desktop are both 3.2.10, but the installer has not
         been rebuilt since the 3 Nov accuracy changes and today's Similarity Report
         changes. Run npm run desktop:dist after freeing space on C:. (P1, operational)

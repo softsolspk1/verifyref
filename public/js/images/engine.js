@@ -661,6 +661,12 @@ function verifyWhole(A, B, k) {
 // look alike and even share a layout, but a different photograph never shares the noise; so "similar type" is not a match.
 export const MIN_SIMILARITY = 0.8;
 export const MIN_NOISE = 0.3;
+// Re-saved copy: an overlapping area at least 95 % identical whose fine noise was wiped by recompression (JPEG
+// re-saving, PDF export) still counts, as a finding to check - but only with at least RESAVED_POINTS matching keypoints,
+// and never as a strong finding. Not for whole images: two different blots with the same band layout are 99 % alike and
+// their thumbnails' "noise" follows the bands, so a whole-image match without the fine noise proves nothing.
+export const RESAVED_PICTURE = 0.95;
+const RESAVED_POINTS = 20;
 
 /** Least-squares affine map from points a to points b (the keypoint correspondences): x' = p0 x + p1 y + p2, y' = p3 x + p4 y + p5 */
 function fitAffine(a, b) {
@@ -1052,9 +1058,10 @@ export function findIssues(panels, progress = () => {}) {
       // the matched areas must be at least 80 % similar pixel by pixel, in whatever orientation, and share their noise:
       // shared labels, scale bars, instrument overlays or images of the same kind match as keypoints only
       const pv = part ? verifyMapped(A, B, part.ptsA, part.ptsB, part.regionA) : null;
-      if (part && similarEnough(pv)) {
-        findings.push({ kind: 'partial', level: part.inliers >= 25 && pv.picture >= 0.9 && pv.noise >= 0.5 && !channels ? 'high' : 'medium', verification: { region: Math.round(pv.picture * 100) / 100, noise: Math.round(pv.noise * 100) / 100 }, a: { panel: A.id, box: toImage(A, part.regionA) }, b: { panel: B.id, box: toImage(B, part.regionB) }, transform: part.transform, score: part.inliers,
-          description: `Overlapping image content (${part.inliers} matching points, ${part.coverage}% of the panel; ${describeTransform(part.transform)}; matched areas ${Math.round(pv.picture * 100)}% similar, noise pattern ${pv.noise.toFixed(2)})${channels ? CHANNEL_NOTE : ''}` });
+      const pResaved = !!pv && !similarEnough(pv) && pv.picture >= RESAVED_PICTURE && part.inliers >= RESAVED_POINTS;
+      if (part && (similarEnough(pv) || pResaved)) {
+        findings.push({ kind: 'partial', level: !pResaved && part.inliers >= 25 && pv.picture >= 0.9 && pv.noise >= 0.5 && !channels ? 'high' : 'medium', verification: { region: Math.round(pv.picture * 100) / 100, noise: Math.round(pv.noise * 100) / 100, ...(pResaved ? { resaved: true } : {}) }, a: { panel: A.id, box: toImage(A, part.regionA) }, b: { panel: B.id, box: toImage(B, part.regionB) }, transform: part.transform, score: part.inliers,
+          description: `Overlapping image content (${part.inliers} matching points, ${part.coverage}% of the panel; ${describeTransform(part.transform)}; matched areas ${Math.round(pv.picture * 100)}% similar, noise pattern ${pv.noise.toFixed(2)})${pResaved ? '. The fine noise differs, as when one copy was re-saved or compressed again: check this pair' : ''}${channels ? CHANNEL_NOTE : ''}` });
       }
     }
   }

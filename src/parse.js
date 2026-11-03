@@ -724,18 +724,27 @@ function paraNo(body, index) {
   return (body.slice(0, index).match(/[^\n]+/g) || []).length + 1;
 }
 
-const NAME_TOKEN = "[\\p{Lu}][\\p{L}'’\\-]+(?:\\s(?:van|von|de|der|da|del|di|al|el|ul|ur)\\s[\\p{Lu}][\\p{L}'’\\-]+)?";
+// surname particles written in lower case: van der Berg, de Souza, al Hassan, bin Abdullah
+const PARTICLE = '(?:van|von|de|der|den|da|del|della|di|du|la|le|al|el|ul|ur|bin|ibn|abu|dos|das|ter|ten)';
+const CAP = "[\\p{Lu}][\\p{L}'’\\-]+";
+// one surname, with particles before or inside it (narrative citations: a capitalised word before it may start the sentence)
+const NAME_TOKEN = `(?:${PARTICLE}\\s){0,3}${CAP}(?:\\s(?:${PARTICLE}\\s){1,2}${CAP})?`;
+// at the start of a parenthetical citation also several capitalised words: De Silva, World Health Organization, Centers for
+// Disease Control (an organisation as author)
+const PAREN_NAME = `(?:${PARTICLE}\\s){0,3}${CAP}(?:\\s(?:(?:${PARTICLE}|of|for|on|the)\\s){0,2}${CAP}){0,6}`;
 
 /** Find author-year citations: (Smith, 2020), (Smith & Lee, 2019a; Khan et al., 2021), Smith et al. (2020) */
 function extractAuthorYearCitations(body) {
   const cites = [];
-  const yearList = '((?:1[6-9]\\d{2}|20\\d{2})[a-z]?(?:\\s*,\\s*(?:1[6-9]\\d{2}|20\\d{2})[a-z]?)*)';
+  // years, and a letter alone after a lettered year: (Khan et al., 2020a, b) cites 2020a and 2020b
+  const yearList = '((?:1[6-9]\\d{2}|20\\d{2})[a-z]?(?:\\s*,\\s*(?:(?:1[6-9]\\d{2}|20\\d{2})[a-z]?|[a-z](?=\\s*[,;)]|\\s*$)))*)';
   const authorPart = `(${NAME_TOKEN}(?:\\s+et\\s+al\\.?|\\s*(?:&|and)\\s*${NAME_TOKEN})?)`;
+  const parenAuthor = `(${PAREN_NAME}(?:\\s+et\\s+al\\.?|\\s*(?:&|and)\\s*${PAREN_NAME})?)`;
 
   // Parenthetical groups
   for (const m of body.matchAll(/\(([^()]{4,400}?(?:1[6-9]\d{2}|20\d{2})[a-z]?[^()]*?)\)/g)) {
     for (const part of m[1].split(/\s*;\s*/)) {
-      const pm = part.replace(/^(?:e\.g\.,?|see|cf\.|also|i\.e\.,?)\s+/i, '').match(new RegExp(`^${authorPart},?\\s+${yearList}`, 'u'));
+      const pm = part.replace(/^(?:e\.g\.,?|see|cf\.|also|i\.e\.,?)\s+/i, '').match(new RegExp(`^${parenAuthor},?\\s+${yearList}`, 'u'));
       if (pm) addAuthorYear(cites, pm[1], pm[2], m, body);
     }
   }
@@ -748,9 +757,12 @@ function addAuthorYear(cites, authorStr, years, m, body) {
   const etAl = /et\s+al/i.test(authorStr);
   const names = authorStr.replace(/\s+et\s+al\.?/i, '').split(/\s*(?:&|\band\b)\s*/).map(s => s.trim()).filter(Boolean);
   if (/^(?:In|The|This|These|Table|Figure|Fig|Eq|Section|Chapter|Since|From|During|Between|After|Before|Until|January|February|March|April|May|June|July|August|September|October|November|December|Spring|Summer|Autumn|Winter)$/i.test(names[0])) return;
+  let last = null;
   for (const y of years.split(/\s*,\s*/)) {
-    const ym = y.match(/^(\d{4})([a-z]?)$/);
+    // a letter alone takes the year before it, when that year had a letter too (2020a, b)
+    const ym = y.match(/^(\d{4})([a-z]?)$/) || (/^[a-z]$/.test(y) && last?.[2] ? [y, last[1], y] : null);
     if (!ym) continue;
+    last = ym;
     cites.push({
       authors: names, etAl, year: parseInt(ym[1], 10), suffix: ym[2] || '',
       text: m[0].slice(0, 160), index: m.index, para: paraNo(body, m.index),

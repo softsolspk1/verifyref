@@ -305,6 +305,35 @@ router.get('/checks/:id/screening', auth.requireUser, wrap(async (req, res) => {
   sendFile(res, await W.buildDocx(W.screeningBlocks(c.result, version)), `screening-${version}-${c.row.manuscript_code || c.row.id}.docx`, DOCX);
 }));
 
+// ------------------------------------------------------------------ similarity report (Turnitin-style filters)
+
+// the editor's filters - excluded sources, minimum match length - saved with the report, so the export uses them
+router.patch('/checks/:id/similarity', auth.requireUser, wrap(async (req, res) => {
+  const c = await loadCheck(req.user.id, req.params.id);
+  const pl = c?.result?.plagiarism;
+  if (!pl || pl.error) return res.status(404).json({ success: false, message: 'Similarity report not found.' });
+  if ((pl.version || 0) < 3) return res.status(409).json({ success: false, message: 'This report was made with an earlier method; run the screening again to use the filters.' });
+  const next = await require('../checks/plagiarism').applySettings(pl, { excluded: req.body?.excluded, minWords: req.body?.minWords });
+  const store = require('../reportStore');
+  const r = await store.load(c.row.result);
+  r.plagiarism = next;
+  await db.query('UPDATE checks SET result = $1 WHERE id = $2', [JSON.stringify(r), c.row.id]);
+  await store.offload(c.row.id, r);
+  await auth.audit(req, 'similarity-filters', `check ${c.row.id}`, next.settings);
+  res.json({ success: true, plagiarism: next });
+}));
+
+/** The similarity report alone, as Word or PDF (confidential: it holds the manuscript text) */
+router.get('/checks/:id/similarity', auth.requireUser, wrap(async (req, res) => {
+  const c = await loadCheck(req.user.id, req.params.id);
+  const pl = c?.result?.plagiarism;
+  if (!pl || pl.error) return res.status(404).json({ success: false, message: 'Similarity report not found.' });
+  const blocks = W.similarityReportBlocks({ ...c.result, id: c.row.id });
+  const name = `similarity-${c.row.manuscript_code || c.row.id}`;
+  if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(blocks), `${name}.pdf`, 'application/pdf');
+  sendFile(res, await W.buildDocx(blocks), `${name}.docx`, DOCX);
+}));
+
 // ------------------------------------------------------------------ Module 1 settings (Super Admin)
 
 router.get('/settings/age-rule', auth.requireUser, wrap(async (req, res) => res.json({ success: true, rule: await ageRule() })));

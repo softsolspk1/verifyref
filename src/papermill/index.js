@@ -646,6 +646,10 @@ async function detectPaperMill(input, update = () => {}) {
     _shingles: dup.shingles
   };
   out.overview = require('./overview').overview(out);
+  // the editor's summary: convergence of evidence, completeness, recommended action, checklist and the query letter
+  const A = require('./assessment');
+  out.assessment = A.assess(out);
+  out.assessment.letter = A.queryLetter(out, out.assessment);
   return out;
 }
 

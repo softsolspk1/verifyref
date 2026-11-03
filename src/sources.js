@@ -577,9 +577,11 @@ const scholarEnabled = () => !!cfg.SERPAPI_KEY || (cfg.DESKTOP && require('./des
 let scholarBlockedUntil = 0;   // after "out of searches" / invalid key, Google Scholar and Google are skipped for an hour
 
 /** One SerpApi search (engine google_scholar or google), cached 30 days; on the desktop through the web platform */
-async function serpSearch(engine, query, num = 5) {
-  if (cfg.SERPAPI_KEY) return getJson(`https://serpapi.com/search.json?engine=${engine}&q=${enc(query)}&num=${num}&hl=en&api_key=${enc(cfg.SERPAPI_KEY)}`, { ttl: 30 * 86400, timeout: 30000, retries: 1 });
-  if (cfg.DESKTOP) return require('./desktop').remoteSerp(engine, query, num);
+// a private search (words of an unpublished manuscript) is cached under a hash with the results' links and titles only
+const keepOrganic = d => ({ organic_results: (d?.organic_results || []).slice(0, 10).map(o => ({ link: o.link || null, title: o.title || null })) });
+async function serpSearch(engine, query, num = 5, { private: priv = false } = {}) {
+  if (cfg.SERPAPI_KEY) return getJson(`https://serpapi.com/search.json?engine=${engine}&q=${enc(query)}&num=${num}&hl=en&api_key=${enc(cfg.SERPAPI_KEY)}`, { ttl: 30 * 86400, timeout: 30000, retries: 1, ...(priv ? { private: keepOrganic } : {}) });
+  if (cfg.DESKTOP) return require('./desktop').remoteSerp(engine, query, num, { private: priv });
   return { ok: false, status: 0, data: { error: 'SerpApi is not configured' } };
 }
 const serpBlocked = r => r.status === 401 || r.status === 429 || /run out of searches|invalid api key/i.test(r.data?.error || '');

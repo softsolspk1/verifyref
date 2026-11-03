@@ -99,7 +99,7 @@ function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
       } else if (b.table) table(doc, b.table.headers, b.table.rows);
       else if (b.marked) {
         // similarity report text: matched runs in their source's colour, prefixed with the source number
-        const COLORS = ['#E6194B', '#3CB44B', '#4363D8', '#F58231', '#911EB4', '#42A5A5', '#F032E6', '#9A6324', '#808000', '#000075', '#E6A700', '#008080', '#800000', '#469990', '#AA6E28'];
+        const COLORS = ['#D7263D', '#1B998B', '#3A50D9', '#F46036', '#8E44AD', '#2E86AB', '#C2185B', '#8D6E63', '#6B8E23', '#283593', '#E0A100', '#00897B', '#7B1FA2', '#5D4037', '#455A64'];
         const paras = [[]];
         for (const seg of b.marked) String(seg.t).split(/\n+/).forEach((line, i) => { if (i > 0) paras.push([]); if (line) paras[paras.length - 1].push({ t: line, s: i === 0 ? seg.s : seg.s && -seg.s }); });
         for (const parts of paras.filter(x => x.length)) {

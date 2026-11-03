@@ -1,23 +1,28 @@
 // checks/plagiarism.js - similarity (originality) report of a manuscript, laid out like Turnitin's: one Similarity Index,
-// broken down into Internet sources, Publications and Submitted works (earlier PJPS submissions), a numbered list of
-// primary sources whose percentages add up to the index, and the manuscript text highlighted in each source's colour.
+// broken down into Internet sources and Publications, a numbered list of primary sources whose percentages add up to the
+// index, and the manuscript text highlighted in each source's colour, every match shown next to the source's own wording.
 //
 //   1. Filters as in Turnitin: the bibliography is excluded, quoted text is excluded, matches shorter than MIN_MATCH words
-//      are excluded.
+//      are excluded. In-text citation markers ([12], (Smith et al., 2020)) are ignored on both sides, so a copied
+//      sentence whose citation was changed or removed is still one match.
 //   2. Source discovery, as Turnitin compares every sentence: the PJPS repository of published texts; the open-access
-//      full texts of papers on the same subject; then every stretch of WINDOW words not matched yet is searched as an
-//      exact phrase in Europe PMC (open-access full texts and all PubMed abstracts) and, for what it does not know, in
-//      OpenAlex's index of publisher full texts (open and paywalled) and, with a SerpApi key, on the web.
-//   No repository: the manuscript is never stored, and earlier unpublished PJPS submissions are not compared (Turnitin's
-//   "no repository" setting), so a manuscript checked before publication never matches itself later.
-//   3. Matching: the texts found are compared with the whole manuscript in overlapping K-word sequences (lower case,
-//      punctuation and plural "s" ignored); runs separated by at most GAP different words are joined, so lightly
-//      reworded sentences still count as one match.
-//   4. Attribution: every matched word is credited to one source only, the source with the most matched text first
-//      (Turnitin's "primary sources"), so the source percentages add up to the Similarity Index.
+//      full texts of papers on the same subject; then every stretch of WINDOW words not matched yet - aligned on the
+//      sentences, so a copied sentence always fills a searched stretch - is searched as an exact phrase in Europe PMC
+//      (open-access full texts and all PubMed abstracts) and, for what it does not know, in OpenAlex's index of
+//      publisher full texts (open and paywalled) and, with a web search key, on the web.
+//   3. Matching: the texts found are compared with the whole manuscript in overlapping K-word sequences (Unicode
+//      normalised, lower case, punctuation and plural "s" ignored); runs separated by at most GAP different words are
+//      joined, so lightly reworded sentences still count as one match.
+//   4. Attribution (public/js/shared/similarity.js, shared with the report view): every matched word is credited to one
+//      source only, the source with the most matched text first (Turnitin's "primary sources"), so the source
+//      percentages add up to the Similarity Index. The view can exclude sources and raise the minimum match length.
+// Privacy - no repository: the manuscript is never stored or indexed, and earlier unpublished PJPS submissions are not
+// compared (Turnitin's "no repository" setting). Only 8-word passages are sent to the search services, and their
+// answers are cached under a hash of the query with the public records found, never the passage itself (http.js).
 // Coverage: open-access literature, PubMed abstracts, publisher full texts indexed by OpenAlex (passage search only when
-// paywalled) and the open web with a SerpApi key. Turnitin's own archive of student papers is not available.
-const db = require('../db');
+// paywalled) and the open web with a search key. Turnitin's own archive of student papers is not available.
+const path = require('path');
+const { pathToFileURL } = require('url');
 const { getJson, getText } = require('../http');
 const { titleSimilarity, cleanDoi } = require('../text');
 const cfg = require('../config');
@@ -25,86 +30,71 @@ const corpus = require('../corpus');
 const WEB = require('../webSearch');
 
 const EPMC = 'https://www.ebi.ac.uk/europepmc/webservices/rest';
-const SAMPLES = 80;          // passages searched
 const WEB_PHRASES = Math.max(0, parseInt(cfg.WEB_PHRASES || 60, 10) || 0); // passages no literature index has, searched on the web per report
 const MAX_SOURCES = 25;      // sources found by several passages, read in full where open
-const WINDOW = 8;            // words per searched passage (every stretch of the text not matched yet)
+const WINDOW = 8;            // words per searched passage
 const OPENALEX_PHRASES = Math.max(0, parseInt(cfg.OPENALEX_PHRASES || 150, 10) || 0); // OpenAlex full-text searches per report ($0.001 each beyond the free allowance)
 const K = 5;                 // words per compared sequence
 const GAP = 2;               // different words allowed inside one match
-const MIN_MATCH = 8;         // exclude matches shorter than this (words)
-const MAX_TEXT = 120000;     // characters of the manuscript shown highlighted in the report
+const COMMON = 25;           // a passage found in more papers than this is stock wording: credited to the first paper only
+const MAX_TEXT = 200000;     // characters of the manuscript shown highlighted in the report
+const MAX_PASSAGES = 12;     // matches kept per source with the source's own wording
+
+let SIM = null; // public/js/shared/similarity.js (ES module, loaded once)
+const shared = async () => SIM || (SIM = await import(pathToFileURL(path.join(__dirname, '../../public/js/shared/similarity.js')).href));
+const MIN_MATCH = 8;         // = SIM.MIN_MATCH
 
 const STOP = new Set(('a an the and or of in on at to for from by with without as is are was were be been being this that these those it its their there '
   + 'which who whom whose than then into onto over under between among within during after before about above below also such may might can could '
   + 'should would will shall not no nor but if so very more most less least all any each both either neither other others some same than too '
   + 'we our us they them he she his her i you your one two three using used use based study studies present results result showed shown show').split(' '));
-// wording every paper uses; sentences built from it say nothing about where a text came from
-const BOILERPLATE = /\b(all authors|conflicts? of interest|informed consent|ethic(s|al) (committee|approval)|statistical(ly)? analys|mean ?± ?s\.?d|were purchased from|analytical grade|data are (expressed|presented)|this work was supported|corresponding author|the authors (declare|thank|acknowledge)|creative commons|copyright)\b/i;
+// abbreviations that end in a full stop without ending the sentence
+const ABBREV = /^(?:al|e\.g|i\.e|fig|figs|vs|approx|ca|no|nos|vol|eq|ref|refs|dr|prof|st|sp|spp|var|cf|resp|etc|viz|min|max|conc|temp|wt|vol)\.$/i;
 
-const norm = w => {
-  const x = String(w).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-  return x.length > 4 && x.endsWith('s') && !x.endsWith('ss') ? x.slice(0, -1) : x;
+/**
+ * Character spans of in-text citation markers: numbered ([12], [3-5, 9], (12)) and author-year ((Smith et al., 2020;
+ * Khan and Ali, 2019a)). Their words are not compared, so a copied sentence with another citation still matches.
+ */
+function citeSpans(text) {
+  const out = [];
+  for (const m of text.matchAll(/\[\s*\d{1,3}(?:\s*[-–,;]\s*\d{1,3})*\s*\]|\(\s*\d{1,3}(?:\s*[-–,;]\s*\d{1,3})*\s*\)/g)) out.push([m.index, m.index + m[0].length]);
+  for (const m of text.matchAll(/\(([^()]{3,250})\)/g)) {
+    if (/\p{Lu}[\p{L}'’-]+(?:\s+et\s+al\.?|\s+(?:and|&)\s+\p{Lu}[\p{L}'’-]+)?,?\s+(?:19|20)\d{2}[a-z]?\b/u.test(m[1])) out.push([m.index, m.index + m[0].length]);
+  }
+  return out.sort((a, b) => a[0] - b[0]);
+}
+const inSpans = (spans, at) => {
+  let lo = 0, hi = spans.length - 1;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (spans[mid][1] <= at) lo = mid + 1; else if (spans[mid][0] > at) hi = mid - 1; else return true; }
+  return false;
 };
 
-/** The manuscript as words with character offsets; the bibliography is cut off and quoted words are marked */
+/**
+ * The manuscript as words with character offsets (shared tokenizer); the bibliography is cut off, quoted words and
+ * citation markers are marked. seq: positions of the compared words (not citations); keys: their K-word sequences.
+ */
 function prepare(body) {
   let text = String(body || '');
-  const bib = text.search(/\n\s*(references|bibliography|literature cited|works cited)\s*:?\s*\n/i);
+  const bib = text.search(/\n\s*(?:\d{1,2}\.?\s*)?(references|bibliography|literature cited|works cited|reference list)\s*:?\s*\n/i);
   const bibliographyExcluded = bib > text.length * 0.3;
   if (bibliographyExcluded) text = text.slice(0, bib);
   // quotations of five words or more ("…", “…”) are excluded from matching, as Turnitin's "exclude quotes"
   const quoted = [];
   for (const m of text.matchAll(/[“"]([^“”"\n]{20,1500})[”"]/g)) if (m[1].trim().split(/\s+/).length >= 5) quoted.push([m.index, m.index + m[0].length]);
-  const words = [];
-  for (const m of text.matchAll(/\S+/g)) {
-    const n = norm(m[0]);
-    if (!n) continue;
-    words.push({ raw: m[0], n, start: m.index, end: m.index + m[0].length, quoted: quoted.some(([a, b]) => m.index >= a && m.index < b) });
-  }
-  return { text, words, bibliographyExcluded, quotedWords: words.filter(w => w.quoted).length };
+  const cites = citeSpans(text);
+  const words = SIM.tokenize(text).map(w => ({ ...w, quoted: inSpans(quoted, w.start), cite: inSpans(cites, w.start) }));
+  const seq = [];
+  words.forEach((w, i) => { if (!w.cite) seq.push(i); });
+  const keys = [];
+  for (let j = 0; j + K <= seq.length; j++) keys.push(seq.slice(j, j + K).map(i => words[i].n).join(' '));
+  return { text, words, seq, keys, bibliographyExcluded, quotedWords: words.filter(w => w.quoted).length, citeWords: words.filter(w => w.cite).length };
 }
 
-const wordsOf = text => [...String(text || '').matchAll(/\S+/g)].map(m => ({ raw: m[0], n: norm(m[0]) })).filter(w => w.n);
-
-/** Sentences worth searching: 12-60 words, mostly prose, not boilerplate or quoted, ranked by how many specific words they carry */
-function candidateSentences(text) {
-  const sents = String(text || '').replace(/\s+/g, ' ').split(/(?<=[.!?])\s+(?=[A-Z(])/).map(s => s.trim());
-  const out = [];
-  sents.forEach((s, i) => {
-    const w = wordsOf(s);
-    if (w.length < 12 || w.length > 60 || /^[“"]/.test(s)) return;
-    const digits = w.filter(x => /\d/.test(x.n)).length;
-    if (digits / w.length > 0.2 || BOILERPLATE.test(s) || (/\[\d+|\(\w+ et al\.?,? \d{4}/.test(s) && w.length < 18)) return;
-    const content = w.filter(x => !STOP.has(x.n) && x.n.length >= 5).length;
-    out.push({ i, s, score: content / Math.sqrt(w.length) });
-  });
-  return out;
-}
-
-/** The 10-word stretch of a sentence with the most specific words (searched as an exact phrase) */
-function phraseOf(sentence) {
-  const w = String(sentence).split(/\s+/).map(x => x.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean);
-  let best = -1, at = 0;
-  for (let k = 0; k + 10 <= w.length; k++) {
-    const sc = w.slice(k, k + 10).filter(x => !STOP.has(norm(x)) && norm(x).length >= 5).length;
-    if (sc > best) { best = sc; at = k; }
-  }
-  return w.slice(at, at + 10).join(' ').replace(/"/g, '');
-}
-
-/** Spread the samples over the whole text: the best sentence of each of SAMPLES equal parts */
-function pickSamples(text, n = SAMPLES) {
-  const c = candidateSentences(text);
-  if (!c.length) return [];
-  const parts = Math.min(n, c.length);
-  const out = [];
-  for (let p = 0; p < parts; p++) {
-    const part = c.slice(Math.floor(p * c.length / parts), Math.floor((p + 1) * c.length / parts));
-    const best = part.sort((a, b) => b.score - a.score)[0];
-    if (best) out.push(best.s);
-  }
-  return out;
+/** A source text as compared words (citation markers left out): [{ raw, n }] */
+function comparable(text) {
+  const t = String(text || '');
+  const cites = citeSpans(t);
+  return SIM.tokenize(t).filter(w => !inSpans(cites, w.start));
 }
 
 async function pool(items, n, fn) {
@@ -114,8 +104,13 @@ async function pool(items, n, fn) {
   return out;
 }
 
-const stripXml = x => String(x || '').replace(/<ref-list[\s\S]*?<\/ref-list>/g, ' ').replace(/<(table-wrap|fig)\b[\s\S]*?<\/\1>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ');
+const stripXml = x => String(x || '').replace(/<ref-list[\s\S]*?<\/ref-list>/g, ' ').replace(/<(table-wrap|fig)\b[\s\S]*?<\/\1>/g, ' ').replace(/<xref\b[^>]*ref-type="bibr"[^>]*>[\s\S]*?<\/xref>/g, ' ')
+  .replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\[[\s,;–-]*\]/g, ' ').replace(/\s+/g, ' ');
 const stripHtml = x => String(x || '').replace(/<(script|style|noscript|nav|header|footer)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ');
+
+// what is kept in the cache of a passage search (http.js "private"): the papers found, nothing of the query
+const keepEpmc = d => ({ hitCount: d?.hitCount || 0, resultList: { result: (d?.resultList?.result || []).map(x => ({ title: x.title, journalTitle: x.journalTitle, pubYear: x.pubYear, doi: x.doi, pmcid: x.pmcid, pmid: x.pmid })) } });
+const keepOpenAlex = d => ({ results: (d?.results || []).map(x => ({ id: x.id, title: x.title, doi: x.doi, publication_year: x.publication_year, primary_location: { source: { display_name: x.primary_location?.source?.display_name || null } }, open_access: { oa_url: x.open_access?.oa_url || null }, ids: { pmcid: x.ids?.pmcid || null } })) });
 
 /** Text of a literature source: Europe PMC full text (open access) or the abstract */
 async function sourceText(c) {
@@ -135,7 +130,8 @@ async function sourceText(c) {
     const pdf = await require('../http').getBuffer(c.oaPdf, { timeout: 30000 }).catch(() => null);
     if (pdf?.ok && pdf.buffer.slice(0, 5).toString() === '%PDF-' && pdf.buffer.length < 30 * 1024 * 1024) {
       const pages = await require('../tools/fulltext').filePages(pdf.buffer, 'source.pdf').catch(() => null);
-      const t = (pages || []).map(p => p.text).join(' ').replace(/\s+/g, ' ');
+      // words broken at the end of a PDF line ("pharma- ceutical") are joined again
+      const t = (pages || []).map(p => p.text).join(' ').replace(/(\p{Ll})-\s+(\p{Ll})/gu, '$1$2').replace(/\s+/g, ' ');
       if (t.length > 2000) return { text: t, scope: 'full text (open-access PDF)' };
     }
   }
@@ -170,96 +166,97 @@ function finishRuns(hit, words) {
   return passages;
 }
 
-/** Words of the manuscript inside K-word sequences that also occur in the source (quoted words never match) */
-function overlap(mine, theirs) {
-  const set = new Set();
-  const tw = wordsOf(theirs).map(x => x.n);
-  for (let k = 0; k + K <= tw.length; k++) set.add(tw.slice(k, k + K).join(' '));
-  const hit = new Uint8Array(mine.length);
-  for (let k = 0; k + K <= mine.length; k++) {
-    if (mine[k + K - 1].quoted || mine[k].quoted) continue;
-    if (set.has(mine.slice(k, k + K).map(x => x.n).join(' '))) for (let j = k; j < k + K; j++) hit[j] = 1;
+/** A citation marker between two matched words belongs to the match (it was not compared) */
+function bridgeCites(hit, mine) {
+  for (let k = 0; k < mine.length;) {
+    if (!mine[k].cite) { k++; continue; }
+    let e = k;
+    while (e < mine.length && mine[e].cite) e++;
+    if (k > 0 && hit[k - 1] && e < mine.length && hit[e]) for (let j = k; j < e; j++) hit[j] = 1;
+    k = e;
   }
-  const passages = finishRuns(hit, mine);
-  return { hit, passages: passages.sort((a, b) => b.words - a.words) };
+}
+
+/**
+ * Words of the manuscript inside K-word sequences that also occur in the source (quoted words never match), and for
+ * every match the source's own wording (Turnitin's side-by-side view)
+ */
+function overlap(prep, theirs) {
+  const mine = prep.words, seq = prep.seq;
+  const tw = comparable(theirs);
+  const pos = new Map();
+  for (let k = 0; k + K <= tw.length; k++) { const key = tw.slice(k, k + K).map(x => x.n).join(' '); if (!pos.has(key)) pos.set(key, k); }
+  const hit = new Uint8Array(mine.length);
+  for (let j = 0; j < prep.keys.length; j++) {
+    if (mine[seq[j]].quoted || mine[seq[j + K - 1]].quoted) continue;
+    if (pos.has(prep.keys[j])) for (let t = j; t < j + K; t++) hit[seq[t]] = 1;
+  }
+  bridgeCites(hit, mine);
+  const passages = finishRuns(hit, mine).sort((a, b) => b.words - a.words);
+  // where each match sits in the source: its first matching sequence, and the source text of the same length from there
+  const jOf = new Map(seq.map((i, j) => [i, j]));
+  for (const p of passages.slice(0, MAX_PASSAGES)) {
+    for (let i = p.from; i + K <= p.to; i++) {
+      const j = jOf.get(i);
+      if (j === undefined || j >= prep.keys.length) continue;
+      const at = pos.get(prep.keys[j]);
+      if (at === undefined) continue;
+      const lead = seq.slice(jOf.get(p.from) ?? j, j).length; // compared words of the match before this sequence
+      const from = Math.max(0, at - lead);
+      p.source = tw.slice(from, Math.min(tw.length, from + p.words + 3)).map(x => x.raw).join(' ');
+      break;
+    }
+  }
+  return { hit, passages };
 }
 
 /** Stable repository key of a source found by the search */
 const sourceKeyOf = c => (c.pmcid ? `pmc:${c.pmcid}` : c.pmid ? `pmid:${c.pmid}` : c.doi ? `doi:${String(c.doi).toLowerCase()}` : c.url ? `url:${c.url}` : `title:${String(c.title || '').toLowerCase().slice(0, 200)}`);
 
-// ------------------------------------------------------------------ earlier PJPS submissions (Module 4 fingerprints)
-
-function fnv(s) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
-  return h >>> 0;
-}
-
-/**
- * Earlier submissions keep only sampled hashes of 6-word sequences (papermill/index.js shingles(): about 1 in 8). A copied
- * passage hits several sampled sequences; the words between hits close together are filled in, so the matched area is a
- * close estimate rather than an exact word-by-word match.
- */
-async function submissionMatches(mine, excludeCode) {
-  const rows = await db.all("SELECT check_id, manuscript_code, title, data, created_at FROM fingerprints WHERE kind = 'text' ORDER BY created_at DESC LIMIT 3000").catch(() => []);
-  if (!rows.length) return { compared: 0, sources: [] };
-  // the manuscript's words split as the fingerprints were made (letters and digits, words longer than one character)
-  const sub = [];
-  mine.forEach((w, i) => { for (const part of w.raw.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/)) if (part.length > 1) sub.push({ t: part, i }); });
-  const windows = [];
-  for (let k = 0; k + 6 <= sub.length; k++) {
-    const h = fnv(sub.slice(k, k + 6).map(x => x.t).join(' '));
-    if (h % 8 === 0) windows.push({ h, from: sub[k].i, to: sub[k + 5].i });
-  }
-  const out = [];
-  for (const r of rows) {
-    if (excludeCode && r.manuscript_code && r.manuscript_code === excludeCode) continue;
-    const theirs = new Set(r.data?.shingles || []);
-    if (!theirs.size) continue;
-    const hit = new Uint8Array(mine.length);
-    let hits = 0;
-    for (const w of windows) if (theirs.has(w.h)) { hits++; for (let j = w.from; j <= w.to; j++) if (!mine[j].quoted) hit[j] = 1; }
-    if (hits < 2) continue;
-    // fill the stretches between sampled hits that lie close together: in copied text a sampled sequence falls on average
-    // every 8 words, with gaps of up to about 24 (an exact 6-word hash match by chance is very rare)
-    for (let k = 0, last = -1; k < hit.length; k++) {
-      if (!hit[k]) continue;
-      if (last >= 0 && k - last > 1 && k - last <= 24) for (let j = last + 1; j < k; j++) hit[j] = 1;
-      last = k;
-    }
-    const passages = finishRuns(hit, mine);
-    if (!passages.length) continue;
-    out.push({ type: 'submission', via: 'PJPS submissions', title: `${r.manuscript_code || 'Earlier PJPS submission'}${r.title ? `: ${r.title}` : ''}`, checkId: r.check_id, year: r.created_at ? new Date(r.created_at).getFullYear() : null,
-      compared: 'text fingerprints', hit, passages });
-  }
-  return { compared: rows.length, sources: out };
-}
-
 // ------------------------------------------------------------------ passages searched and papers on the same subject
 
 /**
- * Every stretch of WINDOW words of the manuscript, back to back, except quoted text, stretches already matched by a
- * compared full text, and stretches without content (function words or figures only)
+ * The stretches of WINDOW compared words searched as exact phrases, aligned on the sentences: one at the start of every
+ * sentence, then every WINDOW words, and one ending with the sentence - so a copied sentence (or its longer part) always
+ * fills a searched stretch. Quoted text, stretches already matched by a compared full text, and stretches without
+ * content (function words or figures only) are left out.
  */
-function searchWindows(mine, covered) {
-  const out = [];
-  for (let k = 0; k + WINDOW <= mine.length; k += WINDOW) {
-    let c = 0; for (let j = k; j < k + WINDOW; j++) c += covered[j];
-    if (c >= WINDOW / 2) continue;
-    const w = windowAt(mine, k);
-    if (w) out.push(w);
+function searchWindows(prep, covered) {
+  const { words: mine, seq } = prep;
+  const starts = [0];
+  for (let j = 0; j + 1 < seq.length; j++) {
+    const w = mine[seq[j]].raw;
+    if (/[.!?]["”’)\]]?$/.test(w) && !ABBREV.test(w) && /^[\p{Lu}\d(“"]/u.test(mine[seq[j + 1]].raw)) starts.push(j + 1);
   }
-  return out;
+  starts.push(seq.length);
+  const out = [];
+  const seen = new Set();
+  const add = j => {
+    if (j < 0 || j + WINDOW > seq.length || seen.has(j)) return;
+    seen.add(j);
+    const w = windowAt(prep, j, covered);
+    if (w) out.push(w);
+  };
+  for (let s = 0; s + 1 < starts.length; s++) {
+    const a = starts[s], b = starts[s + 1];
+    if (b - a < WINDOW) { add(a); continue; }
+    for (let j = a; j + WINDOW <= b; j += WINDOW) add(j);
+    if ((b - a) % WINDOW >= WINDOW / 2) add(b - WINDOW);
+  }
+  return { windows: out, seen };
 }
 
-/** The stretch of WINDOW words starting at word k, as a search phrase, or null when it is quoted or has no content */
-function windowAt(mine, k) {
-  const w = mine.slice(k, k + WINDOW);
-  if (w.length < WINDOW || w.some(x => x.quoted)) return null;
+/** The WINDOW compared words from seq position j, as a search phrase, or null when quoted, covered or without content */
+function windowAt(prep, j, covered) {
+  const idx = prep.seq.slice(j, j + WINDOW);
+  if (idx.length < WINDOW) return null;
+  const w = idx.map(i => prep.words[i]);
+  if (w.some(x => x.quoted)) return null;
+  if (covered && idx.filter(i => covered[i]).length >= WINDOW / 2) return null;
   const content = w.filter(x => !STOP.has(x.n) && x.n.length >= 4 && !/^\d/.test(x.n)).length;
   if (content < 3 || w.filter(x => /\d/.test(x.n)).length > 3) return null;
   const phrase = w.map(x => x.raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean).join(' ').replace(/"/g, '');
-  return phrase.split(' ').length < WINDOW - 1 ? null : { from: k, to: k + WINDOW, phrase };
+  return phrase.split(' ').length < WINDOW - 1 ? null : { j, from: idx[0], to: idx[WINDOW - 1] + 1, phrase };
 }
 
 /** n items spread evenly over a list */
@@ -268,24 +265,30 @@ const spread = (list, n) => (list.length <= n ? list.slice() : Array.from({ leng
 /** Open-access papers on the manuscript's subject (Europe PMC, by the words of its title), compared in full */
 async function topicNeighbours(text, meta = {}, n = 20) {
   const title = meta.title || String(text).split('\n').find(l => l.trim().split(/\s+/).length >= 6) || '';
-  const words = [...new Set(wordsOf(title).map(x => x.raw.toLowerCase().replace(/[^\p{L}\p{N}-]/gu, '')).filter(w => w.length >= 5 && !STOP.has(norm(w))))];
+  const words = [...new Set(SIM.tokenize(title).map(x => x.raw.toLowerCase().replace(/[^\p{L}\p{N}-]/gu, '')).filter(w => w.length >= 5 && !STOP.has(SIM.norm(w))))];
   for (const k of [6, 4, 3]) {
     if (words.length < 2) break;
     const q = `(${words.slice(0, k).map(w => `"${w}"`).join(' AND ')}) AND OPEN_ACCESS:y AND HAS_FT:y`;
-    const r = await getJson(`${EPMC}/search?format=json&resultType=lite&pageSize=${n}&query=${encodeURIComponent(q)}`, { ttl: 7 * 86400, timeout: 25000, retries: 1 });
+    // the title of an unpublished manuscript: cached under a hash only
+    const r = await getJson(`${EPMC}/search?format=json&resultType=lite&pageSize=${n}&query=${encodeURIComponent(q)}`, { ttl: 7 * 86400, timeout: 25000, retries: 1, private: keepEpmc });
     const res = (r.ok && r.data?.resultList?.result) || [];
     if (res.length >= 5 || k === 3) return res.filter(x => x.pmcid).map(x => ({ type: 'publication', title: x.title, journal: x.journalTitle || null, year: x.pubYear || null, doi: x.doi || null, pmcid: x.pmcid, pmid: x.pmid || null, via: 'Europe PMC (same subject)', url: `https://europepmc.org/article/PMC/${x.pmcid}` }));
   }
   return [];
 }
 
+const epmcRecord = x => ({ type: 'publication', title: x.title, journal: x.journalTitle || null, year: x.pubYear || null, doi: x.doi || null, pmcid: x.pmcid || null, pmid: x.pmid || null, via: 'Europe PMC',
+  url: x.pmcid ? `https://europepmc.org/article/PMC/${x.pmcid}` : x.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${x.pmid}/` : x.doi ? `https://doi.org/${x.doi}` : null });
+
 // ------------------------------------------------------------------ main
 
 /**
- * input: { body, meta }  ->  { kind: 'plagiarism', summary: { similarity, internet, publications, submissions, ... },
- *   sources: [{ no, type, percent, ... }], document: [{ t, s }], filters, selfMatches, checked, method }
+ * input: { body, meta }  ->  { kind: 'plagiarism', version: 3, summary: { similarity, internet, publications, ... },
+ *   sources: [{ key, no, type, percent, ranges, passages: [{ from, to, words, text, source }], ... }], alsoMatched,
+ *   document: [{ t, s }], settings: { excluded, minWords }, filters, selfMatches, checked, privacy, method }
  */
 async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
+  await shared();
   const prep = prepare(body);
   const mine = prep.words;
   if (mine.length < 200) return { kind: 'plagiarism', error: 'The manuscript text is too short or not available for a similarity check.' };
@@ -298,14 +301,14 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
   };
   const covered = new Uint8Array(mine.length); // words already matched by a compared full text: not searched again
   const markCovered = hit => hit.forEach((h, k) => { if (h) covered[k] = 1; });
-  const stats = { queries: 0, searchErrors: 0, webSearches: 0, openalexSearches: 0, windows: 0, windowsFound: 0, neighbours: 0 };
+  const stats = { queries: 0, searchErrors: 0, webSearches: 0, openalexSearches: 0, windows: 0, windowsFound: 0, neighbours: 0, common: 0 };
 
   // 1. the PJPS text repository: published papers and web pages kept by earlier checks (never unpublished submissions)
   update('Comparing with the PJPS text repository');
   const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi }));
   const repoKeys = new Set(repo.map(d => d.sourceKey));
   const fromRepo = repo.map(d => {
-    const o = overlap(mine, d.text);
+    const o = overlap(prep, d.text);
     if (!o.passages.length) return null;
     const m = d.meta || {};
     markCovered(o.hit);
@@ -324,7 +327,7 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
     if (!t.text) return null;
     // every published source text read is kept in the repository, so later checks compare with it directly
     await corpus.addDoc({ kind: c.type, sourceKey: key, title: c.title, meta: { journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, scope: t.scope }, text: t.text }).catch(() => null);
-    const o = overlap(mine, t.text);
+    const o = overlap(prep, t.text);
     if (!o.passages.length) return null;
     markCovered(o.hit);
     const out = { key, type: c.type, title: c.title, journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, compared: t.scope, hit: o.hit, passages: o.passages };
@@ -334,57 +337,53 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
   update(`Comparing with ${neighbours.length} paper(s) on the same subject`);
   await pool(neighbours, 4, async c => { stats.neighbours++; await compare(c); });
 
-  // 3. every stretch of WINDOW words not matched yet is searched as an exact phrase - as Turnitin compares every
-  // sentence. Europe PMC (open-access full texts and all PubMed abstracts) first; what it does not know goes to
-  // OpenAlex's full-text index (publisher full texts, open and paywalled, up to OPENALEX_PHRASES searches) and,
-  // with a SerpApi key, to the web
-  const windows = searchWindows(mine, covered);
+  // 3. every stretch not matched yet is searched as an exact phrase - as Turnitin compares every sentence. Europe PMC
+  // (open-access full texts and all PubMed abstracts) first; what it does not know goes to OpenAlex's full-text index
+  // (publisher full texts, open and paywalled, up to OPENALEX_PHRASES searches) and, with a search key, to the web
+  const { windows, seen } = searchWindows(prep, covered);
   stats.windows = windows.length;
-  const found = new Map(); // source key -> { rec, windows: Set }
+  const found = new Map(); // source key -> { rec, windows: Set of seq positions }
   const hitWindow = (w, rec) => {
     if (isSelf(rec)) return;
     const key = sourceKeyOf(rec);
     const c = found.get(key) || { rec, windows: new Set() };
-    c.windows.add(w.from);
+    c.windows.add(w.j);
     found.set(key, c);
+  };
+  const epmcPhrase = async w => {
+    stats.queries++;
+    const r = await getJson(`${EPMC}/search?format=json&resultType=lite&pageSize=5&query=${encodeURIComponent(`"${w.phrase}"`)}`, { ttl: 30 * 86400, timeout: 25000, retries: 2, private: keepEpmc });
+    if (!r.ok) { stats.searchErrors++; return null; }
+    const res = (r.data?.resultList?.result || []).filter(x => !isSelf({ title: x.title, doi: x.doi }));
+    if (!res.length) return [];
+    w.found = true;
+    // stock wording found in many papers: one paper is enough to show it, the others would only add noise
+    const common = (r.data?.hitCount || 0) > COMMON;
+    if (common) stats.common++;
+    for (const x of common ? res.slice(0, 1) : res) hitWindow(w, epmcRecord(x));
+    return res;
   };
   update(`Searching ${windows.length} passages of the manuscript in Europe PMC`);
   const unknown = [];
   let done = 0;
   await pool(windows, 6, async w => {
-    stats.queries++;
-    const r = await getJson(`${EPMC}/search?format=json&resultType=lite&pageSize=5&query=${encodeURIComponent(`"${w.phrase}"`)}`, { ttl: 30 * 86400, timeout: 25000, retries: 2 });
+    const res = await epmcPhrase(w);
     if (++done % 50 === 0) update(`Searching passages in Europe PMC (${done}/${windows.length})`);
-    if (!r.ok) { stats.searchErrors++; unknown.push(w); return; }
-    const res = (r.data?.resultList?.result || []).filter(x => !isSelf({ title: x.title, doi: x.doi }));
-    if (!res.length) { unknown.push(w); return; }
-    w.found = true;
-    for (const x of res) hitWindow(w, { type: 'publication', title: x.title, journal: x.journalTitle || null, year: x.pubYear || null, doi: x.doi || null, pmcid: x.pmcid || null, pmid: x.pmid || null, via: 'Europe PMC',
-      url: x.pmcid ? `https://europepmc.org/article/PMC/${x.pmcid}` : x.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${x.pmid}/` : x.doi ? `https://doi.org/${x.doi}` : null });
+    if (!res || !res.length) unknown.push(w);
   });
   // a match seldom stops at the edge of a searched stretch: the stretches straddling each edge of a found one are searched
-  // too, so a copied sentence is credited in full, not only the words that fell inside one window
+  // too, so a copied passage is credited in full, not only the words that fell inside one window
   const edges = [];
-  const seen = new Set(windows.map(w => w.from));
   for (const w of windows.filter(x => x.found)) {
-    for (const from of [w.from - WINDOW / 2, w.to - WINDOW / 2]) {
-      if (from < 0 || from + WINDOW > mine.length || seen.has(from)) continue;
-      seen.add(from);
-      const x = windowAt(mine, from);
+    for (const j of [w.j - WINDOW / 2, w.j + WINDOW / 2]) {
+      if (j < 0 || j + WINDOW > prep.seq.length || seen.has(j)) continue;
+      seen.add(j);
+      const x = windowAt(prep, j, null);
       if (x) edges.push(x);
     }
   }
   if (edges.length) update(`Following ${edges.length} matches to their full length`);
-  await pool(edges, 6, async w => {
-    stats.queries++;
-    const r = await getJson(`${EPMC}/search?format=json&resultType=lite&pageSize=5&query=${encodeURIComponent(`"${w.phrase}"`)}`, { ttl: 30 * 86400, timeout: 25000, retries: 2 });
-    if (!r.ok) { stats.searchErrors++; return; }
-    const res = (r.data?.resultList?.result || []).filter(x => !isSelf({ title: x.title, doi: x.doi }));
-    if (!res.length) return;
-    w.found = true;
-    for (const x of res) hitWindow(w, { type: 'publication', title: x.title, journal: x.journalTitle || null, year: x.pubYear || null, doi: x.doi || null, pmcid: x.pmcid || null, pmid: x.pmid || null, via: 'Europe PMC',
-      url: x.pmcid ? `https://europepmc.org/article/PMC/${x.pmcid}` : x.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${x.pmid}/` : x.doi ? `https://doi.org/${x.doi}` : null });
-  });
+  await pool(edges, 6, epmcPhrase);
   windows.push(...edges);
 
   // OpenAlex full text (paid per search beyond its free daily allowance): spread over the passages Europe PMC lacked
@@ -392,7 +391,7 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
   if (oaList.length) update(`Searching ${oaList.length} passages in OpenAlex full texts (publishers)`);
   await pool(oaList, 4, async w => {
     stats.openalexSearches++;
-    const r = await getJson(`https://api.openalex.org/works?filter=fulltext.search:${encodeURIComponent(`"${w.phrase}"`)}&per-page=5&select=id,title,doi,publication_year,primary_location,open_access,ids${cfg.OPENALEX_API_KEY ? `&api_key=${cfg.OPENALEX_API_KEY}` : ''}`, { ttl: 30 * 86400, timeout: 25000, retries: 1 });
+    const r = await getJson(`https://api.openalex.org/works?filter=fulltext.search:${encodeURIComponent(`"${w.phrase}"`)}&per-page=5&select=id,title,doi,publication_year,primary_location,open_access,ids${cfg.OPENALEX_API_KEY ? `&api_key=${cfg.OPENALEX_API_KEY}` : ''}`, { ttl: 30 * 86400, timeout: 25000, retries: 1, private: keepOpenAlex });
     if (!r.ok) { stats.searchErrors++; return; }
     const res = (r.data?.results || []).filter(x => !isSelf({ title: x.title, doi: cleanDoi(x.doi) }));
     if (!res.length) return;
@@ -429,79 +428,63 @@ async function checkPlagiarism({ body, meta = {} }, update = () => {}) {
     const got = await compare({ ...c.rec, webUrl: c.rec.webUrl || null });
     if (got) fullTried.add(sourceKeyOf(c.rec));
   });
-  const windowByFrom = new Map(windows.map(w => [w.from, w]));
+  const windowByJ = new Map(windows.map(w => [w.j, w]));
   const phraseSources = [];
   for (const c of bySize) {
     const key = sourceKeyOf(c.rec);
     if (fullTried.has(key) || repoKeys.has(key) || compared.some(x => x.key === key)) continue;
     const hit = new Uint8Array(mine.length);
-    for (const from of c.windows) { const w = windowByFrom.get(from); for (let j = w.from; j < w.to; j++) hit[j] = 1; }
+    for (const j of c.windows) { const w = windowByJ.get(j); for (let k = w.from; k < w.to; k++) hit[k] = 1; }
     const passages = finishRuns(hit, mine);
     if (!passages.length) continue;
     phraseSources.push({ key, type: c.rec.type, title: c.rec.title, journal: c.rec.journal, year: c.rec.year, doi: c.rec.doi, url: c.rec.url, via: c.rec.via, compared: 'matching passages (full text not open)', hit, passages: passages.sort((a, b) => b.words - a.words) });
   }
-  const all = [...fromRepo, ...compared, ...phraseSources];
 
-
-  // primary sources: each matched word is credited to one source, the one with the most matched text first
-  const owner = new Int16Array(mine.length).fill(-1);
-  all.sort((a, b) => b.passages.reduce((x, p) => x + p.words, 0) - a.passages.reduce((x, p) => x + p.words, 0));
-  all.forEach((src, si) => { src.hit.forEach((h, k) => { if (h && owner[k] < 0) owner[k] = si; }); });
-  const count = () => all.map((_, si) => owner.reduce((a, o) => a + (o === si ? 1 : 0), 0));
-  // a source left with only a few words of its own (the rest of its match credited to larger sources) hands them to a
-  // larger source that also contains them; words no larger source has stay with it, so no matched text is lost
-  let credited = count();
-  owner.forEach((o, k) => {
-    if (o < 0 || credited[o] >= MIN_MATCH) return;
-    const better = all.findIndex((src, si) => si !== o && credited[si] >= MIN_MATCH && src.hit[k]);
-    if (better >= 0) owner[k] = better;
-  });
-  credited = count();
-  const total = mine.length;
-  const pct = n => Math.round(n / total * 1000) / 10;
-  const kept = all.map((src, si) => ({ src, si, words: credited[si] })).filter(x => x.words > 0);
-  const number = new Map(kept.map((x, i) => [x.si, i + 1]));
-  const sources = kept.map((x, i) => ({
-    no: i + 1, type: x.src.type, percent: pct(x.words), words: x.words, matchedWords: x.src.passages.reduce((a, p) => a + p.words, 0),
-    title: x.src.title, journal: x.src.journal || null, year: x.src.year || null, doi: x.src.doi || null, url: x.src.url || null, checkId: x.src.checkId || null, via: x.src.via, compared: x.src.compared,
-    // backwards compatible fields used by older views
-    similarity: pct(x.words),
-    passages: x.src.passages.slice(0, 4).map(p => ({ words: p.words, text: p.text.slice(0, 600) }))
+  // 5. primary sources (shared with the report view: public/js/shared/similarity.js)
+  const all = [...fromRepo, ...compared, ...phraseSources].map(src => ({
+    key: src.key, type: src.type, title: String(src.title || '').replace(/<[^>]+>/g, ''), journal: src.journal || null, year: src.year || null, doi: src.doi || null, url: src.url || null, checkId: src.checkId || null,
+    via: src.via, compared: src.compared, matchedWords: src.passages.reduce((a, p) => a + p.words, 0),
+    ranges: src.passages.map(p => [p.from, p.to]).sort((a, b) => a[0] - b[0]),
+    passages: src.passages.slice(0, MAX_PASSAGES).map(p => ({ from: p.from, to: p.to, words: p.words, text: p.text.slice(0, 600), ...(p.source ? { source: p.source.slice(0, 600) } : {}) }))
   }));
-
-  // the manuscript text in runs of one source (or none), for the highlighted view
-  const document = [];
-  for (let k = 0; k < mine.length && mine[k].start < MAX_TEXT;) {
-    const no = owner[k] >= 0 ? number.get(owner[k]) || 0 : 0;
-    let e = k;
-    while (e < mine.length && (owner[e] >= 0 ? number.get(owner[e]) || 0 : 0) === no) e++;
-    const end = e < mine.length ? mine[e].start : prep.text.length;
-    document.push({ t: prep.text.slice(mine[k].start, Math.min(end, MAX_TEXT)), s: no });
-    k = e;
-  }
-  if (mine[0]?.start > 0) document.unshift({ t: prep.text.slice(0, mine[0].start), s: 0 });
-
-  const byType = type => pct(sources.filter(x => x.type === type).reduce((a, x) => a + x.words, 0));
-  const creditedWords = sources.reduce((a, x) => a + x.words, 0);
-  const similarity = pct(creditedWords);
-  const largest = sources.reduce((m, x) => Math.max(m, x.percent), 0);
-  const level = similarity >= 25 || largest >= 15 ? 'bad' : similarity >= 10 || largest >= 5 ? 'warn' : 'ok';
+  const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT });
+  const s = view.summary;
 
   const databases = ['PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
     ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches)`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
   return {
     kind: 'plagiarism',
-    version: 2,
-    summary: { similarity, internet: byType('internet'), publications: byType('publication'), submissions: 0, largestSource: largest, sources: sources.length, level, words: total },
+    version: 3,
+    summary: s,
     repository: 'not stored: this manuscript was not added to any repository, and earlier unpublished PJPS submissions were not compared (no-repository setting, as in Turnitin)',
-    sources,
-    document,
-    filters: { bibliography: prep.bibliographyExcluded ? 'excluded' : 'not found in the text (body only was compared)', quotes: `excluded (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)` },
+    privacy: {
+      stored: false,
+      statement: 'The manuscript was not stored, indexed or added to any repository, and it is never compared with later submissions. Only separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read. The text below is kept only inside this confidential report.'
+    },
+    sources: view.sources,
+    alsoMatched: view.alsoMatched,
+    document: view.document,
+    settings: { excluded: [], minWords: MIN_MATCH },
+    filters: { bibliography: prep.bibliographyExcluded ? 'excluded' : 'not found in the text (body only was compared)', quotes: `excluded (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)`, citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
-    checked: { passages: stats.windows, passagesFound: stats.windowsFound, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: 0, searchErrors: stats.searchErrors, databases },
+    checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: 0, searchErrors: stats.searchErrors, databases },
     coverage: `Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. Turnitin's own archive of student papers and earlier unpublished PJPS submissions are not compared.`,
-    method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch (${stats.windows} passages) was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation and plural forms ignored; up to ${GAP} different words inside one match), paywalled ones by the passages found in them. The bibliography and quotations are excluded, and so are matches shorter than ${MIN_MATCH} words. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
+    method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match), paywalled ones by the passages found in them. The bibliography and quotations are excluded, and so are matches shorter than ${MIN_MATCH} words. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };
 }
 
-module.exports = { checkPlagiarism, pickSamples, phraseOf, overlap, prepare, finishRuns, submissionMatches };
+/** The report with sources excluded or a higher minimum match length (Turnitin's filters), recomputed for display or export */
+async function applySettings(pl, { excluded = [], minWords = MIN_MATCH } = {}) {
+  await shared();
+  if (!pl || pl.error || (pl.version || 0) < 3) return pl;
+  const text = (pl.document || []).map(d => d.t).join('');
+  const all = [...(pl.sources || []), ...(pl.alsoMatched || [])].map(x => ({ ...x, excluded: undefined }));
+  const min = Math.max(MIN_MATCH, Math.min(200, parseInt(minWords, 10) || MIN_MATCH));
+  const keys = new Set(all.map(x => x.key));
+  const ex = [...new Set([].concat(excluded || []))].filter(k => keys.has(k));
+  const view = SIM.recompute(all, text, { total: pl.summary.words, excluded: ex, minWords: min });
+  return { ...pl, summary: view.summary, sources: view.sources, alsoMatched: view.alsoMatched, document: view.document, settings: { excluded: ex, minWords: min },
+    filters: { ...pl.filters, smallMatches: `excluded (fewer than ${min} words)`, ...(ex.length ? { sources: `${ex.length} source(s) excluded by the editor` } : {}) } };
+}
+
+module.exports = { checkPlagiarism, applySettings, prepare, overlap, finishRuns, citeSpans, searchWindows, shared };

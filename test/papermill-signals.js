@@ -62,6 +62,26 @@ const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(!r1.signals.some(s => /^author-(mill-)?retraction/.test(s.code)), 'the same paper is not counted again by the name match');
   ok(r1.details.orcidRetractions.length === 1 && r1.details.millJournals.length === 1, 'details carry both results for the report');
 
+  // ---- the editor's assessment: convergence, recommended action, checklist and a neutral query letter
+  const a1 = r1.assessment;
+  ok(a1 && a1.convergence.of === 4 && a1.completeness.total === r1.overview.length, 'assessment attached to the report');
+  ok(a1.convergence.flagged === new Set(r1.signals.filter(s => s.severity !== 'low').map(s => s.group)).size, 'flagged areas = areas with moderate or strong signals');
+  ok(a1.action.tone === { HIGH: 'bad', MEDIUM: 'warn', LOW: 'good' }[r1.risk.level], 'recommended action follows the risk level');
+  ok(a1.verify.length === new Set(r1.signals.map(s => s.code)).size, 'one verification line per signal type');
+  const A = require('../src/papermill/assessment');
+  const sigs = [{ group: 'references', code: 'fabricated', title: '4 references not found', severity: 'high', weight: 4 }, { group: 'authors', code: 'free-mail', title: 'Free-mail', severity: 'medium', weight: 2 },
+    { group: 'data', code: 'statistics', title: 'Inconsistent p-values', severity: 'medium', weight: 2 }, { group: 'text', code: 'tortured', title: 'A tortured phrase', severity: 'low', weight: 1 }];
+  const rep = { meta: { manuscriptCode: 'PJPS-2026-0999', title: 'A test' }, risk: { level: 'HIGH', score: 9 }, signals: sigs, overview: [{ check: 'x', light: 'red', result: '' }, { check: 'y', light: 'grey', result: 'Not checked — no ORCID iD' }] };
+  const a2 = A.assess(rep);
+  ok(a2.convergence.flagged === 3 && /3 of 4 independent areas/.test(a2.statement) && /several independent areas/.test(a2.statement), 'three areas: convergence stated');
+  ok(a2.action.title === 'Hold the manuscript and escalate' && /COPE/.test(a2.action.text), 'HIGH: hold and escalate (COPE)');
+  ok(a2.completeness.run === 1 && a2.completeness.level === 'partial' && /could not be run/.test(a2.statement), 'checks not run lower the completeness');
+  ok(a2.ask.length === 4 && a2.verify[0].severity === 'high', 'author requests for every signal in a HIGH case; strongest check first');
+  const letter = A.queryLetter(rep, a2);
+  ok(letter.includes('PJPS-2026-0999') && letter.includes('DOI or a working link') && !/paper.?mill|screen|integrity|fraud|suspic/i.test(letter), 'query letter is specific and neutral');
+  const low = A.assess({ ...rep, risk: { level: 'LOW', score: 1 }, signals: [sigs[3]] });
+  ok(low.convergence.flagged === 0 && low.ask.length === 0 && A.queryLetter({ ...rep, signals: [sigs[3]] }, low) === '' && low.action.tone === 'good', 'LOW with a weak signal: no query, continue');
+
   console.log(`papermill-signals: ${n} checks passed`);
   await db.close?.();
   process.exit(0);

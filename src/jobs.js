@@ -61,11 +61,12 @@ async function runJob(id) {
   try {
     const result = await runners.get(job.kind)(job.input, { userId: job.user_id, update });
     clearInterval(timer);
-    await db.query(`UPDATE jobs SET status = 'done', progress = 100, step = 'Complete', result = $2, heartbeat = now() WHERE ${mine}`, [id, JSON.stringify(result ?? null)]);
+    // the input (manuscript text) is dropped as soon as the job ends: the job table never keeps an unpublished manuscript
+    await db.query(`UPDATE jobs SET status = 'done', progress = 100, step = 'Complete', result = $2, input = '{}', heartbeat = now() WHERE ${mine}`, [id, JSON.stringify(result ?? null)]);
   } catch (err) {
     clearInterval(timer);
     console.error(`Job ${job.kind} failed:`, err);
-    await db.query(`UPDATE jobs SET status = 'error', error = $2, heartbeat = now() WHERE ${mine}`, [id, err.message || String(err)]);
+    await db.query(`UPDATE jobs SET status = 'error', error = $2, input = '{}', heartbeat = now() WHERE ${mine}`, [id, err.message || String(err)]);
   }
 }
 
@@ -77,7 +78,7 @@ async function getJob(id, userId) {
   if (!j || j.user_id !== userId) return null;
   if ((j.status === 'running' || j.status === 'queued') && j.stale) {
     if (j.attempts >= MAX_ATTEMPTS) {
-      await db.query(`UPDATE jobs SET status = 'error', error = $2 WHERE id = $1 AND status IN ('queued', 'running')`,
+      await db.query(`UPDATE jobs SET status = 'error', error = $2, input = '{}' WHERE id = $1 AND status IN ('queued', 'running')`,
         [id, 'This check was interrupted too many times. Try again with fewer references.']);
       return { ...j, status: 'error', error: 'This check was interrupted too many times. Try again with fewer references.' };
     }

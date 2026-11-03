@@ -60,7 +60,8 @@ async function processQueue() {
           if (!fn) throw new Error(`Unknown queued tool: ${item.input?.job}`);
           const result = await fn(item.input.data, { userId: item.user_id, update: () => {} });
           const checkId = result?.id || null;
-          await db.query("UPDATE offline_queue SET status = 'done', done_at = now(), error = NULL, check_id = $2 WHERE id = $1", [item.id, checkId]);
+          // the queued input (a manuscript's text) is not kept once the run is done
+          await db.query("UPDATE offline_queue SET status = 'done', done_at = now(), error = NULL, check_id = $2, input = NULL WHERE id = $1", [item.id, checkId]);
           await notify(item.user_id, { kind: 'queue', title: `Queued run finished: ${item.label}`, body: 'The run you queued while offline has completed and was saved to My Activity.', link: checkId ? `#/check/${checkId}` : '#/activity', email: false });
         }
         done++;

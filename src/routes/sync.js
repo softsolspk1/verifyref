@@ -173,7 +173,8 @@ router.post('/sync/serpapi', wrap(device), wrap(async (req, res) => {
   if (!cfg.SERPAPI_KEY) return res.json({ success: true, skipped: true });
   const query = String(req.body?.q || '').slice(0, 400);
   const num = Math.min(10, Math.max(1, parseInt(req.body?.num, 10) || 5));
-  const r = await require('../sources').serpSearch(engine, query, num);
+  // private: a phrase of an unpublished manuscript (similarity report), cached only under a hash
+  const r = await require('../sources').serpSearch(engine, query, num, { private: req.body?.private === true });
   res.json({ success: true, ok: !!r.ok, status: r.status, data: { organic_results: r.data?.organic_results || [], error: r.data?.error || null } });
 }));
 

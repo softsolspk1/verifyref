@@ -185,6 +185,27 @@ const assert = require('assert');
   r = await call('admin', 'POST', `/api/checks/${withText}/recheck`, { scope: 'references' });
   assert.ok(r.data.success && r.data.scope === 'references', 'references-only re-check started');
   console.log('  ✓ Re-check: complete report or references only');
+
+  // Similarity report: the editor's filters are saved with the report and used by its own Word / PDF export
+  const SIM = await import('../public/js/shared/similarity.js');
+  const simText = Array.from({ length: 300 }, (_, i) => `word${i}`).join(' ');
+  const simAll = [{ key: 'pmc:PMC1', type: 'publication', title: 'Paper one', ranges: [[0, 60]], matchedWords: 60, passages: [{ from: 0, to: 60, words: 60, text: 'word0 …', source: 'word0 …' }] },
+    { key: 'url:https://x.test', type: 'internet', title: 'Web page', ranges: [[40, 90]], matchedWords: 50, passages: [{ from: 40, to: 90, words: 50, text: 'word40 …' }] }];
+  const simV = SIM.recompute(simAll, simText);
+  const simReport = { kind: 'plagiarism', version: 3, summary: simV.summary, sources: simV.sources, alsoMatched: simV.alsoMatched, document: simV.document, settings: { excluded: [], minWords: 8 },
+    filters: { bibliography: 'excluded', quotes: 'excluded (0 quoted words)', smallMatches: 'excluded (fewer than 8 words)' }, checked: { passages: 10, queries: 10, candidates: 2, sourcesCompared: 1, databases: ['Europe PMC'] }, method: 'm', coverage: 'c', privacy: { stored: false, statement: 'Not stored.' } };
+  const simId = await mkCheck({ ...fullResult, plagiarism: simReport });
+  assert.strictEqual(simReport.summary.similarity, 30, 'index before filters');
+  r = await call('admin', 'PATCH', `/api/checks/${simId}/similarity`, { excluded: ['pmc:PMC1'], minWords: 8 });
+  assert.ok(r.data.success && r.data.plagiarism.summary.similarity === 16.7 && r.data.plagiarism.sources[0].key === 'url:https://x.test', 'excluding the paper: the web page gets its words back');
+  r = await call('admin', 'GET', `/api/checks/${simId}`);
+  assert.deepStrictEqual(r.data.result.plagiarism.settings.excluded, ['pmc:PMC1'], 'filters saved with the report');
+  for (const f of ['docx', 'pdf']) {
+    resp = await fetch(`${base}/api/checks/${simId}/similarity?format=${f}`, { headers: { Cookie: jar.admin } });
+    assert.ok(resp.status === 200 && (await resp.arrayBuffer()).byteLength > 2000, `similarity report as ${f}`);
+  }
+  assert.strictEqual((await call('res', 'PATCH', `/api/checks/${simId}/similarity`, { excluded: [] })).status === 200, false, 'another user cannot change the report');
+  console.log('  ✓ Similarity report: filters saved, own Word / PDF export');
   console.log('web smoke test: all assertions passed');
   process.exit(0);
 })().catch(e => { console.error('FAILED:', e); process.exit(1); });

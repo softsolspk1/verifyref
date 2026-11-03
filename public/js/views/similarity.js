@@ -1,0 +1,217 @@
+// views/similarity.js - the similarity (originality) report, laid out like Turnitin's viewer: the manuscript on the left
+// with every match highlighted in its source's colour, the Similarity Index and the primary sources on the right. A
+// source opens to show each match next to the source's own wording; sources can be excluded and the minimum match length
+// raised, recomputed with the same code as the server (shared/similarity.js) and saved with the report for the export.
+import { api, esc, $, $$, toast, download, ICONS } from '../core.js';
+import { recompute, tokenize, MIN_MATCH } from '../shared/similarity.js';
+
+// one colour per primary source (cycled), readable on light and dark backgrounds
+const COLORS = ['#d7263d', '#1b998b', '#3a50d9', '#f46036', '#8e44ad', '#2e86ab', '#c2185b', '#8d6e63', '#6b8e23', '#283593', '#e0a100', '#00897b', '#7b1fa2', '#5d4037', '#455a64'];
+export const srcColor = no => COLORS[(no - 1) % COLORS.length];
+const pctText = p => (p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`);
+const TYPE = { internet: 'Internet source', publication: 'Publication', submission: 'Submitted work' };
+const LEVEL = { ok: ['Low similarity', 'good'], warn: ['Moderate similarity', 'warn'], bad: ['High similarity', 'bad'] };
+
+/** Similarity Index ring */
+function ring(p, level) {
+  const r = 52, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, p));
+  return `<svg class="sim-ring" viewBox="0 0 128 128" role="img" aria-label="Similarity Index ${pctText(p)}">
+    <circle cx="64" cy="64" r="${r}" class="sim-ring-track"/>
+    <circle cx="64" cy="64" r="${r}" class="sim-ring-val sim-${level}" stroke-dasharray="${(c * v / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 64 64)"/>
+    <text x="64" y="62" text-anchor="middle" class="sim-ring-n">${pctText(p)}</text><text x="64" y="82" text-anchor="middle" class="sim-ring-l">SIMILARITY</text></svg>`;
+}
+
+// titles from the databases carry markup (<i>in vitro</i>)
+const plain = t => String(t || '').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+const sourceLink = x => (x.checkId ? `<a href="#/check/${x.checkId}">${esc(plain(x.title) || 'Earlier submission')}</a>`
+  : x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(plain(x.title) || 'Source')}</a>` : esc(plain(x.title) || 'Source'));
+const metaLine = x => [x.journal, x.year, x.doi ? `doi:${x.doi}` : ''].filter(Boolean).map(esc).join(' · ');
+
+export function renderSimilarity(body, original, { checkId = null } = {}) {
+  const text = (original.document || []).map(d => d.t).join('');
+  const tokens = tokenize(text);
+  const all = [...(original.sources || []), ...(original.alsoMatched || [])].map(x => ({ ...x, excluded: undefined }));
+  const saved = { excluded: [...(original.settings?.excluded || [])], minWords: original.settings?.minWords || MIN_MATCH };
+  const state = { excluded: new Set(saved.excluded), minWords: saved.minWords, open: null, focus: null, panel: 'overview', at: -1 };
+  let pl = original;
+
+  const dirty = () => state.minWords !== saved.minWords || state.excluded.size !== saved.excluded.length || saved.excluded.some(k => !state.excluded.has(k));
+  const compute = () => {
+    const v = recompute(all, text, { tokens, total: original.summary.words, excluded: [...state.excluded], minWords: state.minWords });
+    pl = { ...original, ...v };
+  };
+
+  const header = () => {
+    const s = pl.summary;
+    const [label, tone] = LEVEL[s.level] || LEVEL.ok;
+    const bar = (lbl, v, cls, note = '') => `<div class="sim-break"><div class="sim-break-head"><span>${lbl}</span><b>${note || pctText(v)}</b></div><div class="sim-bar"><span class="${cls}" style="width:${note ? 0 : Math.min(100, v)}%"></span></div></div>`;
+    return `<div class="card sim-head">
+      <div class="sim-head-ring">${ring(s.similarity, s.level)}<span class="badge b-${tone}">${label}</span></div>
+      <div class="sim-head-body">
+        <div class="card-head" style="margin-bottom:6px"><h3 style="margin:0">Similarity Report</h3>
+          <div class="row no-print" style="gap:6px">${checkId ? `<button class="btn btn-sm" data-dl="docx">${ICONS.download} Word</button><button class="btn btn-sm" data-dl="pdf">${ICONS.download} PDF</button>` : ''}</div></div>
+        <div class="sim-facts"><span><b>${s.words.toLocaleString()}</b> words compared</span><span><b>${s.sources}</b> primary source${s.sources === 1 ? '' : 's'}</span><span>largest source <b>${pctText(s.largestSource)}</b></span></div>
+        ${bar('Publications', s.publications, 'pub')}
+        ${bar('Internet sources', s.internet, 'web')}
+        ${bar('Submitted works', 0, '', 'not compared')}
+        <div class="sim-private" title="${esc(pl.privacy?.statement || pl.repository || '')}">🔒 <b>Not stored · no repository.</b> ${esc(pl.privacy ? 'This manuscript was not saved to any database and will never be compared with later submissions.' : 'This manuscript was not added to any repository.')}</div>
+      </div></div>`;
+  };
+
+  const toolbar = () => {
+    const n = $$('.sim-m', body).length;
+    return `<div class="sim-toolbar no-print">
+      <label>Exclude matches under <select id="sim-min">${[8, 10, 12, 15, 20, 30, 50].map(v => `<option value="${v}" ${v === state.minWords ? 'selected' : ''}>${v}</option>`).join('')}</select> words</label>
+      <span class="sim-sep"></span>
+      <button class="btn btn-sm btn-ghost" id="sim-prev" title="Previous match">◀</button><span class="muted" id="sim-pos">${n ? `${state.at >= 0 ? state.at + 1 : '–'} / ${n}` : 'no matches'}</span><button class="btn btn-sm btn-ghost" id="sim-next" title="Next match">▶</button>
+      ${state.focus ? `<span class="chip">Showing source ${state.focus} only <a href="#" id="sim-all">show all</a></span>` : ''}
+      <span style="flex:1"></span>
+      ${dirty() ? `<span class="muted">Filters changed</span>${checkId ? '<button class="btn btn-sm btn-primary" id="sim-save">Save with report</button>' : ''}<button class="btn btn-sm" id="sim-reset">Undo</button>` : state.excluded.size || state.minWords > MIN_MATCH ? '<span class="muted">Saved filters applied</span>' : ''}
+    </div>`;
+  };
+
+  const doc = () => (pl.document || []).map(seg => (seg.s
+    ? `<mark class="sim-m${state.focus && +state.focus !== seg.s ? ' dim' : ''}" data-src="${seg.s}" style="--c:${srcColor(seg.s)}"><sup>${seg.s}</sup>${esc(seg.t)}</mark>`
+    : esc(seg.t))).join('');
+
+  const passage = (p, no) => `<div class="sim-pass">
+      <div class="sim-pass-head"><span class="muted">${p.words} words</span><button class="btn btn-sm btn-ghost" data-goto="${p.from}">Show in text ↗</button></div>
+      <div class="sim-pass-grid"><div><div class="sim-pass-l">Manuscript</div><div class="sim-pass-t" style="--c:${srcColor(no || 1)}">${esc(p.text)}</div></div>
+      <div><div class="sim-pass-l">Source</div><div class="sim-pass-t src">${p.source ? esc(p.source) : '<span class="muted">The exact passage was found in this source (paywalled full text: the wording is not shown).</span>'}</div></div></div></div>`;
+
+  const sourceItem = x => {
+    const open = state.open === x.key;
+    const no = x.no;
+    const listed = (x.passages || []).filter(p => p.words >= state.minWords);
+    return `<li class="sim-src${open ? ' open' : ''}${no ? '' : ' off'}" data-key="${esc(x.key)}">
+      <div class="sim-src-row" data-toggle="${esc(x.key)}">
+        <span class="sim-no" style="${no ? `background:${srcColor(no)}` : ''}">${no || '–'}</span>
+        <span class="sim-src-main"><span class="sim-src-title">${sourceLink(x)}</span>
+          <span class="sim-src-meta">${esc(TYPE[x.type] || x.type)}${metaLine(x) ? ` · ${metaLine(x)}` : ''}</span>
+          ${no ? `<span class="sim-bar sm"><span style="width:${Math.min(100, x.percent * 4)}%;background:${srcColor(no)}"></span></span>` : `<span class="sim-src-meta">${x.excluded ? 'Excluded by the editor' : `${x.matchedWords || 0} matched words, all credited to larger sources`}</span>`}</span>
+        <span class="sim-pct">${no ? pctText(x.percent) : ''}</span>
+      </div>
+      ${open ? `<div class="sim-src-body">
+        <div class="muted" style="font-size:12px;margin-bottom:6px">Found via ${esc(x.via || '—')} · compared: ${esc(x.compared || '—')}${x.matchedWords ? ` · ${x.matchedWords} matched words` : ''}</div>
+        ${listed.map(p => passage(p, no)).join('') || '<p class="muted">No match of this length.</p>'}
+        <div class="row" style="gap:6px;margin-top:8px">${no ? `<button class="btn btn-sm" data-focus="${no}">Highlight only this source</button>` : ''}
+          <button class="btn btn-sm ${x.excluded ? '' : 'btn-ghost btn-danger'}" data-exclude="${esc(x.key)}">${x.excluded ? 'Include again' : 'Exclude source'}</button></div>
+      </div>` : ''}
+    </li>`;
+  };
+
+  const panel = () => {
+    const credited = pl.sources || [];
+    const others = pl.alsoMatched || [];
+    const tabs = [['overview', `Matches (${credited.length})`], ['all', `All sources (${credited.length + others.length})`], ['filters', 'Filters']];
+    const list = state.panel === 'all' ? [...credited, ...others] : credited;
+    return `<div class="sim-tabs">${tabs.map(([k, l]) => `<button class="${state.panel === k ? 'active' : ''}" data-panel="${k}">${l}</button>`).join('')}</div>
+      ${state.panel === 'filters' ? `<div class="sim-filters">
+          <p><b>Bibliography</b> — ${esc(pl.filters.bibliography)}</p>
+          <p><b>Quotations</b> — ${esc(pl.filters.quotes)}</p>
+          ${pl.filters.citations ? `<p><b>In-text citations</b> — ${esc(pl.filters.citations)}</p>` : ''}
+          <p><b>Small matches</b> — excluded (fewer than ${state.minWords} words)</p>
+          <p><b>Excluded sources</b> — ${state.excluded.size ? [...state.excluded].map(k => esc(plain(all.find(x => x.key === k)?.title) || k)).join('; ') : 'none'}</p>
+          ${pl.selfMatches?.length ? `<p><b>Not counted</b> — the manuscript's own published version or preprint: ${pl.selfMatches.map(x => esc(x.title)).join('; ')}</p>` : ''}
+        </div>`
+      : list.length ? `<ol class="sim-srcs">${list.map(sourceItem).join('')}</ol>` : '<p class="muted" style="padding:12px">No matching text was found in the sources searched.</p>'}`;
+  };
+
+  const searched = () => {
+    const c = pl.checked || {};
+    return `<details class="card sim-method"><summary><b>What was searched and how</b> <span class="muted">— ${c.passages} passages, ${c.queries} literature searches${c.webSearches ? `, ${c.webSearches} web searches` : ''}</span></summary>
+      <p class="muted">${c.passages} passages searched${c.passagesFound !== undefined ? ` (${c.passagesFound} found elsewhere${c.commonPhrases ? `, ${c.commonPhrases} of them stock wording found in many papers` : ''})` : ''}: ${c.queries} literature searches${c.openalexSearches ? `, ${c.openalexSearches} in publisher full texts (OpenAlex)` : ''}${c.webSearches ? `, ${c.webSearches} on the web` : ''}; ${c.neighbours ? `${c.neighbours} papers on the same subject read in full; ` : ''}${c.candidates} candidate sources, ${c.sourcesCompared} compared in full.${c.searchErrors ? ` ${c.searchErrors} search(es) failed.` : ''}</p>
+      <p class="muted"><b>Databases:</b> ${(c.databases || []).map(esc).join('; ')}.</p>
+      <p class="muted"><b>Method:</b> ${esc(pl.method)}</p><p class="muted"><b>Coverage:</b> ${esc(pl.coverage)}</p>
+      ${pl.privacy ? `<p class="muted"><b>Privacy:</b> ${esc(pl.privacy.statement)}</p>` : ''}</details>`;
+  };
+
+  const paint = () => {
+    compute();
+    const scroll = $('#sim-doc', body)?.scrollTop || 0;
+    body.innerHTML = `${header()}
+      ${pl.earlierSubmissions?.length ? `<div class="alert alert-bad"><b>Earlier PJPS submission with the same text (Module 4):</b> ${pl.earlierSubmissions.map(esc).join('; ')}</div>` : ''}
+      <div class="sim-layout">
+        <div class="card sim-docwrap"><div id="sim-tools"></div><div class="sim-doc" id="sim-doc">${doc()}</div></div>
+        <div class="card sim-side">${panel()}</div>
+      </div>
+      ${searched()}`;
+    $('#sim-tools', body).innerHTML = toolbar();
+    $('#sim-doc', body).scrollTop = scroll;
+    wire();
+  };
+
+  const marks = () => $$('.sim-m', body).filter(m => !m.classList.contains('dim'));
+  const goMark = i => {
+    const list = marks();
+    if (!list.length) return;
+    state.at = (i + list.length) % list.length;
+    $$('.sim-m.cur', body).forEach(m => m.classList.remove('cur'));
+    const m = list[state.at];
+    m.classList.add('cur');
+    m.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const pos = $('#sim-pos', body);
+    if (pos) pos.textContent = `${state.at + 1} / ${list.length}`;
+  };
+  // the highlighted run that contains word position `from`
+  const goWord = from => {
+    let k = 0;
+    const segs = pl.document || [];
+    let words = 0;
+    for (; k < segs.length; k++) { const n = tokenize(segs[k].t).length; if (words + n > from) break; words += n; }
+    const seg = segs[k];
+    if (!seg?.s) return;
+    const idx = segs.slice(0, k + 1).filter(x => x.s).length - 1;
+    const m = $$('.sim-m', body)[idx];
+    if (!m) return;
+    $$('.sim-m.cur', body).forEach(x => x.classList.remove('cur'));
+    m.classList.add('cur');
+    m.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+
+  function wire() {
+    $$('[data-dl]', body).forEach(b => (b.onclick = () => download(`/api/checks/${checkId}/similarity?format=${b.dataset.dl}`).catch(e => toast(e.message, 'error'))));
+    $('#sim-min', body).onchange = e => { state.minWords = +e.target.value; state.at = -1; paint(); };
+    $('#sim-prev', body).onclick = () => goMark(state.at - 1);
+    $('#sim-next', body).onclick = () => goMark(state.at + 1);
+    const allBtn = $('#sim-all', body);
+    if (allBtn) allBtn.onclick = e => { e.preventDefault(); state.focus = null; paint(); };
+    $$('[data-panel]', body).forEach(b => (b.onclick = () => { state.panel = b.dataset.panel; paint(); }));
+    $$('[data-toggle]', body).forEach(r => (r.onclick = e => {
+      if (e.target.closest('a')) return;
+      state.open = state.open === r.dataset.toggle ? null : r.dataset.toggle;
+      paint();
+    }));
+    $$('[data-focus]', body).forEach(b => (b.onclick = () => { state.focus = state.focus === b.dataset.focus ? null : b.dataset.focus; state.at = -1; paint(); goMark(0); }));
+    $$('[data-goto]', body).forEach(b => (b.onclick = () => goWord(+b.dataset.goto)));
+    $$('[data-exclude]', body).forEach(b => (b.onclick = () => {
+      const k = b.dataset.exclude;
+      if (state.excluded.has(k)) state.excluded.delete(k); else state.excluded.add(k);
+      state.focus = null;
+      paint();
+    }));
+    // clicking a highlight opens its source in the panel
+    $$('.sim-m', body).forEach(m => (m.onclick = () => {
+      const x = (pl.sources || []).find(s => String(s.no) === m.dataset.src);
+      if (!x) return;
+      state.open = x.key; state.panel = 'overview';
+      paint();
+      $(`.sim-src[data-key="${CSS.escape(x.key)}"]`, body)?.scrollIntoView({ block: 'nearest' });
+    }));
+    const save = $('#sim-save', body);
+    if (save) save.onclick = async () => {
+      save.disabled = true;
+      try {
+        const d = await api(`/api/checks/${checkId}/similarity`, { method: 'PATCH', body: { excluded: [...state.excluded], minWords: state.minWords } });
+        saved.excluded = [...d.plagiarism.settings.excluded];
+        saved.minWords = d.plagiarism.settings.minWords;
+        toast('Filters saved — the Word / PDF report uses them');
+        paint();
+      } catch (e) { toast(e.message, 'error'); save.disabled = false; }
+    };
+    const reset = $('#sim-reset', body);
+    if (reset) reset.onclick = () => { state.excluded = new Set(saved.excluded); state.minWords = saved.minWords; paint(); };
+  }
+
+  paint();
+}

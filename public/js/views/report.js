@@ -107,7 +107,7 @@ export function renderReport(el, result, { kind } = {}) {
     else if (k === 'journals') journalsTab(body, result.journals);
     else if (k === 'pattern') patternTab(body, result.pattern, refs);
     else if (k === 'editor') editorTab(body, result);
-    else if (k === 'plagiarism') plagiarismTab(body, result.plagiarism);
+    else if (k === 'plagiarism') plagiarismTab(body, result.plagiarism, id);
     else if (k === 'novelty') noveltyTab(body, result.novelty);
     else if (k === 'authors') authorsTab(body, result.authorIdentity);
   };
@@ -187,8 +187,10 @@ const srcColor = no => SRC_COLORS[(no - 1) % SRC_COLORS.length];
 const pctText = p => (p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`);
 const TYPE_LABEL = { internet: 'Internet source', publication: 'Publication', submission: 'Submitted to PJPS' };
 
-function plagiarismTab(body, pl) {
+function plagiarismTab(body, pl, checkId) {
   if (pl.error) { body.innerHTML = `<div class="card"><h3>Similarity report</h3><p class="muted">${esc(pl.error)}</p></div>`; return; }
+  // version 3: the interactive report (side-by-side matches, exclusions, minimum match length, own Word / PDF)
+  if ((pl.version || 0) >= 3) { import('./similarity.js').then(m => m.renderSimilarity(body, pl, { checkId })); return; }
   const s = pl.summary;
   const tone = { ok: 'low', warn: 'medium', bad: 'high' }[s.level];
   // reports saved before version 2 (no primary-source attribution or highlighted text)

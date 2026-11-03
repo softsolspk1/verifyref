@@ -1,5 +1,5 @@
 // views/papermill.js - Module 4 Paper Mill Detection (editor only): input form and the confidential risk report
-import { api, esc, $, $$, toast, runJob, badge, download, fmtDate, ICONS, datasetBanner } from '../core.js';
+import { api, esc, $, $$, toast, runJob, badge, download, fmtDate, ICONS, datasetBanner, copyText } from '../core.js';
 import { decisionCard } from './decision.js';
 import { shareButton, wireShare } from './share.js';
 
@@ -105,6 +105,35 @@ export function overviewTable(r) {
 
 const evidenceRow = (e, i) => `<tr><td class="num">${i + 1}</td><td>${esc(e.text)}${e.quote ? `<div class="quote">“…${esc(e.quote)}…”</div>` : ''}${e.note ? `<div class="muted">${esc(e.note)}</div>` : ''}</td><td class="no-wrap">${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">Source</a>` : ''}${e.checkId ? ` <a href="#/check/${e.checkId}">Earlier report</a>` : ''}</td></tr>`;
 
+const AREA_ICON = { text: '¶', references: '❝', authors: '👤', data: '▦' };
+const TONE_LEVEL = { bad: 'high', warn: 'medium', good: 'low' };
+
+// the editor's assessment: written summary, recommended action, independent areas of evidence, completeness
+function assessmentCard(a) {
+  if (!a) return '';
+  const c = a.completeness;
+  return `<div class="card pm-assess">
+    <div class="card-head"><h3 style="margin:0">Assessment</h3><span class="muted">${a.convergence.flagged} of ${a.convergence.of} independent areas flagged · ${c.run} of ${c.total} checks run</span></div>
+    <p class="pm-statement">${esc(a.statement)}</p>
+    <div class="pm-action risk-${TONE_LEVEL[a.action.tone] || 'low'}"><div class="pm-action-t">Recommended action — ${esc(a.action.title)}</div><div>${esc(a.action.text)}</div></div>
+    <div class="pm-areas">${a.convergence.areas.map(x => `<div class="pm-area${x.flagged ? ' on' : ''}${x.strong ? ' strong' : ''}" data-jump-area="${x.area}">
+      <div class="pm-area-i">${AREA_ICON[x.area] || '•'}</div><div class="pm-area-l">${esc(x.label)}</div>
+      <div class="pm-area-n">${x.strong || x.moderate || x.weak ? `${x.strong ? `<b>${x.strong}</b> strong ` : ''}${x.moderate ? `<b>${x.moderate}</b> moderate ` : ''}${x.weak ? `${x.weak} weak` : ''}` : 'nothing found'}</div></div>`).join('')}</div>
+    <div class="pm-complete"><span>Screening completeness</span><div class="sim-bar"><span style="width:${c.total ? Math.round(c.run / c.total * 100) : 0}%"></span></div><b>${c.run}/${c.total}</b></div>
+    ${c.notRun.length ? `<details><summary class="muted">${c.notRun.length} check(s) could not be run</summary><ul class="muted" style="margin:6px 0 0">${c.notRun.map(x => `<li>${esc(x.check)} — ${esc(x.why.replace(/^Not checked — /, ''))}</li>`).join('')}</ul></details>` : ''}
+  </div>`;
+}
+
+// what the editor should verify (tick list, on screen only) and the neutral query letter to the authors
+function nextStepsCard(a) {
+  if (!a || (!a.verify.length && !a.letter)) return '';
+  return `<div class="grid grid-2 pm-next">
+    <div class="card"><h3>What to verify</h3>${a.verify.length ? `<ul class="pm-checklist">${a.verify.map((v, i) => `<li><label><input type="checkbox" id="pm-v${i}"> ${badge(SEV[v.severity], sevTone(v.severity))} ${esc(v.text)}</label></li>`).join('')}</ul>` : '<p class="muted">Nothing to verify.</p>'}</div>
+    <div class="card"><div class="card-head"><h3 style="margin:0">Query letter to the authors</h3>${a.letter ? `<button class="btn btn-sm no-print" id="pm-copy-letter">Copy</button>` : ''}</div>
+      ${a.letter ? `<p class="muted" style="margin:6px 0">Neutral wording: it asks for the specific points without mentioning paper mills or this report. Edit before sending.</p><textarea id="pm-letter" rows="12" class="pm-letter">${esc(a.letter)}</textarea>` : '<p class="muted">No query to the authors is needed on this evidence.</p>'}</div>
+  </div>`;
+}
+
 export function renderPaperMillResult(el, r) {
   const signals = r.signals || [];
   const groups = Object.entries(GROUPS).map(([g, label]) => ({ g, label, list: signals.filter(s => s.group === g) }));
@@ -127,17 +156,21 @@ export function renderPaperMillResult(el, r) {
       <div class="score-scale"><span>LOW</span><span>MEDIUM ≥ 4</span><span>HIGH ≥ 8</span></div>
       <div class="muted">${esc(r.disclaimer)}</div></div></div>
     ${authors.length ? `<p class="muted" style="margin:-6px 0 14px">Authors: ${esc(authors.join(', '))}</p>` : ''}
+    ${assessmentCard(r.assessment)}
     <div class="grid grid-2">
-      <div class="card"><h3>Main reasons</h3>${main.length ? `<ol class="reasons">${main.map(s => `<li>${badge(SEV[s.severity], sevTone(s.severity))} ${esc(s.title)}</li>`).join('')}</ol>` : '<p class="muted">No strong or moderate signal was found.</p>'}</div>
+      <div class="card"><h3>Main reasons</h3>${main.length ? `<ol class="reasons">${main.map(s => `<li><a href="#" data-jump="${signals.indexOf(s)}">${badge(SEV[s.severity], sevTone(s.severity))} ${esc(s.title)}</a></li>`).join('')}</ol>` : '<p class="muted">No strong or moderate signal was found.</p>'}</div>
       <div class="card"><h3>Signals at a glance</h3><div class="table-wrap"><table class="t"><tr><th>Area</th><th class="num">Strong</th><th class="num">Moderate</th><th class="num">Weak</th><th class="num">Weight</th></tr>
         ${groups.map(x => `<tr><td>${esc(x.label)}</td><td class="num">${count(x.list, 'high') || '—'}</td><td class="num">${count(x.list, 'medium') || '—'}</td><td class="num">${count(x.list, 'low') || '—'}</td><td class="num">${x.list.reduce((a, s) => a + s.weight, 0)}</td></tr>`).join('')}
         <tr class="total"><td>Total</td><td class="num">${count(signals, 'high')}</td><td class="num">${count(signals, 'medium')}</td><td class="num">${count(signals, 'low')}</td><td class="num">${r.risk.score}</td></tr></table></div></div>
     </div>
-    ${groups.map(x => `<div class="card"><div class="card-head"><h3>${esc(x.label)}</h3>${badge(x.list.length ? `${x.list.length} signal(s)` : 'None', x.list.some(s => s.severity === 'high') ? 'bad' : x.list.length ? 'warn' : 'good')}</div>
-      ${x.list.length ? x.list.map(s => { n++; const ev = s.evidence || []; return `<div class="pm-signal sev-${s.severity}">
+    <div class="pm-filter no-print"><span class="muted">Show</span>${[['all', 'All signals'], ['high', 'Strong'], ['medium', 'Moderate'], ['low', 'Weak']].map(([k, l], i) => `<button class="chip${i ? '' : ' on'}" data-sev="${k}">${l} <b>${k === 'all' ? signals.length : count(signals, k)}</b></button>`).join('')}
+      <span style="flex:1"></span><button class="btn btn-sm btn-ghost" id="pm-open-all">Expand all evidence</button><button class="btn btn-sm btn-ghost" id="pm-close-all">Collapse all</button></div>
+    ${groups.map(x => `<div class="card pm-group" id="pm-area-${x.g}"><div class="card-head"><h3>${esc(x.label)}</h3>${badge(x.list.length ? `${x.list.length} signal(s)` : 'None', x.list.some(s => s.severity === 'high') ? 'bad' : x.list.length ? 'warn' : 'good')}</div>
+      ${x.list.length ? x.list.map(s => { n++; const ev = s.evidence || []; return `<div class="pm-signal sev-${s.severity}" id="pm-sig-${signals.indexOf(s)}" data-sev="${s.severity}">
         <div class="pm-head"><span class="pm-no">${n}</span><div style="flex:1"><div class="msg">${esc(s.title)}</div>${s.note ? `<div class="guide">${esc(s.note)}</div>` : ''}</div><div class="pm-sev">${badge(SEV[s.severity], sevTone(s.severity))}<span class="muted">weight ${s.weight}</span></div></div>
         ${ev.length ? `<details ${s.severity !== 'low' ? 'open' : ''}><summary class="muted">Evidence (${ev.length})</summary><div class="table-wrap"><table class="t ev"><tr><th class="num">#</th><th>Evidence</th><th></th></tr>${ev.map(evidenceRow).join('')}</table></div></details>` : ''}
       </div>`; }).join('') : '<p class="muted">No signal found.</p>'}</div>`).join('')}
+    ${nextStepsCard(r.assessment)}
     <div class="card"><h3>What was checked</h3>${overviewTable(r)}
       <p class="muted" style="margin-top:8px">How the level is set: every signal has a weight (set on a benchmark of 150 paper-mill retractions and 126 ordinary papers). LOW below 4, MEDIUM from 4 or with one strong signal, HIGH from 8 or with two strong signals. No single signal proves that a paper came from a paper mill.</p></div>
     <div id="decision" class="no-print"></div>`;
@@ -146,6 +179,21 @@ export function renderPaperMillResult(el, r) {
   const exp = $('#export-pdf', el);
   if (exp) exp.onclick = () => download(`/api/checks/${r.id}/confidential?format=pdf`).catch(e => toast(e.message, 'error'));
   wireShare(el, r);
+  // jump from a main reason or an area tile to the signal; filter by strength; open or close every evidence list
+  const flash = node => { if (!node) return; node.scrollIntoView({ block: 'center', behavior: 'smooth' }); node.classList.add('flash'); setTimeout(() => node.classList.remove('flash'), 1600); };
+  $$('[data-jump]', el).forEach(a => (a.onclick = e => { e.preventDefault(); const sig = $(`#pm-sig-${a.dataset.jump}`, el); const d = sig && $('details', sig); if (d) d.open = true; flash(sig); }));
+  $$('[data-jump-area]', el).forEach(t => (t.onclick = () => flash($(`#pm-area-${t.dataset.jumpArea}`, el))));
+  $$('.pm-filter [data-sev]', el).forEach(b => (b.onclick = () => {
+    $$('.pm-filter [data-sev]', el).forEach(x => x.classList.toggle('on', x === b));
+    const k = b.dataset.sev;
+    $$('.pm-signal', el).forEach(sg => { sg.hidden = k !== 'all' && sg.dataset.sev !== k; });
+  }));
+  const setAll = open => $$('.pm-signal details', el).forEach(d => { d.open = open; });
+  const oa = $('#pm-open-all', el), ca = $('#pm-close-all', el);
+  if (oa) oa.onclick = () => setAll(true);
+  if (ca) ca.onclick = () => setAll(false);
+  const cl = $('#pm-copy-letter', el);
+  if (cl) cl.onclick = () => copyText($('#pm-letter', el).value);
   decisionCard($('#decision', el), r, 'papermill');
 }
 

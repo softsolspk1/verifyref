@@ -148,7 +148,10 @@ async function purgeCache() {
 
 /**
  * Fetch a URL. Returns { ok, status, data, text, error, url }.
- * options: { json=true, headers, method, timeout, ttl (seconds, 0 = no cache), retries, body, redirect }
+ * options: { json=true, headers, method, timeout, ttl (seconds, 0 = no cache), retries, body, redirect, private }
+ * private: the URL carries words of an unpublished manuscript (similarity phrase searches). The response is cached
+ * under a SHA-256 of the URL, never the URL itself, and only what private(data) keeps of it (the public records
+ * found), so neither the cache table nor R2 holds any manuscript text. private: true without a function: not cached.
  */
 async function request(url, options = {}) {
   const {
@@ -159,10 +162,13 @@ async function request(url, options = {}) {
     ttl = 7 * 24 * 3600,
     retries = 2,
     body,
-    redirect = 'follow'
+    redirect = 'follow',
+    private: privateKeep = null
   } = options;
 
-  const cacheKey = method === 'GET' && ttl > 0 ? `${json ? 'j' : 't'}:${url}` : null;
+  const keep = typeof privateKeep === 'function' ? privateKeep : null;
+  const cacheKey = method !== 'GET' || ttl <= 0 || (privateKeep && !keep) ? null
+    : keep ? `p:${require('crypto').createHash('sha256').update(url).digest('hex')}` : `${json ? 'j' : 't'}:${url}`;
   if (cacheKey) {
     const cached = await cacheGet(cacheKey);
     if (cached) return cached;
@@ -227,7 +233,11 @@ async function request(url, options = {}) {
   } else if (result.ok) cooldown.delete(host);
 
   // Cache successes and definitive "not found" answers, never transient errors
-  if (cacheKey && (result.ok || result.status === 404)) {
+  if (cacheKey && keep && result.ok && json) {
+    let data = null;
+    try { data = keep(result.data); } catch (e) { data = null; }
+    if (data) cacheSet(cacheKey, { ok: true, status: result.status, data }, Date.now() + ttl * 1000);
+  } else if (cacheKey && !keep && (result.ok || result.status === 404)) {
     const stored = { ...result };
     delete stored.headers;
     if (!json && stored.text && stored.text.length > 500000) stored.text = stored.text.slice(0, 500000);

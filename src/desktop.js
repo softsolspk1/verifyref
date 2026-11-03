@@ -258,12 +258,12 @@ async function remoteImageDatabases(userId) {
 // with the device token of the user who signed in last. If the platform has no key, they are skipped for an hour.
 let serpOffUntil = 0;
 const serpViaPlatform = () => Date.now() >= serpOffUntil;
-async function remoteSerp(engine, query, num) {
+async function remoteSerp(engine, query, num, { private: priv = false } = {}) {
   const userId = await db.getMeta('last_device_user');
   const token = userId ? await deviceToken(userId) : null;
   if (!token || !isOnline()) return { ok: false, status: 0, error: 'The web platform could not be reached (offline).' };
   try {
-    const r = await remote('/api/sync/serpapi', { method: 'POST', token, timeout: 45000, body: { engine, q: query, num } });
+    const r = await remote('/api/sync/serpapi', { method: 'POST', token, timeout: 45000, body: { engine, q: query, num, private: !!priv } });
     if (r.skipped) { serpOffUntil = Date.now() + 3600000; return { skipped: true }; }
     return { ok: !!r.ok, status: r.status, data: r.data || {} };
   } catch (e) {

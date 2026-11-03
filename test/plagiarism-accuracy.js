@@ -43,7 +43,9 @@ function reword(p) {
   const paras = [...body.matchAll(/<p>([\s\S]*?)<\/p>/g)].map(m => m[1].replace(/<xref[^>]*>[\s\S]*?<\/xref>/g, '').replace(/<[^>]+>/g, '').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim())
     .filter(p => words(p) >= 60 && words(p) <= 160 && !/[“”"]/.test(p));
   assert.ok(paras.length >= 6, 'enough paragraphs in the source');
-  const copied = [paras[1], paras[3], paras[5]];
+  // the second copied paragraph gets an in-text citation of its own after its first sentence (a copier's usual edit)
+  const cited = paras[3].replace(/^(.{40,}?[a-z])\. (?=[A-Z])/, '$1 (Khan et al., 2021). ');
+  const copied = [paras[1], cited, paras[5]];
   const edited = reword(paras[4]);
   const quoteSentence = paras[2].split(/(?<=\.)\s+/).find(s => words(s) >= 15 && words(s) <= 40) || paras[2].split(' ').slice(0, 25).join(' ');
 
@@ -76,6 +78,11 @@ function reword(p) {
   for (const [i, p] of copied.entries()) {
     const probe = p.split(' ').slice(10, 22).join(' ');
     assert.ok(highlighted.includes(probe), `verbatim paragraph ${i + 1} highlighted`);
+  }
+  if (cited !== paras[3]) {
+    const seg = rep.document.find(d => d.s && d.t.includes('(Khan et al., 2021)'));
+    assert.ok(seg, 'the added citation sits inside one highlighted match (citation markers ignored)');
+    console.log('  copied paragraph with an added citation: one match across the citation');
   }
   // share of the reworded paragraph's words inside highlighted text
   const hw = new Set(highlighted.toLowerCase().split(/s+/));

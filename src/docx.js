@@ -41,7 +41,8 @@ function table(headers, rows, rtl) {
 }
 
 // Similarity report text: runs of the manuscript highlighted in their source's colour, with the source number (Turnitin style)
-const MARK_COLORS = ['E6194B', '3CB44B', '4363D8', 'F58231', '911EB4', '42A5A5', 'F032E6', '9A6324', '808000', '000075', 'E6A700', '008080', '800000', '469990', 'AA6E28'];
+// the same colours as the report view (public/js/views/similarity.js) and the PDF
+const MARK_COLORS = ['D7263D', '1B998B', '3A50D9', 'F46036', '8E44AD', '2E86AB', 'C2185B', '8D6E63', '6B8E23', '283593', 'E0A100', '00897B', '7B1FA2', '5D4037', '455A64'];
 const markColor = no => MARK_COLORS[(no - 1) % MARK_COLORS.length];
 const lighten = hex => hex.match(/../g).map(c => Math.round(255 - (255 - parseInt(c, 16)) * 0.22).toString(16).padStart(2, '0')).join('').toUpperCase();
 function markedParagraphs(segments) {
@@ -372,14 +373,20 @@ function papermillBlocks(r, { section = null } = {}) {
     ] },
     { callout: { level, title: `Paper mill risk: ${r.risk.level}`, text: `Score ${r.risk.score} (MEDIUM from 4, HIGH from 8 or with two strong signals) · ${count(signals, 'high')} strong, ${count(signals, 'medium')} moderate and ${count(signals, 'low')} weak signal(s). ${r.disclaimer || ''}`.trim() } }
   ];
+  // the editor's assessment (reports saved before it existed get it made now)
+  const A = r.assessment || require('./papermill/assessment').assess(r);
+  const letter = r.assessment ? r.assessment.letter : require('./papermill/assessment').queryLetter(r, A);
+  blocks.push(sub(1, 'Assessment and recommended action'), { p: A.statement },
+    { callout: { level: { bad: 'bad', warn: 'warn', good: 'ok' }[A.action.tone] || 'na', title: `Recommended action: ${A.action.title}`, text: A.action.text } },
+    { kv: [['Independent areas with moderate or strong signals', `${A.convergence.flagged} of ${A.convergence.of}`], ['Screening completeness', `${A.completeness.run} of ${A.completeness.total} checks run (${A.completeness.level})`]] });
   const main = signals.filter(x => x.severity !== 'low').sort((a, b) => b.weight - a.weight).slice(0, 6);
-  blocks.push(sub(1, 'Main reasons'), { bullets: main.length ? main.map(x => `${PM_SEV[x.severity]}: ${x.title}`) : ['No strong or moderate signal was found. Weak signals, if any, are listed below.'] });
-  blocks.push(sub(2, 'Signals at a glance'), { table: { headers: ['Area', 'Signals', 'Strong', 'Moderate', 'Weak', 'Weight'], rows: [
+  blocks.push(sub(2, 'Main reasons'), { bullets: main.length ? main.map(x => `${PM_SEV[x.severity]}: ${x.title}`) : ['No strong or moderate signal was found. Weak signals, if any, are listed below.'] });
+  blocks.push(sub(3, 'Evidence by area'), { table: { headers: ['Area', 'Signals', 'Strong', 'Moderate', 'Weak', 'Weight'], rows: [
     ...Object.entries(PM_GROUPS).map(([g, label]) => { const l = signals.filter(x => x.group === g); return [label, String(l.length), String(count(l, 'high')), String(count(l, 'medium')), String(count(l, 'low')), String(l.reduce((a, x) => a + x.weight, 0))]; }),
     ['Total', String(signals.length), String(count(signals, 'high')), String(count(signals, 'medium')), String(count(signals, 'low')), String(r.risk.score)]
   ] } });
   let n = 0;
-  blocks.push(sub(3, 'Signals and evidence'));
+  blocks.push(sub(4, 'Signals and evidence'));
   for (const [g, label] of Object.entries(PM_GROUPS)) {
     const list = signals.filter(x => x.group === g);
     blocks.push({ p: `${label} (${list.length})`, bold: true, color: '0F4C5C' });
@@ -395,20 +402,21 @@ function papermillBlocks(r, { section = null } = {}) {
       }
     }
   }
+  if (A.verify.length) blocks.push(sub(5, 'What to verify'), { table: { headers: ['Strength', 'Check'], rows: A.verify.map(v => [PM_SEV[v.severity], v.text]) } });
+  if (letter) blocks.push({ p: 'Draft query letter to the authors (neutral wording: it does not mention paper mills or this report)', bold: true, color: '0F4C5C' }, ...letter.split('\n').map(l => ({ p: l })));
   const cov = papermillCoverage(r);
-  blocks.push(sub(4, 'What was checked'), cov[0]?.length === 3
+  blocks.push(sub(6, 'What was checked'), cov[0]?.length === 3
     ? { table: { headers: ['Status', 'Check', 'Result'], rows: cov } }
     : { table: { headers: ['Check', 'Result'], rows: cov } });
   if (cov[0]?.length === 3) blocks.push({ p: 'RED: a strong signal. AMBER: a moderate or weak signal. GREEN: checked, nothing found. NOT CHECKED: the information was not in the manuscript.', italics: true });
-  if (r.guidance?.available) blocks.push(sub(5, 'Suggested handling for this risk level'), { kv: [['Before publication', r.guidance.decision.desk], ['After publication', r.guidance.decision.post]] }, { bullets: r.guidance.evidence });
-  blocks.push(sub(6, 'How the risk level is set'), { bullets: [
+  blocks.push(sub(7, 'How the risk level is set'), { bullets: [
     'Every signal has a weight. The weights were set on a benchmark of 150 papers retracted for paper-mill reasons and 126 ordinary papers from the same journals and years.',
     'The risk is LOW below a total of 4, MEDIUM from 4 (or with one strong signal) and HIGH from 8 (or with two strong signals).',
     'Text signals alone find only a small share of known mill papers; reference, author and data signals add most of the evidence. No single signal proves that a paper came from a paper mill.',
     'The report never rejects a paper by itself: the editor reviews the evidence and decides.'
   ] });
   const d = r.decision;
-  blocks.push(sub(7, 'Editor review'), { table: { headers: ['Decision', 'Notes', 'Reviewed by', 'Date'], rows: [[d?.label || '', d?.notes || '', d?.by || '', d?.at ? d.at.slice(0, 10) : '']] } });
+  blocks.push(sub(8, 'Editor review'), { table: { headers: ['Decision', 'Notes', 'Reviewed by', 'Date'], rows: [[d?.label || '', d?.notes || '', d?.by || '', d?.at ? d.at.slice(0, 10) : '']] } });
   return blocks;
 }
 
@@ -608,12 +616,12 @@ function plagiarismBlocks(pl) {
     if (pl.sources.length) blocks.push({ table: { headers: ['Similarity', 'Source'], rows: pl.sources.map(x => [`${x.similarity}%`, `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}`]) } });
     return [...blocks, { p: 'Report made with the earlier method; run the screening again for the full similarity report.', italics: true }];
   }
-  const TYPE = { internet: 'Internet source', publication: 'Publication', submission: 'Submitted to PJPS' };
   blocks.push({ kv: [['Similarity Index', pt(s.similarity)], ['Internet sources', pt(s.internet)], ['Publications', pt(s.publications)], ...(pl.repository ? [] : [['Submitted to PJPS', pt(s.submissions)]]),
-    ['Words compared', s.words.toLocaleString()], ['Filters', `bibliography ${pl.filters.bibliography}; quotes ${pl.filters.quotes}; small matches ${pl.filters.smallMatches}`], ...(pl.repository ? [['Repository', pl.repository]] : [])] });
+    ['Words compared', s.words.toLocaleString()], ['Filters', simFilters(pl)], ...(pl.repository ? [['Repository', pl.repository]] : [])] });
   if (pl.sources.length) {
     blocks.push({ p: 'Primary sources', bold: true });
-    blocks.push({ table: { headers: ['No.', 'Match', 'Source', 'Type'], rows: pl.sources.map(x => [String(x.no), pt(x.percent), `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : x.url && !x.checkId ? ` (${x.url})` : ''}`, TYPE[x.type] || x.type]) } });
+    blocks.push(simSourcesTable(pl));
+    if (pl.version >= 3) blocks.push({ p: 'Largest matches next to the source wording', bold: true }, ...simMatchBlocks(pl, 3));
   } else blocks.push({ p: 'No matching text was found in the sources searched.' });
   if (pl.selfMatches?.length) blocks.push({ p: `Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => `${x.title}${x.year ? ` (${x.year})` : ''}`).join('; ')}`, italics: true });
   if (pl.earlierSubmissions?.length) blocks.push({ p: `Earlier PJPS submissions with the same text: ${pl.earlierSubmissions.join('; ')}`, bold: true });
@@ -622,6 +630,52 @@ function plagiarismBlocks(pl) {
     blocks.push({ marked: pl.document });
   }
   blocks.push({ p: `${pl.method} Coverage: ${pl.coverage}`, italics: true });
+  return blocks;
+}
+
+const SIM_TYPE = { internet: 'Internet source', publication: 'Publication', submission: 'Submitted to PJPS' };
+const simPt = v => (v > 0 && v < 1 ? '<1%' : `${Math.round(v)}%`);
+const simFilters = pl => [`bibliography ${pl.filters.bibliography}`, `quotes ${pl.filters.quotes}`, ...(pl.filters.citations ? [`in-text citations ${pl.filters.citations}`] : []), `small matches ${pl.filters.smallMatches}`, ...(pl.filters.sources ? [pl.filters.sources] : [])].join('; ');
+const simSourcesTable = pl => ({ table: { headers: ['No.', 'Match', 'Source', 'Type', 'Words'], rows: pl.sources.map(x => [String(x.no), simPt(x.percent),
+  `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : x.url && !x.checkId ? ` (${x.url})` : ''}`, SIM_TYPE[x.type] || x.type, String(x.words ?? '')]) } });
+
+/** The largest matches of the first n primary sources, the manuscript next to the source's wording */
+function simMatchBlocks(pl, n) {
+  const out = [];
+  for (const x of (pl.sources || []).slice(0, n)) {
+    const list = (x.passages || []).filter(p => p.words >= (pl.settings?.minWords || 8)).slice(0, 4);
+    if (!list.length) continue;
+    out.push({ p: `[${x.no}] ${simPt(x.percent)} - ${x.title || 'Source'}${x.journal ? ` (${x.journal}${x.year ? `, ${x.year}` : ''})` : ''}`, bold: true, color: markColor(x.no) });
+    out.push({ table: { headers: ['Manuscript', 'Source'], rows: list.map(p => [`${p.text} (${p.words} words)`, p.source || 'Exact passage found in this source; its full text is paywalled, so the wording is not shown.']) } });
+  }
+  return out;
+}
+
+/** The similarity report alone (Word / PDF from the report's own page): cover, primary sources, matches, highlighted text */
+function similarityReportBlocks(r) {
+  const pl = r.plagiarism;
+  if (!pl || pl.error || !pl.version) return plagiarismBlocks(pl);
+  const s = pl.summary, meta = r.meta || {};
+  const blocks = [
+    { h1: 'Similarity Report' },
+    { p: 'Confidential - for the editor. This report contains the text of an unpublished manuscript.', bold: true, color: '9B1C1C' },
+    { kv: [['Manuscript ID', meta.manuscriptCode || '-'], ['Title', meta.title || '-'], ['Checked on', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : '-'], ...(r.id ? [['Report no.', String(r.id)]] : []), ['Words compared', s.words.toLocaleString()]] },
+    { callout: { level: { ok: 'ok', warn: 'warn', bad: 'bad' }[s.level] || 'na', title: `Similarity Index: ${simPt(s.similarity)}`,
+      text: `Publications ${simPt(s.publications)} - Internet sources ${simPt(s.internet)} - Submitted works: not compared (no repository). ${s.sources} primary source(s), the largest ${simPt(s.largestSource)}.` } },
+    { kv: [['Filters', simFilters(pl)], ['Repository', pl.repository || 'not stored']] }
+  ];
+  if (pl.privacy) blocks.push({ p: pl.privacy.statement, italics: true });
+  if (pl.selfMatches?.length) blocks.push({ p: `Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => `${x.title}${x.year ? ` (${x.year})` : ''}`).join('; ')}`, italics: true });
+  blocks.push({ h2: 'Primary sources' });
+  if (!pl.sources.length) blocks.push({ p: 'No matching text was found in the sources searched.' });
+  else {
+    blocks.push(simSourcesTable(pl));
+    if (pl.version >= 3) blocks.push({ h2: 'Matches next to the source' }, ...simMatchBlocks(pl, 8));
+  }
+  if (pl.document?.length) blocks.push({ pageBreak: true }, { h2: 'Manuscript text' }, { p: 'Matched text is highlighted in the colour of its source, with the source number.', italics: true }, { marked: pl.document });
+  const c = pl.checked || {};
+  blocks.push({ h2: 'What was searched' }, { p: `${c.passages} passages searched (${c.passagesFound ?? '-'} found elsewhere); ${c.queries} literature searches${c.openalexSearches ? `, ${c.openalexSearches} in publisher full texts` : ''}${c.webSearches ? `, ${c.webSearches} on the web` : ''}; ${c.candidates} candidate sources, ${c.sourcesCompared} compared in full.` },
+    { bullets: c.databases || [] }, { p: pl.method, italics: true }, { p: `Coverage: ${pl.coverage}`, italics: true });
   return blocks;
 }
 
@@ -713,7 +767,7 @@ function screeningBlocks(r, version = 'editor') {
 }
 
 module.exports = {
-  complianceBlocks, citationsBlocks, papermillBlocks, papermillCoverage, imagesBlocks, screeningBlocks, plagiarismBlocks, noveltyBlocks, authorIdentityBlocks,
+  complianceBlocks, citationsBlocks, papermillBlocks, papermillCoverage, imagesBlocks, screeningBlocks, plagiarismBlocks, similarityReportBlocks, noveltyBlocks, authorIdentityBlocks,
   buildDocx, decisionSummaryBlocks, referenceQualityBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks,
   verifyBlocks, evidenceBlocks, assistantBlocks, journalFinderBlocks, conferenceBlocks, restyleBlocks, formatBlocks, authorBlocks
 };

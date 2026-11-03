@@ -18,6 +18,17 @@ const COVERAGE = {
   references: { done: true, note: 'PJPS image databases: published PJPS papers (pjps.pk), open-access papers retracted or corrected for image problems, and reference figures held by the editorial office' },
   published: { done: false, note: 'Commercial databases of all published figures (ImageTwin, Proofig) are not searched: by PJPS policy figures never leave the PJPS system' }
 };
+/** The coverage notes, with the external image service when it checked the figures (it is not named) */
+function coverageOf(externalChecked) {
+  if (!externalChecked) return COVERAGE;
+  const f = `${externalChecked} figure(s)`;
+  return {
+    ...COVERAGE,
+    duplication: { done: true, note: `${COVERAGE.duplication.note}; and on the open web (${f} searched by an external reverse image search: exact, cropped, resized and recoloured copies)` },
+    ai: { done: true, note: `File markers (C2PA, generator tags) + statistical traces, and an external AI-generated image detector (${f}); estimates, not proof` },
+    published: { done: false, note: 'Commercial databases of all published figures (ImageTwin, Proofig) are not searched; figures behind publisher paywalls that are not on the open web are not found' }
+  };
+}
 const METHOD = 'Analysed in the editor browser. (a) Duplication: figures were split into panels; every pair was compared with perceptual hashes in 8 orientations and ORB keypoint matching with RANSAC (rotated, mirrored, resized, cropped or partly overlapping copies), and with the figures of all earlier PJPS manuscripts. (b) Alteration / manipulation: cloned areas (keypoint self-matching and DCT block matching), noise-level and JPEG-grid inconsistency, noise-free retouched areas, sharp background steps between blot lanes, combed histograms and saturated bands. (c) AI-generated images: provenance markers in the image files (C2PA / IPTC, generator names, generation parameters) and statistical traces (spectral peaks, missing or uniform sensor noise); statistics alone are shown only as indicators to check. (d) Graphs and charts: bar heights and curves were read from the pixels and compared across charts - also re-coloured, re-scaled or reversed - and with earlier manuscripts. (e) Reference databases: every panel and chart was also compared - in all orientations, as a crop and as an enlargement - with the figures of published PJPS papers, of open-access papers retracted or corrected for image problems and of the reference figures held by the editorial office; each candidate was verified by correlating the aligned thumbnails.';
 
 const MATCH_DISTANCE = 6; // max differing bits (of 64) for "same figure"
@@ -145,7 +156,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
       referencesRetracted: refs.matches.filter(m => m.source === 'retracted').length + refs.charts.filter(m => m.source === 'retracted').length, level
     },
     images: (input.images || []).slice(0, 200).map(im => ({ id: String(im.id), label: String(im.label || '').slice(0, 160), width: im.width | 0, height: im.height | 0, panels: im.panels | 0, source: String(im.source || '') })),
-    panels, findings, earlier, earlierCharts, references: refs.matches, referenceCharts: refs.charts, referencesSearched: refs.searched, referencesError: refs.error || null, coverage: COVERAGE, provenanceChecked: Number(input.provenance) || 0,
+    panels, findings, earlier, earlierCharts, references: refs.matches, referenceCharts: refs.charts, referencesSearched: refs.searched, referencesError: refs.error || null, coverage: coverageOf(Number(input.externalChecked) || 0), provenanceChecked: Number(input.provenance) || 0, externalChecked: Number(input.externalChecked) || 0, externalErrors: (Array.isArray(input.externalErrors) ? input.externalErrors : []).slice(0, 5).map(e => String(e).slice(0, 200)),
     skipped: (input.skipped || []).slice(0, 100).map(s => ({ name: String(s.name || '').slice(0, 160), reason: String(s.reason || '').slice(0, 200) })),
     vendor: await vendorStatus(),
     guidance: KB.guidance(level),
@@ -166,10 +177,20 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
 }
 
 /**
- * PJPS policy: figures are analysed inside the PJPS system only (in the editor's browser and on the PJPS server) and
- * are never sent to an outside service such as ImageTwin or Proofig. The report states this, and what that leaves out.
+ * Where figures are checked. With the external image service set up (src/externalSimilarity.js) each whole figure is
+ * also sent to it (AI-generated image detection, reverse image search on the web); its name is not shown. Otherwise
+ * figures stay inside the PJPS system. The report states which, and what that leaves out.
  */
 async function vendorStatus() {
+  if (require('./externalSimilarity').imagesEnabled()) {
+    return {
+      connected: true,
+      vendor: null,
+      inHouseOnly: false,
+      external: true,
+      note: 'Each whole figure is also sent to an external image-checking service: AI-generated image detection and a reverse image search of the web (exact copies and cropped, resized or recoloured versions). Duplication, manipulation and chart checks run within the PJPS system, and every figure is compared with all earlier PJPS manuscripts and the PJPS image databases (published PJPS papers, papers retracted for image problems, PubMed Central open-access figures). Figures behind publisher paywalls that are not on the open web are not searched.'
+    };
+  }
   return {
     connected: false,
     vendor: null,

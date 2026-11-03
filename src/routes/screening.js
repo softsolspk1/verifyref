@@ -196,6 +196,20 @@ router.get('/images/public/figures/:pmcid', mod('images'), wrap(async (req, res)
 
 router.get('/images/vendor', mod('images'), wrap(async (req, res) => res.json({ success: true, ...(await IMG.vendorStatus()) })));
 
+/**
+ * One figure checked by the external image service before the Module 5 report is saved: { src: JPEG data URL, w, h,
+ * label } -> AI-generated image estimate and copies of the figure on the web (src/externalSimilarity.js)
+ */
+router.post('/images/external', mod('images'), wrap(async (req, res) => {
+  const X = require('../externalSimilarity');
+  if (!X.imagesEnabled()) return res.status(404).json({ success: false, message: 'The external image check is not set up.' });
+  const b = req.body || {};
+  const m = String(b.src || '').match(/^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/);
+  if (!m || m[1].length > 12_000_000) return res.status(400).json({ success: false, message: 'Send one figure as a JPEG (at most 9 MB).' });
+  const check = await X.checkFigure({ base64: m[1], filename: `${String(b.label || 'figure').replace(/[^\w.-]+/g, '_').slice(0, 60) || 'figure'}.jpg`, width: b.w | 0, height: b.h | 0 });
+  res.json({ success: true, ...check });
+}));
+
 // ------------------------------------------------------------------ editor decision record (Modules 4, 5, Full Screening Report)
 
 const DECISIONS = { cleared: 'Cleared', investigate: 'Needs investigation', committee: 'Referred to the integrity committee', 'return': 'Returned to the authors', proceed: 'Proceed to peer review' };

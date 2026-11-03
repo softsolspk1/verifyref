@@ -180,6 +180,52 @@ async function scanText(text, { update = () => {} } = {}) {
   }
 }
 
+// ------------------------------------------------------------------ figures (Module 5)
+
+/** The image checks need only the login (they answer in the same request, no callback): web and desktop */
+const imagesEnabled = () => !!(cfg.COPYLEAKS_EMAIL && cfg.COPYLEAKS_API_KEY);
+
+async function callForm(url, form, { timeout = 90000, retried = false } = {}) {
+  let res, text = '';
+  try {
+    res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${await token()}`, Accept: 'application/json' }, body: form, signal: AbortSignal.timeout(timeout) });
+    text = await res.text();
+  } catch (e) { return { ok: false, status: 0, error: e.message }; }
+  if (res.status === 401 && !retried) { await token(true); return callForm(url, form, { timeout, retried: true }); }
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+  return { ok: res.ok, status: res.status, data };
+}
+
+/**
+ * One figure (JPEG, base64): the AI-generated image detector (figures of 400 px or more on each side) and the reverse
+ * image search on the web. -> { ai: { percent, isAi } | { skipped }, web: { full, partial, matches: [{ imageUrl, full,
+ * pages }] }, errors: [] }
+ */
+async function checkFigure({ base64, filename = 'figure.jpg', width = 0, height = 0 }) {
+  const out = { ai: null, web: null, errors: [] };
+  const scanId = kind => `pjps${kind}${crypto.randomBytes(10).toString('hex')}`;
+  if (width >= 400 && height >= 400) {
+    const r = await call(`${API}/v1/ai-image-detector/${scanId('a')}/check`, { method: 'POST', timeout: 90000,
+      body: { base64, filename, model: 'ai-image-1-ultra', maskType: 'none', sandbox: cfg.COPYLEAKS_SANDBOX } });
+    if (r.ok && r.data) {
+      const ai = Number(r.data.summary?.ai) || 0;
+      out.ai = { percent: Math.round(ai <= 1 ? ai * 100 : ai), isAi: !!r.data.isAiDetected };
+    } else out.errors.push(`AI image check: HTTP ${r.status}`);
+  } else out.ai = { skipped: 'smaller than 400 px on a side' };
+  const form = new FormData();
+  form.append('image', new Blob([Buffer.from(base64, 'base64')], { type: 'image/jpeg' }), filename);
+  form.append('filename', filename);
+  form.append('sandbox', String(cfg.COPYLEAKS_SANDBOX));
+  const r = await callForm(`${API}/v1/image-plagiarism-detector/${scanId('w')}/check`, form);
+  if (r.ok && r.data) {
+    const m = r.data.matches || {};
+    out.web = { full: m.score?.fullMatches || 0, partial: m.score?.partialMatches || 0,
+      matches: (m.internet || []).slice(0, 10).map(x => ({ imageUrl: x.url || null, full: x.matchType === 0, pages: (x.webPages || []).map(p => p.url).filter(Boolean).slice(0, 3) })) };
+  } else out.errors.push(`Reverse image search: HTTP ${r.status}`);
+  return out;
+}
+
 /** The AI-text estimate from the scan's alert (0-100 % likely AI-written), or null */
 function aiEstimate(completed) {
   for (const a of completed?.alerts || []) {
@@ -193,4 +239,4 @@ function aiEstimate(completed) {
   return null;
 }
 
-module.exports = { enabled, scanText, receive, verify, sign, aiEstimate, slimCompleted, slimResult, baseUrl };
+module.exports = { enabled, imagesEnabled, checkFigure, scanText, receive, verify, sign, aiEstimate, slimCompleted, slimResult, baseUrl };

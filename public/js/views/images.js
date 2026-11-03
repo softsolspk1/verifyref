@@ -174,13 +174,61 @@ export async function analyseAndSave(files, meta, set = () => {}, { extracted = 
   }
   set(`${images.length} figure(s) found — starting the analysis`, 10);
   const analysis = await analyse(images, set, panelBoxes);
+  const external = await externalFigureChecks(images, set).catch(() => null);
   set('Preparing thumbnails and saving', 97);
   const panelsAdjusted = panelBoxes ? Object.keys(panelBoxes).length : 0;
-  const saved = await api('/api/images', { body: { result: buildPayload(images, analysis, skipped, { ...meta, panelsAdjusted }) } });
+  const payload = buildPayload(images, analysis, skipped, { ...meta, panelsAdjusted });
+  if (external) addExternalFindings(payload, external);
+  const saved = await api('/api/images', { body: { result: payload } });
   const result = saved.result;
   result.id = saved.id;
   await savePanelViews(result, images);
   return { id: saved.id, result, images };
+}
+
+/**
+ * Each whole figure checked by the external image service (when the server has it set up): AI-generated image
+ * detection and copies of the figure on the web. -> [{ imageId, label, ai, web, errors }] or null
+ */
+async function externalFigureChecks(images, set) {
+  const status = await api('/api/images/vendor').catch(() => null);
+  if (!status?.external) return null;
+  const out = [];
+  for (const [i, im] of images.entries()) {
+    set(`Checking figure ${i + 1} of ${images.length} for AI generation and copies on the web`, 90 + Math.round(i / images.length * 6));
+    // the figure as a JPEG of at most 2000 px on its longer side
+    const k = Math.min(1, 2000 / Math.max(im.canvas.width, im.canvas.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(im.canvas.width * k)); c.height = Math.max(1, Math.round(im.canvas.height * k));
+    c.getContext('2d').drawImage(im.canvas, 0, 0, c.width, c.height);
+    const r = await api('/api/images/external', { body: { src: c.toDataURL('image/jpeg', 0.9), w: c.width, h: c.height, label: im.label } }).catch(e => ({ errors: [e.message] }));
+    out.push({ imageId: im.id, label: im.label, ai: r.ai || null, web: r.web || null, errors: r.errors || [] });
+  }
+  return out;
+}
+
+/** The external checks as Module 5 findings: (c) AI-generated image, (a) the figure found on the web */
+function addExternalFindings(payload, external) {
+  const firstPanel = new Map();
+  for (const p of payload.panels) if (!firstPanel.has(p.imageId)) firstPanel.set(p.imageId, p);
+  let n = 0;
+  for (const x of external) {
+    const p = firstPanel.get(x.imageId);
+    if (!p) continue;
+    const at = { panel: p.id, label: x.label || p.label, box: p.box };
+    if (x.ai?.isAi || x.ai?.percent >= 50) {
+      payload.findings.push({ id: `x${++n}`, kind: 'ai', category: 'ai', level: x.ai.percent >= 80 ? 'high' : 'medium', a: at, b: at, score: x.ai.percent, thumbA: p.thumb,
+        description: `AI-image detector: ${x.ai.percent}% of the figure is likely AI-generated (an estimate, not proof; ask the authors for the original files)`, details: [] });
+    }
+    if (x.web?.matches?.length) {
+      const full = x.web.matches.filter(m => m.full), list = full.length ? full : x.web.matches;
+      payload.findings.push({ id: `x${++n}`, kind: 'duplicate', category: 'duplication', level: full.length ? 'high' : 'medium', a: at, b: at, score: full.length || list.length, thumbA: p.thumb,
+        description: `The figure is on the web: ${x.web.full} exact and ${x.web.partial} modified (cropped, resized or recoloured) copies found. Check whether it is the authors' own earlier publication or someone else's figure`,
+        details: list.slice(0, 6).map(m => (m.pages[0] || m.imageUrl || '')).filter(Boolean) });
+    }
+  }
+  payload.externalChecked = external.filter(x => x.ai || x.web).length;
+  payload.externalErrors = [...new Set(external.flatMap(x => x.errors || []))];
 }
 
 /** Store sharper pictures of the matched panels with the report (for the screen and the Word / PDF report) */
@@ -337,7 +385,7 @@ function databasesCard(d) {
 }
 
 function vendorCard(v) {
-  return `<div class="card"><div class="card-head"><h3>Figures stay inside PJPS</h3>${badge(v.inHouseOnly ? 'In-house only' : v.connected ? 'Connected' : 'Not checked', v.inHouseOnly ? 'good' : v.connected ? 'good' : 'neutral')}</div><p class="muted" style="margin:0">${esc(v.note)}</p></div>`;
+  return `<div class="card"><div class="card-head"><h3>${v.external ? 'Where figures are checked' : 'Figures stay inside PJPS'}</h3>${badge(v.inHouseOnly ? 'In-house only' : v.external ? 'Web and AI checks on' : v.connected ? 'Connected' : 'Not checked', v.inHouseOnly || v.connected ? 'good' : 'neutral')}</div><p class="muted" style="margin:0">${esc(v.note)}</p></div>`;
 }
 
 export function renderImagesResult(el, result, { live = null } = {}) {

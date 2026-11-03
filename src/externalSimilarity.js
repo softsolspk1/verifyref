@@ -23,6 +23,8 @@ const WAIT_EXPORT_MS = 3 * 60000;
 const POLL_MS = 4000;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+/** A message of the service without its name (users never see which service it is) */
+const anonymous = s => String(s || '').replace(/copy\s*leaks?(?:\.com)?/gi, 'the service');
 const sha = s => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 /** The address the service calls back: PUBLIC_URL, else the Vercel production domain */
@@ -79,7 +81,8 @@ async function call(url, { method = 'GET', body = null, auth = true, timeout = 6
 async function receive(scanId, what, id, body) {
   const w = String(what || '').toLowerCase();
   if (w === 'completed') await db.query("UPDATE ext_scans SET status = 'completed', completed = $2, updated_at = now() WHERE scan_id = $1 AND status = 'submitted'", [scanId, JSON.stringify(slimCompleted(body))]);
-  else if (w === 'error') await db.query("UPDATE ext_scans SET status = 'error', error = $2, updated_at = now() WHERE scan_id = $1", [scanId, String(body?.error?.message || body?.message || 'scan failed').slice(0, 300)]);
+  // the service's own error text reaches the report ("What was searched"): its name is taken out
+  else if (w === 'error') await db.query("UPDATE ext_scans SET status = 'error', error = $2, updated_at = now() WHERE scan_id = $1", [scanId, anonymous(body?.error?.message || body?.message || 'scan failed').slice(0, 300)]);
   else if (w === 'result' && id) await db.query("UPDATE ext_scans SET results = results || jsonb_build_object($2::text, $3::jsonb), updated_at = now() WHERE scan_id = $1", [scanId, String(id), JSON.stringify(slimResult(body))]);
   else if (w === 'export-done') await db.query("UPDATE ext_scans SET status = 'exported', updated_at = now() WHERE scan_id = $1 AND status IN ('completed', 'exporting')", [scanId]);
   // creditsChecked / indexed: nothing to do

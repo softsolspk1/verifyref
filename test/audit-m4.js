@@ -81,7 +81,7 @@ const show = (label, r) => {
   // ---- mill manuscript
   const mill = await run(api, { text: MILL, manuscriptCode: 'AUDIT-PM-MILL', authors: 'Chen Fang\nFukang Sun\nAhmed Raza', suggestedReviewers: 'Prof. A Friend <friend.reviewer@gmail.com>\nDr B Colleague <b.colleague@yahoo.com>' }, 'mill');
   if (mill) { show('MILL manuscript', mill); R.mill = { level: mill.risk.level, score: mill.risk.score, signals: mill.signals.map(s => `${s.code}:${s.severity}`) }; }
-  const want = ['tortured', 'ai-leftover', 'template', 'methods', 'cell-lines', 'free-mail', 'no-orcid', 'hidden', 'fabricated', 'author-mill-retraction'];
+  const want = ['tortured', 'ai-leftover', 'template', 'methods', 'cell-lines', 'free-mail', 'no-orcid', 'hidden-text', 'fabricated', 'author-mill-retraction'];
   const got = new Set((mill?.signals || []).map(s => s.code));
   R.expectedSignals = want.map(c => ({ code: c, found: got.has(c) }));
   console.log('planted signals found:', R.expectedSignals.map(x => `${x.code}=${x.found ? 'Y' : 'N'}`).join(' '));

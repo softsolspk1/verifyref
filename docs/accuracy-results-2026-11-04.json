@@ -1,0 +1,392 @@
+{
+ "version": "3.2.10",
+ "note": "Ground-truth audits and benchmarks were run on 4 November 2026 against the current code (version 3.2.10 with the changes of 4 November). The build computer's D: drive disconnected three times during the audit; every interrupted run was repeated, and every figure in this report comes from a run that completed. Logs: D:pjps-tmpaudit-2026-11-04 and the session scratch folder.",
+ "m3": {
+  "dev": {
+   "found": 60,
+   "full": 22,
+   "contraAsFull": 13,
+   "contraFlagged": 14,
+   "neiAsFull": 2
+  },
+  "train": {
+   "found": 58,
+   "full": 22,
+   "contraAsFull": 9,
+   "contraFlagged": 17,
+   "neiAsFull": 1
+  }
+ },
+ "m4": {
+  "text": {
+   "mill": 24,
+   "ctrl": 2,
+   "high": 3
+  },
+  "withLook": {
+   "mill": 38,
+   "ctrl": 3
+  },
+  "signals": [
+   [
+    "Title + abstract resemble a mill retraction, closest >= 20% (new)",
+    "8/150",
+    "0/126"
+   ],
+   [
+    "Title + abstract resemble a mill retraction, closest >= 14% (new)",
+    "42/150",
+    "7/126"
+   ],
+   [
+    "References: >= 3 refs and >= 15% to journals with many mill retractions (reference benchmark, 4 Nov)",
+    "16/150",
+    "3/126"
+   ],
+   [
+    "Cites a paper retracted for paper-mill reasons (reference benchmark, 4 Nov)",
+    "8/150",
+    "2/126"
+   ],
+   [
+    "Cites 2 or more such papers (reference benchmark, 4 Nov)",
+    "4/150",
+    "0/126"
+   ],
+   [
+    "Misidentified cell lines named (text benchmark, 4 Nov)",
+    "11/150",
+    "2/126"
+   ],
+   [
+    "Tortured phrases (text benchmark, 4 Nov)",
+    "8/150",
+    "2/126"
+   ],
+   [
+    "Molecular-oncology mill template (text benchmark, 4 Nov)",
+    "24/150",
+    "5/126"
+   ],
+   [
+    "Technology buzzwords on a non-biomedical subject (text benchmark, 4 Nov)",
+    "8/150",
+    "2/126"
+   ]
+  ]
+ },
+ "m5": {
+  "rsiidLine": "Copies of scientific figures (RSIID): rotated, mirrored, resized and re-compressed copies 125 of 125, contrast-changed 22 of 25, partial crops 18 of 25; cloned areas 15 of 25; 0 false alarms on 30 clean pairs",
+  "edd": "87 of 155 annotated pairs (56%), 49 as Strong",
+  "idd": "25 of 78 (32%), against 25 of 231 clean images (11%)",
+  "neg": "0 false alarms on 17,571 pairs of unrelated figures",
+  "intro": "Module 5 was measured on two published datasets with the current engine (version of 3 November). RSIID: 60 pristine scientific figures from openly licensed repositories, from which copies and copy-moves are generated the way the RSIID and BINDER datasets were built. BioFors (Sabir et al., ICCV 2021): real figure panels from 60 published papers annotated by an image-integrity expert (Bik).",
+  "rows": [
+   [
+    "RSIID (generated)",
+    "Copies rotated 90° / 180°, mirrored, rescaled 60%, JPEG quality 40",
+    "125 of 125 (100%)",
+    "ok"
+   ],
+   [
+    "RSIID (generated)",
+    "Copy with contrast / brightness change",
+    "22 of 25 (88%)",
+    "ok"
+   ],
+   [
+    "RSIID (generated)",
+    "Partial copy (55% crop)",
+    "18 of 25 (72%)",
+    "warn"
+   ],
+   [
+    "RSIID (generated)",
+    "Cloned area inside one image (copy-move)",
+    "15 of 25 (60%)",
+    "warn"
+   ],
+   [
+    "RSIID (generated)",
+    "Clean image pairs falsely reported",
+    "0 of 30 (0%)",
+    "ok"
+   ],
+   [
+    "BioFors (real, expert-annotated)",
+    "Duplicated panels within a paper (155 testable annotated pairs)",
+    "87 found (56%); 49 as Strong (32%)",
+    "warn"
+   ],
+   [
+    "BioFors (real, expert-annotated)",
+    "Reports on pairs not in the annotation (60 papers)",
+    "167 (64 Strong): about 1 Strong per paper; some are real duplicates the annotation misses",
+    "warn"
+   ],
+   [
+    "BioFors (real, expert-annotated)",
+    "Unrelated figures from different papers (4,851 blot + 12,720 microscopy pairs)",
+    "0 reports",
+    "ok"
+   ],
+   [
+    "BioFors (real, expert-annotated)",
+    "Cloned area inside one image (78 annotated, 231 clean)",
+    "25 found (32%; 23 located correctly) vs 25 clean images reported (11%; 4 Strong)",
+    "bad"
+   ],
+   [
+    "BioFors (real, expert-annotated)",
+    "Splicing in blots (121 spliced, 140 clean)",
+    "14 found (12%) vs 14 clean reported (10%): no separation, indicator only",
+    "bad"
+   ]
+  ]
+ },
+ "full": {
+  "ok": true,
+  "line": "Demonstration manuscript: every module ran in 117 s; recommendation \"Investigate before any further processing\"; editor and author versions correct",
+  "text": "test/audit-full.js uploads the demonstration manuscript (planted problems in every module) and checks the combined report. On 4 November 2026 it finished in 117 seconds. Bibliography: 2 verified, 1 miscited, 1 retracted of 7, with 3 not confirmed (as planted). PJPS style: 57% compliant, 3 references to fix. Citations: 1 missing, 1 uncited. Paper mill: HIGH (score 20; AI leftovers, tortured phrases, template wording, cell lines). Similarity: 26%. Novelty: 49/100. Recommendation: \"Investigate before any further processing\". The editor version (Word) includes the confidential paper-mill and image sections; the author version leaves them out. Version history by manuscript ID, Super Admin functions, editor permissions and duplicate-account protection also passed. Images are analysed in the browser, so this server-side audit does not exercise Module 5 (section 7 does)."
+ },
+ "recommendations": [
+  {
+   "module": "Module 1: Check Bibliography",
+   "items": [
+    [
+     "Enlarge the ground-truth set to 200+ references taken from real PJPS submissions (books, theses, guidelines, Urdu and regional journals, conference papers), so an error rate below 1-2% can be shown",
+     "Precise error rate; finds rare failure cases",
+     "Editor time to label",
+     "High"
+    ],
+    [
+     "Add a Google Scholar search key (SerpApi or similar) and the HEC HJRS list, so regional Pakistani journals can be confirmed instead of left \"Unverified\"",
+     "Fewer \"Unverified\" references",
+     "Paid key",
+     "High"
+    ],
+    [
+     "Add Scopus / Web of Science APIs through PJPS's institutional access",
+     "Coverage of indexed journals the free databases miss",
+     "Institutional API keys",
+     "Medium"
+    ],
+    [
+     "Keep a local cache of answered look-ups and retry slow databases later",
+     "Fewer \"not checked\" results when an API is slow",
+     "None",
+     "Medium"
+    ]
+   ]
+  },
+  {
+   "module": "Module 2: Reference Style and PJPS Converter",
+   "items": [
+    [
+     "Get the PJPS editor's written sign-off on every house-style rule (spec requirement)",
+     "Rules match what PJPS enforces",
+     "Editor time",
+     "High"
+    ],
+    [
+     "Test on 100 real accepted PJPS manuscripts (the published versions show the correct output)",
+     "Real-world compliance rate",
+     "PJPS archive files",
+     "High"
+    ],
+    [
+     "Extend the journal-abbreviation list for regional journals not in NLM / LTWA",
+     "Fewer abbreviation false alarms",
+     "List from PJPS",
+     "Medium"
+    ],
+    [
+     "Rules for theses, web pages, guidelines, patents and datasets",
+     "Fewer \"cannot be parsed\" entries",
+     "None",
+     "Low"
+    ]
+   ]
+  },
+  {
+   "module": "Module 3: Citations",
+   "items": [
+    [
+     "Run a small language-understanding model locally (a sentence-entailment model trained on SciFact / MedNLI) to judge claim support; no manuscript text leaves the server",
+     "Biggest expected gain: models trained on meaning catch contradictions and reworded support that word matching misses (now 14% and 60%); to be measured on SciFact before adoption",
+     "PJPS decision; server with enough memory",
+     "High"
+    ],
+    [
+     "Fetch the full text of more cited papers (Unpaywall, PubMed Central, Europe PMC) before falling back to the abstract",
+     "More claims verified against the full source",
+     "None",
+     "High"
+    ],
+    [
+     "Ask authors to upload the PDFs of their cited sources (the system already links them)",
+     "Highest-quality evidence",
+     "Author workflow",
+     "Medium"
+    ],
+    [
+     "Build a 100-claim gold set from PJPS manuscripts checked by an editor",
+     "Accuracy on PJPS's own subject areas",
+     "Editor time",
+     "Medium"
+    ]
+   ]
+  },
+  {
+   "module": "Module 4: Paper Mill Detection",
+   "items": [
+    [
+     "Collect PJPS's own confirmed cases: every Module 4 decision (cleared / investigated / confirmed) is a labelled example; re-fit the signal weights every quarter on them",
+     "Weights tuned to PJPS submissions instead of a public benchmark",
+     "Editor decisions recorded (already in the system)",
+     "High"
+    ],
+    [
+     "Connect PubPeer (comments on cited papers and on the authors' papers)",
+     "Catches mill papers flagged by sleuths but not yet retracted",
+     "PubPeer API key from PJPS",
+     "High"
+    ],
+    [
+     "Refresh the mill-paper abstract index weekly (scripts/load-mill-abstracts.js) and add the Problematic Paper Screener's flagged-but-not-retracted papers",
+     "Newer mill output recognised",
+     "None",
+     "High"
+    ],
+    [
+     "Join the STM Integrity Hub",
+     "Duplicate submissions to other publishers; Papermill Alarm; shared watchlists",
+     "Membership (contract)",
+     "Medium"
+    ],
+    [
+     "Measure the reference, ORCID and image signals together with the text signals on a fresh benchmark of recent retractions (2025-2026)",
+     "A true end-to-end detection rate; less optimistic thresholds",
+     "None (network time)",
+     "Medium"
+    ],
+    [
+     "Ask for the cover letter and suggested reviewers on every submission (the checks exist but run only when they are given)",
+     "More author and submission signals per manuscript",
+     "Submission form change",
+     "Medium"
+    ]
+   ]
+  },
+  {
+   "module": "Module 5: Image Integrity",
+   "items": [
+    [
+     "Improve the candidate stage for partial duplicates: more keypoints at several scales and learned image features (run in the browser or on the server), so pairs that are never compared now become candidates",
+     "Most of the missed duplicates (about 60 of 74 misses never became candidates)",
+     "None (development)",
+     "High"
+    ],
+    [
+     "Dense copy-move detection (block matching with rotation-invariant features) for cloned areas inside one image",
+     "Cloned-area detection above the current third",
+     "None (development)",
+     "High"
+    ],
+    [
+     "Finish filling the reference databases: the subject-area indexing runs stop early (found on 4 Nov: no run has reached its full batch); fix that and let the PubMed Central and PJPS archive indexing complete",
+     "More matches with published and retracted figures",
+     "Server time",
+     "High"
+    ],
+    [
+     "Optional vendor check (ImageTwin / Proofig) per manuscript for the 155-160 million published figures and trained AI-image detection",
+     "Coverage PJPS cannot build in-house",
+     "PJPS policy change and contract",
+     "Medium"
+    ],
+    [
+     "Collect the editor's marks (confirmed / false alarm) as labelled data and tune the thresholds on PJPS figures",
+     "Fewer false alarms on PJPS image types",
+     "Editor marks (already recorded)",
+     "Medium"
+    ]
+   ]
+  }
+ ],
+ "general": [
+  [
+   [
+    "Measure continuously. ",
+    {
+     "bold": true
+    }
+   ],
+   "Run the audits and benchmarks above every month and after every change, and keep a short accuracy log, so a drop is noticed at once."
+  ],
+  [
+   [
+    "Use the editors' decisions. ",
+    {
+     "bold": true
+    }
+   ],
+   "The system already records decisions on Module 4 cases and marks on Module 5 findings. After a few hundred, these become the most valuable test set, because they are PJPS's own manuscripts."
+  ],
+  [
+   [
+    "Fix the infrastructure. ",
+    {
+     "bold": true
+    }
+   ],
+   "The build computer's D: drive disconnects repeatedly and C: is nearly full (2 GB free); both interrupted this audit. Long indexing and benchmark jobs should run on a stable server."
+  ],
+  [
+   [
+    "Rebuild the desktop application ",
+    {
+     "bold": true
+    }
+   ],
+   "so it carries the improvements made since its last build, and copy the paper-mill abstract index to it."
+  ]
+ ],
+ "data": [
+  [
+   "Retraction Watch notices",
+   "64,429 (14,657 for paper-mill reasons)",
+   "Modules 1 and 4"
+  ],
+  [
+   "Abstracts of paper-mill retractions (OpenAlex)",
+   "13,447",
+   "Module 4 look-alike signal"
+  ],
+  [
+   "Problematic Paper Screener fingerprints",
+   "14,729",
+   "Module 4"
+  ],
+  [
+   "Image reference papers",
+   "32,503: PubMed Central 10,660; retracted 7,948; PJPS 7,513; BINDER 2,692; RSIID 2,286; BioFors 1,031; publisher 373",
+   "Module 5"
+  ],
+  [
+   "Indexed figures",
+   "389,313; index segments: 210,954 panels and 139,240 charts",
+   "Module 5"
+  ],
+  [
+   "Earlier PJPS submissions (fingerprints)",
+   "21 text, 13 image",
+   "Modules 4 and 5 duplicate checks (fills as manuscripts are screened)"
+  ],
+  [
+   "Scholarly databases searched live",
+   "13",
+   "Module 1"
+  ]
+ ]
+}

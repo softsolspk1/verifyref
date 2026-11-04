@@ -29,7 +29,8 @@
     "asarUnpack": [
       "node_modules/@electric-sql/pglite/**",
       "node_modules/sharp/**",
-      "node_modules/@img/**"
+      "node_modules/@img/**",
+      "node_modules/onnxruntime-node/**"
     ],
     "extraResources": [
       {

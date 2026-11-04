@@ -37,4 +37,6 @@ fs.writeFileSync(path.join(OUT, 'package.json'), JSON.stringify({
 }, null, 2));
 console.log('Installing production dependencies into desktop/app …');
 execSync('npm install --omit=dev --no-audit --no-fund', { cwd: OUT, stdio: 'inherit' });
+// the language model's runtime: this platform's native binary only (scripts/prune-onnx.js)
+execSync(`node "${path.join(ROOT, 'scripts', 'prune-onnx.js')}" "${path.join(OUT, 'node_modules')}"`, { stdio: 'inherit' });
 console.log('Staged', OUT);

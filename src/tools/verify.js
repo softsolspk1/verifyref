@@ -98,14 +98,17 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
   }));
 
   update('Comparing claims with their sources', 92);
-  const out = limited.map(cl => ({
+  // the language model reads the passages for meaning for up to 3 minutes; later claims get the word matcher alone
+  const deadline = Date.now() + 180e3;
+  const out = [];
+  for (const cl of limited) out.push({
     sentence: cl.sentence,
     claim: cl.claim,
-    citations: cl.refs.map(i => {
+    citations: await Promise.all(cl.refs.map(async i => {
       const r = results[i];
       const src = sources.get(i);
-      const best = src?.passages?.length ? M.bestPassages(cl.claim, src.passages, 1)[0] : null;
-      const v = M.verdictOf(best, { fullText: !!src?.fullText });
+      const v = await M.judge(cl.claim, src?.passages, { fullText: !!src?.fullText, deadline });
+      const best = v.best;
       if (r.status === 'suspicious') v.notes.unshift('The reference itself could not be found — it may be fabricated');
       if (r.status === 'retracted') v.notes.unshift('The cited work has been retracted');
       else if (r.flagged) v.notes.unshift(`The cited work was flagged for integrity problems in a published audit (${r.flagged.issue})`);
@@ -115,8 +118,8 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
         score: best ? Math.round(best.score * 100) : null,
         evidence: best ? { quote: best.text, origin: src.origin, page: best.page || null, url: src.url || null, level: src.uploaded ? 'uploaded file' : src.fullText ? 'full text' : 'abstract' } : null
       };
-    })
-  }));
+    }))
+  });
 
   const all = out.flatMap(c => c.citations);
   const count = v => all.filter(c => c.verdict === v).length;
@@ -130,7 +133,7 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
     summary: { claims: out.length, citations: all.length, full: count('full'), partial: count('partial'), unsupported: count('unsupported'), couldNotVerify: count('could-not-verify') },
     references: { summary: refCheck.summary, results: results.map(r => ({ index: r.index, raw: r.raw, status: r.status, statusLabel: r.statusLabel, tone: r.tone, reason: r.reason, retraction: r.retraction, record: r.record ? { title: r.record.title, doi: r.record.doi, year: r.record.year, journal: r.record.journal } : null })) },
     files: { linked: [...linked.entries()].map(([refIndex, f]) => ({ name: f.name, refIndex })), unlinked, errors: uploads.filter(u => u.error).map(u => ({ name: u.name, error: u.error })) },
-    method: 'Automated comparison on this server: claim terms (weighted by rarity), figures, negation and the direction of the effect stated about the shared terms are matched against the source passage. Source text, in this order: an uploaded file, open-access full text (Europe PMC, Unpaywall, OpenAlex, CORE, Semantic Scholar, bioRxiv / medRxiv, arXiv), then the abstract. Measured on SciFact expert-labelled claims (abstracts only): 2% of claims without evidence and 13% of contradicted claims pass as Full support, so verdicts are decision support — read the quoted evidence.'
+    method: 'Automated comparison on this server: claim terms (weighted by rarity), figures, negation and the direction of the effect stated about the shared terms are matched against the source passages, and a small language model running on this server reads the best passages for meaning (does the passage state the claim, state the opposite, or neither). Source text, in this order: an uploaded file, open-access full text (Europe PMC, Unpaywall, OpenAlex, CORE, Semantic Scholar, bioRxiv / medRxiv, arXiv), then the abstract. Measured on SciFact expert-labelled claims (abstracts only, held-out split): 73% of supported claims are found and 27% of contradicted claims flagged as contradicted; 2% of claims without evidence and 1% of contradicted claims pass as Full support, so verdicts are decision support — read the quoted evidence.'
   };
 }
 

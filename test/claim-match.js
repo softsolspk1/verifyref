@@ -30,3 +30,20 @@ const cases = [
 ];
 for (const [claim, source, want] of cases) assert.strictEqual(judge(claim, source).verdict, want, `${claim} → expected ${want}`);
 console.log(`claim-match test passed (${cases.length} cases)`);
+
+// the language model (src/tools/nli.js) reads meaning: reworded support and contradictions the word matcher misses
+const reworded = [
+  ['Aspirin lowers the risk of colorectal cancer.', 'Daily aspirin use was associated with a 24% reduction in the incidence of colorectal carcinoma over 20 years of follow-up.', 'full', false],
+  ['Smoking cessation reduces cardiovascular mortality.', 'Quitting smoking was followed by a marked decline in deaths from heart disease and stroke.', 'full', false],
+  ['Vitamin D supplementation prevents fractures in elderly women.', 'In this trial of 2,256 elderly women, annual high-dose oral vitamin D resulted in an increased risk of falls and fractures.', 'unsupported', true],
+  ['Metformin has no effect on tumour growth in mice.', 'Metformin markedly suppressed tumour growth in xenograft mice compared with untreated controls.', 'unsupported', true]
+];
+(async () => {
+  if (!(await require('../src/tools/nli').load())) return console.log('claim-match: language model not available - reworded cases skipped');
+  for (const [claim, source, want, conflict] of reworded) {
+    const v = await M.judge(claim, M.passagesOf(source), { fullText: true });
+    assert.strictEqual(v.verdict, want, `${claim} → expected ${want}`);
+    assert.strictEqual(v.conflict, conflict, `${claim} → contradiction expected: ${conflict}`);
+  }
+  console.log(`claim-match: language model passed (${reworded.length} reworded cases)`);
+})().catch(e => { console.error(e); process.exit(1); });

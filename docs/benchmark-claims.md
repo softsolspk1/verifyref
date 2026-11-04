@@ -45,3 +45,29 @@ The matcher compares words, numbers, negation and direction of effect; it does n
 contradictions in SciFact are reversals that need understanding ("enhances p53 function" against "enhanced
 suppression of p53"). A local natural-language-inference model would be the next step. Every verdict shows the
 evidence passage, so the editor can check it.
+
+## 2026-11-04: a language model reads the passages for meaning
+
+The matcher's three best passages now go to a small natural-language-inference model running on the server
+(`Xenova/nli-deberta-v3-xsmall`: DeBERTa-v3 trained on SNLI / MultiNLI, ONNX 8-bit, about 85 MB; `src/tools/nli.js`).
+It gives, for each passage, the probability that it states the claim (entailment) or the opposite (contradiction). The
+decision rule (thresholds in `RULE`) was fitted on the train split under limits on false alarms (no-evidence claims
+passed as Full at most 2%, supported claims called contradicted at most 8%) and measured on the held-out dev split
+with `node scripts/benchmark-claims.js --split dev` (`--words` gives the matcher alone).
+
+| | Train before | Train after | Dev (held out) before | Dev after |
+|---|---|---|---|---|
+| Supported claims found (Full or Partial) | 58% | 71% | 60% (83/138) | **73% (101/138)** |
+| Supported claims judged Full | 22% | 32% | 22% (31/138) | 28% (39/138) |
+| Contradicted claims flagged as contradicted | 17% | 35% | 14% (10/71) | **27% (19/71)** |
+| Contradicted claims passed as Full | 9% | 4% | 13% (9/71) | **1% (1/71)** |
+| No-evidence claims passed as Full | 0.8% | 1.7% | 1.5% (2/131) | 2.3% (3/131) |
+| Supported claims called contradicted | 5% | 7% | 7% (10/138) | 7% (10/138) |
+
+Dev confusion after (label \ verdict, Full / Partial / Contradicts / Not supported): SUPPORT 39 / 62 / 10 / 27,
+CONTRADICT 1 / 18 / 19 / 33, NEI 3 / 17 / 8 / 103.
+
+The larger `nli-deberta-v3-small` (165 MB) was scored the same way and did worse on the held-out split (contradictions
+flagged 17%, supported claims judged Full 12%), so the extra-small model is used. About 0.1 s per passage on one CPU
+core; Verify Citations lets the model read for up to 3 minutes per manuscript, then the word matcher decides alone.
+Every verdict names the model's reading in its notes and quotes the passage it judged on.

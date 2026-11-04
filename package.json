@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
+    "postinstall": "node scripts/prune-onnx.js",
     "dev": "node --watch server.js",
     "test": "node test/remediation.js && node test/similarity-engine.js && node test/external-similarity.js && node test/citation-forms.js && node test/unformatted-docs.js && node test/smoke-web.js && node test/reports-dashboard.js && node test/papermill-signals.js && node test/desktop-sync.js && node test/images-engine.mjs && node test/forensics.mjs && node test/image-refs.mjs && node test/image-confidence.mjs && node test/image-similarity.mjs && node test/images-report-e2e.mjs && node test/demo-check.mjs && node test/ref-quality.js && node test/csl-styles.js && node test/claim-match.js && node test/pjps-style.js && node test/style-errors.js && node test/module-csv.js && node test/study-ethics.js && node test/datasets-parse.js && node test/google-scholar.js && node test/auto-search.js && node test/plagiarism-accuracy.js && node test/novelty-accuracy.js && node test/pharma-integrity.js && node test/integrity-suite.js && node test/screening-embedded-images.js",
     "desktop": "cd desktop && npm start",
@@ -29,6 +30,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",
+    "@huggingface/transformers": "^4.3.2",
     "@vercel/functions": "^3.10.1",
     "@xmldom/xmldom": "^0.8.15",
     "citeproc": "^2.4.63",

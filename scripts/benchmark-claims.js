@@ -2,9 +2,10 @@
 // scripts/benchmark-claims.js - Module 3.B claim support measured on SciFact (Wadden et al., EMNLP 2020; CC BY-NC 2.0):
 // expert-written scientific claims, each paired with the abstract(s) it cites, labelled SUPPORT, CONTRADICT or
 // NOT ENOUGH INFO by annotators. Every claim-abstract pair is run through the same matcher as the live tool
-// (src/tools/match.js, abstract only) and the verdict compared with the label.
+// (src/tools/match.js judge(), abstract only) and the verdict compared with the label. --words: word matcher alone,
+// without the language model (tools/nli.js).
 //
-//   node scripts/benchmark-claims.js --dir D:/pjps-tmp/scifact/data [--split dev|train|all] [--json out.json]
+//   node scripts/benchmark-claims.js --dir D:/pjps-tmp/scifact/data [--split dev|train|all] [--words] [--json out.json]
 // Download: https://scifact.s3-us-west-2.amazonaws.com/release/latest/data.tar.gz
 const fs = require('fs');
 const path = require('path');
@@ -29,14 +30,14 @@ for (const c of claims) for (const id of c.cited_doc_ids || []) {
   pairs.push({ claim: c.claim, doc, label: ev?.length ? ev[0].label : 'NEI' });
 }
 
+if (args.includes('--words')) process.env.PJPS_NLI = 'off';
 const verdictClass = v => (v.verdict === 'full' ? 'SUPPORT' : v.verdict === 'partial' ? 'PARTIAL' : v.conflict ? 'CONTRADICT' : 'NEI');
 const confusion = {};
+(async () => {
 const t0 = Date.now();
 for (const p of pairs) {
   const passages = M.passagesOf(p.doc.abstract.join(' '), { title: p.doc.title });
-  const best = M.bestPassages(p.claim, passages, 1)[0];
-  const v = M.verdictOf(best, { fullText: false });
-  const got = verdictClass({ ...v, conflict: !!best?.conflict && v.verdict === 'unsupported' });
+  const got = verdictClass(await M.judge(p.claim, passages, { fullText: false }));
   confusion[p.label] = confusion[p.label] || {};
   confusion[p.label][got] = (confusion[p.label][got] || 0) + 1;
 }
@@ -46,7 +47,7 @@ const pct = (a, b) => (b ? `${Math.round(a / b * 100)}%` : '—');
 const sup = row('SUPPORT'), con = row('CONTRADICT'), nei = row('NEI');
 // what matters for an editor: a claim the source does not support must not pass as "Full support"
 const out = {
-  dataset: 'SciFact', split: SPLIT, pairs: pairs.length, seconds: Math.round((Date.now() - t0) / 100) / 10, confusion,
+  dataset: 'SciFact', split: SPLIT, languageModel: process.env.PJPS_NLI === 'off' ? null : require('../src/tools/nli').MODEL, pairs: pairs.length, seconds: Math.round((Date.now() - t0) / 100) / 10, confusion,
   supportedFound: { full: sup.SUPPORT || 0, fullOrPartial: (sup.SUPPORT || 0) + (sup.PARTIAL || 0), of: n('SUPPORT') },
   contradictedPassedAsFull: { n: con.SUPPORT || 0, of: n('CONTRADICT') },
   contradictedFlagged: { n: con.CONTRADICT || 0, of: n('CONTRADICT') },
@@ -59,3 +60,4 @@ console.log(`Supported claims judged Full: ${pct(out.supportedFound.full, n('SUP
 console.log(`Contradicted claims passed as Full: ${pct(out.contradictedPassedAsFull.n, n('CONTRADICT'))}; flagged as contradicted: ${pct(out.contradictedFlagged.n, n('CONTRADICT'))}`);
 console.log(`No-evidence claims passed as Full: ${pct(out.notEnoughInfoPassedAsFull.n, n('NEI'))}`);
 if (opt('json')) fs.writeFileSync(opt('json'), JSON.stringify(out, null, 1));
+})();

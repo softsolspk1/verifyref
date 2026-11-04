@@ -1,6 +1,7 @@
 // tools/match.js - claim ↔ passage matching used by Verify Citations, Find Evidence and the Thesis/Paper Assistant.
 // Runs locally (no external AI): stemmed term coverage weighted by rarity, figure (number) matching and
-// direction-of-effect / negation conflicts. Scores are 0..1.
+// direction-of-effect / negation conflicts. Scores are 0..1. judge() then lets a small language model on this server
+// (tools/nli.js) read the top passages for meaning.
 const { normalize, STOPWORDS } = require('../text');
 
 const EXTRA_STOP = new Set(('also however although thus therefore moreover furthermore whereas which while may might can could would should ' +
@@ -273,19 +274,40 @@ function bestPassages(claim, passages, n = 3) {
 }
 
 /** Verdict for a claim given its best passage and whether full text was available */
-function verdictOf(best, { fullText }) {
+function verdictOf(best, { fullText, decided } = {}) {
   if (!best) return { verdict: 'could-not-verify', reason: 'The source text (full text or abstract) is not available', notes: ['The source text (full text or abstract) is not available — upload the PDF of the cited work to check this claim'] };
   const notes = [];
   if (best.numbers?.claim?.length && best.numbers.found.length < best.numbers.claim.length) notes.push(`Figures not found in the source: ${best.numbers.claim.filter(x => !best.numbers.found.includes(x)).join(', ')}`);
-  if (best.conflict) notes.push('The source appears to state the opposite direction or a negative finding');
+  if (decided ? decided === 'contradicts' : best.conflict) notes.push('The source appears to state the opposite direction or a negative finding');
   if (!fullText) notes.push('Compared with the abstract only');
   let verdict;
-  if (best.score >= 0.58 && !best.conflict && !(best.numbers?.claim?.length && !best.numbers.found.length)) verdict = 'full';
+  // decided by the language model (tools/nli.js): its reading of meaning replaces the word thresholds
+  if (decided) {
+    verdict = decided === 'contradicts' ? 'unsupported' : decided;
+    if (decided === 'contradicts') notes.push('The source contradicts the claim: it reports the opposite direction or a negative finding');
+  } else if (best.score >= 0.58 && !best.conflict && !(best.numbers?.claim?.length && !best.numbers.found.length)) verdict = 'full';
   else if (best.conflict && (best.score >= 0.45 || best.coverage > 0.5 || best.exclusion)) { verdict = 'unsupported'; notes.push('The source contradicts the claim: it reports the opposite direction or a negative finding'); }
   else if (best.score >= 0.33) verdict = 'partial';
   else verdict = fullText ? 'unsupported' : 'unsupported';
   if (verdict === 'unsupported' && !fullText) notes.push('Unsupported by the abstract — the full text may still support it; upload the PDF to check');
   return { verdict, notes };
+}
+
+/**
+ * Verdict for a claim against one source's passages, corrected by the language model when it is available (tools/nli.js):
+ * { best, verdict, notes, conflict }. best is the evidence passage shown to the editor - the one the model judged on.
+ * deadline (ms timestamp): after it the word matcher alone decides (long manuscripts on a time-limited server).
+ */
+async function judge(claim, passages, { fullText, deadline } = {}) {
+  const top = passages?.length ? bestPassages(claim, passages, 3) : [];
+  const base = verdictOf(top[0], { fullText });
+  if (!top.length) return { best: null, ...base, conflict: false };
+  const d = await require('./nli').decide(claim, top, base, { deadline }).catch(() => null);
+  if (!d) return { best: top[0], ...base, conflict: base.verdict === 'unsupported' && !!top[0].conflict };
+  const v = verdictOf(d.passage, { fullText, decided: d.decision });
+  const [reading, prob] = [['states the claim', d.entailment], ['contradicts the claim', d.contradiction], ['neither states nor contradicts the claim', 1 - d.entailment - d.contradiction]].reduce((a, b) => (b[1] > a[1] ? b : a));
+  v.notes.push(`Meaning checked by the language model: the passage ${reading} (${Math.round(prob * 100)}%)`);
+  return { best: d.passage, ...v, conflict: d.decision === 'contradicts', model: { entailment: d.entailment, contradiction: d.contradiction } };
 }
 
 /** Suggest more cautious wording when a claim says more than the source supports */
@@ -313,4 +335,4 @@ function adjustWording(claim, evidence) {
   return changes.length ? { wording: s.replace(/\s{2,}/g, ' '), changes } : null;
 }
 
-module.exports = { terms, stem, numbersIn, sentenceSpans, passagesOf, idfOf, scorePassage, bestPassages, verdictOf, adjustWording, polarity };
+module.exports = { terms, stem, numbersIn, sentenceSpans, passagesOf, idfOf, scorePassage, bestPassages, verdictOf, judge, adjustWording, polarity };

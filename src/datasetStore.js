@@ -190,7 +190,8 @@ async function pushDataDir({ onFile = () => {}, only = null } = {}) {
   if (!enabled()) throw new Error('Cloudflare R2 is not configured (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET).');
   const all = walk(cfg.DATA_DIR);
   const skip = unpackedCopies(all);
-  const files = all.filter(rel => (!only || rel.startsWith(only)) && !skip.some(d => rel.startsWith(`${d}/`)) && !/\.(part|log)$/i.test(rel));
+  const files = all.filter(rel => (!only || rel.startsWith(only)) && !skip.some(d => rel.startsWith(`${d}/`)) && !/\.(part|log)$/i.test(rel)
+    && !rel.startsWith('models/')); // the language model's cache (tools/nli.js) is downloaded from Hugging Face
   if (skip.length) onFile(`(skipped unpacked copies of stored archives: ${skip.join(', ')})`, {});
   const out = { files: files.length, stored: 0, unchanged: 0, bytes: 0, errors: [] };
   for (const rel of files) {

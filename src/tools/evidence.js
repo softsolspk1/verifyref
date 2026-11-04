@@ -90,8 +90,8 @@ async function findEvidence(input, update = () => {}) {
 
   update(`Reading ${works.length} abstracts`, 40);
   const ranked = works.map(w => {
-    const best = M.bestPassages(claim, M.passagesOf(w.abstract), 1)[0];
-    return { w, best, level: 'abstract', origin: 'Abstract' };
+    const passages = M.passagesOf(w.abstract);
+    return { w, passages, best: M.bestPassages(claim, passages, 1)[0], level: 'abstract', origin: 'Abstract' };
   }).filter(x => x.best).sort((a, b) => b.best.score - a.best.score).slice(0, 10);
 
   // Open-access full texts for the strongest candidates: a better passage may be in the body
@@ -101,22 +101,28 @@ async function findEvidence(input, update = () => {}) {
     update(`Checking open full texts (${n}/6)`, 45 + n * 7);
     const ft = await FT.openFullText(x.w).catch(() => null);
     if (!ft) continue;
-    const best = M.bestPassages(claim, M.passagesOf(ft.text), 1)[0];
-    if (best && best.score > x.best.score) Object.assign(x, { best, level: 'full text', origin: ft.origin, url: ft.url });
+    const passages = M.passagesOf(ft.text);
+    const best = M.bestPassages(claim, passages, 1)[0];
+    if (best && best.score > x.best.score) Object.assign(x, { passages, best, level: 'full text', origin: ft.origin, url: ft.url });
   }
 
-  const results = ranked.sort((a, b) => b.best.score - a.best.score).slice(0, input.max || 6).filter(x => x.best.score >= 0.2).map(x => {
+  update('Reading the best passages for meaning', 90);
+  const deadline = Date.now() + 60e3;
+  const top = ranked.sort((a, b) => b.best.score - a.best.score).slice(0, input.max || 6).filter(x => x.best.score >= 0.2);
+  const results = [];
+  for (const x of top) {
     const record = { ...x.w, abstract: undefined };
     const entry = ST.entry(record, style);
-    const v = M.verdictOf(x.best, { fullText: x.level === 'full text' });
-    return {
+    const v = await M.judge(claim, x.passages, { fullText: x.level === 'full text', deadline });
+    if (v.best) x.best = v.best;
+    results.push({
       record: { title: record.title, authors: (record.authors || []).slice(0, 20), year: record.year, journal: record.journal, journalAbbrev: record.journalAbbrev, volume: record.volume, issue: record.issue, pages: record.pages, doi: record.doi, pmid: record.pmid, type: record.type },
       citation: { text: ST.toText(entry), html: ST.toHtml(entry), inText: ST.toText(ST.inText(style, { nums: [1], records: [record] })) },
       quote: x.best.text, level: x.level, origin: x.origin, url: x.url || (record.doi ? `https://doi.org/${record.doi}` : null),
       support: v.verdict, notes: v.notes, score: Math.round(x.best.score * 100),
       wording: M.adjustWording(claim, x.best.text)
-    };
-  });
+    });
+  }
   return {
     kind: 'evidence', claim, context: input.context || '', query, style, scope: input.scope || 'any', results,
     screened: works.length,

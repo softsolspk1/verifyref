@@ -67,6 +67,67 @@ function stacked(parts) {
     <div class="dv-legend">${parts.map(p => `<span><i class="s-${p.tone}"></i>${esc(p.label)} <b>${n(p.value)}</b> <span class="muted">${pctOf(p.value, total)}%</span></span>`).join('')}</div>`;
 }
 
+const BAND_TONE = { high: 'good', moderate: 'neutral', low: 'warn' };
+const cap = v => (v ? v[0].toUpperCase() + v.slice(1) : '');
+
+/** Novelty score distribution: ten 10-point bins, each bar in the colour of its novelty band (low < 45 <= moderate < 70 <= high) */
+function scoreHistogram(bins) {
+  const W = 760, H = 200, L = 36, B = 24, T = 10;
+  const max = Math.max(1, ...bins.map(b => b.n));
+  const top = max <= 5 ? max : Math.ceil(max / Math.pow(10, Math.floor(Math.log10(max)))) * Math.pow(10, Math.floor(Math.log10(max)));
+  const slot = (W - L) / bins.length;
+  const bw = Math.min(48, slot - 8);
+  const y = v => T + (H - T - B) * (1 - v / top);
+  const tone = b => (b.from >= 70 ? 'good' : b.from >= 40 && b.to > 45 ? 'neutral' : 'warn');
+  return `<svg class="dv-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Novelty score distribution">
+    ${[0, top / 2, top].map(t => `<line x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}" class="dv-grid"/><text x="${L - 6}" y="${y(t) + 4}" class="dv-axis" text-anchor="end">${Number.isInteger(t) ? n(t) : ''}</text>`).join('')}
+    ${bins.map((b, i) => {
+      const x = L + i * slot + (slot - bw) / 2;
+      const h = Math.max(0, H - B - y(b.n));
+      const r = Math.min(4, bw / 2, h);
+      return `<g data-tip="${esc(`Score ${b.from}-${b.to === 100 ? 100 : b.to - 1}: ${n(b.n)} manuscript(s)`)}"><rect x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent"/>
+        ${b.n ? `<path class="dv-bar t-${tone(b)}" d="M${x},${H - B} V${H - B - h + r} Q${x},${H - B - h} ${x + r},${H - B - h} H${x + bw - r} Q${x + bw},${H - B - h} ${x + bw},${H - B - h + r} V${H - B} Z"/>` : ''}</g>`;
+    }).join('')}
+    <line x1="${L}" x2="${W}" y1="${H - B}" y2="${H - B}" class="dv-base"/>
+    ${bins.map((b, i) => `<text x="${L + i * slot + slot / 2}" y="${H - 6}" class="dv-axis" text-anchor="middle">${b.from}–${b.to === 100 ? 100 : b.to - 1}</text>`).join('')}
+  </svg>`;
+}
+
+function noveltySection(nv, isAdmin) {
+  if (!nv) return '';
+  const head = '<div class="card-head"><h3 style="margin:0">Novelty assessment</h3><span class="muted">Full Screening Reports · module 7</span></div>';
+  if (!nv.assessed && !nv.notAssessed) {
+    return `<div class="card">${head}<p class="muted">No Full Screening Report in this period has a novelty assessment${nv.pending ? ` (${n(nv.pending)} older report(s) are still being read from storage; reload in a moment)` : ''}.</p></div>`;
+  }
+  const b = nv.bands, o = nv.outlook;
+  const cols = isAdmin ? 9 : 8;
+  return `<div class="card">${head}
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="n">${n(nv.assessed)}</div><div class="l">Manuscripts assessed</div></div>
+      <div class="kpi info"><div class="n">${nv.averageScore ?? '–'}</div><div class="l">Average score /100${nv.medianScore !== null ? ` · median ${nv.medianScore}` : ''}</div></div>
+      <div class="kpi good"><div class="n">${n(b.high)}</div><div class="l">High novelty · ${pctOf(b.high, nv.assessed)}%</div></div>
+      <div class="kpi"><div class="n">${n(b.moderate)}</div><div class="l">Moderate novelty · ${pctOf(b.moderate, nv.assessed)}%</div></div>
+      <div class="kpi warn"><div class="n">${n(b.low)}</div><div class="l">Low novelty · ${pctOf(b.low, nv.assessed)}%</div></div>
+      <div class="kpi"><div class="n">${nv.averageSimilarity ?? '–'}${nv.averageSimilarity !== null ? '%' : ''}</div><div class="l">Avg. similarity to closest work</div></div>
+      <div class="kpi"><div class="n">${n(nv.notAssessed)}</div><div class="l">Could not be assessed</div></div>
+    </div>
+    <h4 style="margin:4px 0 2px">Score distribution</h4><p class="muted" style="margin:0 0 6px">Number of manuscripts per novelty score; amber = low (below 45), grey = moderate (45–69; the 40–49 bar holds both), green = high (70+)</p>
+    ${scoreHistogram(nv.histogram)}
+    <div class="grid grid-2" style="margin-top:14px">
+      <div><h4 style="margin:0 0 8px">Novelty band</h4>${stacked([{ label: 'High', value: b.high, tone: 'good' }, { label: 'Moderate', value: b.moderate, tone: 'neutral' }, { label: 'Low', value: b.low, tone: 'warn' }])}</div>
+      <div><h4 style="margin:0 0 8px">5-year citation outlook</h4>${stacked([{ label: 'High', value: o.high, tone: 'good' }, { label: 'Moderate', value: o.moderate, tone: 'neutral' }, { label: 'Low', value: o.low, tone: 'warn' }, { label: 'Insufficient data', value: o['insufficient data'], tone: 'neutral' }])}</div>
+    </div>
+    <p class="muted" style="margin-top:10px">Assessment confidence: high ${n(nv.confidence.high)}, moderate ${n(nv.confidence.moderate)}, low ${n(nv.confidence.low)} · ${n(nv.closeRecent)} closely related work(s) published in the last five years across all assessed manuscripts${nv.pending ? ` · ${n(nv.pending)} older report(s) not yet counted (reload)` : ''}.</p>
+    <h4 style="margin:16px 0 8px">Manuscripts</h4>
+    <div class="table-wrap"><table class="t" id="d-nv-table"><tr><th>Date</th>${isAdmin ? '<th>User</th>' : ''}<th>Manuscript / title</th><th class="num">Score</th><th>Band</th><th class="num">Closest work</th><th class="num">Close (5 y)</th><th>Outlook</th><th></th></tr>
+      ${nv.items.map(r => `<tr><td>${fmtDate(r.created_at)}</td>${isAdmin ? `<td>${esc(r.user_name)}</td>` : ''}
+        <td>${r.manuscript_code ? `<b>${esc(r.manuscript_code)}</b> ` : ''}${esc((r.title || 'Untitled').slice(0, 80))}${r.closest?.title ? `<div class="muted" title="${esc(r.closest.title)}">Closest: ${esc(r.closest.title.slice(0, 70))}${r.closest.year ? ` (${esc(r.closest.year)})` : ''}</div>` : ''}</td>
+        ${r.error ? `<td colspan="5" class="muted">${esc(r.error)}</td>` : `<td class="num"><b>${n(r.score)}</b></td><td><span class="badge b-${BAND_TONE[r.band] || 'neutral'}">${esc(cap(r.band))}</span></td>
+        <td class="num">${Number.isFinite(r.maxSimilarity) ? `${Math.round(r.maxSimilarity * 100)}%` : '–'}</td><td class="num">${n(r.closeRecent)}</td><td>${esc(cap(r.outlook))}${Number.isFinite(r.fiveYearMedian) ? ` <span class="muted">(${r.fiveYearMedian})</span>` : ''}</td>`}
+        <td><a class="btn btn-sm" href="#/check/${r.id}">Open</a></td></tr>`).join('') || `<tr><td colspan="${cols}" class="muted">No assessed manuscripts in this period.</td></tr>`}
+    </table></div>${nv.items.length >= 100 ? '<p class="muted">The 100 most recent assessments are listed.</p>' : ''}</div>`;
+}
+
 function bindTips(view) {
   let tip = $('#dv-tip');
   if (!tip) { tip = document.createElement('div'); tip.id = 'dv-tip'; tip.className = 'dv-tip'; tip.hidden = true; document.body.appendChild(tip); }
@@ -129,6 +190,7 @@ export async function renderDashboard(view) {
         ${isAdmin ? `<div class="card"><h3>By user</h3><div class="table-wrap"><table class="t"><tr><th>User</th><th class="num">Reports</th><th class="num">References</th><th class="num">Flags</th><th>Last report</th></tr>
           ${d.byUser.map(u => `<tr><td>${esc(u.name)}<div class="muted">${esc(u.email)}</div></td><td class="num">${n(u.runs)}</td><td class="num">${n(u.refs)}</td><td class="num">${n(u.suspicious + u.retracted)}</td><td>${fmtDate(u.last_run)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No reports in this period.</td></tr>'}</table></div></div>` : ''}
       </div>
+      ${noveltySection(d.novelty, isAdmin)}
       <div class="card"><div class="card-head"><h3 style="margin:0">Most-flagged articles</h3>${isAdmin ? '<a href="#/reports">All reports →</a>' : '<a href="#/activity">Saved reports →</a>'}</div>
         <div class="table-wrap"><table class="t"><tr><th>Date</th>${isAdmin ? '<th>User</th>' : ''}<th>Module</th><th>Manuscript / title</th><th class="num">Suspicious</th><th class="num">Retracted</th><th class="num">Miscited</th><th></th></tr>
         ${d.topFlagged.map(c => `<tr><td>${fmtDate(c.created_at)}</td>${isAdmin ? `<td>${esc(c.user_name)}</td>` : ''}<td>${esc(KIND_LABEL[c.kind] || c.kind)}</td>

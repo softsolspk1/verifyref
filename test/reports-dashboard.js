@@ -52,6 +52,33 @@ const assert = require('assert');
   assert.strictEqual(r.data.risk.images.LOW, 1);
   assert.strictEqual(r.data.byUser.length, 3);
 
+  // Novelty statistics of the Full Screening Reports: full result, R2 stub carrying the summary, not assessed, stub not yet backfilled
+  const R = require('../src/reportStore');
+  const nvFull = { kind: 'novelty', summary: { score: 82, band: 'high', level: 'ok', maxSimilarity: 0.21, closeWorks: 1, closeRecent: 1, outlook: 'moderate', fiveYearMedian: 18, confidence: 'high' },
+    closest: [{ title: 'Closest work A', year: 2022, journal: 'J A', similarity: 0.21, url: 'https://doi.org/10.1/a' }] };
+  const nvLow = { kind: 'novelty', summary: { score: 31, band: 'low', level: 'warn', maxSimilarity: 0.64, closeWorks: 6, closeRecent: 4, outlook: 'low', fiveYearMedian: 6, confidence: 'moderate' }, closest: [{ title: 'Closest work B', year: 2024, similarity: 0.64 }] };
+  const stubbed = R.stub({ kind: 'manuscript', meta: {}, novelty: nvLow }, 'reports/x.json.gz');
+  assert.deepStrictEqual(stubbed.novelty.summary, nvLow.summary, 'stub keeps the novelty summary');
+  const insMs = (code, result) => db.query(`INSERT INTO checks(user_id, kind, manuscript_code, title, result) VALUES($1, 'manuscript', $2, $3, $4)`, [ed, code, `Manuscript ${code}`, JSON.stringify(result)]);
+  await insMs('PJPS-10', { kind: 'manuscript', novelty: nvFull });
+  await insMs('PJPS-11', stubbed);
+  await insMs('PJPS-12', { kind: 'manuscript', novelty: { kind: 'novelty', error: 'OpenAlex and Europe PMC did not answer' } });
+  await insMs('PJPS-13', { _r2: 'reports/missing.json.gz', kind: 'manuscript' });
+  r = await call('admin', 'GET', '/api/dashboard?days=30');
+  const nv = r.data.novelty;
+  assert.strictEqual(nv.assessed, 2, 'novelty assessed');
+  assert.strictEqual(nv.notAssessed, 1, 'novelty not assessed');
+  assert.strictEqual(nv.pending, 1, 'stub without novelty, storage unreachable');
+  assert.strictEqual(nv.averageScore, 56.5);
+  assert.deepStrictEqual(nv.bands, { high: 1, moderate: 0, low: 1 });
+  assert.strictEqual(nv.outlook.low, 1);
+  assert.strictEqual(nv.histogram[8].n, 1, '80-89 bin');
+  assert.strictEqual(nv.histogram[3].n, 1, '30-39 bin');
+  assert.strictEqual(nv.closeRecent, 5);
+  assert.strictEqual(nv.items.length, 3);
+  assert.strictEqual(nv.items.find(i => i.manuscript_code === 'PJPS-10').closest.title, 'Closest work A');
+  assert.strictEqual((await call('admin', 'GET', `/api/dashboard?days=30&user=${a1}`)).data.novelty.assessed, 0, 'user filter applies to novelty');
+
   // An editor: no Reports page and no Dashboard
   r = await call('ed', 'POST', '/api/auth/login', { email: 'ed@test.local', password: 'editor-pass-1' });
   assert.ok(r.data.success);

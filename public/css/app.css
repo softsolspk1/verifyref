@@ -674,6 +674,7 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .dv-base { stroke: var(--border-strong); stroke-width: 1; }
 .dv-axis { fill: var(--text-3); font-size: 11px; }
 .dv-bar { fill: var(--brand); }
+.dv-bar.t-good { fill: var(--good); } .dv-bar.t-warn { fill: var(--warn); } .dv-bar.t-neutral { fill: var(--border-strong); }
 g[data-tip]:hover .dv-bar { fill: var(--brand-2, var(--brand)); opacity: .85; }
 .dv-bars { display: grid; gap: 8px; }
 .dv-row { display: grid; grid-template-columns: minmax(110px, 38%) 1fr 56px; gap: 10px; align-items: center; font-size: 13px; }

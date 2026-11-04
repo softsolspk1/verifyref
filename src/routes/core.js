@@ -244,6 +244,22 @@ router.get('/checks/:id/compare/:otherId', mod('reports'), wrap(async (req, res)
   res.json({ success: true, comparison: cmp });
 }));
 
+/** A matched reference in the chosen style; unmatched / suspicious entries keep the author's own text (never "corrected" silently) */
+const correctedText = (r, style) => (r.record && !['suspicious', 'pending'].includes(r.status)
+  ? F.formatReference({ ...r.record, title: String(r.record.title || '').replace(/^(retracted|withdrawn)\s*:\s*/i, '') }, style)
+  : String(r.raw || '').replace(/^\s*(\[\d+\]|\d+[.)])\s*/, ''));
+
+/** Every reference of a report in the style the editor picks (Check Bibliography: "reformatted to your chosen style") */
+router.get('/checks/:id/formatted', user, wrap(async (req, res) => {
+  const c = await loadShared(req.user, req.params.id);
+  if (!c) return res.status(404).json({ success: false, message: 'Check not found.' });
+  if (!c.result?.references?.results) return res.status(410).json({ success: false, message: 'This report has no stored reference list.' });
+  await require('../csl').ensure();
+  const style = String(req.query.style || c.result.references.style || 'pjps');
+  if ((style !== 'pjps' && require('../styles').styleKey(style) === 'pjps')) return res.status(400).json({ success: false, message: 'Unknown reference style.' });
+  res.json({ success: true, style, items: c.result.references.results.map(r => ({ index: r.index, text: correctedText(r, style), matched: !!(r.record && !['suspicious', 'pending'].includes(r.status)) })) });
+}));
+
 /** Reference report exports: CSV, BibTeX, RIS, Word, corrected list (any style) */
 router.get('/checks/:id/export', user, wrap(async (req, res) => {
   const c = await checkOr404(req, res);
@@ -276,7 +292,9 @@ router.get('/checks/:id/export', user, wrap(async (req, res) => {
   if (fmt === 'pdf') return sendFile(res, await require('../pdf').buildPdf(await blocksOf(c.result)), `${base}.pdf`, 'application/pdf');
   if (fmt === 'corrected') {
     const style = req.query.style || c.result.references.style || 'pjps';
-    const txt = results.map((r, i) => `${i + 1}. ${r.record && !['suspicious', 'pending'].includes(r.status) ? F.formatReference(r.record, style) : r.raw.replace(/^\s*(\[\d+\]|\d+[.)])\s*/, '')}`).join('\n');
+    await require('../csl').ensure();
+    if ((style !== 'pjps' && require('../styles').styleKey(style) === 'pjps')) return res.status(400).json({ success: false, message: 'Unknown reference style.' });
+    const txt = results.map((r, i) => `${i + 1}. ${correctedText(r, style)}`).join('\n');
     return sendFile(res, Buffer.from('﻿' + txt, 'utf8'), `${base}-corrected.txt`, 'text/plain; charset=utf-8');
   }
   res.status(400).json({ success: false, message: 'Unknown export format.' });

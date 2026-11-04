@@ -34,6 +34,11 @@ const ok = (c, m) => { assert.ok(c, m); n++; };
   for (let i = 0; i < 18; i++) await ins(`10.2222/few.${i}`, 'Journal of Few Problems', '+Paper Mill;');
   for (let i = 0; i < 40; i++) await ins(`10.3333/err.${i}`, 'Journal of Honest Errors', '+Error in Data;');
   await ins('10.9999/mill.7', 'Journal of Few Problems', '+Fake Peer Review;', 'Josiah Carberry');
+  // titles of mill retractions for the look-alike signal (Papermill Alarm approach); a look-alike retracted for another reason
+  const insT = (doi, title, reason) => db.query("INSERT INTO retractions(doi, title, journal, journal_norm, nature, reason, retraction_date) VALUES($1, $2, 'Journal of Lookalikes', 'journal lookalikes', 'Retraction', $3, '2024-03-20')", [doi, title, reason]);
+  await insT('10.4444/la.1', 'circITGA7 Functions as an Oncogene by Sponging miR-198 and Upregulating FGFR1 Expression in Thyroid Cancer', '+Paper Mill;');
+  await insT('10.4444/la.2', 'LncRNA KRAL suppresses cell growth in osteosarcoma cells by sponging microRNA-141', '+Computer-Aided Content or Computer-Generated Content;+Paper Mill;');
+  await insT('10.4444/la.3', 'Metformin matrix tablets with natural gums: formulation and in vitro release', '+Error in Data;');
 
   // ---- the journal index: threshold, abbreviated names, mill reasons only
   ok((await D.millJournalFor('Evidence-Based Complementary and Alternative Medicine'))?.mill === 25, 'full journal name found with its mill count');
@@ -93,6 +98,18 @@ const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(off.some(s => s.code === 'off-scope'), 'technology buzzwords on a non-biomedical subject: off-scope');
   const onTopic = await P.textSignals('Body text.', 'Body text.', [], { title: 'Deep learning prediction of drug toxicity in hospital patients' });
   ok(!onTopic.some(s => s.code === 'off-scope'), 'a biomedical machine-learning paper is not off-scope');
+
+  // ---- titles resembling papers retracted for paper-mill reasons
+  const look = await P.millLookalikes('circITGA7 acts as an oncogene by sponging miR-198 and upregulating FGFR1 in papillary thyroid cancer');
+  ok(look.length === 1 && look[0].doi === '10.4444/la.1' && look[0].similarity >= 0.6, 'reworded mill title found with its similarity');
+  ok(/Paper Mill/.test(look[0].reason), 'only the mill reason is quoted');
+  ok(!(await P.millLookalikes('circITGA7 Functions as an Oncogene by Sponging miR-198 and Upregulating FGFR1 Expression in Thyroid Cancer')).length, 'the same title is the published signal, not a look-alike');
+  ok(!(await P.millLookalikes('Metformin matrix tablets with natural gums: formulation and in vitro release studies')).length, 'retractions for other reasons are not in the index');
+  ok(!(await P.millLookalikes('Formulation of sustained release diclofenac sodium microspheres')).length, 'an unrelated title: no look-alike');
+  const lr = await detectPaperMill({ text: 'Manuscript text.', meta: { title: 'circITGA7 acts as an oncogene by sponging miR-198 and upregulating FGFR1 in papillary thyroid cancer' }, references: [], blast: false, cellosaurus: false });
+  const ls = lr.signals.find(x => x.code === 'mill-lookalike');
+  ok(ls && ls.severity === 'medium' && ls.weight === 2 && ls.evidence[0].link === 'https://doi.org/10.4444/la.1', 'detectPaperMill adds the look-alike signal with evidence');
+  ok(!(await detectPaperMill({ text: 'Manuscript text.', meta: { title: 'circITGA7 acts as an oncogene by sponging miR-198 in thyroid cancer' }, references: [], blast: false, cellosaurus: false, millLookalike: false })).signals.some(x => x.code === 'mill-lookalike'), 'can be switched off');
 
   console.log(`papermill-signals: ${n} checks passed`);
   await db.close?.();

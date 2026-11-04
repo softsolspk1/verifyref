@@ -100,9 +100,54 @@ router.get('/dashboard', user, auth.requireSuperAdmin, wrap(async (req, res) => 
     risk[group] = risk[group] || { LOW: 0, MODERATE: 0, HIGH: 0, CRITICAL: 0 };
     risk[group][level]++;
   }
-  res.json({ success: true, days, scope: all ? 'all' : 'mine', totals, byKind, byDay, byUser, risk, topFlagged,
+  const novelty = await noveltyStats(where, params);
+  res.json({ success: true, days, scope: all ? 'all' : 'mine', totals, byKind, byDay, byUser, risk, topFlagged, novelty,
     users: all ? await db.all('SELECT id, name FROM users ORDER BY name') : [] });
 }));
+
+/**
+ * Novelty statistics of the Full Screening Reports in the period. The novelty summary sits in the result column (or in
+ * its R2 stub); reports moved to R2 before the stub carried it are read from R2 once and their stub is filled in.
+ */
+async function noveltyStats(where, params) {
+  const R = require('../reportStore');
+  const rows = await db.all(`SELECT c.id, c.manuscript_code, c.title, c.created_at, u.name AS user_name, c.result->'novelty' AS nv, c.result->>'_r2' AS r2
+    FROM checks c JOIN users u ON u.id = c.user_id WHERE ${where} AND c.kind = 'manuscript' AND c.result IS NOT NULL
+    ORDER BY c.created_at DESC LIMIT 5000`, params);
+  let backfill = 40;
+  for (const r of rows) {
+    if (r.nv || !r.r2 || backfill <= 0) continue;
+    backfill--;
+    const full = await R.load({ _r2: r.r2 });
+    if (!full || full._unavailable) continue;
+    r.nv = R.noveltyStub(full.novelty) || { absent: true };
+    await db.query(`UPDATE checks SET result = jsonb_set(result, '{novelty}', $1::jsonb) WHERE id = $2`, [JSON.stringify(r.nv), r.id]).catch(() => {});
+  }
+  const withNv = rows.filter(r => r.nv && !r.nv.absent);
+  const done = withNv.filter(r => r.nv.summary);
+  const scores = done.map(r => r.nv.summary.score).filter(Number.isFinite).sort((a, b) => a - b);
+  const count = (key, values) => Object.fromEntries(values.map(v => [v, done.filter(r => r.nv.summary[key] === v).length]));
+  const histogram = Array.from({ length: 10 }, (_, i) => ({ from: i * 10, to: i * 10 + 10, n: scores.filter(x => (i === 9 ? x >= 90 : x >= i * 10 && x < i * 10 + 10)).length }));
+  const avg = a => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length * 10) / 10 : null);
+  return {
+    screened: rows.filter(r => r.nv || !r.r2).length,
+    assessed: done.length,
+    notAssessed: withNv.filter(r => r.nv.error).length,
+    pending: rows.filter(r => !r.nv && r.r2).length,
+    averageScore: avg(scores),
+    medianScore: scores.length ? scores[Math.floor((scores.length - 1) / 2)] : null,
+    averageSimilarity: avg(done.map(r => r.nv.summary.maxSimilarity).filter(Number.isFinite).map(x => x * 100)),
+    closeRecent: done.reduce((a, r) => a + (r.nv.summary.closeRecent || 0), 0),
+    bands: count('band', ['high', 'moderate', 'low']),
+    outlook: count('outlook', ['high', 'moderate', 'low', 'insufficient data']),
+    confidence: count('confidence', ['high', 'moderate', 'low']),
+    histogram,
+    items: withNv.slice(0, 100).map(r => ({
+      id: r.id, manuscript_code: r.manuscript_code, title: r.title, created_at: r.created_at, user_name: r.user_name,
+      error: r.nv.error || null, ...(r.nv.summary || {}), closest: r.nv.closest?.[0] || null
+    }))
+  };
+}
 
 // ------------------------------------------------------------------ notifications
 

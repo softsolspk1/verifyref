@@ -1,0 +1,138 @@
+PJPS DATA INTEGRITY SYSTEM
+Modules 1-3 compared with ReferenceVerify (referenceverify.com)
+Module 4 (Paper Mill) compared with the STM Integrity Hub
+Super Admin Dashboard: novelty statistics
+Date: 4 November 2026
+=====================================================================================
+
+Sources: referenceverify.com (home page and feature descriptions, read 4 Nov 2026);
+stm-assoc.org Integrity Hub page, STM press releases, CASRAI guide, Scholarly Kitchen
+(read 4 Nov 2026). Earlier comparison: docs/Module4-5-Parity-Report-2026-11-02.txt.
+
+
+1. SUPER ADMIN DASHBOARD - NOVELTY STATISTICS (NEW)
+---------------------------------------------------
+New "Novelty assessment" section on the Dashboard (Super Admin only; same period and user
+filters as the rest of the page), from the novelty part (module 7) of every Full
+Screening Report:
+  - KPIs: manuscripts assessed, average and median score, high / moderate / low novelty
+    (count and %), average similarity to the closest published work, reports that could
+    not be assessed
+  - Chart: score distribution (ten 10-point bars, coloured by novelty band)
+  - Stacked bars: novelty band; 5-year citation outlook; confidence of the assessment
+  - Table: the 100 most recent assessments - date, user, manuscript, score, band,
+    similarity to the closest work (with its title), close works in the last 5 years,
+    citation outlook, Open link
+Storage: the report stub kept in the database (reports moved to R2) now carries the
+novelty summary and the closest work. Reports moved to R2 before today are read from R2
+once (40 per page load) and their stub is filled in, so old reports appear without a
+migration.
+Files: src/routes/activity.js, src/reportStore.js, public/js/views/dashboard.js,
+public/css/app.css. Test: test/reports-dashboard.js (full result, R2 stub, not assessed,
+not yet back-filled, user filter).
+
+
+2. MODULES 1-3 vs REFERENCEVERIFY
+---------------------------------
+ReferenceVerify feature                           PJPS
+------------------------------------------------  -------------------------------------
+Bibliography Check: each reference searched in    yes - 13 databases (Crossref, DOI
+  scholarly records                                 registry, DataCite, OpenAlex, PubMed,
+                                                    Europe PMC, Semantic Scholar, arXiv,
+                                                    DBLP, Open Library, Google Books,
+                                                    ERIC, CORE) + Retraction Watch
+Verdicts Verified / Unverified / Suspicious       yes, plus Miscited and Retracted
+0-100 confidence score per reference              yes
+Click a reference: matched record and where it    yes ("Matched in", databases checked,
+  was found                                         differing fields highlighted)
+Fabricated sources, DOI not resolving             yes (live audit 4 Nov: 27/27 and held-
+                                                    out 30/30 correct, incl. 4/4 invented)
+Retractions                                       yes (Retraction Watch, with reason and
+                                                    date; later retractions monitored)
+Reference reformatted to the chosen style         NEW TODAY - before, suggestions and the
+                                                    corrected list were PJPS only on
+                                                    screen. Now a style picker on the
+                                                    References tab shows every reference in
+                                                    any built-in or installed CSL style
+                                                    (copy button per reference); the
+                                                    "Corrected reference list" export uses
+                                                    the chosen style. References without a
+                                                    verified record keep the author's text
+                                                    and are marked (never silently changed)
+Input PDF, Word, .odt, .rtf, text, .bib, .ris     yes (+ .doc); upload hint now lists them
+Export Word, CSV, BibTeX, RIS                     yes (+ PDF, corrected list)
+Index / quartile / predatory warning (journals)   yes (Scopus, Web of Science, DOAJ,
+                                                    MEDLINE, predatory, hijacked, Scopus-
+                                                    discontinued)
+Reference Style: Word citations and references    yes - Module 2 converter (any style,
+  converted to the chosen style                     numbered <-> author-year, Track
+                                                    Changes); live audit: 14/14 style
+                                                    deviations, 0 false alarms, in-text
+                                                    rules 6/6, Track Changes 19 ins / 7 del
+Verify Citations: in-text citation <-> source     yes - Module 3 (claim support Full /
+                                                    Partial / Unsupported / Could not
+                                                    verify, passage and page shown); live
+                                                    audit with an uploaded PDF: 6/6
+                                                    Export Word / CSV, and PDF (NEW TODAY)
+Word add-in                                       not built - the web portal and the
+                                                    Windows desktop app cover the same
+                                                    checks; an add-in needs Microsoft
+                                                    AppSource publishing (decision)
+Text processed in the browser                     Module 5 figures are analysed in the
+                                                    browser; text is checked on the PJPS
+                                                    server (never sent to an outside AI)
+
+Files: src/routes/core.js (/api/checks/:id/formatted, style check on the export),
+public/js/views/report.js, public/js/views/verify.js, public/js/views/check.js.
+
+
+3. MODULE 4 vs STM INTEGRITY HUB
+--------------------------------
+Hub tool / signal                                 PJPS Module 4
+------------------------------------------------  -------------------------------------
+Papermill Checker: tortured phrases               yes
+Templated language, stylistic mill patterns       yes (template wording, molecular-
+                                                    oncology template, off-scope profile)
+AI-generated text (Springer Nature tool)          yes (indicator; chatbot leftovers)
+Clear Skies Papermill Alarm: similarity to known  NEW TODAY - the manuscript title is
+  paper-mill papers, traffic light                  compared (TF-IDF) with the titles of
+                                                    ~14,600 papers Retraction Watch lists
+                                                    as retracted for paper-mill / fake-
+                                                    peer-review reasons; look-alikes shown
+                                                    with similarity, journal, retraction
+                                                    date, reason and DOI
+Retracted / heavily criticised references         yes (Retraction Watch, mill reasons
+                                                    weighted, audit-flagged papers)
+PubPeer comments on cited papers                  not searched - PubPeer's API needs a
+                                                    key (PJPS to provide)
+Watchlist (fake e-mails, domains, identities)     yes (editorial watchlist)
+Duplicate / simultaneous submission               yes among PJPS submissions; across
+                                                    publishers needs Hub membership
+Image duplication                                 yes (Module 5 feeds Module 4)
+Traffic light per check                           yes; new row for the paper-mill
+                                                    profiles + look-alike titles (the
+                                                    template and off-scope profiles had no
+                                                    row before)
+
+Benchmark of the new signal (150 papers retracted for paper-mill reasons vs 126 ordinary
+papers of the same journals and years; each paper's own record left out of the index):
+  title similarity >= 0.5 to a mill retraction:   15/150 mill vs 4/126 ordinary
+  title similarity >= 0.6:                         2/150 vs 0/126
+  3 or more look-alikes >= 0.4:                   12/150 vs 3/126
+Weights set from these rates: LOW (1) at >= 0.5; MEDIUM (2) at >= 0.6 or 3+ look-alikes.
+On the text-only benchmark it changes no paper's level (MEDIUM+ stays 24/150 mill,
+2/126 ordinary); in real use it adds to the reference, author and image signals. The
+thresholds were read on the full benchmark (no held-out half), so treat them as a first
+setting.
+Files: src/papermill/index.js (millLookalikes), src/papermill/overview.js,
+src/datasets.js. Test: test/papermill-signals.js (34 checks).
+
+
+4. WHAT IS STILL NOT THE SAME
+-----------------------------
+a) PubPeer: needs PJPS's API key.
+b) Cross-publisher duplicate submissions: needs STM Integrity Hub membership.
+c) Clear Skies compares against its own private collection of mill papers (including
+   unretracted ones); PJPS uses the public Retraction Watch list, so it sees only mill
+   papers that have been retracted.
+d) ReferenceVerify's Word add-in: not built.

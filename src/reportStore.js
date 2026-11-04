@@ -16,11 +16,23 @@ const cache = new Map();
 const CACHE_MAX = 30;
 const remember = (key, value) => { cache.delete(key); cache.set(key, value); if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); };
 
+/** Novelty summary + closest published work, or the reason it was not assessed */
+function noveltyStub(nv) {
+  if (!nv || typeof nv !== 'object') return null;
+  if (nv.error) return { error: String(nv.error).slice(0, 300) };
+  if (!nv.summary) return null;
+  const c = nv.closest?.[0];
+  return { summary: JSON.parse(JSON.stringify(nv.summary)), closest: c ? [{ title: String(c.title || '').slice(0, 300), year: c.year, journal: c.journal, similarity: c.similarity, url: c.url }] : [] };
+}
+
 /** The small part kept in the database: enough for lists, dashboards and SQL on the risk level */
 function stub(result, key) {
   const out = { _r2: key };
   for (const k of STUB_KEYS) if (result[k] !== undefined) out[k] = result[k];
   if (out.summary && typeof out.summary === 'object') out.summary = JSON.parse(JSON.stringify(out.summary));
+  // the Dashboard's novelty statistics read only these
+  const nv = noveltyStub(result.novelty);
+  if (nv) out.novelty = nv;
   // the daily retraction monitor reads only these (reference number, DOI, text) and never fetches the full report
   const refs = result.references?.results;
   if (Array.isArray(refs)) out.refDois = refs.map(r => ({ index: r.index, doi: (r.record?.doi || r.parsed?.doi || '').toLowerCase(), raw: String(r.raw || '').slice(0, 300), retracted: r.status === 'retracted' })).filter(r => r.doi);
@@ -65,4 +77,4 @@ async function loadRows(rows) {
 
 const isStub = result => !!(result && typeof result === 'object' && result._r2);
 
-module.exports = { offload, load, loadRows, isStub, stub, keyOf };
+module.exports = { offload, load, loadRows, isStub, stub, keyOf, noveltyStub };

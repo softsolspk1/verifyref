@@ -2,6 +2,9 @@
 import { api, esc, $, $$, badge, sevTone, toast, download, copyText, fmtDate, pct, ICONS, runJob, hasModule, datasetBanner, modal } from '../core.js';
 import { decisionCard } from './decision.js';
 
+// Check Bibliography: every reference shown in the style the editor picks (References tab); the corrected-list export follows it
+const chosen = { style: null, label: '', items: null };
+
 export async function renderSavedReport(view, id) {
   view.innerHTML = '<div class="empty">Loading report…</div>';
   const d = await api(`/api/checks/${id}`);
@@ -73,7 +76,7 @@ export function renderReport(el, result, { kind } = {}) {
             <button class="btn btn-sm" id="export-btn">${ICONS.download} Export ▾</button>
             <div id="export-menu" class="card" hidden style="position:absolute;right:0;top:36px;z-index:20;padding:6px;min-width:230px">
               ${result.screening ? [['editor', 'Screening report — editor version (Word)'], ['editor&format=pdf', 'Screening report — editor version (PDF)'], ...(hasModule('reports') ? [['author', 'Screening report — author version (Word)']] : [])].map(([v, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-screen="${v}">${l}</button>`).join('') : ''}
-              ${[['csv', 'Audit report (CSV)'], ['docx', 'Reference report (Word)'], ['pdf', 'Reference report (PDF)'], ['corrected', 'Corrected reference list, PJPS style (.txt)'], ['bibtex', 'BibTeX (.bib)'], ['ris', 'RIS (.ris)'],
+              ${[['csv', 'Audit report (CSV)'], ['docx', 'Reference report (Word)'], ['pdf', 'Reference report (PDF)'], ['corrected', 'Corrected reference list (.txt) — style chosen on the References tab, PJPS by default'], ['bibtex', 'BibTeX (.bib)'], ['ris', 'RIS (.ris)'],
                 ...(result.compliance ? [['csv&part=compliance', 'Module 2 — PJPS style deviations (CSV)']] : []), ...(result.citations && !result.citations.error ? [['csv&part=citations', 'Module 3 — citation problems (CSV)']] : []),
                 ...(result.papermill && hasModule('papermill') ? [['csv&part=papermill', 'Module 4 — paper-mill signals (CSV, confidential)']] : [])].map(([f, l]) => `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start" data-export="${f}">${l}</button>`).join('')}
             </div>
@@ -105,7 +108,7 @@ export function renderReport(el, result, { kind } = {}) {
         m.renderImagesResult($('#img-report', body), { ...d.result, id: result.images.checkId });
       }).catch(e => { body.innerHTML += `<div class="alert alert-warn">The image report could not be loaded (${esc(e.message)}). <a href="#/check/${result.images.checkId}">Open it separately</a>.</div>`; });
     }
-    else if (k === 'references') referencesTab(body, refs, s, result.indicators);
+    else if (k === 'references') referencesTab(body, refs, s, result.indicators, id);
     else if (k === 'citations') citationsTab(body, result.citations, refs);
     else if (k === 'journals') journalsTab(body, result.journals);
     else if (k === 'pattern') patternTab(body, result.pattern, refs);
@@ -127,7 +130,7 @@ export function renderReport(el, result, { kind } = {}) {
       menu.hidden = !menu.hidden;
       if (!menu.hidden) document.addEventListener('click', () => (menu.hidden = true), { once: true });
     };
-    $$('[data-export]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/export?format=${b.dataset.export}${b.dataset.export === 'corrected' ? '&style=pjps' : ''}`).catch(e => toast(e.message, 'error'))));
+    $$('[data-export]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/export?format=${b.dataset.export}${b.dataset.export === 'corrected' ? `&style=${encodeURIComponent(chosen.style || 'pjps')}` : ''}`).catch(e => toast(e.message, 'error'))));
     $$('[data-screen]', el).forEach(b => (b.onclick = () => download(`/api/checks/${id}/screening?version=${b.dataset.screen}`).catch(e => toast(e.message, 'error'))));
   }
   const rc = $('#recheck', el);
@@ -383,7 +386,7 @@ function kpis(s) {
 
 // ------------------------------------------------------------------ References tab
 
-function referencesTab(body, refs, s, indicators) {
+function referencesTab(body, refs, s, indicators, checkId) {
   const ages = s.ages || {};
   const totalAged = (ages.last5 || 0) + (ages.y6to10 || 0) + (ages.y11to20 || 0) + (ages.older || 0);
   const bar = (label, n) => `<div class="bar-row"><span>${label}</span><div class="bar-track"><span style="width:${pct(n, totalAged)}%"></span></div><span class="num">${n || 0}</span></div>`;
@@ -407,6 +410,8 @@ function referencesTab(body, refs, s, indicators) {
       <label class="muted">Sort <select id="ref-sort"><option value="index">Reference number</option><option value="risk">Most serious first</option><option value="confidence">Lowest confidence first</option><option value="year">Oldest first</option><option value="journal">Journal</option></select></label>
       <button class="filter" id="expand-all">Expand all</button>
     </div>
+    ${checkId ? `<div class="row no-print" style="gap:8px;margin:-4px 0 12px;align-items:center"><label class="muted" for="ref-style">Show every reference in</label>
+      <select id="ref-style" style="width:auto;max-width:320px"><option value="">— suggestions only (PJPS) —</option></select><span class="muted" id="ref-style-note"></span></div>` : ''}
     <div id="ref-list"></div>`;
 
   const list = $('#ref-list', body);
@@ -429,6 +434,26 @@ function referencesTab(body, refs, s, indicators) {
   };
   $$('.filter[data-f]', body).forEach(b => (b.onclick = () => { $$('.filter[data-f]', body).forEach(x => x.classList.remove('active')); b.classList.add('active'); draw(b.dataset.f); }));
   $('#ref-sort', body).onchange = () => draw();
+  const sel = $('#ref-style', body);
+  if (sel) {
+    if (chosen.checkId !== checkId) Object.assign(chosen, { checkId, style: null, label: '', items: null });
+    api('/api/styles').then(({ styles }) => {
+      sel.innerHTML += styles.map(st => `<option value="${esc(st.key)}">${esc(st.label || st.title || st.key)}</option>`).join('');
+      if (chosen.style) sel.value = chosen.style;
+    }).catch(() => {});
+    sel.onchange = async () => {
+      const note = $('#ref-style-note', body);
+      if (!sel.value) { Object.assign(chosen, { style: null, label: '', items: null }); note.textContent = ''; draw(); return; }
+      note.textContent = 'Formatting…';
+      try {
+        const d = await api(`/api/checks/${checkId}/formatted?style=${encodeURIComponent(sel.value)}`);
+        Object.assign(chosen, { style: d.style, label: sel.selectedOptions[0].textContent, items: new Map(d.items.map(i => [i.index, i])) });
+        const unmatched = d.items.filter(i => !i.matched).length;
+        note.textContent = unmatched ? `${unmatched} reference(s) without a verified record keep the author's text.` : '';
+        draw();
+      } catch (e) { note.textContent = ''; toast(e.message, 'error'); }
+    };
+  }
   $('#expand-all', body).onclick = () => { const open = !$('.ref.open', list); $$('.ref', list).forEach(r => r.classList.toggle('open', open)); };
   $$('[data-goto]', body).forEach(a => (a.onclick = e => { e.preventDefault(); const r = $(`#ref-${a.dataset.goto}`, list); if (r) { r.classList.add('open'); r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } }));
   draw('all');
@@ -502,6 +527,7 @@ function refRow(r) {
       </dl>` : `<p class="muted">No matching record was found. Parsed as: <i>${esc(r.parsed?.title || '—')}</i>${r.parsed?.journal ? ` · ${esc(r.parsed.journal)}` : ''}${r.parsed?.year ? ` · ${r.parsed.year}` : ''}</p>`}
       ${r.journalProfile ? `<p class="muted">${esc(r.journalProfile.name)} has ${Number(r.journalProfile.works).toLocaleString()} indexed articles (${r.journalProfile.first}–${r.journalProfile.last}), but this article was not found.</p>` : ''}
       ${(r.links || []).length ? `<p>${r.links.map(l => `${badge(l.status === 'works' ? 'Link works' : l.status === 'broken' ? 'Broken link' : 'Not checked', l.status === 'works' ? 'good' : l.status === 'broken' ? 'bad' : 'neutral')} <a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.url.slice(0, 80))}</a>${l.archived ? ` · <a href="${esc(l.archived)}" target="_blank" rel="noopener">archived copy</a>` : ''}`).join('<br>')}</p>` : ''}
+      ${chosen.items?.get(r.index) ? `<div class="suggest"><b>${esc(chosen.label)}:</b> ${esc(chosen.items.get(r.index).text)}${chosen.items.get(r.index).matched ? '' : ' <span class="muted">(no verified record: as written)</span>'} <button class="btn btn-sm btn-ghost" data-copy="${esc(chosen.items.get(r.index).text)}">${ICONS.copy}</button></div>` : ''}
       ${r.suggestion ? `<div class="suggest"><b>Suggested reference:</b> ${esc(r.suggestion)} <button class="btn btn-sm btn-ghost" data-copy="${esc(r.suggestion)}">${ICONS.copy}</button></div>` : ''}
       ${chips ? `<div style="margin-top:10px"><div class="muted" style="font-size:12px;margin-bottom:4px">Databases checked</div><div class="chips">${chips}</div></div>` : ''}
       ${r.status !== 'verified' || r.web?.length ? autoSearch(r) : `<div style="margin-top:8px"><a class="muted" style="font-size:12px" href="https://scholar.google.com/scholar?q=${enc(scholarQuery(r))}" target="_blank" rel="noopener">Find in Google Scholar ↗</a></div>`}

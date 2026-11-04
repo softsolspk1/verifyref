@@ -47,6 +47,7 @@ export function renderIntegrity(view) {
         </div>
         <div class="grid grid-2">
           <div class="field"><label for="m-rev">Suggested reviewers <span class="muted">(names and e-mails)</span></label><textarea id="m-rev" rows="3"></textarea></div>
+          <div class="field"><label for="m-cover">Cover letter <span class="muted">(paste, optional)</span></label><textarea id="m-cover" rows="3"></textarea></div>
           <div class="field"><label for="m-img">Image Integrity report <span class="muted">(optional)</span></label><select id="m-img"><option value="">— latest for this manuscript ID —</option></select>
             <label class="check" style="margin-top:12px"><input type="checkbox" id="m-deep" checked> Verify every reference online (fabricated, retracted, predatory)</label>
             <label class="check"><input type="checkbox" id="m-ext" checked> Look up public registries (ORCID, ROR, ClinicalTrials.gov, PubChem, OpenAlex)</label></div>
@@ -74,7 +75,7 @@ export function renderIntegrity(view) {
     if (!file && text.length < 300) return toast('Upload the manuscript or paste its full text.', 'error');
     const fd = new FormData();
     if (file) fd.append('file', file); else fd.append('text', text);
-    for (const [k, id] of [['manuscriptCode', 'm-code'], ['title', 'm-title'], ['authors', 'm-authors'], ['affiliations', 'm-aff'], ['suggestedReviewers', 'm-rev'], ['imagesCheckId', 'm-img']]) fd.append(k, $(`#${id}`, view).value);
+    for (const [k, id] of [['manuscriptCode', 'm-code'], ['title', 'm-title'], ['authors', 'm-authors'], ['affiliations', 'm-aff'], ['suggestedReviewers', 'm-rev'], ['coverLetter', 'm-cover'], ['imagesCheckId', 'm-img']]) fd.append(k, $(`#${id}`, view).value);
     fd.append('deep', $('#m-deep', view).checked ? 'true' : 'false');
     fd.append('external', $('#m-ext', view).checked ? 'true' : 'false');
     $('#form-area', view).hidden = true;

@@ -92,3 +92,43 @@ in two halves by PMC number; a signal had to separate the groups in both halves.
 
 Text and metadata alone stay weak at telling paper-mill papers apart; the reference, author (ORCID, retractions,
 watchlist) and image evidence carry most of the weight.
+
+## Look-alike signal and papermill.txt candidates (2026-11-04)
+
+Measured on the same 276 papers, set on one half (even PMC numbers) and checked on the other.
+
+**Adopted - title + abstract against known mill products** (`mill-lookalike`, the approach of Clear Skies' Papermill
+Alarm). The manuscript's title + abstract is compared (TF-IDF, words and two-word phrases) with the title + abstract of
+13,447 papers Retraction Watch lists as retracted for paper-mill reasons (abstracts from OpenAlex,
+`scripts/load-mill-abstracts.js`, file `data/papermill/mill-abstracts.json.gz`, copied from R2 by the servers). The
+paper's own record is left out. `node scripts/benchmark-papermill-lookalike.js`:
+
+| Closest mill retraction | Half A mill / ordinary | Half B mill / ordinary | All |
+|---|---|---|---|
+| >= 0.14 (low, weight 2) | 17/70 / 2/64 | 25/80 / 5/62 | 42/150 / 7/126 |
+| >= 0.17 (medium, weight 3) | 7/70 / 0/64 | 9/80 / 3/62 | 16/150 / 3/126 |
+| >= 0.20 (medium, weight 4) | 4/70 / 0/64 | 4/80 / 0/62 | 8/150 / 0/126 |
+
+Added to the text signals: MEDIUM or HIGH for **38/150 mill papers (was 24/150)** and 3/126 ordinary papers (was 2/126;
+the new one is a network-pharmacology study of a traditional-medicine decoction). Without the abstracts file the title
+alone is compared (>= 0.5: 15/150 vs 4/126, weight 1; >= 0.6 or 3 look-alikes: weight 2).
+Caveat: the benchmark mill papers' sister papers from the same special issues are in the index; most were retracted after
+these papers appeared. Counting only retractions dated before each paper's publication, the separation nearly vanishes
+(>= 0.2: 1/150 vs 0/126). For a new submission the index holds every mill retraction to date, so the signal finds new
+output of the mills already exposed, not of new mills.
+
+**Measured and not adopted** (no stable separation in both halves):
+
+| Candidate (papermill.txt) | Half A mill / ordinary | Half B mill / ordinary |
+|---|---|---|
+| >= 30% of references share no content word with the title / abstract ("irrelevant citations") | 3/70 / 2/64 | 5/80 / 1/62 |
+| 3+ references on off-domain subjects (computing, education, economics ...) in a non-technical paper | 2/70 / 6/64 | 4/80 / 1/62 |
+| 60%+ of references from the 3 years before the paper | 9/70 / 3/64 | 12/80 / 6/62 |
+| Reference titles narrowly alike (mean overlap >= 0.2) | 8/70 / 6/64 | 11/80 / 7/62 |
+| Title words missing from the body ("buzzwords without follow-through"), 2+ | 9/70 / 7/64 | 10/80 / 6/62 |
+| Percentages in the abstract not found in the body, 2+ | 4/70 / 0/64 | 1/80 / 2/62 |
+| Outside the journal's scope (no pharmaceutical / biomedical subject) | 24/150 / 28/126 (all) | |
+
+Out of scope is shown to the editor with weight 0 (`out-of-scope`): an editorial question, not evidence of a mill here.
+The cover-letter checks (`cover-*`) and waves of same-template submissions by other authors (`submission-wave`) cannot be
+benchmarked on published papers (no cover letters, no PJPS submission stream); they carry low weights (1-2).

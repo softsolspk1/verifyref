@@ -83,7 +83,7 @@ router.use('/v1', apiAuth);
 router.get('/v1/ping', (req, res) => res.json({ success: true, service: cfg.APP_NAME, version: cfg.APP_VERSION, account: req.user.email, scopes: req.apiKey.scopes }));
 
 /**
- * POST /api/v1/screenings  { manuscriptCode, title, authors: [..] | "a\nb", affiliations, abstract, suggestedReviewers,
+ * POST /api/v1/screenings  { manuscriptCode, title, authors: [..] | "a\nb", affiliations, abstract, suggestedReviewers, coverLetter,
  *   text  |  fileBase64 + filename, deep: bool, externalId }
  */
 router.post('/v1/screenings', scope('screen'), wrap(async (req, res) => {

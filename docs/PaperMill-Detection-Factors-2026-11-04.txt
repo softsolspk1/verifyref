@@ -1,0 +1,120 @@
+PJPS DATA INTEGRITY SYSTEM - MODULE 4 PAPER MILL DETECTION
+Factors checked, mapped to papermill.txt
+Date: 4 November 2026
+=====================================================================================
+
+HOW THE RISK LEVEL IS SET
+Every factor that fires adds its weight. LOW below 4; MEDIUM at 4 or more, or any one
+strong (high) signal; HIGH at 8 or more, or two strong signals. Each factor shows its
+evidence (quoted text, matched record, link). Screening aid only: the editor decides.
+Every check also gets a traffic light (red / amber / green / not checked).
+
+Benchmark (150 papers retracted for paper-mill reasons vs 126 ordinary papers of the same
+journals and years; text-based signals): MEDIUM or HIGH for 38/150 mill papers (25%) and
+3/126 ordinary papers (2.4%). Before today: 24/150 and 2/126. Reference, author and image
+signals come on top in real use.
+
+-------------------------------------------------------------------------------------
+1. TEXT AND LINGUISTIC ANALYSIS                                    (papermill.txt 1)
+-------------------------------------------------------------------------------------
+  Tortured phrases (Problematic Paper Screener + PJPS list): 1-2 / 3+    medium (2) / strong (5)
+  Computer-generated text (SCIgen / Mathgen), 2+ / 4+ fingerprints       medium (3) / strong (5)
+  Suspect expressions (typos, template residue)                           low (max 2)
+  AI-tool leftovers ("As an AI language model", "Regenerate response")    strong (up to 6)
+  AI-written text indicator (vocabulary, sentence rhythm, stock phrases)  weak (max 1)
+  Template wording ("miR-X sponges Y", network-pharmacology boilerplate)  low (1) / medium (2)
+  Molecular-oncology mill template (6+ of 8 features)                     medium (4)
+  Technology buzzwords on a non-biomedical subject (off-scope profile)    medium (4)
+  NEW: title + abstract resemble papers retracted for paper-mill
+       reasons (13,447 Retraction Watch mill retractions, OpenAlex
+       abstracts) - closest >= 20%: 4; >= 17%: 3; >= 14%: 2               up to medium (4)
+       (title alone when no abstract index: 1-2)
+  Vague methods (no supplier, catalogue no., dose, ethics approval no.)   0, or 1 if no ethics approval
+  Hidden text (invisible characters, look-alike letters inside words)    medium (2) / strong (4)
+  NEW: outside the PJPS scope (no pharmaceutical / biomedical subject)    shown, weight 0
+  Not built: writing-style shifts inside one manuscript, comparison with an author's
+  earlier papers (needs their full texts; candidates tested did not separate).
+
+-------------------------------------------------------------------------------------
+2. IMAGE AND FIGURE INTEGRITY (Module 5, feeds Module 4)           (papermill.txt 2)
+-------------------------------------------------------------------------------------
+  Duplicated / rotated / flipped / cropped panels, cloned areas, splicing indicators,
+  matches with PJPS, PubMed Central and retracted-paper figures, AI-image markers,
+  chart duplication, forensic viewer. Strong findings: 5 (strong); findings to check: 2.
+
+-------------------------------------------------------------------------------------
+3. AUTHORSHIP, METADATA AND NETWORK                                (papermill.txt 3)
+-------------------------------------------------------------------------------------
+  Authors with earlier retractions for paper-mill / fake-peer-review reasons
+    (Retraction Watch by name)                                            strong (5)
+  ORCID record lists a paper retracted for paper-mill reasons (exact DOI) strong (5)
+  Other earlier retractions (name / ORCID)                                medium (2)
+  ORCID iD invalid or not registered                                      medium (2)
+  ORCID record with no publications; no ORCID at all                      low (1)
+  Disposable (throw-away) e-mail addresses                                medium (2)
+  All author addresses free-mail                                          low (1)
+  Editorial watchlist hit (e-mail, domain, name, ORCID, institution,
+    phone, phrase)                                                        weak - strong
+  Affiliation unrelated to the topic                                      low (1)
+  Institutions in many countries on a short author list                   low (1-2)
+  Authors added / removed / reordered since the earlier version           low-medium (1-2)
+  Not possible here: IP addresses and submission-system metadata (PJPS's submission
+  system does not pass them to this software).
+
+-------------------------------------------------------------------------------------
+4. CITATIONS AND REFERENCES (Module 1)                             (papermill.txt 4)
+-------------------------------------------------------------------------------------
+  References not found in any database (possibly fabricated): 3+          strong (4)
+  Cited papers retracted for paper-mill reasons                           strong (4 each, max 8)
+  Cited papers flagged in published integrity audits                      low-medium
+  Other retracted papers cited                                            low (1)
+  Many references to journals with many paper-mill retractions            low-medium (1-2)
+  Predatory / hijacked journals; citejacked list; Scopus-discontinued     low-medium
+  Citation stacking: one author group / journal, citation blocks          low-medium (1-2)
+  Tested, not used (no stable separation): "irrelevant" references, off-domain
+  references, very recent reference lists, narrowly alike reference titles.
+
+-------------------------------------------------------------------------------------
+5. DOMAIN-SPECIFIC SCIENTIFIC CHECKS (pharmacy / biomedicine)      (papermill.txt 5)
+-------------------------------------------------------------------------------------
+  Primers that do not match their gene (NCBI BLAST, Seek & Blastn)        medium-strong (3-4)
+  Misidentified / contaminated cell lines (ICLAC, Cellosaurus)            medium
+  Cell lines not in Cellosaurus                                           low (1)
+  microRNAs not known in the species studied / not in miRBase             low (0-2)
+  Statistics recalculated (p-values, percentages that cannot be right)    low-medium
+  Ethics approval numbers, study type and doses (methods)                 weak
+
+-------------------------------------------------------------------------------------
+6. SUBMISSION WORKFLOW AND PATTERNS                                (papermill.txt 6)
+-------------------------------------------------------------------------------------
+  Matches an earlier PJPS submission (text 50%+ or same title)            strong (5)
+  Partial text overlap with an earlier PJPS submission                    medium (3)
+  Same title already published elsewhere (OpenAlex, CORE)                 medium (3)
+  NEW: wave - 2+ recent (180 days) PJPS submissions by other authors
+       with the same title template or boilerplate                        low-medium (1-2)
+  NEW: cover letter (optional field):
+       addressed to another journal                                       medium (2)
+       template placeholders left in ("[Journal Name]")                   medium (2)
+       names another manuscript's title                                   low (1)
+       e-mail address not given in the manuscript (broker mailbox)        low (1)
+  Suggested reviewers: free-mail, same domain or surname as the authors,
+    co-authored with an author in the last 10 years                       low-medium (1-2)
+  Cross-publisher duplicate submissions: needs STM Integrity Hub membership.
+
+-------------------------------------------------------------------------------------
+7. RISK SCORING, REPORTING, WORKFLOW                               (papermill.txt 7)
+-------------------------------------------------------------------------------------
+  Multi-signal score + LOW / MEDIUM / HIGH + traffic light per check; evidence for each
+  signal; editor's assessment, checklist and query letter; decision record; Word / PDF /
+  CSV (confidential); shared links; API v1 for submission systems; Dashboard risk levels
+  per module; editorial watchlist and PJPS tortured-phrase list editable by editors.
+
+-------------------------------------------------------------------------------------
+8. SUPPORTING                                                      (papermill.txt 8)
+-------------------------------------------------------------------------------------
+  Retraction Watch (daily refresh), monitoring of published articles for later
+  retractions, no manuscript text stored (only hashes), multi-modal checks rather than
+  one text model. PubPeer: waiting for PJPS's API key.
+
+Refresh the abstract index after Retraction Watch adds new mill retractions:
+  node scripts/load-mill-abstracts.js     (fetches only new DOIs, uploads to R2)

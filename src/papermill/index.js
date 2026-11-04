@@ -196,53 +196,9 @@ function hiddenText(text) {
   return { zero, mixed };
 }
 
-// ------------------------------------------------------------------ known paper-mill papers (as Clear Skies' Papermill Alarm in the STM Integrity Hub)
-
-let millIndex = null;
-/** TF-IDF index of the titles of papers Retraction Watch lists as retracted for paper-mill reasons (built once a day per process) */
-async function millTitleIndex() {
-  if (millIndex && Date.now() - millIndex.at < 24 * 3600e3) return millIndex;
-  const { tokens } = require('../checks/novelty');
-  const rows = await db.all(`SELECT doi, title, journal, retraction_date, reason FROM retractions WHERE nature ILIKE '%retraction%' AND title IS NOT NULL AND title <> '' AND reason ~* $1`, [D.MILL_REASON]);
-  const docs = rows.map(r => tokens(r.title));
-  const df = new Map();
-  for (const d of docs) for (const w of new Set(d)) df.set(w, (df.get(w) || 0) + 1);
-  const n = docs.length;
-  const vec = d => {
-    const tf = new Map();
-    for (const w of d) tf.set(w, (tf.get(w) || 0) + 1);
-    const v = new Map();
-    let norm = 0;
-    for (const [w, c] of tf) { const x = (1 + Math.log(c)) * Math.log(1 + (n + 1) / ((df.get(w) || 0) + 1)); v.set(w, x); norm += x * x; }
-    norm = Math.sqrt(norm) || 1;
-    for (const [w, x] of v) v.set(w, x / norm);
-    return v;
-  };
-  const posting = new Map();   // word -> paper numbers, so a query only scores the papers sharing a word with it
-  const vecs = docs.map((d, i) => { const v = vec(d); for (const w of v.keys()) { if (!posting.has(w)) posting.set(w, []); posting.get(w).push(i); } return v; });
-  millIndex = { at: Date.now(), rows, vecs, vec, tokens, posting };
-  return millIndex;
-}
-
-const normTitle = t => String(t || '').toLowerCase().replace(/<[^>]+>/g, '').replace(/[^p{L}p{N}]+/gu, ' ').trim();
-
-/**
- * Titles of mill-retracted papers that the manuscript's title closely resembles (TF-IDF cosine over title words).
- * The paper itself (same DOI or the same title) is left out: an identical title is the "published" signal.
- * Benchmark (150 mill-retracted vs 126 ordinary papers, each left out of the index): cosine >= 0.5 to at least one
- * title 15/150 vs 4/126; >= 0.6 2/150 vs 0/126 (docs/benchmark-papermill.md).
- */
-async function millLookalikes(title, { doi = null } = {}) {
-  const ix = await millTitleIndex();
-  const q = ix.vec(ix.tokens(String(title || '').replace(/<[^>]+>/g, ' ')));
-  if (q.size < 3 || !ix.rows.length) return [];
-  const own = normTitle(title);
-  const scores = new Map();
-  for (const [w, x] of q) for (const i of ix.posting.get(w) || []) scores.set(i, (scores.get(i) || 0) + x * ix.vecs[i].get(w));
-  return [...scores].filter(([i, sc]) => sc >= 0.5 && normTitle(ix.rows[i].title) !== own && !(doi && String(ix.rows[i].doi || '').toLowerCase() === String(doi).toLowerCase()))
-    .sort((a, b) => b[1] - a[1]).slice(0, 8)
-    .map(([i, sc]) => ({ similarity: Math.round(sc * 100) / 100, title: ix.rows[i].title, journal: ix.rows[i].journal, date: ix.rows[i].retraction_date, doi: ix.rows[i].doi, reason: String(ix.rows[i].reason || '').split(';').filter(x => D.MILL_REASON_RE.test(x)).slice(0, 2).join('; ') }));
-}
+// known paper-mill papers (as Clear Skies' Papermill Alarm): src/papermill/millIndex.js
+const MI = require('./millIndex');
+const millLookalikes = (title, opts) => MI.titleLookalikes(title, opts);
 
 /**
  * A paper with the same title is already published or posted (duplicate / redundant publication): Crossref (DOIs),
@@ -350,8 +306,23 @@ function shingles(text) {
   return [...out].slice(0, 6000);
 }
 
+const WAVE_DAYS = 180;
+const familyOf = name => String(name || '').trim().split(/\s+/).pop().toLowerCase();
+/** Share of content words two titles have in common once the specific names (genes, drugs, numbers) are set aside */
+function templateSimilarity(a, b) {
+  const { tokens } = require('../checks/novelty');
+  const words = t => new Set(tokens(t).filter(w => /^[a-z]+$/.test(w)));
+  const x = words(a), y = words(b);
+  if (x.size < 4 || y.size < 4) return 0;
+  let k = 0;
+  for (const w of x) if (y.has(w)) k++;
+  return k / Math.min(x.size, y.size);
+}
+
 async function duplicateSubmissions({ body, meta, excludeCode }) {
   const mine = new Set(shingles(body));
+  const waves = [];
+  const myFamilies = new Set((meta.authors || []).map(a => String(a.family || a.name || '').trim().split(/\s+/).pop().toLowerCase()).filter(Boolean));
   const rows = await db.all("SELECT id, check_id, manuscript_code, title, data, created_at FROM fingerprints WHERE kind = 'text' ORDER BY created_at DESC LIMIT 3000");
   const out = [];
   for (const r of rows) {
@@ -362,8 +333,14 @@ async function duplicateSubmissions({ body, meta, excludeCode }) {
     const overlap = mine.size && theirs.length ? inter / Math.min(mine.size, theirs.length) : 0;
     const tsim = meta.title && r.title ? titleSimilarity(meta.title, r.title) : 0;
     if (overlap >= 0.2 || tsim >= 0.9) out.push({ manuscriptCode: r.manuscript_code, title: r.title, checkId: r.check_id, date: r.created_at, textOverlap: Math.round(overlap * 100), titleSimilarity: Math.round(tsim * 100) });
+    else if (Date.now() - new Date(r.created_at).getTime() < WAVE_DAYS * 86400e3) {
+      // a wave: different manuscripts by different authors, built on the same title template or the same boilerplate
+      const tw = templateSimilarity(meta.title, r.title);
+      const shared = (r.data?.authors || []).some(a => myFamilies.has(familyOf(a)));
+      if (!shared && (tw >= 0.5 || overlap >= 0.08)) waves.push({ manuscriptCode: r.manuscript_code, title: r.title, checkId: r.check_id, date: r.created_at, textOverlap: Math.round(overlap * 100), titleTemplate: Math.round(tw * 100) });
+    }
   }
-  return { compared: rows.length, matches: out.sort((a, b) => b.textOverlap - a.textOverlap).slice(0, 10), shingles: [...mine] };
+  return { compared: rows.length, matches: out.sort((a, b) => b.textOverlap - a.textOverlap).slice(0, 10), waves: waves.slice(0, 10), shingles: [...mine] };
 }
 
 async function previousAuthors(code, version) {
@@ -457,7 +434,9 @@ async function detectPaperMill(input, update = () => {}) {
   const sig = (group, code, title, severity, weight, evidence = [], note = '') => signals.push({ group, code, title, severity, weight, evidence, note });
 
   // the mill-title index takes a few seconds to build: started now, read when the signal is added
-  const lookalikes = meta.title && input.millLookalike !== false ? millLookalikes(meta.title, { doi: meta.doi }).catch(() => []) : Promise.resolve([]);
+  const lookOn = meta.title && input.millLookalike !== false;
+  const lookalikes = lookOn ? MI.titleLookalikes(meta.title, { doi: meta.doi }).catch(() => []) : Promise.resolve([]);
+  const absLookalikes = lookOn ? MI.abstractLookalikes(meta.title, MI.abstractOf(meta, text), { doi: meta.doi }).catch(() => null) : Promise.resolve(null);
   await D.warmEmailDomains();
   update('Searching for tortured phrases and AI-text leftovers', 2);
   const textSigs = await textSignals(text, body, await customPhrases(), { title: meta.title });
@@ -528,13 +507,26 @@ async function detectPaperMill(input, update = () => {}) {
       evidence: Object.entries(spread.byCountry).map(([c, a]) => ({ text: `${c}: ${a[0]}` })), note: 'Many countries on a short author list with no stated collaboration is a paper-mill pattern (authorship for sale). International teams are common; ask the corresponding author how the group worked together if it is not clear.' });
 
   // Resemblance to papers already retracted for paper-mill reasons (title against ~15,000 Retraction Watch records)
+  // Resemblance to papers already retracted for paper-mill reasons: title + abstract (OpenAlex abstracts of ~13,400 Retraction
+  // Watch mill retractions) where available, else the title alone. Weights from the benchmark (150 mill / 126 ordinary papers,
+  // checked on two halves): title + abstract >= 0.14 42 vs 7, >= 0.17 16 vs 3, >= 0.20 8 vs 0; title alone >= 0.5 15 vs 4.
   const look = await lookalikes;
+  const absLook = await absLookalikes;
   {
-    if (look.length) {
-      const strong = look[0].similarity >= 0.6 || look.length >= 3;
-      sig('text', 'mill-lookalike', `Title closely resembles ${look.length} paper(s) retracted for paper-mill reasons`, strong ? 'medium' : 'low', strong ? 2 : 1,
-        look.map(l => ({ text: `${Math.round(l.similarity * 100)}% similar: "${l.title}"${l.journal ? ` - ${l.journal}` : ''}${l.date ? `, retracted ${String(l.date).slice(0, 10)}` : ''}`, note: l.reason || null, link: l.doi ? `https://doi.org/${l.doi}` : null })),
-        'Paper mills sell many papers made from one template, so their titles look alike (the approach of Clear Skies\' Papermill Alarm in the STM Integrity Hub). On the benchmark 10% of mill papers and 3% of ordinary papers had a title this close to a mill retraction: an indicator to read with the other signals, not proof.');
+    const top = absLook?.[0]?.score || 0;
+    const [aSev, aW] = top >= 0.2 ? ['medium', 4] : top >= 0.17 ? ['medium', 3] : top >= 0.14 ? ['low', 2] : [null, 0];
+    const tStrong = look.length && (look[0].score >= 0.6 || look.length >= 3);
+    const [tSev, tW] = look.length ? (tStrong ? ['medium', 2] : ['low', 1]) : [null, 0];
+    if (aW || tW) {
+      const byAbstract = aW >= tW;
+      const seen = new Set();
+      const items = [...(absLook || []).map(l => ({ ...l, via: 'title and abstract' })), ...look.map(l => ({ ...l, via: 'title' }))].filter(l => { const k = l.doi || l.title; if (seen.has(k)) return false; seen.add(k); return true; });
+      sig('text', 'mill-lookalike', byAbstract ? `Title and abstract resemble ${absLook.length} paper(s) retracted for paper-mill reasons (closest ${Math.round(top * 100)}%)` : `Title closely resembles ${look.length} paper(s) retracted for paper-mill reasons`,
+        byAbstract ? aSev : tSev, Math.max(aW, tW),
+        items.slice(0, 8).map(l => ({ text: `${Math.round(l.score * 100)}% similar (${l.via}): "${l.title}"${l.journal ? ` - ${l.journal}` : ''}${l.date ? `, retracted ${String(l.date).slice(0, 10)}` : ''}`, note: l.reason || null, link: l.doi ? `https://doi.org/${l.doi}` : null })),
+        byAbstract
+          ? 'Paper mills sell many papers made from one template, so their titles and abstracts read alike (the approach of Clear Skies’ Papermill Alarm in the STM Integrity Hub). Benchmark: a closest match of 20% or more was found for 8 of 150 mill papers and none of 126 ordinary papers; 14% or more for 42 of 150 mill and 7 of 126 ordinary papers. Read the closest retracted papers next to the manuscript: same design, assays and wording with other genes, drugs or diseases is the mill pattern.'
+          : 'Paper mills sell many papers made from one template, so their titles look alike (the approach of Clear Skies’ Papermill Alarm in the STM Integrity Hub). On the benchmark 10% of mill papers and 3% of ordinary papers had a title this close to a mill retraction: an indicator to read with the other signals, not proof.');
     }
   }
 
@@ -665,6 +657,14 @@ async function detectPaperMill(input, update = () => {}) {
   if (unsure.length) sig('authors', 'author-retraction-name', `Possible earlier retraction(s) under a similar name (${unsure.length}) - probably other people`, 'low', 0.5, unsure.slice(0, 6).map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Retraction Watch gives author names only. These hits match the surname and first initial only; for common names they are usually different people. Check ORCID and affiliation before drawing any conclusion.');
 
   const emails = emailsOf(text);
+  // Cover letter (optional): written for another journal, template placeholders, another title, a third-party mailbox
+  const SUB = require('./submission');
+  const letter = String(input.coverLetter || '');
+  for (const x of SUB.coverLetterSignals(letter, { title: meta.title || '', emails })) sig('authors', x.code, x.title, x.severity, x.weight, x.evidence, x.note);
+  // Journal scope: shown for the editor, not counted (on the benchmark ordinary papers fell outside pharmacy as often as mill papers)
+  const scope = SUB.scopeFit({ title: meta.title || '', abstract: meta.abstract || text.slice(0, 3000), keywords: meta.keywords || [] });
+  if (!scope.inScope && scope.words >= 8 && !signals.some(x => x.code === 'off-scope')) sig('text', 'out-of-scope', 'Nothing in the title and abstract matches the pharmaceutical / biomedical scope of PJPS', 'low', 0,
+    [{ text: `Title: “${String(meta.title || '').slice(0, 200)}”` }], 'An editorial scope question first: a paper outside the journal\'s field is often sent to many journals at once. Not counted in the risk score - ordinary papers were as often out of scope as mill papers on the benchmark.');
   const disposable = emails.filter(e => DISPOSABLE_MAIL.test(e));
   if (disposable.length) sig('authors', 'disposable-mail', `Disposable (throw-away) e-mail address(es) given for authors (${disposable.length})`, 'medium', 2, disposable.map(e => ({ text: e })), 'Throw-away mailboxes expire after minutes or days, so the author cannot be reached later. Domain listed in the disposable-email-domains register.');
   const free = emails.filter(e => FREE_MAIL.test(e));
@@ -733,6 +733,10 @@ async function detectPaperMill(input, update = () => {}) {
   const strong = dup.matches.filter(m => m.textOverlap >= 50 || m.titleSimilarity >= 90);
   if (strong.length) sig('data', 'duplicate', `Matches an earlier PJPS submission (${strong.length})`, 'high', 5, strong.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId}: “${m.title || ''}” — ${m.textOverlap}% text overlap${m.titleSimilarity >= 90 ? `, title ${m.titleSimilarity}% similar` : ''}`, checkId: m.checkId })));
   else if (dup.matches.length) sig('data', 'duplicate-partial', `Partial text overlap with earlier PJPS submission(s) (${dup.matches.length})`, 'medium', 3, dup.matches.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId}: “${m.title || ''}” — ${m.textOverlap}% overlap`, checkId: m.checkId })));
+  // Waves of similar manuscripts from unrelated author groups (template reuse, a hallmark of mill output; papermill.txt 6)
+  if (!strong.length && (dup.waves || []).length >= 2) sig('data', 'submission-wave', `Part of a wave: ${dup.waves.length} other recent PJPS submission(s) by other authors with the same title template or boilerplate`, dup.waves.length >= 3 ? 'medium' : 'low', dup.waves.length >= 3 ? 2 : 1,
+    dup.waves.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId} (${String(m.date).slice(0, 10)}): “${m.title || ''}” — title template ${m.titleTemplate}% alike, ${m.textOverlap}% shared text`, checkId: m.checkId })),
+    `Paper mills send batches of manuscripts made from one template, by different author groups, over a few weeks. Several submissions in the last ${WAVE_DAYS} days share this one's title pattern or boilerplate text. Common for one research group's series; compare the methods, figures and data of the manuscripts listed.`);
 
   if (input.images?.findings) {
     const f = input.images.findings;
@@ -756,13 +760,13 @@ async function detectPaperMill(input, update = () => {}) {
       tortured, aiLeftovers: ai, templates: tmpl, methods, cellLines: cells, statistics: { findings: stats.findings.slice(0, 30), checked: stats.checked }, primers: { found: primers.length, issues: primerIssues.length, blast: blast.map(b => ({ gene: b.primer.gene, direction: b.primer.direction, sequence: b.primer.sequence, checked: b.checked, matches: b.matches ?? null, hits: b.hits || [], error: b.error || null })) }, affiliationSpread: spread, emails, freeMail: free, orcids: orcidResults,
       watchlist: { entries: watchEntries.length, matches: watch.length }, aiWriting: aiWriting?.details ? { score: aiWriting.details.score, parts: aiWriting.details.parts } : null,
       authorRetractions: retr, orcidRetractions: orcidRetr, millJournals: millJ.map(j => ({ name: j.name, refs: j.refs, mill: j.mill })), duplicates: { compared: dup.compared, matches: dup.matches }, publishedElsewhere: pub, hiddenText: hid,
-      millLookalikes: look,
+      millLookalikes: look, abstractLookalikes: absLook || [], abstractIndex: absLook !== null, scope: { subjects: scope.subjects, inScope: scope.inScope }, waves: dup.waves || [],
       references: { total: refs.length, fabricated: fake.length, retracted: refs.filter(r => r.status === 'retracted').length, millRetracted: millRetracted.length, riskyJournals: risky }
     },
     checked: {
       text: true, statistics: stats.checked.pTests + stats.checked.percentages, primers: primers.length, primersBlasted: blast.filter(b => b.checked).length, references: refs.length > 0, authors: authors.length > 0, orcid: orcids.length > 0, reviewers: !!revText.trim(),
       previousVersion: !!prev, images: !!input.images, earlierSubmissions: dup.compared, watchlist: watchEntries.length, aiWriting: !!aiWriting?.checked,
-      millLookalike: !!meta.title && input.millLookalike !== false
+      millLookalike: !!meta.title && input.millLookalike !== false, coverLetter: letter.trim().length >= 40
     },
     disclaimer: 'Screening aid only. The risk level shows where to look closer; it is not proof of misconduct and never rejects a paper by itself. The editor decides. Confidential — not for authors or reviewers.',
     _shingles: dup.shingles

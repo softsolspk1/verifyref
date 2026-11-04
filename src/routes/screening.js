@@ -51,7 +51,7 @@ router.post('/papermill', mod('papermill'), upload.single('file'), wrap(async (r
     authors: lines(b.authors).length ? lines(b.authors) : (d.authors || []).map(a => a.name),
     affiliations: lines(b.affiliations).length ? lines(b.affiliations) : d.affiliations || [], keywords: b.keywords || d.keywords || [], version: b.version || null
   });
-  const job = await createJob(req.user.id, 'papermill', { text: ms.text, bodyText: ms.bodyText, referencesText: ms.referencesText, meta, suggestedReviewers: b.suggestedReviewers || '', imagesCheckId: b.imagesCheckId || null, save: b.save !== 'false' });
+  const job = await createJob(req.user.id, 'papermill', { text: ms.text, bodyText: ms.bodyText, referencesText: ms.referencesText, meta, suggestedReviewers: b.suggestedReviewers || '', coverLetter: String(b.coverLetter || '').slice(0, 20000), imagesCheckId: b.imagesCheckId || null, save: b.save !== 'false' });
   res.json({ success: true, jobId: job.id });
 }));
 
@@ -71,7 +71,7 @@ async function runPaperMill(input, { userId, update }) {
     const c = await loadCheck(userId, input.imagesCheckId);
     if (c?.result?.summary) images = { findings: c.result.summary.byLevel || {}, categories: c.result.summary.byCategory || {}, level: c.result.summary.level };
   }
-  const result = await detectPaperMill({ text: input.text, body: input.bodyText, meta: input.meta, references, pattern, suggestedReviewers: input.suggestedReviewers, images },
+  const result = await detectPaperMill({ text: input.text, body: input.bodyText, meta: input.meta, references, pattern, suggestedReviewers: input.suggestedReviewers, coverLetter: input.coverLetter || '', images },
     (s, p) => update(s, 55 + (p || 0) * 0.43));
   const shingles = result._shingles;
   delete result._shingles;

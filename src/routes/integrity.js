@@ -45,7 +45,7 @@ async function integrityInput(req) {
     authors: lines(b.authors).length ? lines(b.authors) : (d.authors || []).map(a => a.name),
     affiliations: lines(b.affiliations).length ? lines(b.affiliations) : d.affiliations || [], keywords: b.keywords || d.keywords || [], version: b.version || null
   });
-  return { text: ms.text, bodyText: ms.bodyText, referencesText: ms.referencesText, meta, suggestedReviewers: b.suggestedReviewers || '', imagesCheckId: b.imagesCheckId || null,
+  return { text: ms.text, bodyText: ms.bodyText, referencesText: ms.referencesText, meta, suggestedReviewers: b.suggestedReviewers || '', coverLetter: String(b.coverLetter || '').slice(0, 20000), imagesCheckId: b.imagesCheckId || null,
     deep: b.deep === true || b.deep === 'true' || b.deep === '1', online: !(b.external === false || b.external === 'false'), save: b.save !== 'false' && b.save !== false };
 }
 

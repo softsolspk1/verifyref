@@ -139,7 +139,7 @@ async function screening(result, { input, body, refs, meta, update }) {
     if (c?.result?.summary) { imageReport = c.result; images = { findings: c.result.summary.byLevel || {}, categories: c.result.summary.byCategory || {}, level: c.result.summary.level, checkId: c.row.id, summary: c.result.summary }; }
   }
   const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');
-  const pm = await detectPaperMill({ text, body, meta, references: result.references.results, pattern: result.pattern, suggestedReviewers: input.suggestedReviewers || '', images });
+  const pm = await detectPaperMill({ text, body, meta, references: result.references.results, pattern: result.pattern, suggestedReviewers: input.suggestedReviewers || '', coverLetter: String(input.coverLetter || '').slice(0, 20000), images });
   result._shingles = pm._shingles;
   delete pm._shingles;
   result.papermill = pm;

@@ -67,6 +67,7 @@ export function renderCheckForm(view, kind) {
         <div class="card-head"><h2>Paper mill &amp; image checks</h2><span class="muted">Editor only — never shown to authors</span></div>
         <div class="grid grid-2">
           <div class="field"><label for="m-rev">Suggested reviewers <span class="muted">(names and e-mails, optional)</span></label><textarea id="m-rev" rows="3"></textarea>
+            <label for="m-cover" style="margin-top:10px">Cover letter <span class="muted">(paste, optional — Module 4 checks it)</span></label><textarea id="m-cover" rows="3"></textarea>
             <label class="row" style="gap:8px;margin-top:10px;font-weight:500"><input type="checkbox" id="m-subs"> Similarity report: compare with earlier PJPS submissions <span class="muted">("Submitted works", off by default)</span></label></div>
           <div class="field">${hasModule('images') ? `<div class="hint" style="margin-bottom:8px"><b>Module 5 Image Integrity</b> always analyses the figures of the uploaded Word (.docx) / PDF file, in your browser: duplicated, re-used and altered figures, and matches with published PJPS papers, retracted papers and PubMed Central figures. Where the external image check is set up, each whole figure is also sent for AI-generated image detection and a reverse image search of the web.</div>` : ''}<label for="m-img">Or attach an earlier Module 5 report instead <span class="muted">(optional)</span></label><select id="m-img"><option value="">— none —</option></select></div>
         </div>
@@ -168,6 +169,7 @@ export function renderCheckForm(view, kind) {
         keywords: ($('#m-kw', view)?.value || '').split(',').map(s => s.trim()).filter(Boolean)
       },
       suggestedReviewers: $('#m-rev', view)?.value || '',
+      coverLetter: $('#m-cover', view)?.value || '',
       imagesCheckId: $('#m-img', view)?.value || null,
       compareSubmissions: !!$('#m-subs', view)?.checked
     };

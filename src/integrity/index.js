@@ -80,7 +80,7 @@ async function runIntegrity(input, update = () => {}) {
   }
   update('Paper-mill signals', 86);
   const images = linked.images ? { findings: linked.images.summary?.byLevel || {}, categories: linked.images.summary?.byCategory || {}, level: linked.images.summary?.level } : null;
-  const papermill = await detectPaperMill({ text, body, meta, references, pattern, suggestedReviewers: input.suggestedReviewers, images, blast: online && input.blast !== false });
+  const papermill = await detectPaperMill({ text, body, meta, references, pattern, suggestedReviewers: input.suggestedReviewers, coverLetter: input.coverLetter || '', images, blast: online && input.blast !== false });
   const shingles = papermill._shingles;
   delete papermill._shingles;
   papermill.id = null;

@@ -33,6 +33,7 @@ export function renderPaperMill(view) {
         </div>
         <div class="grid grid-2">
           <div class="field"><label for="m-rev">Suggested reviewers <span class="muted">(names and e-mails, optional)</span></label><textarea id="m-rev" rows="3"></textarea></div>
+          <div class="field"><label for="m-cover">Cover letter <span class="muted">(paste, optional: checked for another journal's name, template placeholders and outside mailboxes)</span></label><textarea id="m-cover" rows="3"></textarea></div>
           <div class="field"><label for="m-img">Image Integrity report <span class="muted">(optional)</span></label><select id="m-img"><option value="">— none —</option></select><div class="hint">Include the findings of a Module 5 report for this manuscript.</div></div>
         </div>
         <div class="row"><button class="btn btn-primary" id="run">Run Paper Mill Detection</button></div>
@@ -59,7 +60,7 @@ export function renderPaperMill(view) {
     if (!file && text.length < 300) return toast('Upload the manuscript or paste its full text.', 'error');
     const fd = new FormData();
     if (file) fd.append('file', file); else fd.append('text', text);
-    for (const [k, id] of [['manuscriptCode', 'm-code'], ['title', 'm-title'], ['authors', 'm-authors'], ['affiliations', 'm-aff'], ['suggestedReviewers', 'm-rev'], ['imagesCheckId', 'm-img']]) fd.append(k, $(`#${id}`, view).value);
+    for (const [k, id] of [['manuscriptCode', 'm-code'], ['title', 'm-title'], ['authors', 'm-authors'], ['affiliations', 'm-aff'], ['suggestedReviewers', 'm-rev'], ['coverLetter', 'm-cover'], ['imagesCheckId', 'm-img']]) fd.append(k, $(`#${id}`, view).value);
     $('#form-area', view).hidden = true;
     try {
       const { jobId } = await api('/api/papermill', { form: fd });

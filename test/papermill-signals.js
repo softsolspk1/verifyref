@@ -6,6 +6,13 @@ delete process.env.DATABASE_URL;
 delete process.env.APP_MODE;
 for (const k of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET']) process.env[k] = '';
 const assert = require('assert');
+// abstracts of two mill retractions for the title + abstract look-alike index (scripts/load-mill-abstracts.js writes the real file)
+const ABS_FILE = require('path').join(require('os').tmpdir(), `pjps-mill-abstracts-${process.pid}.json.gz`);
+require('fs').writeFileSync(ABS_FILE, require('zlib').gzipSync(JSON.stringify({
+  '10.4444/la.1': 'Circular RNAs regulate tumour progression. Here we found that circITGA7 was upregulated in thyroid cancer tissues and cell lines. Knockdown of circITGA7 inhibited proliferation, migration and invasion of thyroid cancer cells and induced apoptosis. Mechanistically circITGA7 acted as a sponge of miR-198 and upregulated FGFR1. Rescue experiments confirmed the circITGA7 miR-198 FGFR1 axis, and xenograft assays in nude mice showed reduced tumour growth.',
+  '10.4444/la.2': 'Long non-coding RNA KRAL was decreased in osteosarcoma. Overexpression of KRAL suppressed cell growth and increased sensitivity to doxorubicin by sponging microRNA-141 and regulating its target gene, as shown by luciferase reporter, CCK-8 and Transwell assays.'
+})));
+process.env.MILL_ABSTRACTS_FILE = ABS_FILE;
 
 // ORCID public API stub (must be installed before src/papermill reads getJson)
 const http = require('../src/http');
@@ -109,7 +116,45 @@ const ok = (c, m) => { assert.ok(c, m); n++; };
   const lr = await detectPaperMill({ text: 'Manuscript text.', meta: { title: 'circITGA7 acts as an oncogene by sponging miR-198 and upregulating FGFR1 in papillary thyroid cancer' }, references: [], blast: false, cellosaurus: false });
   const ls = lr.signals.find(x => x.code === 'mill-lookalike');
   ok(ls && ls.severity === 'medium' && ls.weight === 2 && ls.evidence[0].link === 'https://doi.org/10.4444/la.1', 'detectPaperMill adds the look-alike signal with evidence');
+  // title + abstract against the abstracts of mill retractions: the same template with another circRNA, microRNA and cancer
+  const MI = require('../src/papermill/millIndex');
+  const absText = 'Abstract: Circular RNAs regulate tumour progression. We found that circPVT1 was upregulated in gastric cancer tissues and cell lines. Knockdown of circPVT1 inhibited proliferation, migration and invasion of gastric cancer cells and induced apoptosis. Mechanistically circPVT1 acted as a sponge of miR-124 and upregulated AKT3. Rescue experiments confirmed the circPVT1 miR-124 AKT3 axis, and xenograft assays in nude mice showed reduced tumour growth.\nIntroduction\nGastric cancer is common.';
+  const absTitle = 'circPVT1 promotes gastric cancer progression by sponging miR-124 to upregulate AKT3';
+  const al = await MI.abstractLookalikes(absTitle, MI.abstractOf({}, absText));
+  ok(al && al[0].doi === '10.4444/la.1' && al[0].score >= 0.2, `title + abstract template found (${al && al[0]?.score?.toFixed(2)})`);
+  ok(/^Circular RNAs regulate/.test(MI.abstractOf({}, absText)) && !/Gastric cancer is common/.test(MI.abstractOf({}, absText)), 'abstract read from the text up to the next heading');
+  ok((await MI.abstractLookalikes('Formulation of metformin tablets', 'Metformin hydrochloride sustained release matrix tablets were prepared by wet granulation using xanthan gum and guar gum in different ratios. Hardness, friability, swelling index and drug release in phosphate buffer were evaluated, and release followed the Higuchi model with non-Fickian diffusion over twelve hours.'))?.length === 0, 'an unrelated pharmaceutics abstract: no look-alike');
+  ok((await MI.abstractLookalikes('Short', 'Too short.')) === null, 'too little text: not compared');
+  const ar = await detectPaperMill({ text: absText, meta: { title: absTitle }, references: [], blast: false, cellosaurus: false });
+  const as = ar.signals.find(x => x.code === 'mill-lookalike');
+  ok(as && as.severity === 'medium' && as.weight === 4 && /title and abstract/.test(as.evidence[0].text), 'detectPaperMill: title + abstract look-alike weighs 4');
+  ok(ar.details.abstractIndex === true && ar.details.abstractLookalikes.length >= 1, 'details record the abstract comparison');
+
   ok(!(await detectPaperMill({ text: 'Manuscript text.', meta: { title: 'circITGA7 acts as an oncogene by sponging miR-198 in thyroid cancer' }, references: [], blast: false, cellosaurus: false, millLookalike: false })).signals.some(x => x.code === 'mill-lookalike'), 'can be switched off');
+
+  // ---- submission checks (papermill.txt section 6): cover letter, scope, waves of similar submissions
+  const base = { references: [], blast: false, cellosaurus: false, millLookalike: false };
+  const cl = await detectPaperMill({ ...base, text: 'Manuscript text. Contact: a.khan@uop.edu.pk', meta: { title: 'Antibacterial potential of neem leaf extract against MRSA isolates' },
+    coverLetter: 'Dear Editor, we are pleased to submit our manuscript for publication in the Journal of Ethnopharmacology. Please write to agent.desk@gmail.com. Regards, [Author Name]' });
+  const codes = cl.signals.map(x => x.code);
+  ok(codes.includes('cover-other-journal') && codes.includes('cover-placeholder') && codes.includes('cover-email'), 'cover letter: other journal, placeholder, outside mailbox');
+  ok(cl.checked.coverLetter && cl.overview.some(o => /Cover letter/.test(o.check) && o.light === 'amber'), 'cover letter row in the overview');
+  const fine = await detectPaperMill({ ...base, text: 'Manuscript text.', meta: { title: 'Antibacterial potential of neem leaf extract against MRSA isolates' },
+    coverLetter: 'Dear Editor, we submit our manuscript for consideration in the Pakistan Journal of Pharmaceutical Sciences. Our earlier work appeared in Phytomedicine. It has not been submitted to any other journal.' });
+  ok(!fine.signals.some(x => x.code.startsWith('cover-')), 'an ordinary PJPS cover letter raises nothing');
+  const outScope = await detectPaperMill({ ...base, text: 'Abstract. Reinforcement learning controls traffic signals at urban intersections to cut queue length and waiting time for vehicles in smart cities.', meta: { title: 'Traffic signal control with deep reinforcement learning at urban intersections' } });
+  const os = outScope.signals.find(x => x.code === 'out-of-scope' || x.code === 'off-scope');
+  ok(os && (os.code === 'off-scope' || os.weight === 0), 'outside the PJPS scope: shown (weight 0 unless the mill profile fires)');
+  // waves: two recent submissions by other authors on the same title template
+  const fp = (code, title, authors) => db.query("INSERT INTO fingerprints(manuscript_code, kind, title, data) VALUES($1, 'text', $2, $3)", [code, title, JSON.stringify({ shingles: [1, 2, 3], authors })]);
+  await fp('PJPS-W1', 'LncRNA HOTAIR promotes proliferation and invasion of gastric cancer cells by sponging miR-331 to regulate HER2', ['Wei Zhang', 'Li Na']);
+  await fp('PJPS-W2', 'LncRNA MALAT1 promotes proliferation and invasion of colorectal cancer cells by sponging miR-145 to regulate ZEB1', ['Hao Chen']);
+  await fp('PJPS-W3', 'Formulation of sustained release diclofenac microspheres', ['Wei Zhang']);
+  const wv = await detectPaperMill({ ...base, text: 'Manuscript text.', meta: { title: 'LncRNA SNHG16 promotes proliferation and invasion of bladder cancer cells by sponging miR-200 to regulate ZEB2', authors: [{ given: 'Amir', family: 'Raza' }] } });
+  const ws = wv.signals.find(x => x.code === 'submission-wave');
+  ok(ws && ws.evidence.length === 2 && ws.weight === 1, 'wave of two same-template submissions by other authors');
+  const own = await detectPaperMill({ ...base, text: 'Manuscript text.', meta: { title: 'LncRNA SNHG16 promotes proliferation and invasion of bladder cancer cells by sponging miR-200 to regulate ZEB2', authors: [{ given: 'Wei', family: 'Zhang' }, { given: 'Hao', family: 'Chen' }] } });
+  ok(!own.signals.some(x => x.code === 'submission-wave'), "the same research group's own series is not a wave");
 
   console.log(`papermill-signals: ${n} checks passed`);
   await db.close?.();

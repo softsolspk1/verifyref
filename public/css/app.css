@@ -519,7 +519,18 @@ table.t th { background: color-mix(in srgb, var(--brand) 5%, var(--surface-2)); 
 .facts td:first-child { width: 170px; color: var(--text-3); font-weight: 600; }
 .ref-meta { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin: 0 0 10px; font-size: 13px; }
 .figure-ref { outline: 3px solid var(--bad); outline-offset: -3px; }
-@media (max-width: 720px) { .evidence-board { grid-template-columns: 1fr; } }
+/* a finding explained in plain words: measurements, why it matters, harmless causes, what to check, question to ask */
+.finding-explain { margin-top: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
+.fx-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+.finding-explain h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
+.finding-explain p { margin: 0; color: var(--text-2); }
+.finding-explain ul { margin: 0; padding-left: 18px; color: var(--text-2); }
+.finding-explain li + li { margin-top: 3px; }
+.finding-explain details { margin-top: 10px; } .finding-explain summary { cursor: pointer; font-weight: 600; color: var(--text-2); }
+.finding-explain details p { margin-top: 6px; }
+.fx-ask { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-2); }
+@media print { .finding-explain details > p { display: block; } }
+@media (max-width: 720px) { .evidence-board, .fx-grid { grid-template-columns: 1fr; } }
 .zoom-pair figure img { width: 100%; }
 
 /* Module 5 confidence scores (Low 0-32 %, Fair 33-65 %, High 66-100 %), three-view manipulation board, panel editor */

@@ -188,6 +188,9 @@ router.get('/checks/:id', user, wrap(async (req, res) => {
   const c = await loadShared(req.user, req.params.id);
   if (!c) return res.status(404).json({ success: false, message: 'Check not found.' });
   if (!c.result) return res.status(410).json({ success: false, message: 'This check was saved as counts only; the full report is not stored.' });
+  // image findings explained in plain words with the current wording (earlier reports included)
+  if (c.row.kind === 'images') require('../imageExplain').explainReport(c.result);
+  else if (c.row.kind === 'screening' && c.result.images?.report) require('../imageExplain').explainReport(c.result.images.report);
   res.json({ success: true, kind: c.row.kind, result: c.result, readOnly: c.row.user_id !== req.user.id });
 }));
 

@@ -28,10 +28,13 @@ function transformText(t) {
 }
 function agreementText(f) {
   const v = f.verification || {}, out = [];
+  // an alteration's score is its level (2 / 3), not a measurement
+  if (f.kind === 'alteration') return f.level === 'high' ? 'two independent checks flag the same area' : 'one check flags this area';
+  if (f.kind === 'clone') out.push(`${f.score} matching ${f.code === 'blocks' || /matching blocks/.test(f.description || '') ? 'blocks' : 'points'}`);
   if (v.picture !== undefined) out.push(`picture ${v.picture}`);
   if (v.noise !== undefined) out.push(`noise pattern ${v.noise}`);
   if (v.region !== undefined) out.push(`matched regions ${v.region}`);
-  if (!out.length && f.score !== undefined && f.score !== null) out.push(f.kind === 'partial' || (f.kind === 'clone' && f.score > 1) ? `${f.score} matching points / blocks` : `correlation ${f.score}`);
+  if (!out.length && f.score !== undefined && f.score !== null) out.push(f.kind === 'partial' ? `${f.score} matching points` : `correlation ${f.score}`);
   return out.join(', ') || '—';
 }
 // captions of the two sides of a finding: which is the original and which the copy
@@ -52,6 +55,23 @@ const alignCss = (k, t) => {
   return rot || flip ? `transform:${flip ? 'scaleX(-1) ' : ''}rotate(${-rot}deg)` : '';
 };
 const alignNote = (k, t) => (alignCss(k, t) ? ' <span class="muted">(turned to line up with this manuscript)</span>' : '');
+
+// the finding explained (src/imageExplain.js): how it was found, the measurements in words, harmless causes, next steps
+const bulletList = xs => `<ul>${xs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+function explanationBlock(f) {
+  const x = f.explanation;
+  if (!x) return '';
+  return `<div class="finding-explain">
+    <div class="fx-grid">
+      <section><h4>What the measurements show</h4>${bulletList(x.evidence)}</section>
+      <section><h4>Why it matters</h4><p>${esc(x.meaning)}</p></section>
+      <section><h4>Possible harmless explanations</h4>${bulletList(x.innocent)}</section>
+      <section><h4>What to check</h4>${bulletList(x.check)}</section>
+    </div>
+    <details><summary>How it was detected</summary><p>${esc(x.how)}</p></details>
+    <div class="fx-ask"><b>Suggested question to the authors:</b> “${esc(x.ask)}”</div>
+  </div>`;
+}
 
 const pic = (src, view, cap) => `<figure>${src ? `<img src="${src}" alt="" data-view="${view}">` : '<div class="muted">no picture</div>'}<figcaption>${cap}</figcaption></figure>`;
 
@@ -460,11 +480,13 @@ export function renderImagesResult(el, result, { live = null } = {}) {
     body.innerHTML = hiddenNote + list.map((f, i) => `
       <div class="card finding ${excluded.has(f.id) ? 'excluded' : ''}" data-id="${esc(f.id)}">
         <div class="card-head"><h3>${i + 1}. ${esc(KIND[f.kind] || f.kind)}</h3><div class="row">${confBadge(f)}${badge(f.level === 'high' ? 'Strong' : 'Check', levelTone(f.level))}${marks.get(f.id) ? badge({ confirmed: 'Confirmed', false: 'False alarm', ask: 'Ask authors' }[marks.get(f.id)], marks.get(f.id) === 'false' ? 'neutral' : 'info') : ''}</div></div>
-        <p style="margin:0 0 10px">${esc(f.description)}</p>
+        <p style="margin:0 0 10px">${esc(f.explanation?.headline || f.description)}</p>
         ${evidenceBoard(f)}
+        ${explanationBlock(f)}
         <table class="facts">
           <tr><td>Location</td><td>${esc(single(f) ? f.a.label : `${f.a.label} and ${f.b.label}`)}</td></tr>
           ${f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? `<tr><td>Transformation</td><td>${esc(transformText(f.transform))}</td></tr>` : ''}
+          ${f.explanation ? `<tr><td>Detector reading</td><td>${esc(f.description)}</td></tr>` : ''}
           <tr><td>Measured agreement</td><td>${esc(agreementText(f))}</td></tr>
           ${f.confidence !== undefined ? `<tr><td>Confidence</td><td>${f.confidence}% (${esc(f.bandLabel)}) — from the measured agreement, the finding type's usual false-alarm rate and known harmless patterns</td></tr>` : ''}
           ${f.attribution ? `<tr><td>AI assessment</td><td>${f.attribution.generators.length ? `Most probable generator: ${f.attribution.generators.map(g => `<b>${esc(g.name)}</b> ${g.share}%`).join(', ')} — ` : ''}${esc(f.attribution.basis)}</td></tr>` : ''}
@@ -507,7 +529,7 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       const refLines = (result.references || []).filter(m => m.level === 'high').map(m => `${m.panelLabel}: appears to match ${m.figure} of “${m.title || m.doi}”${m.journal ? ` (${m.journal}${m.year ? ', ' + m.year : ''})` : ''}${m.doi ? `, doi:${m.doi}` : ''} — ${m.description}`);
       const code = result.meta?.manuscriptCode ? `${result.meta.manuscriptCode}: ` : '';
       const text = [`Subject: Query about figures — ${code}${result.meta?.title || ''}`, '', 'Dear Author(s),', '', `During the editorial screening of your manuscript, the following figure panels appear to contain duplicated or overlapping image content. Please explain each case and send the original, uncropped image files (and the full raw blots/gels where applicable) within 14 days.`, '',
-        ...list.map((f, i) => `${i + 1}. ${single(f) ? f.a.label : `${f.a.label} and ${f.b.label}`}: ${KIND[f.kind].toLowerCase()} — ${f.description}`),
+        ...list.map((f, i) => `${i + 1}. ${single(f) ? f.a.label : `${f.a.label} and ${f.b.label}`}: ${KIND[f.kind].toLowerCase()} — ${f.explanation?.ask || f.description}`),
         ...refLines.map((l, i) => `${list.length + i + 1}. ${l}. Please state whether this figure was published before and cite the source with the publisher's permission, or explain the similarity.`), '',
         'If an image was re-used intentionally (for example the same control in two figures), please state this in the figure legend.', '', 'Kind regards,', `Editorial Office, ${state.app?.homeJournal?.name || 'Pakistan Journal of Pharmaceutical Sciences'}`].join('\n');
       const pre = $('#letter-text', body);

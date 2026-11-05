@@ -139,6 +139,7 @@ async function rereviewImageReport(saved) {
   r.reviewNotes = review.notes;
   r.guidance = KB.guidance(level);
   r.summary.byConfidence = SCORE.scoreResult(r);
+  require('./imageExplain').explainReport(r);
   r.analysisVersion = VERSION;
   return r;
 }
@@ -207,6 +208,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     disclaimer: 'Screening aid only. Repeated textures (cells, tissue, gel background), legitimately re-used control images and heavily processed or denoised pictures can look like copies, edits or AI images; AI-image statistics are indicators only, and a missing marker does not prove an image is genuine; every finding must be checked by the editor, and original images requested where needed. Confidential — not for authors or reviewers.'
   };
   result.summary.byConfidence = SCORE.scoreResult(result);
+  require('./imageExplain').explainReport(result);
   if (!save) return { result, earlier };
   const problems = imageProblems(result);
   const id = await saveResult(userId, 'images', result, { title: meta.title || meta.filename || 'Image integrity', manuscriptCode: meta.manuscriptCode, refTotal: panels.length, problems, counts: { suspicious: byLevel.high, unverified: byLevel.medium } });

@@ -451,10 +451,13 @@ const imgTransform = t => {
 const imgEvidence = f => {
   const v = f.verification || {};
   const out = [];
+  // an alteration's score is its level (2 / 3), not a measurement
+  if (f.kind === 'alteration') return f.level === 'high' ? 'two independent checks flag the same area' : 'one check flags this area';
+  if (f.kind === 'clone') out.push(`${f.score} matching ${f.code === 'blocks' || /matching blocks/.test(f.description || '') ? 'blocks' : 'points'}`);
   if (v.picture !== undefined) out.push(`picture ${v.picture}`);
   if (v.noise !== undefined) out.push(`noise pattern ${v.noise}`);
   if (v.region !== undefined) out.push(`matched regions ${v.region}`);
-  if (!out.length && f.score !== undefined && f.score !== null) out.push(f.kind === 'partial' || (f.kind === 'clone' && f.score > 1) ? `${f.score} matching points / blocks` : `correlation ${f.score}`);
+  if (!out.length && f.score !== undefined && f.score !== null) out.push(f.kind === 'partial' ? `${f.score} matching points` : `correlation ${f.score}`);
   return out.join(', ') || '—';
 };
 
@@ -465,6 +468,7 @@ const imgEvidence = f => {
  * reference figures must be loaded beforehand (images.withExportThumbs). section: number when part of the Full Screening Report.
  */
 function imagesBlocks(r, { section = null } = {}) {
+  require('./imageExplain').explainReport(r);
   const s = r.summary;
   const marks = new Map((r.findingMarks || []).map(m => [m.id, m.mark]));
   const label = { confirmed: 'Confirmed by editor', false: 'False alarm', ask: 'Ask the authors' };
@@ -532,9 +536,13 @@ function imagesBlocks(r, { section = null } = {}) {
     blocks.push(h('Findings in detail'));
     findings.forEach((f, i) => {
       blocks.push({ p: `Finding ${i + 1}: ${IMG_KIND[f.kind] || f.kind} — ${loc(f)}`, bold: true, color: f.level === 'high' ? '9B1C1C' : '8A5300' });
-      blocks.push({ kv: [['Severity', `${sev(f.level)}${marks.get(f.id) ? ` · ${label[marks.get(f.id)]}` : ''}`], ['Confidence', conf(f)], ['What was found', f.description],
+      const x = f.explanation;
+      blocks.push({ kv: [['Severity', `${sev(f.level)}${marks.get(f.id) ? ` · ${label[marks.get(f.id)]}` : ''}`], ['Confidence', conf(f)], ['What was found', x ? x.headline : f.description], ...(x ? [['Detector reading', f.description]] : []),
         ...(f.attribution ? [['AI assessment', f.attribution.generators.length ? `most probable generator: ${f.attribution.generators.map(g => `${g.name} (${g.share} %)`).join(', ')} — ${f.attribution.basis}` : f.attribution.basis]] : []), ...(f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? [['Transformation', imgTransform(f.transform)]] : []), ['Measured agreement', imgEvidence(f)]] });
       if ((f.details || []).length) blocks.push({ bullets: f.details });
+      // the finding explained: how it was found, what the measurements say, harmless causes, what to check and ask
+      if (x) blocks.push({ p: 'How it was detected', bold: true }, { p: x.how }, { p: 'What the measurements show', bold: true }, { bullets: x.evidence }, { p: 'Why it matters', bold: true }, { p: x.meaning },
+        { p: 'Possible harmless explanations', bold: true }, { bullets: x.innocent }, { p: 'What the editor should check', bold: true }, { bullets: x.check }, { p: `Suggested question to the authors: “${x.ask}”`, italics: true });
       if (f.assessment) blocks.push({ p: `Type: ${f.assessment.name} (usual risk ${f.assessment.risk}, false-alarm risk ${f.assessment.falsePositiveRisk}). Often harmless when: ${f.assessment.falseAlarms.join('; ') || '—'}.`, italics: true });
       const two = f.a.panel !== f.b.panel;
       const pics = [

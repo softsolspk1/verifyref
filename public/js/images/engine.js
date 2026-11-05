@@ -1068,7 +1068,8 @@ export function findIssues(panels, progress = () => {}) {
   usable.forEach(P => {
     for (const c of selfClone(P)) {
       const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.8;
-      findings.push({ kind: 'clone', level: strong ? 'high' : 'medium', a: { panel: P.id, box: toImage(P, c.regionA) }, b: { panel: P.id, box: toImage(P, c.regionB) }, transform: c.transform, score: c.inliers || c.blocks,
+      findings.push({ kind: 'clone', level: strong ? 'high' : 'medium', a: { panel: P.id, box: toImage(P, c.regionA) }, b: { panel: P.id, box: toImage(P, c.regionB) }, transform: c.transform, score: c.inliers || c.blocks, code: c.method,
+        verification: c.pixel ? { picture: Math.round(c.pixel.lp * 100) / 100, noise: Math.round(c.pixel.hp * 100) / 100 } : null,
         description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)}; ${Math.round(c.pixel.lp * 100)}% similar, noise pattern ${c.pixel.hp.toFixed(2)})` : `Possible cloned area inside one panel (${c.blocks} matching blocks${c.pixel ? `, pixel match ${c.pixel.lp.toFixed(2)}, noise pattern ${c.pixel.hp.toFixed(2)}` : ''})` });
     }
   });

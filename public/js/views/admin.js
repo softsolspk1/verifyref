@@ -181,7 +181,7 @@ export async function renderAdmin(view) {
       <div class="card-head">
         <div>
           <h2>Journal index lists management</h2>
-          ${desk ? '<p class="muted">Lists are uploaded by the Super Admin on the web platform.</p>' : `<p class="muted">Scopus, Web of Science, JCR, EBSCO and HEC HJRS lists are licensed or behind logins, so upload the current CSV files your journal has access to. Columns are detected automatically (title, ISSN, eISSN, quartile, category). Excel files: save as <b>CSV UTF-8</b> first.</p>`}
+          ${desk ? '<p class="muted">Lists are uploaded by the Super Admin on the web platform.</p>' : `<p class="muted">Scopus, Web of Science (Clarivate), JCR, EBSCO, HEC HJRS, Index Copernicus and Google Scholar Metrics lists are licensed or behind logins, so upload the current CSV files your journal has access to. Columns are detected automatically (title, ISSN, eISSN, quartile, category). Excel files: save as <b>CSV UTF-8</b> first.</p>`}
         </div>
       </div>
       ${desk ? '' : `<ul class="muted" style="font-size:13px;margin:0 0 12px">
@@ -190,6 +190,9 @@ export async function renderAdmin(view) {
         <li><b>Web of Science</b>: scimagojr.com → Journal Rankings → “Only WoS Journals” → Download data.</li>
         <li><b>JCR</b>: Journal Citation Reports export (needs a JCR subscription).</li>
         <li><b>HEC HJRS</b>: hjrs.hec.gov.pk → journal list export (Category W/X/Y).</li>
+        <li><b>Clarivate Master Journal List</b>: mjl.clarivate.com → sign in (free) → Downloads → the SCIE, SSCI, AHCI and ESCI files. Upload one file whose name contains the collection, or paste them into one sheet with a <b>Collection</b> column. Shows the exact Web of Science index.</li>
+        <li><b>Index Copernicus</b>: journals.indexcopernicus.com → ICI Journals Master List → export the journals with their ICV value.</li>
+        <li><b>Google Scholar Metrics</b>: scholar.google.com → Metrics → Top publications (by category) → copy the tables (title, h5-index, h5-median) into one sheet with a <b>Category</b> column.</li>
         <li><b>EBSCO</b>: ebsco.com/title-lists → download the title list of each database you need (Excel). To load several databases, paste them into one sheet and add a <b>Database</b> column, then save as CSV. A new upload replaces the previous EBSCO list.</li>
       </ul>`}
       <div class="table-wrap"><table class="t">

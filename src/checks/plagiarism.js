@@ -12,7 +12,9 @@
 //      publisher full texts (open and paywalled) and, with a web search key, on the web.
 //   3. Matching: the texts found are compared with the whole manuscript in overlapping K-word sequences (Unicode
 //      normalised, lower case, punctuation and plural "s" ignored); runs separated by at most GAP different words are
-//      joined, so lightly reworded sentences still count as one match.
+//      joined, so lightly reworded sentences still count as one match. Sentences reworded further (other word order and
+//      endings, synonyms, paraphrasing tools) are matched sentence by sentence: the same rare words, or the same meaning by
+//      sentence embeddings on this server (rewordedSentences); such matches are marked "paraphrased".
 //   4. Attribution (public/js/shared/similarity.js, shared with the report view): every matched word is credited to one
 //      source only, the source with the most matched text first (Turnitin's "primary sources"), so the source
 //      percentages add up to the Similarity Index. The view can exclude sources and raise the minimum match length.
@@ -54,17 +56,10 @@ const STOP = new Set(('a an the and or of in on at to for from by with without a
 const ABBREV = /^(?:al|e\.g|i\.e|fig|figs|vs|approx|ca|no|nos|vol|eq|ref|refs|dr|prof|st|sp|spp|var|cf|resp|etc|viz|min|max|conc|temp|wt|vol)\.$/i;
 
 /**
- * Character spans of in-text citation markers: numbered ([12], [3-5, 9], (12)) and author-year ((Smith et al., 2020;
- * Khan and Ali, 2019a)). Their words are not compared, so a copied sentence with another citation still matches.
+ * Character spans of in-text citation markers (shared/similarity.js, also used for the match groups): their words are not
+ * compared, so a copied sentence with another citation still matches.
  */
-function citeSpans(text) {
-  const out = [];
-  for (const m of text.matchAll(/\[\s*\d{1,3}(?:\s*[-–,;]\s*\d{1,3})*\s*\]|\(\s*\d{1,3}(?:\s*[-–,;]\s*\d{1,3})*\s*\)/g)) out.push([m.index, m.index + m[0].length]);
-  for (const m of text.matchAll(/\(([^()]{3,250})\)/g)) {
-    if (/\p{Lu}[\p{L}'’-]+(?:\s+et\s+al\.?|\s+(?:and|&)\s+\p{Lu}[\p{L}'’-]+)?,?\s+(?:19|20)\d{2}[a-z]?\b/u.test(m[1])) out.push([m.index, m.index + m[0].length]);
-  }
-  return out.sort((a, b) => a[0] - b[0]);
-}
+const citeSpans = text => SIM.citeSpans(text);
 const inSpans = (spans, at) => {
   let lo = 0, hi = spans.length - 1;
   while (lo <= hi) { const mid = (lo + hi) >> 1; if (spans[mid][1] <= at) lo = mid + 1; else if (spans[mid][0] > at) hi = mid - 1; else return true; }
@@ -75,11 +70,14 @@ const inSpans = (spans, at) => {
  * The manuscript as words with character offsets (shared tokenizer); the bibliography is cut off, quoted words and
  * citation markers are marked. seq: positions of the compared words (not citations); keys: their K-word sequences.
  */
-function prepare(body) {
+function prepare(body, bibliography = '') {
   let text = String(body || '');
+  // the reference list is compared too, as a section of its own ("References"), as Turnitin does; the editor's "exclude
+  // bibliography" filter leaves that section out. A list still inside the text (under its heading) is that section.
   const bib = text.search(/\n\s*(?:\d{1,2}\.?\s*)?(references|bibliography|literature cited|works cited|reference list)\s*:?\s*\n/i);
-  const bibliographyExcluded = bib > text.length * 0.3;
-  if (bibliographyExcluded) text = text.slice(0, bib);
+  const list = String(bibliography || '').trim();
+  if (!(bib > text.length * 0.3) && list) text = `${text.replace(/\s+$/, '')}\n\nReferences\n${list}\n`;
+  const bibliographyFound = bib > text.length * 0.3 || !!list;
   // quotations of five words or more ("…", “…”) are excluded from matching, as Turnitin's "exclude quotes"
   const quoted = [];
   for (const m of text.matchAll(/[“"]([^“”"\n]{20,1500})[”"]/g)) if (m[1].trim().split(/\s+/).length >= 5) quoted.push([m.index, m.index + m[0].length]);
@@ -89,7 +87,7 @@ function prepare(body) {
   words.forEach((w, i) => { if (!w.cite) seq.push(i); });
   const keys = [];
   for (let j = 0; j + K <= seq.length; j++) keys.push(seq.slice(j, j + K).map(i => words[i].n).join(' '));
-  return { text, words, seq, keys, bibliographyExcluded, quotedWords: words.filter(w => w.quoted).length, citeWords: words.filter(w => w.cite).length };
+  return { text, words, seq, keys, bibliographyFound, quotedWords: words.filter(w => w.quoted).length, citeWords: words.filter(w => w.cite).length };
 }
 
 /** A source text as compared words (citation markers left out): [{ raw, n }] */
@@ -206,6 +204,108 @@ function overlap(prep, theirs) {
       break;
     }
   }
+  return { hit, passages };
+}
+
+// ------------------------------------------------------------------ reworded sentences (Turnitin's "minor changes")
+
+// word endings removed before sentences are compared, so "increased" / "increase" / "increasingly" agree
+const SUFFIX = /(?:ational|izations?|isations?|ations?|ements?|ments?|ities|ity|ness|ingly|ings?|edly|ed|ly|ies|es|ive|ous|al|er)$/;
+const stem = n => { if (n.length <= 4) return n; const s = n.replace(SUFFIX, ''); return s.length >= 3 ? s : n; };
+const contentWord = n => n.length >= 3 && !STOP.has(n) && !/^\d+$/.test(n);
+const PARA = { min: 6, shared: 4, length: 0.6, accept: 0.6, agree: 0.7, meaning: 0.3, cosine: 0.8 }; // see scripts/benchmark-similarity.js
+
+/** Sentences of a word list, as [from, to) word positions; long ones are cut in pieces of about 40 words */
+function sentencesOf(words) {
+  const out = [];
+  let a = 0;
+  const close = b => { for (let n = Math.ceil((b - a) / 45), k = 0; k < n; k++) out.push([a + Math.floor(k * (b - a) / n), a + Math.floor((k + 1) * (b - a) / n)]); a = b; };
+  for (let k = 0; k + 1 < words.length; k++) {
+    const w = words[k].raw;
+    if (/[.!?]["”’)\]]?$/.test(w) && !ABBREV.test(w) && /^[\p{Lu}\d(“"]/u.test(words[k + 1].raw)) close(k + 1);
+  }
+  if (a < words.length) close(words.length);
+  return out.filter(([p, q]) => q > p);
+}
+
+/**
+ * Sentences of the manuscript that a source states in other words - the same specific words in another order, other
+ * endings, synonyms or a paraphrasing tool's substitutions (Turnitin highlights them as matches with minor changes).
+ * A manuscript sentence is matched to the source sentence (or two adjacent ones: tools split and join sentences) whose
+ * specific words it shares most, weighted by how rare each word is in the two texts. With sentence embeddings (tools/embed.js,
+ * on this server) the pair must also mean the same: shared weight >= PARA.accept and cosine >= PARA.agree, or shared weight
+ * >= PARA.meaning and cosine >= PARA.cosine; without them, shared weight >= PARA.accept. Thresholds fitted on SpinBot output
+ * against papers on the same subject (scripts/benchmark-similarity.js).
+ * Sentences already mostly matched word for word are skipped. -> [{ from, to, source }] in manuscript word positions
+ */
+async function rewordedSentences(prep, tw, hit, { meaning = true, trace = null } = {}) {
+  const mine = prep.words;
+  const unitsOf = (words, skipCite) => sentencesOf(words).map(([p, q]) => {
+    const ws = words.slice(p, q).filter(w => !(skipCite && w.cite)).map(w => w.n).filter(contentWord).map(stem);
+    return { p, q, set: new Set(ws) };
+  });
+  const M = unitsOf(mine, true).filter(u => u.set.size >= PARA.min && !mine.slice(u.p, u.q).some(w => w.quoted) && (() => { let h = 0; for (let k = u.p; k < u.q; k++) h += hit[k]; return h < (u.q - u.p) * 0.6; })());
+  if (!M.length) return [];
+  const S1 = unitsOf(tw, false).filter(u => u.set.size >= 3);
+  // a source sentence, and each pair of adjacent ones
+  const S = [...S1, ...S1.slice(1).map((u, i) => ({ p: S1[i].p, q: u.q, set: new Set([...S1[i].set, ...u.set]), pair: true }))];
+  const df = new Map();
+  for (const u of [...M, ...S1]) for (const t of u.set) df.set(t, (df.get(t) || 0) + 1);
+  const n = M.length + S1.length;
+  const idf = t => Math.log(1 + n / (df.get(t) || 1));
+  const weight = set => { let s = 0; for (const t of set) s += idf(t); return s; };
+  const inv = new Map();
+  S.forEach((u, i) => { u.w = weight(u.set); for (const t of u.set) { if (!inv.has(t)) inv.set(t, []); inv.get(t).push(i); } });
+  const cands = [];
+  for (const u of M) {
+    const wm = weight(u.set);
+    const acc = new Map();
+    for (const t of u.set) for (const i of inv.get(t) || []) { const a = acc.get(i) || { n: 0, w: 0 }; a.n++; a.w += idf(t); acc.set(i, a); }
+    let best = null;
+    for (const [i, a] of acc) {
+      const s = S[i];
+      // a restatement keeps about the length of its source: a short sentence is not matched into a long one, or back
+      if (a.n < PARA.shared || Math.min(u.set.size, s.set.size) < Math.max(u.set.size, s.set.size) * PARA.length) continue;
+      // weighted overlap on the smaller side, kept honest by the larger side (a pair of sentences must not absorb anything)
+      const score = Math.min(a.w / Math.min(wm, s.w), 2 * a.w / (wm + s.w) + (s.pair ? 0 : 0.1));
+      if (!best || score > best.score) best = { i, score };
+    }
+    if (best && best.score >= PARA.meaning) cands.push({ u, s: S[best.i], score: best.score });
+  }
+  let sure = cands.filter(c => c.score >= PARA.accept);
+  if (meaning && cands.length) {
+    const E = require('../tools/embed');
+    const text = (words, p, q) => words.slice(p, q).map(w => w.raw).join(' ');
+    const vecs = await E.embed(cands.flatMap(c => [text(mine, c.u.p, c.u.q), text(tw, c.s.p, c.s.q)])).catch(() => null);
+    if (vecs) {
+      cands.forEach((c, k) => { c.cosine = E.dot(vecs[2 * k], vecs[2 * k + 1]); });
+      sure = cands.filter(c => (c.score >= PARA.accept && c.cosine >= PARA.agree) || c.cosine >= PARA.cosine);
+    }
+  }
+  if (trace) for (const c of cands) trace.push({ from: c.u.p, to: c.u.q, score: c.score, cosine: c.cosine ?? null });
+  return sure.map(c => ({ from: c.u.p, to: c.u.q, source: tw.slice(c.s.p, c.s.q).map(w => w.raw).join(' ') }));
+}
+
+/**
+ * overlap() and the reworded sentences: the manuscript's words a source contains word for word or in other words.
+ * Passages made mostly of reworded sentences are marked paraphrased, with the source's sentence as its wording.
+ */
+async function match(prep, theirs, opts = {}) {
+  const o = overlap(prep, theirs);
+  const tw = comparable(theirs);
+  const rew = await rewordedSentences(prep, tw, o.hit, opts);
+  if (!rew.length) return o;
+  const hit = o.hit.slice();
+  const para = new Uint8Array(hit.length);
+  for (const r of rew) for (let k = r.from; k < r.to; k++) if (!prep.words[k].cite || (k > r.from && k < r.to - 1)) { if (!hit[k]) para[k] = 1; hit[k] = 1; }
+  bridgeCites(hit, prep.words);
+  const passages = finishRuns(hit, prep.words).sort((a, b) => b.words - a.words).map(p => {
+    let pw = 0;
+    for (let k = p.from; k < p.to; k++) pw += para[k];
+    const exact = o.passages.find(q => q.from <= p.from && q.to >= p.to);
+    if (pw * 2 < p.words) return exact ? { ...p, source: exact.source } : { ...p, source: o.passages.find(q => q.from >= p.from && q.to <= p.to)?.source };
+    return { ...p, paraphrased: true, source: rew.filter(r => r.to > p.from && r.from < p.to).map(r => r.source).join(' … ').slice(0, 600) };
+  });
   return { hit, passages };
 }
 
@@ -381,13 +481,13 @@ const epmcRecord = x => ({ type: 'publication', title: x.title, journal: x.journ
 // ------------------------------------------------------------------ main
 
 /**
- * input: { body, meta }  ->  { kind: 'plagiarism', version: 3, summary: { similarity, internet, publications, ... },
+ * input: { body, meta }  ->  { kind: 'plagiarism', version: 4, summary: { similarity, internet, publications, ... },
  *   sources: [{ key, no, type, percent, ranges, passages: [{ from, to, words, text, source }], ... }], alsoMatched,
  *   document: [{ t, s }], settings: { excluded, minWords }, filters, selfMatches, checked, privacy, method }
  */
-async function checkPlagiarism({ body, meta = {}, submissions = null }, update = () => {}) {
+async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions = null }, update = () => {}) {
   await shared();
-  const prep = prepare(body);
+  const prep = prepare(body, bibliography);
   const mine = prep.words;
   if (mine.length < 200) return { kind: 'plagiarism', error: 'The manuscript text is too short or not available for a similarity check.' };
   // the manuscript's own published version or preprint is not plagiarism (title or DOI of the manuscript)
@@ -407,23 +507,23 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
   update('Comparing with the PJPS text repository');
   const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi }));
   const repoKeys = new Set(repo.map(d => d.sourceKey));
-  const fromRepo = repo.map(d => {
-    const o = overlap(prep, d.text);
+  const fromRepo = (await pool(repo, 2, async d => {
+    const o = await match(prep, d.text);
     if (!o.passages.length) return null;
     const m = d.meta || {};
     markCovered(o.hit);
     return { key: d.sourceKey, type: d.kind, title: d.title, journal: m.journal || null, year: m.year || null, doi: m.doi || null, url: m.url || null,
       via: `${m.via || 'Repository'} (PJPS repository)`, compared: `${m.scope || 'text'} (PJPS repository)`, hit: o.hit, passages: o.passages };
-  }).filter(Boolean);
+  })).filter(Boolean);
 
   // 1b. earlier PJPS submissions, only when the editor turned it on (submissions = [] when on and none share text)
-  const fromSubs = (submissions || []).map(d => {
-    const o = overlap(prep, d.text);
+  const fromSubs = (await pool(submissions || [], 2, async d => {
+    const o = await match(prep, d.text);
     if (!o.passages.length) return null;
     markCovered(o.hit);
     return { key: `check:${d.checkId}`, type: 'submission', title: `${d.manuscriptCode ? `${d.manuscriptCode} - ` : ''}${d.title || 'Earlier PJPS submission'}`, journal: 'Earlier PJPS submission',
       year: d.date ? new Date(d.date).getFullYear() : null, checkId: d.checkId, via: 'Earlier PJPS submissions (opt-in)', compared: 'full text (confidential PJPS report)', hit: o.hit, passages: o.passages };
-  }).filter(Boolean);
+  })).filter(Boolean);
 
   // 2. papers on the same subject: their open-access full texts compared with the whole manuscript
   update('Finding papers on the same subject');
@@ -436,7 +536,7 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
     if (!t.text) return null;
     // every published source text read is kept in the repository, so later checks compare with it directly
     await corpus.addDoc({ kind: c.type, sourceKey: key, title: c.title, meta: { journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, scope: t.scope }, text: t.text }).catch(() => null);
-    const o = overlap(prep, t.text);
+    const o = await match(prep, t.text);
     if (!o.passages.length) return null;
     markCovered(o.hit);
     const out = { key, type: c.type, title: c.title, journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, compared: t.scope, hit: o.hit, passages: o.passages };
@@ -498,10 +598,12 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
   // OpenAlex full text (paid per search beyond its free daily allowance): spread over the passages Europe PMC lacked
   const oaList = spread(unknown, OPENALEX_PHRASES);
   if (oaList.length) update(`Searching ${oaList.length} passages in OpenAlex full texts (publishers)`);
+  let oaSpent = false; // OpenAlex's daily budget used up (HTTP 429): the remaining searches would all fail
   await pool(oaList, 4, async w => {
+    if (oaSpent) return;
     stats.openalexSearches++;
     const r = await getJson(`https://api.openalex.org/works?filter=fulltext.search:${encodeURIComponent(`"${w.phrase}"`)}&per-page=5&select=id,title,doi,publication_year,primary_location,open_access,ids${cfg.OPENALEX_API_KEY ? `&api_key=${cfg.OPENALEX_API_KEY}` : ''}`, { ttl: 30 * 86400, timeout: 25000, retries: 1, private: keepOpenAlex });
-    if (!r.ok) { stats.searchErrors++; return; }
+    if (!r.ok) { stats.searchErrors++; if (r.status === 429) { oaSpent = true; stats.openalexBudget = true; } return; }
     const res = (r.data?.results || []).filter(x => !isSelf({ title: x.title, doi: cleanDoi(x.doi) }));
     if (!res.length) return;
     w.found = true;
@@ -572,17 +674,17 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
   // word ranges inside quotation marks: left out of the matches unless the editor includes quotations
   const quoted = [];
   mine.forEach((w, k) => { if (!w.quoted) return; const last = quoted[quoted.length - 1]; if (last && last[1] === k) last[1] = k + 1; else quoted.push([k, k + 1]); });
-  const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT, quoted });
+  const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT, quoted, includeQuotes: true });
   const s = view.summary;
 
   const subsOn = Array.isArray(submissions);
   const extUsed = !!(ext && !ext.error);
-  const databases = [...(extUsed ? [`External full-text similarity service: the whole text compared with web pages, publications and its database of submitted documents, paraphrase included (${extSources.length} source(s) matched)`] : ext?.error ? [`External full-text similarity service: not used for this report (${ext.error})`] : []),
+  const databases = [...(extUsed ? [`External full-text similarity service: the whole text compared with web pages and publications, paraphrase included (${extSources.length} source(s) matched)`] : ext?.error ? [`External full-text similarity service: not used for this report (${ext.error})`] : []),
     ...(subsOn ? [`Earlier PJPS submissions (opt-in): ${submissions.length} sharing text with this manuscript compared in full`] : []), 'PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
-    ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches)`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
+    ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches${stats.openalexBudget ? '; stopped: the daily OpenAlex search budget is used up - add funds at openalex.org/pricing' : ''})`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
   return {
     kind: 'plagiarism',
-    version: 3,
+    version: 4, // 4: bibliography compared as a section, quotations included by default (Turnitin's defaults)
     summary: s,
     repository: subsOn ? `not stored: this manuscript was not added to any repository; earlier PJPS submissions were compared at the editor's request (${submissions.length} sharing text)` : 'not stored: this manuscript was not added to any repository, and earlier unpublished PJPS submissions were not compared (no-repository setting, as in Turnitin)',
     submissions: { compared: subsOn || extSources.some(x => x.type === 'submission'), candidates: subsOn ? submissions.length : 0, matched: fromSubs.length + extSources.filter(x => x.type === 'submission').length },
@@ -595,13 +697,15 @@ async function checkPlagiarism({ body, meta = {}, submissions = null }, update =
     alsoMatched: view.alsoMatched,
     document: view.document,
     sections: view.sections,
+    groups: view.groups,
     quoted,
-    settings: { excluded: [], minWords: MIN_MATCH, excludeSections: [], minPercent: 0, includeQuotes: false },
-    filters: { bibliography: prep.bibliographyExcluded ? 'excluded' : 'not found in the text (body only was compared)', quotes: `excluded (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)`, citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
+    // Turnitin's defaults: bibliography and quotations included, the editor excludes them in Filters
+    settings: { excluded: [], minWords: MIN_MATCH, excludeSections: [], minPercent: 0, includeQuotes: true },
+    filters: { bibliography: prep.bibliographyFound ? 'included (the reference list is compared; exclude it in Filters)' : 'no reference list found', quotes: `included (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)`, citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
     checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, databases },
-    coverage: `${extUsed ? 'The whole text with an external full-text similarity service (web pages, publications, its database of submitted documents, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
-    method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match), paywalled ones by the passages found in them. The bibliography and quotations are excluded, and so are matches shorter than ${MIN_MATCH} words. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
+    coverage: `${extUsed ? 'The whole text with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
+    method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are excluded, and so are matches shorter than ${MIN_MATCH} words. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };
 }
 
@@ -626,9 +730,10 @@ async function applySettings(pl, { excluded = [], minWords = MIN_MATCH, excludeS
   const view = SIM.recompute(all, text, { tokens, total: pl.summary.words, excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct, quoted: pl.quoted || [], includeQuotes: inclQ });
   const qWords = (pl.quoted || []).reduce((a, [p, q]) => a + q - p, 0);
   const { sources: _s, smallSources: _p, sections: _c, ...filters } = pl.filters || {};
-  return { ...pl, summary: view.summary, sources: view.sources, alsoMatched: view.alsoMatched, document: view.document, sections: view.sections,
+  return { ...pl, summary: view.summary, sources: view.sources, alsoMatched: view.alsoMatched, document: view.document, sections: view.sections, groups: view.groups,
     settings: { excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct, includeQuotes: inclQ },
-    filters: { ...filters, smallMatches: `excluded (fewer than ${min} words)`, ...(pl.quoted ? { quotes: `${inclQ ? 'included' : 'excluded'} (${qWords} quoted words)` } : {}),
+    filters: { ...filters, smallMatches: `excluded (fewer than ${min} words)`,
+      ...(secKeys.has('references') ? { bibliography: exSec.includes('references') ? 'excluded by the editor' : 'included (the reference list is compared)' } : {}), ...(pl.quoted ? { quotes: `${inclQ ? 'included' : 'excluded'} (${qWords} quoted words)` } : {}),
       ...(ex.length ? { sources: `${ex.length} source(s) excluded by the editor` } : {}),
       ...(minPct ? { smallSources: `sources under ${minPct}% excluded` } : {}),
       ...(exSec.length ? { sections: `excluded from the comparison: ${view.sections.filter(x => x.excluded).map(x => x.label).join(', ')}` } : {}) } };
@@ -643,4 +748,4 @@ function toCsv(pl) {
     [...(pl.sources || []), ...(pl.alsoMatched || [])].map(row));
 }
 
-module.exports = { checkPlagiarism, earlierSubmissions, externalSources, applySettings, toCsv, prepare, overlap, finishRuns, citeSpans, searchWindows, shared };
+module.exports = { checkPlagiarism, earlierSubmissions, externalSources, applySettings, toCsv, prepare, overlap, match, rewordedSentences, PARA, finishRuns, citeSpans, searchWindows, shared };

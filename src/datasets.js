@@ -336,7 +336,10 @@ const LIST_TYPES = {
   doaj_removed: 'Journals withdrawn from DOAJ — downloaded automatically from the DOAJ change logs (2014 onwards, with the reason); upload only to replace it',
   scopus_discontinued: 'Scopus discontinued titles — the "Discontinued Titles" sheet of Elsevier\'s source list workbook (.xlsx; uploading the workbook on the Scopus row loads both)',
   rw_hijacked: 'Retraction Watch Hijacked Journal Checker — .xlsx or CSV export (clone websites of real journals)',
-  pmc: 'PubMed Central journal list — downloaded automatically from NCBI (jlist.csv); upload only to replace it'
+  pmc: 'PubMed Central journal list — downloaded automatically from NCBI (jlist.csv); upload only to replace it',
+  wos_mjl: 'Clarivate Web of Science Master Journal List (SCIE, SSCI, AHCI, ESCI) — CSV from mjl.clarivate.com → Downloads (free sign-in); put the collections in one file with a "Collection" column, or upload one collection whose name is in the file name (e.g. wos-core_SCIE.csv)',
+  ici: 'Index Copernicus Journals Master List (ICV) — CSV export of journals.indexcopernicus.com (title, ISSN, ICV value and year)',
+  gsm: 'Google Scholar Metrics (h5-index, h5-median) — CSV of the "Top publications" lists of scholar.google.com/citations?view_op=top_venues (title, h5-index, h5-median, category)'
 };
 
 function findCol(headers, patterns) {
@@ -353,13 +356,16 @@ async function importJournalList(listType, filename, csv, { raw = null } = {}) {
   const rows = Array.isArray(csv) ? csv : csvToObjects(csv);
   if (!rows.length) throw new Error('The CSV file has no rows');
   const headers = Object.keys(rows[0]);
-  const titleCol = findCol(headers, [/^(journal|source)\s*title$/i, /^title$/i, /journal name/i, /title/i, /journal/i, /name/i]);
+  const titleCol = findCol(headers, [/^(journal|source)\s*title$/i, /^title$/i, /journal name/i, /title/i, /journal/i, /name/i, /^publication$/i]);
   const issnCol = findCol(headers, [/^(print\s*)?issn$/i, /^p-?issn/i, /^issn/i, /issn/i]);
   const eissnCol = findCol(headers, [/^e-?issn/i, /electronic/i, /online issn/i]);
   if (!titleCol && !issnCol) throw new Error(`Could not find a title or ISSN column. Columns: ${headers.join(', ')}`);
 
+  // the Master Journal List is downloaded one collection per file: the collection named in the file name is kept with each row
+  const collection = listType === 'wos_mjl' && !findCol(headers, [/collection|edition|^index$/i]) ? (String(filename).match(/(?:^|[^a-z])(SCIE|SSCI|AHCI|ESCI)(?![a-z])/i)?.[1] || '').toUpperCase() : '';
   const data = [];
-  for (const row of rows) {
+  for (const raw0 of rows) {
+    const row = collection ? { ...raw0, Collection: collection } : raw0;
     // SJR packs both ISSNs into one field: "15424863, 00079235"
     const issnRaw = issnCol ? row[issnCol] : '';
     const issns = (issnRaw.match(/\d{4}-?\d{3}[\dxX]/g) || []).map(cleanIssn);
@@ -999,6 +1005,10 @@ const PUBLISHERS = [
   { key: 'cup', name: 'Cambridge University Press', ids: ['P4310311721'], crossref: /cambridge university press/i },
   { key: 'wkh', name: 'Wolters Kluwer Health', ids: ['P4310315860', 'P4310315671', 'P4310320448'], crossref: /wolters kluwer|lippincott|ovid technologies|medknow/i },
   { key: 'acs', name: 'American Chemical Society (ACS) Publications', ids: ['P4310320006'], crossref: /american chemical society/i },
+  // The Lancet family: Elsevier journals, marked by title (The Lancet, The Lancet Oncology ..., eClinicalMedicine, eBioMedicine)
+  { key: 'lancet', name: 'The Lancet journals (Elsevier)', ids: [], crossref: /(?!)/, titles: /^(?:the )?lancet(?![a-z])|^eclinicalmedicine$|^ebiomedicine$/i, within: 'elsevier' },
+  // JAMA Network: the American Medical Association's journals (JAMA, JAMA Internal Medicine ..., JAMA Network Open)
+  { key: 'jama', name: 'JAMA Network (American Medical Association)', ids: [], crossref: /american medical association/i },
   { key: 'ieee', name: 'Institute of Electrical and Electronics Engineers (IEEE)', ids: ['P4310319808', 'P4322697011'], crossref: /\bieee\b|institute of electrical and electronics engineers/i }
 ];
 const PUBJ_COLS = ['publisher_key', 'publisher', 'imprint', 'title', 'title_norm', 'issns', 'openalex_id', 'homepage', 'works', 'source']
@@ -1009,7 +1019,7 @@ async function loadPublisherJournals({ log = console.log } = {}) {
   const key = cfg.OPENALEX_API_KEY ? `&api_key=${encodeURIComponent(cfg.OPENALEX_API_KEY)}` : '';
   const rows = [];
   const seen = new Set(); // every ISSN already listed
-  for (const p of PUBLISHERS) {
+  for (const p of PUBLISHERS.filter(x => x.ids.length)) {
     let cursor = '*', n = 0;
     while (cursor) {
       const url = `https://api.openalex.org/sources?filter=type:journal,host_organization_lineage:${p.ids.join('|')}&per-page=200&select=id,display_name,issn_l,issn,host_organization_name,homepage_url,works_count&cursor=${encodeURIComponent(cursor)}${key}`;
@@ -1042,6 +1052,12 @@ async function loadPublisherJournals({ log = console.log } = {}) {
     added++;
   }
   log(`Crossref title list: ${added} more journals`);
+  // families inside a larger publisher's list (The Lancet journals within Elsevier), marked by title
+  for (const p of PUBLISHERS.filter(x => x.titles)) {
+    let marked = 0;
+    for (const r of rows) if (r[0] === p.within && p.titles.test(r[3])) { r[0] = p.key; r[1] = p.name; marked++; }
+    log(`${p.name}: ${marked} journals`);
+  }
   // dovepress.com lists the journals Dove publishes now: mark them current and add any the other sources file elsewhere
   try {
     const html = await store.sourceText('dovepress-journals.html', () => getText('https://www.dovepress.com/journals', { ttl: 0, timeout: 60000, retries: 2 }));

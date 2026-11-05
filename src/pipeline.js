@@ -154,7 +154,7 @@ async function screening(result, { input, body, refs, meta, update }) {
     const PL = require('./checks/plagiarism');
     // "Submitted works" (opt-in): earlier PJPS submissions sharing text, other versions of this manuscript left out
     const submissions = input.compareSubmissions ? await PL.earlierSubmissions(body, { excludeCode: meta.manuscriptCode || null, excludeCheckIds: [input.recheckOf] }).catch(() => []) : null;
-    result.plagiarism = await PL.checkPlagiarism({ body, meta, submissions }).catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
+    result.plagiarism = await PL.checkPlagiarism({ body, bibliography: refs.map(r => r.raw).join('\n'), meta, submissions }).catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
     // an earlier PJPS submission with the same text (Module 4 fingerprints) belongs in the overlap report too
     const dup = (pm.signals || []).find(x => x.code === 'duplicate');
     if (dup && result.plagiarism && !result.plagiarism.error) result.plagiarism.earlierSubmissions = (dup.evidence || []).map(e => e.text);

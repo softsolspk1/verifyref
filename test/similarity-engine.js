@@ -20,7 +20,11 @@ const ok = m => console.log(`  ✓ ${m}`);
   const ms = `Introduction\n\nOur own opening sentence about an unrelated herbal remedy from the Thar desert region is written here in plain words. ${copied} [12]. Another sentence of ours closes this paragraph about goats and their grazing habits.\n\nReferences\n\n1. A reference.`;
   const src = `Background text of the source paper. ${copied} (Ahmed et al., 2019). The rest of the source paper continues here.`;
   const prep = P.prepare(ms);
-  assert.ok(prep.bibliographyExcluded, 'bibliography cut off');
+  assert.ok(prep.bibliographyFound, 'bibliography found (compared as its own section)');
+  assert.ok(SIM.sectionsOf(prep.text).some(x => x.key === 'references'), 'the reference list is the References section');
+  const appended = P.prepare('Our opening text about goats.\nMore text here.', '1. Smith A (2020). A reference. J Test, 1: 1-2.');
+  assert.ok(/\nReferences\n1\. Smith/.test(appended.text), 'a separate reference list is appended under a References heading');
+  assert.strictEqual(SIM.sectionsOf(appended.text).map(x => x.key).join(), 'body,references', 'the appended list is the References section');
   assert.ok(prep.citeWords >= 1, 'citation marker found');
   const o = P.overlap(prep, src);
   assert.strictEqual(o.passages.length, 1, 'one passage');
@@ -36,6 +40,35 @@ const ok = m => console.log(`  ✓ ${m}`);
   const o2 = P.overlap(p2, src2);
   assert.ok(o2.passages[0]?.words >= 18, `match across a citation in the source: ${o2.passages[0]?.words} words`);
   ok('a citation inside the source sentence does not split the match');
+
+  // a sentence restated in other words (order, endings, a few words changed) is a match marked paraphrased; a sentence on
+  // the same subject that says something else is not (word matching only here, no embedding model)
+  const srcR = 'Granules were prepared by wet granulation. The tablets were compressed using a single punch machine and their hardness was measured with a Monsanto tester after twenty four hours of storage. Results are given below.';
+  const msR = 'We describe the formulation here. After storage for twenty four hours, the hardness of the compressed tablets was determined with a Monsanto tester, compression having been done on a single punch machine. '
+    + 'The disintegration time of the tablets was measured in a basket apparatus with purified water held at body temperature for every batch. That is all.';
+  const pR = P.prepare(msR);
+  assert.strictEqual(P.overlap(pR, srcR).passages.length, 0, 'no five-word sequence in common');
+  const oR = await P.match(pR, srcR, { meaning: false });
+  assert.strictEqual(oR.passages.length, 1, `one reworded sentence matched: ${JSON.stringify(oR.passages.map(x => x.text))}`);
+  assert.ok(oR.passages[0].paraphrased && /Monsanto/.test(oR.passages[0].text) && /single punch/.test(oR.passages[0].source), 'marked paraphrased, with the source sentence');
+  assert.ok(!/disintegration/.test(oR.passages[0].text), 'the other tablet sentence is not matched');
+  ok('a sentence restated in other words is matched and marked paraphrased; another sentence on the subject is not');
+
+  // Turnitin's match groups: by the quotation marks and in-text citations of every match
+  const tG = 'Intro words here to start. The tablets were compressed on a single punch machine at a constant force. The hardness of every batch was tested with a Monsanto tester after storage (Khan et al., 2021). '
+    + 'They wrote that "the friability of all formulations remained well below one percent after four minutes" in that study. Another team found that "disintegration was complete within nine minutes in purified water at body temperature" [4]. '
+    + 'Granules were dried at forty degrees overnight and sieved through a fine mesh. Our own sentence closes the text.';
+  const wG = SIM.tokenize(tG);
+  const at = (a, b) => { const i = wG.findIndex(w => w.raw === a); const j = wG.findIndex((w, k) => k > i && w.raw.startsWith(b)); return [i, j + 1]; };
+  const qG = [];
+  for (const m of tG.matchAll(/"[^"]+"/g)) { const i = wG.findIndex(w => w.start >= m.index); const j = wG.findIndex(w => w.end > m.index + m[0].length - 1); qG.push([i, j + 1]); }
+  const srcG = [{ key: 'g1', type: 'publication', title: 'G1', ranges: [at('tablets', 'force.'), at('hardness', 'storage'), at('"the', 'minutes"'), at('"disintegration', 'temperature"')] },
+    { key: 'g2', type: 'publication', title: 'G2', ranges: [at('Granules', 'mesh.')], passages: [{ from: at('Granules', 'mesh.')[0], to: at('Granules', 'mesh.')[1], paraphrased: true }] }];
+  const vG = SIM.recompute(srcG, tG, { tokens: wG, quoted: qG, includeQuotes: true, minWords: 8 });
+  const gG = Object.fromEntries(vG.groups.map(g => [g.key, g.matches.length]));
+  assert.deepStrictEqual(gG, { uncited: 2, missingQuotes: 1, missingCitation: 1, cited: 1 }, JSON.stringify(vG.groups.map(g => [g.key, g.matches.map(m => wG.slice(m.from, m.to).map(w => w.raw).join(' '))])));
+  assert.strictEqual(vG.groups.reduce((a, g) => a + g.words, 0), vG.sources.reduce((a, x) => a + x.words, 0), 'every credited word in one group');
+  ok('match groups: not cited or quoted, missing quotations, missing citation, cited and quoted');
 
   // quoted text is matched but left out of the report unless the editor includes quotations
   const p3 = P.prepare(`As they wrote, "${copied}" and we agree with that view entirely in this paper.`);

@@ -90,8 +90,13 @@ function reword(p) {
   const editedShare = ew.filter(w => hw.has(w)).length / ew.length;
   console.log(`  reworded paragraph: ${Math.round(editedShare * 100)}% of its words highlighted`);
   assert.ok(editedShare >= 0.7, 'reworded paragraph still matched');
-  assert.ok(!highlighted.includes(quoteSentence.split(' ').slice(3, 12).join(' ')), 'quoted sentence excluded');
-  assert.ok(!highlighted.includes('must not be compared'), 'bibliography excluded');
+  // Turnitin's filters: quotations and the bibliography are compared by default, the editor excludes them
+  assert.ok(rep.sections.some(x => x.key === 'references'), 'the reference list is a section of its own');
+  const filtered = await require('../src/checks/plagiarism').applySettings(rep, { includeQuotes: false, excludeSections: ['references'] });
+  const hiFiltered = filtered.document.filter(d => d.s).map(d => d.t).join(' ');
+  assert.ok(!hiFiltered.includes(quoteSentence.split(' ').slice(3, 12).join(' ')), 'quoted sentence excluded by the filter');
+  assert.ok(!hiFiltered.includes('must not be compared'), 'bibliography excluded by the filter');
+  assert.strictEqual(filtered.filters.bibliography, 'excluded by the editor');
   for (const o of ORIGINAL) assert.ok(!highlighted.includes(o.split(' ').slice(5, 15).join(' ')), 'original text not highlighted');
 
   // false alarms: the original text alone must score (close to) zero

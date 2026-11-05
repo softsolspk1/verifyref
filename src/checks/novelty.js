@@ -79,6 +79,46 @@ async function countWorks(filter) {
   return r.ok ? r.data?.meta?.count ?? null : null;
 }
 
+const EPMC = 'https://www.ebi.ac.uk/europepmc/webservices/rest';
+/**
+ * Europe PMC search (core records with abstracts) -> [records] ([] when it does not answer). priv: the query holds words
+ * of the unpublished manuscript - cached under a hash, with only the public records found (http.js private)
+ */
+async function epmcSearch(query, pageSize = 25, priv = false) {
+  const keep = d => ({ hitCount: d?.hitCount || 0, resultList: { result: (d?.resultList?.result || []).map(x => ({ id: x.id, title: x.title, abstractText: x.abstractText, doi: x.doi, pmid: x.pmid, pmcid: x.pmcid, pubYear: x.pubYear, citedByCount: x.citedByCount, journalTitle: x.journalTitle, journalInfo: x.journalInfo })) } });
+  const r = await require('../http').getJson(`${EPMC}/search?format=json&resultType=core&pageSize=${pageSize}&query=${encodeURIComponent(query)}`, { ttl: 7 * 86400, timeout: 30000, retries: 1, ...(priv ? { private: keep } : {}) }).catch(() => ({ ok: false }));
+  return r.ok ? r.data?.resultList?.result || [] : [];
+}
+/** Up to n stretches of 8 words from separate sentences of the abstract, specific enough to be searched as exact phrases */
+function abstractPhrases(abstract, n = 3) {
+  const sentences = String(abstract || '').split(/(?<=[.!?])\s+(?=[A-Z])/).map(s => s.replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(Boolean)).filter(w => w.length >= 12);
+  const picked = sentences.length <= n ? sentences : Array.from({ length: n }, (_, i) => sentences[Math.floor((i + 0.5) * sentences.length / n)]);
+  return picked.map(w => w.slice(2, 10)).filter(p => p.filter(x => x.length >= 4 && !STOP.has(x.toLowerCase())).length >= 3).map(p => p.join(' '));
+}
+/** Works matching all concepts, counted in Europe PMC (when OpenAlex does not answer) */
+async function countEpmc(concepts) {
+  const q = concepts.map(c => `"${String(c).replace(/["()]/g, ' ').trim()}"`).join(' AND ');
+  const r = await require('../http').getJson(`${EPMC}/search?format=json&resultType=idlist&pageSize=1&query=${encodeURIComponent(q)}`, { ttl: 30 * 86400, timeout: 20000, retries: 1 }).catch(() => ({ ok: false }));
+  return r.ok ? r.data?.hitCount ?? null : null;
+}
+/** PubMed's "Similar articles" (ELink neighbours, best first) of the given PMIDs, n per PMID */
+async function pubmedSimilar(pmids, n = 25) {
+  const cfg = require('../config');
+  const out = [];
+  for (const id of pmids) {
+    const r = await require('../http').getJson(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?dbfrom=pubmed&db=pubmed&linkname=pubmed_pubmed&cmd=neighbor_score&retmode=json&id=${encodeURIComponent(id)}${cfg.NCBI_API_KEY ? `&api_key=${cfg.NCBI_API_KEY}` : ''}`, { ttl: 30 * 86400, timeout: 20000, retries: 1 }).catch(() => ({ ok: false }));
+    const links = (r.ok ? r.data?.linksets?.[0]?.linksetdbs || [] : []).find(l => l.linkname === 'pubmed_pubmed')?.links || [];
+    for (const l of links.slice(0, n + 1)) { const p = String(l.id ?? l); if (p !== String(id) && !out.includes(p)) out.push(p); }
+  }
+  return out;
+}
+/**
+ * Embedding cosine (all-MiniLM-L6-v2, title + abstract) on the similarity scale of the word measures. Fitted on published
+ * papers (scripts/benchmark-novelty.js): papers on the same subject are at about 0.6-0.75, the same study reworded at 0.9+.
+ */
+const semanticScale = c => (Number.isFinite(c) ? Math.max(0, Math.min(1, (c - SEM.floor) / (SEM.same - SEM.floor) * SEM.top)) : 0);
+const SEM = { floor: 0.55, same: 0.92, top: 0.8 };
+
 /**
  * input: { meta: { title, abstract, keywords }, journal: { name, issn } }  ->  novelty report
  */
@@ -97,32 +137,41 @@ async function checkNovelty({ meta = {}, journal = {} }, update = () => {}) {
   if (absTerms.length >= 3) queries.push([...titleTerms.slice(0, 3), ...absTerms.slice(0, 4)].join(' '));
   const query = queries.join(' | ');
   update('Finding the closest published works (OpenAlex)');
-  const select = 'id,doi,title,publication_year,cited_by_count,counts_by_year,abstract_inverted_index,primary_location,primary_topic';
+  const select = 'id,doi,ids,title,publication_year,cited_by_count,counts_by_year,abstract_inverted_index,primary_location,primary_topic';
   const pages = await Promise.all(queries.slice(0, 8).map(q => S.openalex(`works?search=${encodeURIComponent(q)}&filter=type:article|review,has_abstract:true&per-page=30&select=${select}`, { ttl: 7 * 86400, timeout: 30000, retries: 1 })));
-  // Europe PMC (biomedical and pharmacy literature, the abstracts of all PubMed papers) for the first searches
-  const epmc = await Promise.all(queries.slice(0, 4).map(q => require('../http').getJson(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&resultType=core&pageSize=25&query=${encodeURIComponent(q)}`, { ttl: 7 * 86400, timeout: 30000, retries: 1 }).catch(() => ({ ok: false }))));
-  if (pages.every(r => !r.ok) && epmc.every(r => !r.ok)) return { kind: 'novelty', error: 'OpenAlex and Europe PMC did not answer; novelty could not be assessed now (run the check again later).' };
+  // Europe PMC (biomedical and pharmacy literature, the abstracts of all PubMed papers): every search, and the title as
+  // written (its relevance ranking finds a paper by its own title even when OpenAlex is unavailable)
+  const epmcQueries = [title.replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim(), ...queries.slice(0, 7)];
+  const epmc = await Promise.all(epmcQueries.map(q => epmcSearch(q, 30)));
+  if (pages.every(r => !r.ok) && epmc.every(r => !r.length)) return { kind: 'novelty', error: 'OpenAlex and Europe PMC did not answer; novelty could not be assessed now (run the check again later).' };
   const seen = new Set();
   const works = pages.flatMap(r => (r.ok ? r.data.results || [] : [])).filter(w => w.title && !seen.has(w.id) && seen.add(w.id)).map(w => ({
     id: w.id.replace('https://openalex.org/', ''), doi: w.doi ? w.doi.replace('https://doi.org/', '') : null, title: w.title, year: w.publication_year,
+    pmid: w.ids?.pmid ? String(w.ids.pmid).replace(/^.*\//, '') : null,
     citedBy: w.cited_by_count || 0, counts: w.counts_by_year || [], abstract: invertedIndexToText(w.abstract_inverted_index || {}),
     journal: w.primary_location?.source?.display_name || null, sourceId: w.primary_location?.source?.id?.replace('https://openalex.org/', '') || null,
     topic: w.primary_topic ? { id: w.primary_topic.id.replace('https://openalex.org/', ''), name: w.primary_topic.display_name } : null
   }));
   const haveDoi = new Set(works.map(w => (w.doi || '').toLowerCase()).filter(Boolean));
   const haveTitle = new Set(works.map(w => String(w.title).toLowerCase().replace(/[^a-z0-9]/g, '')));
-  for (const r of epmc) {
-    for (const x of (r.ok ? r.data?.resultList?.result || [] : [])) {
+  const havePmid = new Set(works.map(w => w.pmid).filter(Boolean));
+  const addEpmc = list => {
+    for (const x of list) {
       const t = String(x.title || '').replace(/<[^>]+>/g, '').replace(/\.$/, '');
       const key = t.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (!t || !x.abstractText || (x.doi && haveDoi.has(x.doi.toLowerCase())) || haveTitle.has(key)) continue;
+      if (!t || !x.abstractText || (x.doi && haveDoi.has(x.doi.toLowerCase())) || haveTitle.has(key) || (x.pmid && havePmid.has(x.pmid))) continue;
       haveTitle.add(key);
       if (x.doi) haveDoi.add(x.doi.toLowerCase());
-      works.push({ id: x.pmcid || x.pmid || x.id, doi: x.doi || null, title: t, year: parseInt(x.pubYear, 10) || null, citedBy: x.citedByCount || 0, counts: [],
+      if (x.pmid) havePmid.add(x.pmid);
+      works.push({ id: x.pmcid || x.pmid || x.id, doi: x.doi || null, pmid: x.pmid || null, title: t, year: parseInt(x.pubYear, 10) || null, citedBy: x.citedByCount || 0, counts: [],
         abstract: String(x.abstractText).replace(/<[^>]+>/g, ' '), journal: x.journalInfo?.journal?.title || x.journalTitle || null, sourceId: null, topic: null, via: 'Europe PMC',
         url: x.doi ? `https://doi.org/${x.doi}` : x.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${x.pmid}/` : null });
     }
-  }
+  };
+  for (const r of epmc) addEpmc(r);
+  // the abstract's own wording searched as exact phrases: a study that is already published (under this or another title,
+  // or as a duplicate submission) is found whatever words the title uses
+  for (const r of await Promise.all(abstractPhrases(abstract, 3).map(p => epmcSearch(`"${p}"`, 5, true)))) addEpmc(r);
   // the manuscript itself (already published, or a preprint) is not prior work: same DOI, or a near-identical title
   const ownDoi = String(meta.doi || '').toLowerCase();
   const prior = works.filter(w => !(ownDoi && w.doi && w.doi.toLowerCase() === ownDoi) && titleSimilarity(w.title, title) < 0.95);
@@ -130,22 +179,44 @@ async function checkNovelty({ meta = {}, journal = {} }, update = () => {}) {
   if (prior.length < 5) return { kind: 'novelty', error: 'Too few related works were found in OpenAlex to assess novelty.' };
 
   const mineDoc = terms(`${title} ${title} ${abstract} ${(meta.keywords || []).join(' ')}`);
-  const docs = [mineDoc, ...prior.map(w => terms(`${w.title} ${w.title} ${w.abstract}`))];
-  const vec = tfidf(docs);
-  // the manuscript's 20 most specific terms: how much of them a work covers (cosine alone is diluted by long abstracts)
-  const key = [...vec[0].entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
-  const keyWeight = key.reduce((a, [, x]) => a + x, 0) || 1;
-  // titles (+ keywords) compared on their own: a long abstract spreads its weight over many terms and compresses the
-  // full-text cosine, while the title states what the work is about
-  const tvec = tfidf([terms(`${title} ${(meta.keywords || []).join(' ')}`), ...prior.map(w => terms(w.title))]);
-  prior.forEach((w, i) => {
-    const have = new Set(docs[i + 1]);
-    const coverage = key.reduce((a, [t, x]) => a + (have.has(t) ? x : 0), 0) / keyWeight;
-    w.similarity = Math.round(Math.max(cosine(vec[0], vec[i + 1]), coverage * 0.85, cosine(tvec[0], tvec[i + 1]) * 0.9) * 1000) / 1000;
-    // the manuscript's specific terms this work shares (shown so the editor sees why it is close)
-    w.shared = key.filter(([t]) => have.has(t)).map(([t]) => t.replace(/_/g, ' ')).filter((t, j, a) => !a.some((u, k) => k !== j && u !== t && u.includes(t))).slice(0, 6);
-  });
-  prior.sort((a, b) => b.similarity - a.similarity);
+  const isOwn = w => (ownDoi && w.doi && w.doi.toLowerCase() === ownDoi) || titleSimilarity(w.title, title) >= 0.95;
+  const rank = list => {
+    const docs = [mineDoc, ...list.map(w => terms(`${w.title} ${w.title} ${w.abstract}`))];
+    const vec = tfidf(docs);
+    // the manuscript's 20 most specific terms: how much of them a work covers (cosine alone is diluted by long abstracts)
+    const key = [...vec[0].entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+    const keyWeight = key.reduce((a, [, x]) => a + x, 0) || 1;
+    // titles (+ keywords) compared on their own: a long abstract spreads its weight over many terms and compresses the
+    // full-text cosine, while the title states what the work is about
+    const tvec = tfidf([terms(`${title} ${(meta.keywords || []).join(' ')}`), ...list.map(w => terms(w.title))]);
+    list.forEach((w, i) => {
+      const have = new Set(docs[i + 1]);
+      const coverage = key.reduce((a, [t, x]) => a + (have.has(t) ? x : 0), 0) / keyWeight;
+      w.wordSimilarity = Math.max(cosine(vec[0], vec[i + 1]), coverage * 0.85, cosine(tvec[0], tvec[i + 1]) * 0.9);
+      w.similarity = Math.round(Math.max(w.wordSimilarity, semanticScale(w.semantic)) * 1000) / 1000;
+      // the manuscript's specific terms this work shares (shown so the editor sees why it is close)
+      w.shared = key.filter(([t]) => have.has(t)).map(([t]) => t.replace(/_/g, ' ')).filter((t, j, a) => !a.some((u, k) => k !== j && u !== t && u.includes(t))).slice(0, 6);
+    });
+    list.sort((a, b) => b.similarity - a.similarity);
+    return list;
+  };
+  rank(prior);
+  // PubMed's "Similar articles" of the closest works found so far: the related literature PubMed itself links, found
+  // whatever words the manuscript uses (and while OpenAlex is unavailable)
+  update('Following PubMed similar articles of the closest works');
+  const seedPmids = prior.filter(w => w.pmid).slice(0, 3).map(w => w.pmid);
+  const similarPmids = (await pubmedSimilar(seedPmids, 25)).filter(p => !havePmid.has(p)).slice(0, 60);
+  for (let i = 0; i < similarPmids.length; i += 30) addEpmc(await epmcSearch(`EXT_ID:(${similarPmids.slice(i, i + 30).join(' OR ')}) AND SRC:MED`, 30));
+  for (const w of works) {
+    if (prior.includes(w) || selfMatches.some(x => x.title === w.title)) continue;
+    if (isOwn(w)) selfMatches.push({ title: w.title, year: w.year, journal: w.journal, doi: w.doi }); else prior.push(w);
+  }
+  // meaning compared by sentence embeddings (tools/embed.js): reworded abstracts of the same study are close even when
+  // they share few words
+  update('Comparing meaning with the closest works');
+  const vecs = await require('../tools/embed').embed([`${title}. ${abstract}`, ...prior.map(w => `${w.title}. ${w.abstract}`)]).catch(() => null);
+  if (vecs) prior.forEach((w, i) => { w.semantic = Math.round(require('../tools/embed').dot(vecs[0], vecs[i + 1]) * 1000) / 1000; });
+  rank(prior);
   const top = prior.slice(0, 10);
   const maxSim = top[0].similarity;
   const meanTop5 = top.slice(0, 5).reduce((a, w) => a + w.similarity, 0) / Math.min(5, top.length);
@@ -154,16 +225,22 @@ async function checkNovelty({ meta = {}, journal = {} }, update = () => {}) {
 
   // concept combination rarity
   update('Measuring how often the key concepts were combined before');
-  const concepts = keyConcepts(meta, docs.slice(1));
+  const concepts = keyConcepts(meta, prior.map(w => terms(`${w.title} ${w.title} ${w.abstract}`)));
   const esc = c => String(c).replace(/[,|:]/g, ' ').trim();
   // pairs of concepts: how often each pair was studied together, relative to the rarer concept alone
   const pairs = [];
   for (let i = 0; i < concepts.length; i++) for (let j = i + 1; j < concepts.length; j++) pairs.push([concepts[i], concepts[j]]);
-  const [allCount, single, pairCounts] = await Promise.all([
+  let [allCount, single, pairCounts] = await Promise.all([
     countWorks(`title_and_abstract.search:${concepts.map(esc).join(' ')}`),
     Promise.all(concepts.map(c => countWorks(`title_and_abstract.search:${esc(c)}`))),
     Promise.all(pairs.map(([a, b]) => countWorks(`title_and_abstract.search:${esc(a)} ${esc(b)}`)))
   ]);
+  // OpenAlex unavailable: the same counts in Europe PMC
+  let countedIn = 'OpenAlex';
+  if (!single.some(Number.isFinite)) {
+    countedIn = 'Europe PMC';
+    [allCount, single, pairCounts] = await Promise.all([countEpmc(concepts), Promise.all(concepts.map(c => countEpmc([c]))), Promise.all(pairs.map(pair => countEpmc(pair)))]);
+  }
   const pairRarity = pairs.map(([a, b], k) => {
     const n = pairCounts[k], m = Math.min(single[concepts.indexOf(a)], single[concepts.indexOf(b)]);
     return Number.isFinite(n) && Number.isFinite(m) && m > 0 ? 1 - Math.min(1, Math.log10(1 + n) / Math.log10(1 + m)) : null;
@@ -260,8 +337,8 @@ async function checkNovelty({ meta = {}, journal = {} }, update = () => {}) {
     statement, guidance, limitations, selfMatches,
     weights: { distance: 50, uncrowded: 25, rarity: rarity === null ? 0 : 25 },
     components: { distance: Math.round(distance * 100), crowding: Math.round(crowd * 100), rarity: rarity === null ? null : Math.round(rarity * 100), meanTop5: Math.round(meanTop5 * 1000) / 1000 },
-    concepts: { terms: concepts, together: allCount, individually: single, pairs: pairs.map(([a, b], k) => ({ a, b, works: pairCounts[k] })) },
-    closest: top.map(w => ({ title: w.title, year: w.year, journal: w.journal, doi: w.doi, similarity: w.similarity, citedBy: w.citedBy, shared: w.shared || [], via: w.via || 'OpenAlex', url: w.url || (w.doi ? `https://doi.org/${w.doi}` : `https://openalex.org/${w.id}`) })),
+    concepts: { terms: concepts, countedIn, together: allCount, individually: single, pairs: pairs.map(([a, b], k) => ({ a, b, works: pairCounts[k] })) },
+    closest: top.map(w => ({ title: w.title, year: w.year, journal: w.journal, doi: w.doi, similarity: w.similarity, words: Math.round((w.wordSimilarity || 0) * 1000) / 1000, meaning: Number.isFinite(w.semantic) ? w.semantic : null, citedBy: w.citedBy, shared: w.shared || [], via: w.via || 'OpenAlex', url: w.url || (w.doi ? `https://doi.org/${w.doi}` : `https://openalex.org/${w.id}`) })),
     momentum,
     forecast: { horizon, journalFactor: Math.round(journalFactor * 100) / 100, journalNote, basis: curves.length, method: 'Cumulative citations of the most similar published works (OpenAlex counts by year), aligned on their publication year, similarity-weighted median and interquartile range; scaled by the target journal\'s citedness. A forecast, not a guarantee: citations also depend on visibility, open access and later work.' },
     checked: { works: prior.length, database: 'OpenAlex (about 250 million works) and Europe PMC (biomedical literature)', query },

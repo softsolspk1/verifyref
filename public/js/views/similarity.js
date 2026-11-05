@@ -61,7 +61,7 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
 
   const sameSet = (set, list) => set.size === list.length && list.every(k => set.has(k));
   const dirty = () => state.minWords !== saved.minWords || state.minPercent !== saved.minPercent || state.includeQuotes !== saved.includeQuotes || !sameSet(state.excluded, saved.excluded) || !sameSet(state.excludeSections, saved.excludeSections);
-  const filtered = () => state.excluded.size || state.minWords > MIN_MATCH || state.excludeSections.size || state.minPercent > 0 || state.includeQuotes;
+  const filtered = () => state.excluded.size || state.minWords > MIN_MATCH || state.excludeSections.size || state.minPercent > 0 || state.includeQuotes !== ((original.version || 0) >= 4); // the default: quotes included from version 4 (Turnitin)
   const compute = () => {
     const v = recompute(all, text, { tokens, total: original.summary.words, excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent, quoted: quoted || [], includeQuotes: state.includeQuotes });
     pl = { ...original, ...v };
@@ -135,10 +135,18 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
     const credited = pl.sources || [];
     const others = pl.alsoMatched || [];
     const secs = pl.sections || [];
-    const tabs = [['overview', `Matches (${credited.length})`], ['all', `All sources (${credited.length + others.length})`], ...(secs.length > 1 ? [['sections', 'Sections']] : []), ['filters', 'Filters']];
+    const groups = pl.groups || [];
+    const tabs = [['overview', `Matches (${credited.length})`], ...(groups.length ? [['groups', 'Match groups']] : []), ['all', `All sources (${credited.length + others.length})`], ...(secs.length > 1 ? [['sections', 'Sections']] : []), ['filters', 'Filters']];
     const list = state.panel === 'all' ? [...credited, ...others] : credited;
+    const snippet = m => tokens.slice(m.from, Math.min(m.to, m.from + 18)).map(w => w.raw).join(' ') + (m.to - m.from > 18 ? ' …' : '');
     return `<div class="sim-tabs">${tabs.map(([k, l]) => `<button class="${state.panel === k ? 'active' : ''}" data-panel="${k}">${l}</button>`).join('')}</div>
-      ${state.panel === 'sections' ? `<div class="sim-filters">
+      ${state.panel === 'groups' ? `<div class="sim-filters">
+          <p class="muted">Every match sorted, as in Turnitin, by whether it is in quotation marks and whether its sentence cites a source. The groups add up to the Similarity Index.</p>
+          ${groups.map(g => `<details class="sim-group"${g.matches.length && g.key !== 'cited' ? ' open' : ''}><summary><b>${g.matches.length} ${esc(g.label)}</b> <span class="muted">${pctText(g.percent)}</span><br><span class="muted" style="font-size:12px">${esc(g.about)}</span></summary>
+            ${g.matches.length ? `<ol class="sim-group-list">${g.matches.slice(0, 60).map(m => `<li><span class="sim-no" style="background:${srcColor(m.no)}">${m.no}</span> <span>${esc(snippet(m))}</span> <span class="muted">${m.words} words</span> <button class="btn btn-sm btn-ghost" data-goto="${m.from}">Show ↗</button></li>`).join('')}</ol>${g.matches.length > 60 ? `<p class="muted">… ${g.matches.length - 60} more</p>` : ''}` : '<p class="muted">None.</p>'}
+          </details>`).join('')}
+        </div>`
+      : state.panel === 'sections' ? `<div class="sim-filters">
           <p class="muted">Similarity of each section. Overlap in Materials and methods is often standard wording; untick a section to leave it out of the comparison (its words then count neither as matched nor in the total).</p>
           <table class="sim-secs"><thead><tr><th>Include</th><th>Section</th><th>Words</th><th>Similarity</th></tr></thead><tbody>
           ${secs.map(x => `<tr class="${x.excluded ? 'off' : ''}"><td><input type="checkbox" data-section="${esc(x.key)}" ${x.excluded ? '' : 'checked'} aria-label="Include ${esc(x.label)}"></td><td>${esc(x.label)}</td><td>${x.words.toLocaleString()}</td>
@@ -147,7 +155,7 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
           <p class="muted" style="margin-top:8px">Sections are found from the manuscript's headings (Abstract, Introduction, Materials and methods, Results, Discussion, Conclusion, Declarations).</p>
         </div>`
       : state.panel === 'filters' ? `<div class="sim-filters">
-          <p><b>Bibliography</b> — ${esc(pl.filters.bibliography)}</p>
+          <p><b>Bibliography</b> — ${secs.some(x => x.key === 'references') ? `<label class="row" style="display:inline-flex;gap:6px;margin:0"><input type="checkbox" id="sim-bib" ${state.excludeSections.has('references') ? 'checked' : ''}> exclude bibliography (${(secs.find(x => x.key === 'references')?.words || 0).toLocaleString()} words in the reference list)</label>` : esc(pl.filters.bibliography)}</p>
           <p><b>Quotations</b> — ${quoted ? `<label class="row" style="display:inline-flex;gap:6px;margin:0"><input type="checkbox" id="sim-quotes" ${state.includeQuotes ? '' : 'checked'}> exclude quoted text (${quotedWords} words in quotation marks)</label>` : esc(pl.filters.quotes)}</p>
           ${pl.filters.citations ? `<p><b>In-text citations</b> — ${esc(pl.filters.citations)}</p>` : ''}
           <p><b>Small matches</b> — excluded (fewer than ${state.minWords} words)</p>
@@ -217,6 +225,8 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
     $('#sim-pct', body).onchange = e => { state.minPercent = +e.target.value; state.at = -1; paint(); };
     const q = $('#sim-quotes', body);
     if (q) q.onchange = () => { state.includeQuotes = !q.checked; state.at = -1; paint(); };
+    const bib = $('#sim-bib', body);
+    if (bib) bib.onchange = () => { if (bib.checked) state.excludeSections.add('references'); else state.excludeSections.delete('references'); state.at = -1; state.focus = null; paint(); };
     $$('[data-section]', body).forEach(b => (b.onchange = () => {
       if (b.checked) state.excludeSections.delete(b.dataset.section); else state.excludeSections.add(b.dataset.section);
       state.at = -1; state.focus = null;

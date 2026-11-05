@@ -1,13 +1,12 @@
 // externalSimilarity.js - full-text comparison of a manuscript by the external similarity service (Copyleaks API), for
-// the Similarity Report: web pages and publications the in-house passage search does not reach, the service's database
-// of submitted documents, and paraphrase ("related meaning") detection. Its name is not shown to users; reports call it
+// the Similarity Report: web pages and publications the in-house passage search does not reach, and paraphrase ("related meaning") detection. Its name is not shown to users; reports call it
 // "the external full-text similarity service".
 //
 // Flow (survives a stopped and resumed job): the text is submitted once under a scan id (ext_scans, found again by a
 // hash of the text for 3 hours); the service calls back /api/hooks/sim/<scanId>/<status> when the scan is done; the
 // matched results are then exported, each one pushed to /api/hooks/sim/<scanId>/result/<id>. The callback URLs carry an
 // HMAC of the scan id (keyed with the API key) and are refused without it.
-// Privacy: never indexed in the service's database (indexing off, "my submissions" not compared) and the scan expires
+// Privacy: never indexed in the service's database (indexing off, so its database is not searched either) and the scan expires
 // after EXPIRATION_HOURS. Needs a public address for the callbacks (PUBLIC_URL, or the Vercel production URL): the
 // desktop app and a local server without one skip this comparison.
 const crypto = require('crypto');
@@ -16,7 +15,7 @@ const db = require('./db');
 
 const API = 'https://api.copyleaks.com';
 const ID = 'https://id.copyleaks.com';
-const MAX_RESULTS = 25;              // matched sources exported with their positions
+const MAX_RESULTS = 60;              // matched sources exported with their positions
 const EXPIRATION_HOURS = 2;          // the service deletes the scan after this
 const WAIT_SCAN_MS = 6 * 60000;      // the report waits this long for the scan, then goes on without it
 const WAIT_EXPORT_MS = 3 * 60000;
@@ -145,7 +144,9 @@ async function scanText(text, { update = () => {} } = {}) {
             sandbox: cfg.COPYLEAKS_SANDBOX,
             expiration: EXPIRATION_HOURS,
             webhooks: { status: hook(scanId, '{STATUS}') },
-            scanning: { internet: true, copyleaksDb: { includeMySubmissions: false, includeOthersSubmissions: true } },
+            // the service compares with its database of submitted documents only when the text is added to it - refused
+            // (no-storage policy); its web and publication index is searched
+            scanning: { internet: true },
             indexing: { copyleaksDb: false },
             aiGeneratedText: { detect: true }
           }

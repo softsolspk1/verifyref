@@ -178,7 +178,15 @@ function interpretLists(hits) {
   }
   const wos = [];
   // SCImago's WoS filter confirms Core Collection coverage but not which index
-  if (hits.wos_sjr) wos.push({ index: 'Web of Science (index not specified)', categories: pick(hits.wos_sjr.data, [/categor/i]), matchedBy: hits.wos_sjr.matchedBy });
+  // Clarivate's Master Journal List names the collection (SCIE, SSCI, AHCI, ESCI)
+  if (hits.wos_mjl) {
+    const d = hits.wos_mjl.data;
+    const coll = String(pick(d, [/collection|edition|^index$/i]) || '');
+    const names = { SCIE: 'SCIE (Science Citation Index Expanded)', SSCI: 'SSCI (Social Sciences Citation Index)', AHCI: 'AHCI (Arts & Humanities Citation Index)', ESCI: 'ESCI (Emerging Sources Citation Index)' };
+    const found = [...new Set((coll.toUpperCase().match(/SCIE|SSCI|AHCI|A&HCI|ESCI/g) || []).map(x => x.replace('A&HCI', 'AHCI')))];
+    for (const c of found.length ? found : ['']) wos.push({ index: names[c] || coll || 'Web of Science Core Collection', categories: pick(d, [/categor/i]), matchedBy: hits.wos_mjl.matchedBy, source: 'Clarivate Master Journal List' });
+  }
+  if (hits.wos_sjr && !hits.wos_mjl) wos.push({ index: 'Web of Science (index not specified)', categories: pick(hits.wos_sjr.data, [/categor/i]), matchedBy: hits.wos_sjr.matchedBy });
   if (wos.length) out.wos = wos;
   if (hits.jcr) {
     const d = hits.jcr.data;
@@ -202,6 +210,14 @@ function interpretLists(hits) {
       coverage: pick(d, [/coverage policy/i, /coverage/i]),
       matchedBy: hits.ebsco.matchedBy
     };
+  }
+  if (hits.ici) {
+    const d = hits.ici.data;
+    out.indexCopernicus = { icv: pick(d, [/^icv/i, /icv/i, /value/i]), year: pick(d, [/year/i]), matchedBy: hits.ici.matchedBy };
+  }
+  if (hits.gsm) {
+    const d = hits.gsm.data;
+    out.googleScholar = { h5index: pick(d, [/h5.?index/i]), h5median: pick(d, [/h5.?median/i]), category: pick(d, [/categor|subcat|field/i]), matchedBy: hits.gsm.matchedBy };
   }
   if (hits.hec_blacklist) out.hecBlacklist = { matchedBy: hits.hec_blacklist.matchedBy, data: hits.hec_blacklist.data };
   if (hits.doaj_removed) out.doajRemoved = { reason: pick(hits.doaj_removed.data, [/reason/i]), date: pick(hits.doaj_removed.data, [/date/i]) };
@@ -297,6 +313,8 @@ async function checkJournal(input) {
   if (medline) indexed.push('MEDLINE');
   if (doaj.inDoaj) indexed.push('DOAJ');
   if (lists.hjrs?.category) indexed.push(`HJRS ${lists.hjrs.category}`);
+  if (lists.indexCopernicus) indexed.push(`Index Copernicus${lists.indexCopernicus.icv ? ` (ICV ${lists.indexCopernicus.icv})` : ''}`);
+  if (lists.googleScholar) indexed.push(`Google Scholar Metrics${lists.googleScholar.h5index ? ` (h5-index ${lists.googleScholar.h5index})` : ''}`);
   if (lists.ebsco) indexed.push('EBSCO');
   if (lists.pmc && /active/i.test(lists.pmc.status || '')) indexed.push('PMC');
 
@@ -360,7 +378,9 @@ async function checkJournal(input) {
       doaj,
       hjrs: lists.hjrs || null,
       ebsco: lists.ebsco || null,
-      pmc: lists.pmc || null
+      pmc: lists.pmc || null,
+      indexCopernicus: lists.indexCopernicus || null,
+      googleScholar: lists.googleScholar || null
     },
     retractions: rw,
     predatory,

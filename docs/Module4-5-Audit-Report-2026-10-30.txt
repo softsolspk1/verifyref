@@ -116,3 +116,64 @@ or published yet.
   test/papermill-signals.js             new test (13 checks), added to npm test
   docs/benchmark-papermill-notes.md     benchmark results recorded
   README.md                             Module 4 description updated
+
+
+
+
+-----------------------------------------------
+https://aatrader.vercel.app/
+
+
+CLoud name: mctdwtq3
+
+
+
+How to get ImageTwin or Proofig API to use in this platform. Any 
+
+
+
+Add PubMed, Google Scholar, Google Books and Google dataset into portal so that it will search automatically instaed of manual checking. I need this automated checking4
+
+
+
+In Full screening Report: Why it says Checking references against 13 databases. Why not check all databsed available in system? It should check by all available databases
+
+
+
+
+Add Dovepress (Taylor & Francis Group) Dataset to the platform and also upload data and use 
+
+
+Run the one-time production steps on R2
+
+
+5391600013160943
+09/30
+372
+
+
+Rebuild desktop 3.2.4 and publish it
+
+Review Amazon Store again and create a report of it to share with client about the issues and other things.
+Id : info@acautoservices.co.uk
+Pwd : Ferry@lane212
+ 
+
+
+
+
+
+
+Still to do (next session):
+  1. Load both new lists into lookup tables. The Scopus file still needs inspecting: I expect it to show which sources were
+     discontinued, but haven't confirmed that. Then use them:
+     - Module 1: flag hijacked journals, and journals discontinued from Scopus.
+     - Module 4: add a signal for references to them.
+  2. Wire in the Problematic Paper Screener "citejacked" list. It's already downloaded (data/pps/citejacked.csv) but no check uses  
+     it yet.
+  3. Load Cellosaurus problematic cell lines in bulk, for offline use on the desktop and wider coverage than ICLAC.
+  4. Module 5: index the full PJPS archive (only 228 papers so far) and more PubMed Central figures.
+  5. Unfinished from earlier:
+     - The repository text loads stopped when the computer ran low on memory: 1,000 of 2,000 general papers and 950 of 1,000 Dove   
+       papers. Both can be resumed.
+     - The version-3.2.4 commit (e74db72) is still unpushed, so the web portal reports 3.2.3.

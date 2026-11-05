@@ -5,7 +5,7 @@
 //   cstd : cut / sharp transition - spliced or joined regions (181 images)
 //   neg  : false alarms - unrelated panels from different papers pooled together
 // Each BioFors image is already a single panel, so the panel-splitting step of the live tool is not exercised.
-// Data: data/benchmark/biofors/{biofors_images,ann}. Usage: node scripts/benchmark-images.mjs [--task edd|idd|cstd|neg|all] [--docs N] [--neg N]
+// Data: data/benchmark/biofors/{biofors_images,ann}. Usage: node scripts/benchmark-images.mjs [--task edd|idd|cstd|neg|all] [--docs N] [--offset N] [--neg N]
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -19,14 +19,15 @@ const { PNG } = require('pngjs');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BF = path.join(ROOT, 'data', 'benchmark', 'biofors');
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i > 0 ? process.argv[i + 1] : d; };
-const TASK = arg('task', 'all'), DOCS = parseInt(arg('docs', '0'), 10), NEG = parseInt(arg('neg', '300'), 10);
+const TASK = arg('task', 'all'), DOCS = parseInt(arg('docs', '0'), 10), NEG = parseInt(arg('neg', '300'), 10), OFFSET = parseInt(arg('offset', '0'), 10);
 const ann = n => JSON.parse(fs.readFileSync(path.join(BF, 'ann', n + '.json'), 'utf8'));
 const edd = ann('edd_gt'), idd = ann('idd_gt'), cstd = ann('cstd_gt'), cls = ann('classification');
 
 let seed = 7;
 const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const limit = o => (DOCS ? shuffle(Object.keys(o)).slice(0, DOCS) : Object.keys(o));
+// --offset N: the next papers of the same shuffled order (a held-out sample for checking changes tuned on the first ones)
+const limit = o => (DOCS ? shuffle(Object.keys(o)).slice(OFFSET, OFFSET + DOCS) : Object.keys(o));
 
 const cache = new Map();
 function panel(doc, name, forensic = false) {

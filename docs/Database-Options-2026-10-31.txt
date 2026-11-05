@@ -78,3 +78,6 @@ The site would be down for about an hour during the switch.
 - Move the image index and caches to Cloudflare R2 first, or move to another host now?
 - Deploy the faster Module 5 image matching (built and tested, not yet pushed). The live
   site uses the old full comparison until then, which gets slower as figures are added.
+
+
+Move the image index and caches to Cloudflare R2 first and then Deploy the faster Module 5 image matching 

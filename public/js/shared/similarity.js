@@ -21,8 +21,73 @@ export function tokenize(text) {
   return out;
 }
 
+/**
+ * Character spans of in-text citation markers: numbered ([12], [3-5, 9], (12)) and author-year ((Smith et al., 2020;
+ * Khan and Ali, 2019a)), sorted
+ */
+export function citeSpans(text) {
+  const t = String(text || '');
+  const out = [];
+  for (const m of t.matchAll(/\[\s*\d{1,3}(?:\s*[-–,;]\s*\d{1,3})*\s*\]|\(\s*\d{1,3}(?:\s*[-–,;]\s*\d{1,3})*\s*\)/g)) out.push([m.index, m.index + m[0].length]);
+  for (const m of t.matchAll(/\(([^()]{3,250})\)/g)) {
+    if (/\p{Lu}[\p{L}'’-]+(?:\s+et\s+al\.?|\s+(?:and|&)\s+\p{Lu}[\p{L}'’-]+)?,?\s+(?:19|20)\d{2}[a-z]?\b/u.test(m[1])) out.push([m.index, m.index + m[0].length]);
+  }
+  return out.sort((a, b) => a[0] - b[0]);
+}
+
 /** Number of words in ranges [[from, to), ...] */
 const sizeOf = ranges => ranges.reduce((a, [p, q]) => a + q - p, 0);
+
+// Turnitin's match groups: every match sorted by whether its sentence cites a source and whether it is in quotation marks
+export const GROUPS = [
+  ['uncited', 'Not Cited or Quoted', 'Matches with neither an in-text citation nor quotation marks'],
+  ['missingQuotes', 'Missing Quotations', 'Matches still identical or nearly identical to the source, cited but not in quotation marks'],
+  ['missingCitation', 'Missing Citation', 'Matches in quotation marks without an in-text citation'],
+  ['cited', 'Cited and Quoted', 'Matches with an in-text citation, in quotation marks or restated in other words']
+];
+const ABBREV = /^(?:al|e\.g|i\.e|fig|figs|vs|approx|ca|no|nos|vol|eq|ref|refs|dr|prof|st|sp|spp|var|cf|resp|etc|viz|min|max|conc|temp|wt)\.$/i;
+
+/**
+ * The matches (runs of words credited to one source) in Turnitin's match groups. A match is cited when a citation marker
+ * stands in its sentence (or right after it), quoted when most of its words are inside quotation marks; a cited match that
+ * is not quoted is "Missing Quotations" when it is word for word, "Cited and Quoted" when it was restated (paraphrased).
+ * owner: source index per word (attribute); quotedMask: 1 for quoted words; paraMask: 1 for words of paraphrased passages
+ * -> [{ key, label, about, words, percent, matches: [{ no, from, to, words }] }]
+ */
+function matchGroups(text, words, owner, number, quotedMask, paraMask, base) {
+  const n = owner.length;
+  const spans = citeSpans(text);
+  const cite = new Uint8Array(n);
+  let s = 0;
+  for (let k = 0; k < n && k < words.length; k++) {
+    while (s < spans.length && spans[s][1] <= words[k].start) s++;
+    if (s < spans.length && spans[s][0] <= words[k].start) cite[k] = 1;
+  }
+  // sentence number of every word; a citation marker right after a full stop belongs to the sentence before it
+  const sent = new Int32Array(n);
+  for (let k = 1, id = 0; k < n && k < words.length; k++) {
+    const w = words[k - 1].raw;
+    if (/[.!?]["”’)\]]?$/.test(w) && !ABBREV.test(w) && /^[\p{Lu}\d“"]/u.test(words[k].raw) && !cite[k]) id++;
+    sent[k] = id;
+  }
+  const citedSentence = new Set();
+  for (let k = 0; k < n; k++) if (cite[k]) citedSentence.add(sent[k]);
+  const out = Object.fromEntries(GROUPS.map(([key, label, about]) => [key, { key, label, about, words: 0, percent: 0, matches: [] }]));
+  for (let k = 0; k < n;) {
+    if (owner[k] < 0 || !number.get(owner[k])) { k++; continue; }
+    let e = k;
+    while (e < n && owner[e] === owner[k]) e++;
+    let q = 0, para = 0, cited = false;
+    for (let j = k; j < e; j++) { q += quotedMask[j]; para += paraMask[j]; if (citedSentence.has(sent[j])) cited = true; }
+    const quoted = q * 2 > e - k;
+    const key = quoted ? (cited ? 'cited' : 'missingCitation') : !cited ? 'uncited' : para * 2 > e - k ? 'cited' : 'missingQuotes';
+    out[key].matches.push({ no: number.get(owner[k]), from: k, to: e, words: e - k });
+    out[key].words += e - k;
+    k = e;
+  }
+  for (const g of Object.values(out)) g.percent = pct(g.words, base);
+  return GROUPS.map(([key]) => out[key]);
+}
 
 // section headings of a research paper, as iThenticate's "exclude abstract / methods" filters read them; the order of
 // SECTIONS is the order of the report's section table
@@ -34,7 +99,9 @@ const SECTIONS = [
   ['results', 'Results', /^(?:results?|findings|results? and discussions?)$/],
   ['discussion', 'Discussion', /^discussions?$/],
   ['conclusion', 'Conclusion', /^(?:conclusions?|concluding remarks|summary and conclusions?)$/],
-  ['back', 'Declarations (acknowledgements, funding, conflicts)', /^(?:acknowledge?ments?|funding(?: sources?| information)?|conflicts? of interests?|competing interests?|declarations?|author(?:s'?)? contributions?|ethic(?:s|al)(?: approval| statement| considerations)?.*|data availability(?: statement)?|abbreviations)$/]
+  ['back', 'Declarations (acknowledgements, funding, conflicts)', /^(?:acknowledge?ments?|funding(?: sources?| information)?|conflicts? of interests?|competing interests?|declarations?|author(?:s'?)? contributions?|ethic(?:s|al)(?: approval| statement| considerations)?.*|data availability(?: statement)?|abbreviations)$/],
+  // Turnitin's "exclude bibliography" leaves this section out
+  ['references', 'Bibliography (reference list)', /^(?:references?(?: cited)?|bibliography|literature cited|works cited|reference list|cited literature)$/]
 ];
 const SECTION_LABEL = Object.fromEntries(SECTIONS.map(([k, l]) => [k, l]));
 
@@ -57,10 +124,12 @@ export function sectionsOf(text, tokens = null, total = null) {
     if (sec) heads.push({ key: sec[0], at, label: sec[0] === 'results' && /discussion/.test(name) ? 'Results and discussion' : sec[1] });
     at += line.length + 1;
   }
-  if (heads.length < 2 || !n) return [{ key: 'body', label: 'Whole text', ranges: n ? [[0, n]] : [], words: n }];
+  // the reference list is a section of its own even when the text has no other headings
+  const bibOnly = heads.length === 1 && heads[0].key === 'references';
+  if ((heads.length < 2 && !bibOnly) || !n) return [{ key: 'body', label: 'Whole text', ranges: n ? [[0, n]] : [], words: n }];
   // the first word at or after a character offset
   const wordAt = off => { let lo = 0, hi = n; while (lo < hi) { const mid = (lo + hi) >> 1; if (words[mid].start < off) lo = mid + 1; else hi = mid; } return lo; };
-  const cuts = [{ key: 'front', label: SECTION_LABEL.front, from: 0 }, ...heads.map(h => ({ key: h.key, label: h.label, from: wordAt(h.at) }))];
+  const cuts = [bibOnly ? { key: 'body', label: 'Main text', from: 0 } : { key: 'front', label: SECTION_LABEL.front, from: 0 }, ...heads.map(h => ({ key: h.key, label: h.label, from: wordAt(h.at) }))];
   const byKey = new Map();
   cuts.forEach((c, i) => {
     const to = i + 1 < cuts.length ? cuts[i + 1].from : n;
@@ -71,7 +140,7 @@ export function sectionsOf(text, tokens = null, total = null) {
     s.words += to - c.from;
     byKey.set(c.key, s);
   });
-  const order = SECTIONS.map(s => s[0]);
+  const order = ['body', ...SECTIONS.map(s => s[0])];
   return [...byKey.values()].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 }
 
@@ -138,6 +207,7 @@ export const levelOf = (similarity, largest) => (similarity >= 25 || largest >= 
  * -> { sources (credited, numbered by share), alsoMatched (matched, but every word credited to a larger source, excluded
  *      by the editor, or under minPercent), sections: [{ key, label, words, matched, similarity, excluded }],
  *      summary: { similarity, internet, publications, submissions, largestSource, sources, level, words, compared },
+ *      groups: Turnitin's match groups (matchGroups),
  *      document: [{ t, s, x? }] (text in runs of one source number, 0 = not matched; x = in an excluded section) }
  */
 export function recompute(all, text, { tokens = null, total = null, excluded = [], minWords = MIN_MATCH, maxText = Infinity, excludeSections = [], minPercent = 0, quoted = [], includeQuotes = false } = {}) {
@@ -172,6 +242,12 @@ export function recompute(all, text, { tokens = null, total = null, excluded = [
     if (!skip.has(sec.key)) for (const [p, q] of sec.ranges) for (let k = p; k < q; k++) if (owner[k] >= 0) matched++;
     return { key: sec.key, label: sec.label, words: sec.words, matched, similarity: skip.has(sec.key) ? null : pct(matched, sec.words), excluded: skip.has(sec.key) };
   });
+  // Turnitin's match groups (quotation marks and in-text citations of every match)
+  const quotedMask = new Uint8Array(n);
+  for (const [p, q] of quoted) quotedMask.fill(1, Math.max(0, p), Math.min(n, q));
+  const paraMask = new Uint8Array(n);
+  for (const x of all) for (const p of x.passages || []) if (p.paraphrased) paraMask.fill(1, Math.max(0, p.from), Math.min(n, p.to));
+  const groups = matchGroups(text, words, owner, number, quotedMask, paraMask, base);
   // the text in runs of one source (or none), for the highlighted view
   const document = [];
   const s = text.length;
@@ -188,7 +264,7 @@ export function recompute(all, text, { tokens = null, total = null, excluded = [
   }
   if (!words.length && text) document.push({ t: text.slice(0, maxText), s: 0 });
   return {
-    sources, alsoMatched, document, sections,
+    sources, alsoMatched, document, sections, groups,
     summary: { similarity, internet: byType('internet'), publications: byType('publication'), submissions: byType('submission'), largestSource, sources: sources.length, level: levelOf(similarity, largestSource), words: n, compared: base === 1 && n === 0 ? 0 : base }
   };
 }

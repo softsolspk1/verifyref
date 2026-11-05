@@ -675,6 +675,7 @@ function similarityReportBlocks(r) {
   if (pl.aiWriting) blocks.push({ kv: [['AI-writing indicator', `${pl.aiWriting.score}/100${pl.aiWriting.leftovers ? ` - chatbot text left in the manuscript (${pl.aiWriting.leftovers})` : ''} - an indicator, not proof${pl.aiWriting.parts?.length ? `: ${pl.aiWriting.parts.join('; ')}` : ''}`]] });
   if (pl.selfMatches?.length) blocks.push({ p: `Not counted (the manuscript's own published version or preprint): ${pl.selfMatches.map(x => `${x.title}${x.year ? ` (${x.year})` : ''}`).join('; ')}`, italics: true });
   if (pl.sections?.length > 1) blocks.push({ h2: 'Similarity by section' }, simSectionsTable(pl));
+  if (pl.groups?.length) blocks.push({ h2: 'Match groups' }, { table: { headers: ['Group', 'Matches', 'Similarity', 'What it means'], rows: pl.groups.map(g => [g.label, String(g.matches.length), simPt(g.percent), g.about]) } });
   blocks.push({ h2: 'Primary sources' });
   if (!pl.sources.length) blocks.push({ p: 'No matching text was found in the sources searched.' });
   else {

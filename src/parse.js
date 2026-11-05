@@ -3,6 +3,9 @@ const { cleanDoi, splitName } = require('./text');
 
 const DOI_REGEX = /10\.\d{4,9}\/[^\s"'<>,]*[^\s"'<>.,;:]/i;
 const NUMBERED_PREFIX = /^\s*(?:\[\d{1,4}\]|\(\d{1,4}\)|\d{1,4}[.)](?!\d))\s*/;
+// Harvard without parentheses: an author list (Surname AB / Surname, A.B., joined by commas, "and" or "&", optional
+// et al.) then ", 2019." - the year directly after the authors, before the title
+const HARVARD_NO_PARENS = /^((?:[\p{Lu}][\p{L}'’-]+(?:[ -][\p{Lu}][\p{L}'’-]+)*,?\s+(?:[\p{Lu}]\.?\s?){1,3}(?:,\s*|\s+and\s+|\s*&\s*)?)+(?:et al\.?)?)[,.]?\s+((?:1[6-9]|20)\d{2})[a-z]?\.\s+(?=\S)/u;
 const BULLET_PREFIX = /^\s*[•▪·*-]\s+/;
 const YEAR_RE = /\b(1[6-9]\d{2}|20\d{2})[a-z]?\b/;
 // the heading of the reference list, as authors write it in a plain Word file: "References", "REFERENCES.", "7. References:",
@@ -132,9 +135,25 @@ function rtfToText(rtf) {
 
 function parseBibtex(src) {
   const entries = [];
-  for (const m of src.matchAll(/@(\w+)\s*\{\s*([^,]*),([\s\S]*?)\n\}\s*(?=@|$)/g)) {
+  // entries are found by matching braces, so an entry on one line (Google Scholar, Zotero) or with its closing brace
+  // anywhere is read; @comment, @string and @preamble are not references
+  const blocks = [];
+  for (const m of src.matchAll(/@(\w+)\s*([{(])/g)) {
+    const type = m[1].toLowerCase();
+    if (['comment', 'string', 'preamble'].includes(type)) continue;
+    const open = m[2], close = open === '{' ? '}' : ')';
+    let depth = 0, i = m.index + m[0].length - 1;
+    for (; i < src.length; i++) {
+      if (src[i] === open) depth++;
+      else if (src[i] === close && --depth === 0) break;
+    }
+    const inner = src.slice(m.index + m[0].length, i);
+    const comma = inner.indexOf(',');
+    if (comma >= 0) blocks.push([null, type, inner.slice(0, comma).trim(), inner.slice(comma + 1)]);
+  }
+  for (const m of blocks) {
     const fields = {};
-    for (const f of m[3].matchAll(/(\w+)\s*=\s*(\{((?:[^{}]|\{[^{}]*\})*)\}|"([^"]*)"|(\d+))/g)) {
+    for (const f of m[3].matchAll(/(\w[\w-]*)\s*=\s*(\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}|"([^"]*)"|(\w+))/g)) {
       fields[f[1].toLowerCase()] = (f[3] ?? f[4] ?? f[5] ?? '').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim();
     }
     const authors = (fields.author || '').split(/\s+and\s+/i).filter(Boolean).map(splitName);
@@ -194,7 +213,8 @@ function parseRis(src) {
 
 /** A paragraph holding several numbered references ("1. Khan A ... 2. Ali B ...") as one line per reference */
 function splitInlineNumbered(line) {
-  if (line.length < 150) return [line];
+  // short lines too: a chain of consecutive numbers starting at 1 ([1] ... [2] ...) is what decides
+  if (line.length < 60) return [line];
   const marks = [...line.matchAll(/(?:^|\s)\[?(\d{1,3})[.)\]]\s+(?=\p{Lu})/gu)].map(m => ({ n: +m[1], at: m.index + (m[0].startsWith(' ') ? 1 : 0) }));
   // the longest chain of consecutive numbers (1, 2, 3 ...) among the marks
   let best = [];
@@ -228,7 +248,7 @@ function splitReferences(rawText, strategy = 'auto') {
   const blank = splitBlank(text);
   if (blank.length >= 2 && blank.length >= lines.length * 0.3) return { entries: trimBackMatter(blank), strategy: 'blank-line' };
 
-  return { entries: trimBackMatter(splitContinuation(lines)), strategy: 'line-with-continuation' };
+  return { entries: trimBackMatter(splitContinuation(lines.flatMap(splitInlineAuthorYear))), strategy: 'line-with-continuation' };
 }
 
 /** Drop figure/table captions that ran on into the last entry (or became entries of their own) */
@@ -260,6 +280,23 @@ function splitNumbered(lines) {
   }
   if (cur.trim()) entries.push(cur.trim());
   return entries.filter(e => e.length > 15);
+}
+
+/**
+ * Unnumbered references run together on one line (copied from a PDF): split where one reference ends with its pages or
+ * DOI and a full stop and the next begins with an author ("…: 55-63. Khan A, Ali B and Shah C (2019). …"); both parts
+ * must have a year, so a title or journal name with a capital after a number is not cut
+ */
+function splitInlineAuthorYear(line) {
+  if (line.length < 120) return [line];
+  const parts = line.split(/(?<=(?:\d|10\.\S+)\.)\s+(?=[\p{Lu}][\p{L}'’-]+(?:\s[\p{Lu}][\p{L}'’-]+)?,?\s+(?:[\p{Lu}]\.?\s?){1,3}(?:,|\s+and\s|\s*&|\s*\(\s*(?:1[6-9]|20)\d{2}|\s+et al))/u);
+  if (parts.length < 2) return [line];
+  const out = [];
+  for (const p of parts) {
+    if (out.length && !YEAR_RE.test(p)) out[out.length - 1] += ' ' + p;
+    else out.push(p);
+  }
+  return out.every(p => YEAR_RE.test(p)) ? out : [line];
 }
 
 /** Line-continuation heuristic for unnumbered author-year lists (each entry starts "Surname, X." or "Surname X,") */
@@ -394,6 +431,7 @@ function parseReferenceEntry(raw, index) {
 
   // Title in quotes (IEEE / Harvard / MLA)
   const quoted = core.match(/[“"‘']([^“”"]{12,400}?)[,.]?[”"’'](?=[\s,.]|$)/);
+  let harvard = null;
 
   // Nature / Science: Surname, I., Surname, I. & Surname, I. Title. Journal Vol, pages (Year).
   const nature = !yParen || core.indexOf(yParen[0]) > core.length - 12
@@ -419,6 +457,12 @@ function parseReferenceEntry(raw, index) {
       ref.title = segs[0] || '';
       ref.journal = journalFrom(after.slice(after.indexOf(ref.title) + ref.title.length));
     }
+  } else if (!quoted && (harvard = core.match(HARVARD_NO_PARENS))) {
+    // Harvard without parentheses: Khan A, Ali B and Shah C, 2019. Title. Journal, 32(1): 1-5.
+    ref.authors = parseAuthors(harvard[1]);
+    const after = core.slice(harvard[0].length);
+    ref.title = splitSentences(after)[0] || '';
+    ref.journal = journalFrom(after.slice(after.indexOf(ref.title) + ref.title.length));
   } else if (quoted) {
     // IEEE: A. Author, B. Author, "Title," Journal, vol. ..., year.
     const qi = core.indexOf(quoted[0]);
@@ -802,23 +846,26 @@ function extractAuthorYearCitations(body) {
   // years, and a letter alone after a lettered year: (Khan et al., 2020a, b) cites 2020a and 2020b
   const yearList = '((?:1[6-9]\\d{2}|20\\d{2})[a-z]?(?:\\s*,\\s*(?:(?:1[6-9]\\d{2}|20\\d{2})[a-z]?|[a-z](?=\\s*[,;)]|\\s*$)))*)';
   const authorPart = `(${NAME_TOKEN}(?:\\s+et\\s+al\\.?|\\s*(?:&|and)\\s*${NAME_TOKEN})?)`;
-  const parenAuthor = `(${PAREN_NAME}(?:\\s+et\\s+al\\.?|\\s*(?:&|and)\\s*${PAREN_NAME})?)`;
+  // several authors named in brackets: (Shah, Iqbal and Khan, 2018)
+  const parenAuthor = `(${PAREN_NAME}(?:\\s+et\\s+al\\.?|(?:\\s*,\\s*${PAREN_NAME})*\\s*,?\\s*(?:&|and)\\s*${PAREN_NAME})?)`;
 
   // Parenthetical groups
   for (const m of body.matchAll(/\(([^()]{4,400}?(?:1[6-9]\d{2}|20\d{2})[a-z]?[^()]*?)\)/g)) {
-    for (const part of m[1].split(/\s*;\s*/)) {
+    // works are separated by semicolons, but often by "and" or a comma after a year: (Ahmad et al., 2019 and Butt et al., 2020)
+    for (const part of m[1].split(/\s*;\s*|(?<=\b(?:1[6-9]\d{2}|20\d{2})[a-z]?)\s*(?:,|\band\b)\s+(?=(?:e\.g\.,?\s+|see\s+)?\p{Lu}[\p{Ll}'’])/u)) {
       const pm = part.replace(/^(?:e\.g\.,?|see|cf\.|also|i\.e\.,?)\s+/i, '').match(new RegExp(`^${parenAuthor},?\\s+${yearList}`, 'u'));
       if (pm) addAuthorYear(cites, pm[1], pm[2], m, body);
     }
   }
   // Narrative: Smith et al. (2020), Smith and Jones (2019a, 2020)
-  for (const m of body.matchAll(new RegExp(`${authorPart}\\s+\\(${yearList}\\)`, 'gu'))) addAuthorYear(cites, m[1], m[2], m, body);
+  // (and possessive: Khan et al.'s (2019) study)
+  for (const m of body.matchAll(new RegExp(`${authorPart}(?:['’]s)?\\s+\\(${yearList}\\)`, 'gu'))) addAuthorYear(cites, m[1], m[2], m, body);
   return cites;
 }
 
 function addAuthorYear(cites, authorStr, years, m, body) {
   const etAl = /et\s+al/i.test(authorStr);
-  const names = authorStr.replace(/\s+et\s+al\.?/i, '').split(/\s*(?:&|\band\b)\s*/).map(s => s.trim()).filter(Boolean);
+  const names = authorStr.replace(/\s+et\s+al\.?/i, '').split(/\s*(?:&|\band\b|,)\s*/).map(s => s.trim()).filter(Boolean);
   if (/^(?:In|The|This|These|Table|Figure|Fig|Eq|Section|Chapter|Since|From|During|Between|After|Before|Until|January|February|March|April|May|June|July|August|September|October|November|December|Spring|Summer|Autumn|Winter)$/i.test(names[0])) return;
   let last = null;
   for (const y of years.split(/\s*,\s*/)) {

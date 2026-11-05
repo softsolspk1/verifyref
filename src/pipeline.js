@@ -72,6 +72,8 @@ async function runCheck(input, update) {
   const textOnly = !refs.length && kind === 'manuscript' && String(body || '').split(/\s+/).length >= 300;
   if (!refs.length && !textOnly) throw new Error('No references were found. Paste the reference list, or upload the full manuscript (Word or PDF) - the list is found with or without a "References" heading.');
 
+  // just after a server start the retraction and predatory-journal lists are still being restored: wait for them briefly
+  await require('./datasets').coreDatasetsReady();
   const result = { kind, meta, createdAt: new Date().toISOString(), truncated, totalFound, datasets: await require('./datasets').datasetHealth() };
   if (textOnly) result.noReferenceList = noList ? 'No reference list was found in the document, so the bibliography, PJPS style and citation checks were not run. The other modules reviewed the text.' : 'The reference list is empty.';
 

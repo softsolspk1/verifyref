@@ -377,7 +377,11 @@ async function checkJournal(input) {
 async function checkCitedJournals(referenceResults, { onProgress, max = 80 } = {}) {
   const groups = new Map();
   for (const r of referenceResults) {
-    const rec = r.record;
+    // the matched record's journal only when the match is trusted; otherwise (no certain match, or "wrong journal") the
+    // journal the author cited is the one to check - a reference to a predatory journal whose title resembles a paper
+    // elsewhere must not be checked against that other journal
+    const trusted = r.record && (['verified', 'retracted'].includes(r.status) || (r.status === 'miscited' && !(r.issues || []).some(i => i.code === 'journal')));
+    const rec = trusted || !r.parsed?.journal ? r.record : null;
     const name = rec?.journal || r.parsed.journal;
     if (!name || rec?.type === 'book' || /^arxiv$/i.test(name)) continue;
     const issn = (rec?.issn || [])[0] || '';

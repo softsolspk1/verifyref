@@ -1,0 +1,247 @@
+PJPS REFERENCE CHECKER - ACTUAL ACCURACY STATUS OF MODULES 1 TO 5
+Date: 5 November 2026
+Source of every figure: test runs on the current code (audits of 4 November 2026 and the new
+test sets of 4-5 November 2026). Nothing below is an estimate unless it says so.
+
+HOW TO READ THE FIGURES
+- "Test set" results use references or manuscripts with known correct answers (ground truth).
+- "Benchmark" results use published datasets labelled by experts (SciFact, BioFors, retracted
+  paper-mill papers). Benchmarks are harder and closer to real use than our own test sets.
+- A perfect score on a small set does not mean zero errors. With 0 errors in N cases the true
+  error rate is below about 3/N with 95% confidence (85 cases -> below about 3.5%).
+
+
+=====================================================================================
+SUMMARY
+=====================================================================================
+
+Module                         Status       Headline figure
+-----------------------------  -----------  -------------------------------------------------
+1  Check Bibliography          Strong       85 of 85 references correct (3 test sets);
+                                            45 of 45 feature checks (1.1-1.9) pass
+2  Reference Style / Converter Strong       All test cases correct (0 false alarms, 0 missed)
+3A Citations vs reference list Strong       All planted problems found; 17/17 hard forms
+3B Claim supported by source   Moderate     73% of supported claims found; 27% of
+                                            contradictions flagged (SciFact benchmark)
+3C Citation patterns           Good         6 of 6 planted patterns flagged (small test)
+4  Paper Mill Detection        Weak-Moderate 38 of 150 real mill papers flagged (25%),
+                                            3 of 126 ordinary papers falsely flagged (2%)
+5  Image Integrity             Mixed        Whole-image copies 100%; real expert-annotated
+                                            duplicates 56%; cloned areas 32%; splicing ~12%
+
+
+=====================================================================================
+MODULE 1 - CHECK BIBLIOGRAPHY
+=====================================================================================
+
+Test set                                              Correct   Result
+----------------------------------------------------  --------  ------
+Original audit set (27 references)                    27 / 27   100%
+Held-out set (30 references)                          30 / 30   100%
+Real-world forms set, new on 4 Nov (28 references)    28 / 28   100%
+TOTAL                                                 85 / 85   100%
+
+What the 85 cases cover: genuine references in PJPS, APA, Vancouver and other styles; ALL-CAPS
+titles; Greek symbols; dx.doi.org links; print year one after the online year; short page ranges;
+references with one wrong detail (author, author order, journal, volume, pages, year, DOI);
+invented references using real authors and journals; non-existent DOIs; retracted papers with
+and without their DOI; books, reports and guidelines.
+
+Fixed on 4 Nov (found by the new set):
+- A reference with the first author swapped (e.g. "Olson and Trott" for Trott and Olson) was
+  passed as Verified. It is now Miscited.
+- An invented reference with a DOI that does not exist was only "Unverified". It is now
+  Suspicious.
+- References written "Khan A, Ali B and Shah C, 2019. Title..." (year without brackets) were
+  misread. Fixed.
+
+Every feature of Module 1 tested end to end (test/audit-m1-features.js, 5 Nov): 45 / 45
+  1.1 Input            Word manuscript (list found automatically), .bib, .ris, garbled PDF text
+                       (broken lines, hyphenation, ligatures), run-on references split      7 / 7
+  1.2-1.3 Verdicts     13 databases; Verified / Miscited / Retracted / Suspicious; 0-100
+                       confidence; differing field shown; corrected PJPS reference; link   9 / 9
+  1.4 Fabrication      DOI with pages stuck on repaired; PMID elsewhere / non-existent;
+                       non-existent arXiv ID; regional journal "Not indexed"; invented     6 / 6
+  1.5 Retractions      date and reason; editor alerted when a cited work is retracted later 2 / 2
+  1.6 Link check       broken link found and kept apart from the verdict                   3 / 3
+  1.7 Reference age    chart data, last 5 / 10 years, older than 10, few-recent warning    4 / 4
+  1.8 Indicators       self-citation, PJPS citations, predatory journal, duplicates        4 / 4
+  1.9 Output           summary, CSV, BibTeX, RIS, Word, PDF, corrected list in PJPS / APA /
+                       Vancouver, re-check showing only changes                           10 / 10
+
+Fixed on 5 Nov (found by the feature test):
+- .bib files with entries on one line (Google Scholar, Zotero) were read as empty. Fixed.
+- References run together on one line ([1] ... [2] ..., or unnumbered) were read as one. Fixed.
+- A DOI with the page numbers glued on ("10.1038/nmeth.2089671-675") was reported as a
+  non-existent DOI. It is now repaired and the reference verified.
+- A reference whose title resembled a different work (other authors, pages and source) was
+  called Miscited. It is now reported as not found, with that work as the closest record.
+- References to predatory journals could be missed: the journal of a wrongly matched record
+  was checked instead of the cited journal, and in the first seconds after a server start the
+  predatory and retraction lists were still loading. Both fixed (checks wait for the lists).
+
+Honest limits:
+- True error rate: below about 3.5% (95% confidence). 200+ references from real PJPS submissions
+  would be needed to show an error rate below 1-2%.
+- Regional Pakistani journals that no database indexes are reported "Unverified / Not indexed",
+  not confirmed. Books, theses and guidelines usually end as "Unverified - check manually".
+- Results depend on the online databases answering; when several do not, the reference is left
+  Unverified rather than called fabricated.
+
+
+=====================================================================================
+MODULE 2 - REFERENCE STYLE CHECK AND CONVERTER TO PJPS FORMAT
+=====================================================================================
+
+Test                                                              Result
+----------------------------------------------------------------  ----------------------------
+Style compliance, rule by rule (14 references, audit set)         14 / 14; 0 false alarms; 0 missed
+Style compliance, hard set, new on 4 Nov (21 references)          21 / 21
+In-text citation format (comma, "and", et al., semicolons)        6 / 6 rules found
+Conversion to PJPS from APA, Vancouver, Harvard, IEEE, AMA,
+  Chicago, Nature                                                 7 / 7 correct
+Word file: numbered -> author-year, re-sorted, Track Changes      4 / 4 citations converted
+Earlier style-error test                                          32 / 32
+
+The hard set includes correct references that are easy to flag by mistake (hyphenated and
+"van der" surnames, species, genes and acronyms in titles, article numbers, supplements,
+one-word journals, 2019a/2019b) and subtle deviations.
+
+Fixed on 4 Nov: missing full stop after "(2019)" is now reported; a misplaced year no longer also
+raises a false journal-name error; "(Ahmad, 2019 and Butt, 2020)" is now flagged (should use ";").
+
+Honest limits:
+- Tested on constructed cases, not yet on real accepted PJPS manuscripts.
+- The PJPS editor has not yet given written sign-off on every house-style rule.
+- Theses, web pages, patents and datasets have fewer rules.
+
+
+=====================================================================================
+MODULE 3 - CITATIONS
+=====================================================================================
+
+3A. In-text citations against the reference list
+Test                                                              Result
+----------------------------------------------------------------  ----------
+Cited but missing from the list (3 planted)                       3 / 3
+In the list but never cited (1 planted)                           1 / 1
+Year mismatch, ambiguous author-year, "et al." for 2 authors      All found
+Numbered style: dead number, uncited numbers, order               All found
+Citations in tables and footnotes                                 Included
+Hard citation forms, new on 4 Nov (17 checks)                     17 / 17
+
+Fixed on 4 Nov: these forms used to make cited references look "uncited": possessives
+("O'Brien et al.'s (2017)"), several works joined by "and" or "," instead of ";", and three
+authors named in full ("Shah, Iqbal and Khan, 2018").
+
+3B. Does the cited source support the claim?
+Small test sets:
+- Real PDF and open full text, 6 claims with known answers: 6 / 6 correct, with page numbers
+- Generated sources, 7 claims (supported, opposite, wrong figure, no source, retracted
+  evidence, invented work): 7 / 7
+
+SciFact benchmark (1,259 expert-labelled claim-source pairs, ABSTRACT ONLY), current version
+with the language model (since 4 Nov):
+
+                                                   Held-out (340)   Train (919)
+Supported claims found (Full or Partial)           73%              71%
+Supported claims judged "Full support"             28%              32%
+Contradicted claims flagged as contradicted        27%              35%
+Contradicted claims passed as "Full support"       1%               4%
+No-evidence claims passed as "Full support"        2.3%             1.7%
+Supported claims wrongly called contradicted       7%               7%
+
+Meaning: a "Full support" verdict can be trusted (almost never given to a wrong claim), but
+about 1 in 4 supported claims is missed and about 3 in 4 contradictions are not flagged when
+only the abstract is available. With the uploaded PDF or open full text, more support is found.
+
+Under test (not in use): a larger language model looked better on the benchmark (78% supported
+found, 38% contradictions flagged, 3% supported wrongly called contradicted), but these figures
+are optimistic because the rule was tuned on the same claims. The proper test was interrupted
+(computer low on memory) and must be repeated before any switch.
+
+3C. Citation patterns (self-citation, stacking, author concentration, off-topic, blocks)
+- 6 of 6 planted patterns flagged. Small test only; no public benchmark exists.
+
+
+=====================================================================================
+MODULE 4 - PAPER MILL DETECTION
+=====================================================================================
+
+Planted test cases:
+- Clean manuscript: LOW (score 0). Planted mill manuscript: HIGH (score 28).
+- 10 of 10 planted signals found; tortured phrases 39 of 40 with 0 false alarms.
+- Exact and lightly edited resubmissions, and author changes between versions: detected.
+
+Benchmark: 150 real papers retracted for paper-mill reasons against 126 ordinary papers from
+the same journals and years ("flagged" = MEDIUM or HIGH risk):
+
+Signals                                         Mill papers flagged   Ordinary papers flagged
+----------------------------------------------  --------------------  -----------------------
+Text signals only                               24 / 150 (16%)        2 / 126 (2%)
+Text + look-alikes of known mill papers         38 / 150 (25%)        3 / 126 (2%)
+Flagged HIGH (text signals)                     3 / 150               0 / 126
+
+Meaning: about 3 in 4 real mill papers are NOT flagged from the text alone. False alarms are
+low (2%). If 2% of submissions come from mills, only about 1 in 6 flagged manuscripts would
+really be a mill paper: a flag means "look closer", not proof.
+
+Honest limits:
+- The look-alike signal finds new papers from mills already caught; it does not find a
+  brand-new mill.
+- Cover letter, submission waves, suggested reviewers, ORCID and authorship changes could only
+  be tested with planted cases, not on real mill papers.
+
+
+=====================================================================================
+MODULE 5 - IMAGE INTEGRITY
+=====================================================================================
+
+Benchmark                     Task                                            Result
+----------------------------  ----------------------------------------------  ---------------------
+RSIID (generated copies)      Copies rotated, mirrored, resized, recompressed  125 / 125 (100%)
+RSIID                         Copy with contrast / brightness change            22 / 25 (88%)
+RSIID                         Partial copy (55% crop)                           18 / 25 (72%)
+RSIID                         Cloned area inside one image                      15 / 25 (60%)
+RSIID                         Clean pairs falsely reported                      0 / 30 (0%)
+BioFors (real, expert)        Duplicated panels within a paper (155 pairs)      87 found (56%);
+                                                                                49 as Strong (32%)
+BioFors                       Reports not in the annotation (60 papers)         167 (64 Strong),
+                                                                                about 1 Strong per
+                                                                                paper; some are real
+BioFors                       Unrelated figures (17,571 pairs)                  0 false reports
+BioFors                       Cloned area inside one image (78 vs 231 clean)    32% found vs 11% of
+                                                                                clean images reported
+BioFors                       Splicing in blots (121 vs 140 clean)              12% vs 10%: no
+                                                                                separation
+
+Meaning: exact and lightly altered whole-image copies are found reliably, with no false alarms
+between unrelated figures. Partial overlaps, cloned areas and spliced blots are weak: on real
+expert-annotated papers about half of the duplicates are found, a third of cloned areas, and
+splicing detection is no better than chance (indicator only).
+
+Honest limits:
+- Figures never leave the PJPS system (PJPS decision), so the 155-160 million figure databases
+  of commercial services are not searched.
+- AI-generated images are judged on file markers and statistics only.
+
+
+=====================================================================================
+FULL SCREENING (ALL MODULES TOGETHER)
+=====================================================================================
+
+Demonstration manuscript with planted problems in every module: every module ran in 117 s, all
+planted problems were reported, recommendation "Investigate before any further processing";
+editor and author versions of the report correct (4 Nov 2026).
+
+
+=====================================================================================
+WHAT WOULD RAISE ACCURACY MOST
+=====================================================================================
+
+Module 1   200+ labelled references from real PJPS submissions; HEC HJRS list and a Google
+           Scholar key for regional journals.
+Module 2   PJPS editor sign-off on the rules; test on 100 accepted PJPS manuscripts.
+Module 3B  Finish the larger language-model test (needs free memory); fetch more full texts.
+Module 4   Use PJPS's own case decisions to tune the weights; PubPeer; refresh the mill index.
+Module 5   Better candidate stage for partial copies; dense copy-move detection.

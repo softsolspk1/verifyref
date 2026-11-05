@@ -1512,7 +1512,24 @@ async function rebuildFromR2({ log = console.log } = {}) {
   return out;
 }
 
-async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infinity, log = console.log } = {}) {
+let ensuring = 0; // dataset loads in progress (server start, daily refresh)
+async function ensureDatasets(opts = {}) {
+  ensuring++;
+  try { return await ensureDatasetsNow(opts); } finally { ensuring--; }
+}
+
+/**
+ * Wait (at most maxMs) while a dataset load is in progress and the lists every reference check relies on (Retraction
+ * Watch, the predatory / hijacked journal lists) are still empty - the first seconds after a server start, when they are
+ * being restored. Returns at once when they are loaded or nothing is loading, so a source that fails never delays checks.
+ */
+async function coreDatasetsReady({ maxMs = 90000 } = {}) {
+  const until = Date.now() + maxMs;
+  const ready = async () => parseInt((await getMeta('rw_count')) || '0', 10) > 0 && parseInt((await getMeta('beall_count')) || '0', 10) > 0;
+  while (ensuring > 0 && Date.now() < until && !(await ready().catch(() => true))) await new Promise(r => setTimeout(r, 2000));
+}
+
+async function ensureDatasetsNow({ force = false, maxAgeDays = 7, budgetMs = Infinity, log = console.log } = {}) {
   const started = Date.now();
   const time = async key => { const at = await getMeta(key); return at ? new Date(at).getTime() : 0; };
   const all = [
@@ -1565,7 +1582,7 @@ async function ensureDatasets({ force = false, maxAgeDays = 7, budgetMs = Infini
 }
 
 module.exports = {
-  parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
+  coreDatasetsReady, parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
   loadStopPredatory, loadDoajWithdrawn, loadMirbase, mirbaseSpecies, mirKey, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadFlaggedPapers, flaggedFor,

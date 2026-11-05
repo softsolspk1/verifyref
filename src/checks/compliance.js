@@ -70,6 +70,8 @@ function checkEntry(ref, record, nlm = null) {
   if (!p) {
     const vanc = text.match(/\.\s*((?:19|20)\d{2})\s*[;:]/);
     add('year', 'Year in parentheses directly after the authors: Khan A (2019). Title…', vanc ? vanc[1] : (text.match(/\b(?:19|20)\d{2}\b/) || ['missing'])[0], '(Year)', 'high');
+  } else if (/^\s*[^.\s]/.test(text.slice(text.indexOf(`(${p.year})`) + p.year.length + 2))) {
+    add('year', 'Full stop after the year: Khan A (2019). Title…', `(${p.year})`, `(${p.year}).`, 'low');
   }
 
   // ---- title
@@ -175,7 +177,7 @@ function inTextRules(body, refs) {
     if (/[A-Z][\w'’-]+\s+(?:19|20)\d{2}/.test(inner) && !/et al\.?\s+(?:19|20)\d{2}/.test(inner)) add('Comma between author and year: (Khan, 2019)');
     if (/&/.test(inner)) add('Use “and” in citations: (Khan and Ali, 2019)');
     if (/et\.?\s?al(?!\.)/.test(inner) || /et al\.\s*(?:19|20)/.test(inner)) add('Write “et al.,” with a full stop and a comma: (Khan et al., 2019)');
-    if (/(?:19|20)\d{2}[a-z]?\s*,\s*[A-Z][a-z]/.test(inner)) add('Separate several citations with semicolons: (Ali, 2018; Khan, 2019)');
+    if (/(?:19|20)\d{2}[a-z]?(?:\s*,|\s+and)\s+[A-Z][a-z]/.test(inner)) add('Separate several citations with semicolons: (Ali, 2018; Khan, 2019)');
     const years = [...inner.matchAll(/(?:^|;\s*)[^;]*?((?:19|20)\d{2})/g)].map(x => parseInt(x[1], 10));
     if (years.length > 1 && years.some((y, i) => i && y < years[i - 1])) add('Several citations in one bracket in chronological order (oldest first)');
     for (const part of inner.split(/\s*;\s*/)) {

@@ -111,6 +111,9 @@ function compare(ref, rec, s) {
   if (extra.invented >= 4) add('title-extra', 'medium', `The cited title has words that are not in the registered title (“${extra.extras.slice(0, 8).join(' ')}”)`, ref.title, rec.title);
   else if (s.tSim < 0.85 && ref.title) add('title', s.tSim < 0.65 ? 'medium' : 'low', 'Title differs from the registered record', ref.title, rec.title);
   if (s.authorScore === 0) add('author', 'medium', 'First author does not appear in the registered author list', ref.authors.map(a => a.family).join(', '), rec.authors.slice(0, 6).map(a => a.family).join(', '));
+  // the cited first author is a later author of the record ("Olson and Trott" for Trott and Olson): the citation itself
+  // (author-year, place in an alphabetical list) is wrong, not just the order further down
+  else if (s.authorScore === 0.7) add('author-first', 'medium', `First author is wrong: the registered first author is ${rec.authors[0]?.family}`, ref.authors.slice(0, 3).map(a => a.family).join(', '), rec.authors.slice(0, 3).map(a => a.family).join(', '));
   else if (s.authorScore !== null && s.authorScore < 1) add('author-order', 'low', 'Author order differs from the registered record', ref.authors[0]?.family, rec.authors[0]?.family);
   if (ref.year && rec.year && ref.year !== rec.year) {
     const d = Math.abs(ref.year - rec.year);
@@ -151,7 +154,10 @@ function differentWork(ref, rec, s) {
     s.authorScore === 0,
     s.yearScore !== null && s.yearScore < 0.75,
     s.journalScore !== null && s.journalScore < 0.5,
-    !!(vol(ref.volume) && vol(rec.volume) && vol(ref.volume) !== vol(rec.volume))
+    !!(vol(ref.volume) && vol(rec.volume) && vol(ref.volume) !== vol(rec.volume)),
+    !!(firstPage(ref.pages) && firstPage(rec.pages) && firstPage(ref.pages) !== firstPage(rec.pages)),
+    // cited as a journal article (journal and volume) but the record is a book or a chapter of one
+    !!(ref.journal && ref.volume && !ref.looksLikeBook && /book|chapter|monograph/i.test(rec.type || ''))
   ].filter(Boolean).length;
   // with no author list to compare, a looser title needs some other agreement (journal) to count as the same work
   if (s.tSim < 0.85 && s.authorScore === null && !(s.journalScore >= 0.8)) return true;
@@ -186,16 +192,22 @@ const PREPRINT_VENUE = /arxiv|biorxiv|medrxiv|chemrxiv|ssrn|preprint|research sq
 const isPreprint = rec => /posted-content|preprint/i.test(rec.type || '') || PREPRINT_DOI.test(String(rec.doi || '').toLowerCase()) || PREPRINT_VENUE.test(`${rec.journal || ''} ${rec.source || ''}`);
 
 /** Repaired forms of a DOI with text stuck on the end (".pp436-444", "/full", "/pdf", "/abstract"), most specific first */
-function doiRepairs(doi) {
+function doiRepairs(doi, pages = '') {
   const out = [];
   let d = String(doi || '');
+  // the reference's own page numbers glued straight onto the DOI ("10.1038/nmeth.2089671-675")
+  const [fp, lp] = String(pages || '').split(/\s*[-–]\s*/);
+  for (const tail of [pages && String(pages).replace(/\s+/g, '').replace(/–/g, '-'), fp && lp ? `${fp}-${lp}` : null, fp].filter(Boolean)) {
+    const lower = d.toLowerCase();
+    if (lower.endsWith(String(tail).toLowerCase()) && /^10\.\d{4,9}\/\S+$/.test(d.slice(0, -tail.length)) && !out.includes(d.slice(0, -tail.length))) out.push(d.slice(0, -tail.length).replace(/[._-](?:pp?|pages?)\.?$/i, '').replace(/[.,;:_-]+$/, ''));
+  }
   for (let i = 0; i < 3; i++) {
     const next = d.replace(/[./_-]?(?:pp?|pages?)\.?\s*\d+(?:\s*[-–]\s*\d+)?$/i, '').replace(/\/(?:full|abstract|pdf|epdf|html|meta|references)$/i, '').replace(/\.(?:pdf|html?)$/i, '').replace(/[.,;:)\]}>]+$/, '');
     if (next === d || !/^10\.\d{4,9}\/\S+$/.test(next)) break;
     out.push(next);
     d = next;
   }
-  return out;
+  return [...new Set(out)];
 }
 
 async function verifyReference(ref, opts = {}) {
@@ -218,7 +230,7 @@ async function verifyReference(ref, opts = {}) {
     let [handle, cr] = await Promise.all([S.doiHandle(ref.doi), S.crossrefDoi(ref.doi)]);
     // a DOI with page numbers or a link suffix stuck on the end: repaired when the shortened DOI is registered
     if (handle.exists === false && !cr.record) {
-      for (const fixed of doiRepairs(ref.doi)) {
+      for (const fixed of doiRepairs(ref.doi, ref.pages)) {
         const h = await S.doiHandle(fixed);
         if (!h.exists) continue;
         issues.push({ code: 'doi-repaired', severity: 'info', message: 'DOI had extra text on the end - repaired', cited: ref.doiAsWritten || ref.doi, registered: fixed });
@@ -374,7 +386,9 @@ async function verifyReference(ref, opts = {}) {
     const num = v => (String(v || '').match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, '');
     const yearOk = ref.year && candidates.some(c => same(c) && c.rec.year === ref.year);
     const volOk = ref.volume && candidates.some(c => same(c) && num(c.rec.volume) === num(ref.volume));
-    const kept = found.filter(i => !(yearOk && i.code === 'year') && !(volOk && i.code === 'volume'));
+    // and a registry that lists the authors in another order: another database with the cited first author first settles it
+    const firstOk = ref.authors?.length && candidates.some(c => same(c) && c.authorScore === 1);
+    const kept = found.filter(i => !(yearOk && i.code === 'year') && !(volOk && i.code === 'volume') && !(firstOk && i.code === 'author-first'));
     // a one-year difference is often online-first vs print, but not when the volume or pages are also different
     const yearByOne = kept.find(i => i.code === 'year' && i.severity === 'low');
     if (yearByOne && kept.some(i => ['volume', 'pages', 'last-page'].includes(i.code))) Object.assign(yearByOne, { severity: 'medium', message: 'Publication year is wrong (and the volume or pages differ too)' });
@@ -455,7 +469,9 @@ async function classify(v, retraction) {
     // plainly another work: a different title, or a title on the same theme ("Lowry and Bradford assays for protein" for
     // an invented "Comparison of dye-binding and Folin methods…") with none of the cited authors and another journal
     const cs = scoreCandidate(ref, v.closest);
-    const plainlyOther = cs.tSim < 0.6 || (cs.tSim < 0.85 && cs.authorScore === 0 && (ref.authors?.length || 0) > 0 && cs.journalScore < 0.5);
+    // (a record with no authors listed counts as none of them when its year is also two or more years off)
+    const noAuthors = cs.authorScore === 0 || (cs.authorScore === null && cs.yearScore !== null && cs.yearScore <= 0.3);
+    const plainlyOther = cs.tSim < 0.6 || (cs.tSim < 0.85 && noAuthors && (ref.authors?.length || 0) > 0 && cs.journalScore < 0.5);
     if (!incomplete && ref.journal && !ref.looksLikeBook && !ref.looksLikeWeb && !REGIONAL.test(ref.journal) && plainlyOther) {
       const journal = await journalProfile(ref.journal).catch(() => null);
       if (journal && sameJournalName(ref.journal, journal.name) && journal.works > 300 && (!ref.year || (ref.year >= (journal.first || 0) && ref.year <= (journal.last || 9999)))) {
@@ -464,7 +480,10 @@ async function classify(v, retraction) {
         v.journalProfile = journal;
       }
     }
-    if (idFailed && status === 'unverified') reason += '. The identifier given does not exist';
+    // the identifier was checked in its own registry and does not exist, and the nearest record is plainly another work:
+    // as when no record is near at all, the pattern of an invented reference
+    if (idFailed && status === 'unverified' && plainlyOther && !ref.looksLikeBook && !ref.looksLikeWeb) { status = 'suspicious'; reason = `The identifier does not exist and no record matches this reference; the closest record${about ? ` (${about})` : ''} is a different publication - it may be fabricated`; }
+    else if (idFailed && status === 'unverified') reason += '. The identifier given does not exist';
   } else if (!anyFound) {
     const grey = ref.looksLikeWeb || (ref.looksLikeBook && !ref.doi) || (!ref.journal && !ref.doi && !ref.pmid);
     const idFailed = issues.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code));

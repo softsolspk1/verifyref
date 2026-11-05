@@ -107,7 +107,9 @@ async function pool(items, n, fn) {
   return out;
 }
 
-const stripXml = x => String(x || '').replace(/<ref-list[\s\S]*?<\/ref-list>/g, ' ').replace(/<(table-wrap|fig)\b[\s\S]*?<\/\1>/g, ' ').replace(/<xref\b[^>]*ref-type="bibr"[^>]*>[\s\S]*?<\/xref>/g, ' ')
+// the source's reference list, tables and figure captions are kept: Turnitin compares them too, and a manuscript's
+// bibliography matches mostly the reference lists of papers that cite the same works
+const stripXml = x => String(x || '').replace(/<xref\b[^>]*ref-type="bibr"[^>]*>[\s\S]*?<\/xref>/g, ' ')
   .replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\[[\s,;–-]*\]/g, ' ').replace(/\s+/g, ' ');
 const stripHtml = x => String(x || '').replace(/<(script|style|noscript|nav|header|footer)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ');
 
@@ -511,6 +513,15 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi }));
   const repoKeys = new Set(repo.map(d => d.sourceKey));
   const fromRepo = (await pool(repo, 2, async d => {
+    // open-access full texts kept before reference lists were compared (no meta.withRefs) are read again with them
+    if (/^pmc:/.test(d.sourceKey) && !d.meta?.withRefs) {
+      const t = await sourceText({ pmcid: d.sourceKey.slice(4) }).catch(() => null);
+      if (t?.text && t.scope === 'full text') {
+        d.text = t.text;
+        d.meta = { ...(d.meta || {}), withRefs: true };
+        await corpus.addDoc({ kind: d.kind, sourceKey: d.sourceKey, title: d.title, meta: d.meta, text: t.text }).catch(() => null);
+      }
+    }
     const o = await match(prep, d.text);
     if (!o.passages.length) return null;
     const m = d.meta || {};
@@ -538,7 +549,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     const t = await sourceText(c);
     if (!t.text) return null;
     // every published source text read is kept in the repository, so later checks compare with it directly
-    await corpus.addDoc({ kind: c.type, sourceKey: key, title: c.title, meta: { journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, scope: t.scope }, text: t.text }).catch(() => null);
+    await corpus.addDoc({ kind: c.type, sourceKey: key, title: c.title, meta: { journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, scope: t.scope, withRefs: true }, text: t.text }).catch(() => null);
     const o = await match(prep, t.text);
     if (!o.passages.length) return null;
     markCovered(o.hit);
@@ -695,7 +706,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     external: ext ? { used: extUsed, sources: extSources.length, paraphrased: extSources.some(x => x.passages.some(p => p.paraphrased)), aiText: extUsed ? EXT.aiEstimate(ext.completed) : null, ...(ext.error ? { error: ext.error } : {}) } : null,
     privacy: {
       stored: false,
-      statement: `The manuscript was not stored, indexed or added to any repository.${subsOn ? ' At the editor\'s request it was compared with earlier PJPS submissions, read from their own confidential reports inside PJPS.' : ''} Its text is kept only inside this confidential report, which a later report reads only when an editor turns on the comparison with earlier PJPS submissions. ${extUsed || ext?.pending ? `The full text (without the reference list) was compared by an external full-text similarity service under a no-storage setting: it was not added to that service's database and the scan expires there after ${2} hours. Apart from that, only` : 'Only'} separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read.`
+      statement: `The manuscript was not stored, indexed or added to any repository.${subsOn ? ' At the editor\'s request it was compared with earlier PJPS submissions, read from their own confidential reports inside PJPS.' : ''} Its text is kept only inside this confidential report, which a later report reads only when an editor turns on the comparison with earlier PJPS submissions. ${extUsed || ext?.pending ? `The full text, reference list included, was compared by an external full-text similarity service under a no-storage setting: it was not added to that service's database and the scan expires there after ${2} hours. Apart from that, only` : 'Only'} separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read.`
     },
     sources: view.sources,
     alsoMatched: view.alsoMatched,

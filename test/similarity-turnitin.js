@@ -70,5 +70,25 @@ const { pathToFileURL } = require('url');
   assert.ok(blocks.some(b => b.kv?.some(([k, v2]) => k === 'File' && v2 === 'ms.docx')), 'document details');
   assert.ok(blocks.some(b => b.h2 === 'Flags'));
   console.log('  ✓ version 5 defaults; filters saved; export prints document details, exclusion settings and flags');
+
+  // 6. Word / PDF in Turnitin's layout: cover page, Integrity Overview (filters on, match groups, databases, flags),
+  // top sources, the highlighted submission
+  const X = require('../src/similarityExport');
+  const r = { plagiarism: a, meta: { title: 'T', fileName: 'ms.docx', authors: [{ name: 'Ali Khan' }] }, id: 7, createdAt: '2026-11-05T10:00:00Z' };
+  const m = X.model(r);
+  assert.deepStrictEqual(m.filtered, ['Bibliography', 'Quoted Text', 'Small Matches (less than 12 words)', 'Small Sources (less than 20 words)', 'Methods and Materials']);
+  assert.strictEqual(m.author, 'Ali Khan');
+  assert.ok(m.details.some(([k, v2]) => k === 'File Name' && v2 === 'ms.docx'));
+  assert.strictEqual(m.groups.length, 4, "Turnitin's four match groups");
+  const pub = X.model({ ...r, plagiarism: { ...a, sources: [{ no: 1, type: 'publication', title: 'Leaves of &lt;i&gt;R. stricta&lt;/i&gt;.', journal: 'Molecules', year: 2020, percent: 0 }] } });
+  assert.strictEqual(pub.sources[0].name, 'Leaves of R. stricta, Molecules, 2020', 'publication named by title, journal and year, markup removed');
+  const pdf = await X.buildSimilarityPdf(r);
+  assert.strictEqual(pdf.slice(0, 5).toString(), '%PDF-');
+  assert.ok(pdf.length > 3000, 'PDF written');
+  const docx = await X.buildSimilarityDocx(r);
+  assert.strictEqual(docx.slice(0, 2).toString(), 'PK');
+  const xml = await (await require('jszip').loadAsync(docx)).file('word/document.xml').async('string');
+  for (const s of ['Document Details', 'Overall Similarity', 'Filtered from the Report', 'Match Groups', 'Top Sources', 'Integrity Flags']) assert.ok(xml.includes(s), `Word export has "${s}"`);
+  console.log("  ✓ Word / PDF export in Turnitin's layout: cover page, Integrity Overview, top sources, highlighted submission");
   console.log('similarity Turnitin features test passed');
 })().catch(e => { console.error(e); process.exit(1); });

@@ -360,8 +360,12 @@ router.get('/checks/:id/similarity', auth.requireUser, wrap(async (req, res) => 
     if ((pl.version || 0) < 3) return res.status(409).json({ success: false, message: 'This report was made with an earlier method; run the screening again to export its sources.' });
     return sendFile(res, Buffer.from(require('../checks/plagiarism').toCsv(pl), 'utf8'), `${name}-sources.csv`, 'text/csv; charset=utf-8');
   }
-  if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(blocks), `${name}.pdf`, 'application/pdf');
-  sendFile(res, await W.buildDocx(blocks), `${name}.docx`, DOCX);
+  // Turnitin's layout (cover page, Integrity Overview, top sources, highlighted submission); reports made with the
+  // earliest method have no match data for it and keep the plain layout
+  const X = (pl.version || 0) >= 3 ? require('../similarityExport') : null;
+  const report = { ...c.result, id: c.row.id, createdAt: c.result.createdAt || c.row.created_at };
+  if (req.query.format === 'pdf') return sendFile(res, X ? await X.buildSimilarityPdf(report) : await require('../pdf').buildPdf(blocks), `${name}.pdf`, 'application/pdf');
+  sendFile(res, X ? await X.buildSimilarityDocx(report) : await W.buildDocx(blocks), `${name}.docx`, DOCX);
 }));
 
 // ------------------------------------------------------------------ Module 1 settings (Super Admin)

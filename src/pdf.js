@@ -15,12 +15,12 @@ const INK = '#1F2A37', MUTED = '#5B6675', HEAD = '#0F4C5C', LINE = '#C9D1D9', SO
 const LEVEL = { ok: { fill: '#E6F4EA', ink: '#1E6B34', label: 'Pass' }, warn: { fill: '#FFF4E0', ink: '#8A5300', label: 'Check' }, bad: { fill: '#FDE8E8', ink: '#9B1C1C', label: 'Action' }, na: { fill: '#F1F3F5', ink: '#5B6675', label: 'Not run' } };
 
 // Built-in PDF fonts cover Latin text only; characters outside WinAnsi (e.g. Urdu) are replaced so the file still opens
-// WinAnsi also has these letters (Š, Ž, Œ, €, ...); other accented letters lose their accent (č -> c) rather than becoming '?'
+// WinAnsi also has these letters (Š, Ž, Œ, €, ...); other accented letters lose their accent (č -> c) rather than becoming '?'; subscript digits read as digits (AlCl₃ -> AlCl3)
 const WINANSI_EXTRA = 'ŒœŠšŸŽžƒ€™';
 // letters and signs without a decomposed form
 const PLAIN = { Ł: 'L', ł: 'l', Đ: 'D', đ: 'd', ı: 'i', Ħ: 'H', ħ: 'h', α: 'alpha', β: 'beta', γ: 'gamma', δ: 'delta', κ: 'kappa', μ: 'u', '−': '-', '≤': '<=', '≥': '>=' };
 const safe = s => String(s ?? '').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...').replace(/•/g, '-')
-  .replace(/[^\x09\x0A\x20-\x7E\xA0-\xFF]/g, ch => (WINANSI_EXTRA.includes(ch) ? ch : PLAIN[ch] || ch.normalize('NFD').replace(/[\u0300-\u036f]/g, ''))) // eslint-disable-line no-control-regex
+  .replace(/[^\x09\x0A\x20-\x7E\xA0-\xFF]/g, ch => (WINANSI_EXTRA.includes(ch) ? ch : PLAIN[ch] || ch.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/\u2212/g, '-'))) // eslint-disable-line no-control-regex
   .replace(/[^\x09\x0A\x20-\x7E\xA0-\xFFŒœŠšŸŽžƒ€™]/g, '?'); // eslint-disable-line no-control-regex
 
 function buildPdf(blocks, { title = cfg.APP_NAME } = {}) {
@@ -241,4 +241,4 @@ function table(doc, headers, rows) {
   doc.moveDown(0.8);
 }
 
-module.exports = { buildPdf };
+module.exports = { buildPdf, safe };

@@ -15,7 +15,7 @@ const db = require('./db');
 
 const API = 'https://api.copyleaks.com';
 const ID = 'https://id.copyleaks.com';
-const MAX_RESULTS = 60;              // matched sources exported with their positions
+const MAX_RESULTS = 100;             // matched sources exported with their positions
 const EXPIRATION_HOURS = 2;          // the service deletes the scan after this
 const WAIT_SCAN_MS = 6 * 60000;      // the report waits this long for the scan, then goes on without it
 const WAIT_EXPORT_MS = 3 * 60000;
@@ -148,6 +148,8 @@ async function scanText(text, { update = () => {} } = {}) {
             // (no-storage policy); its web and publication index is searched
             scanning: { internet: true },
             indexing: { copyleaksDb: false },
+            // the most thorough comparison (5 of 1-5; default 3 misses the smallest matches Turnitin counts)
+            sensitivityLevel: 5,
             aiGeneratedText: { detect: true }
           }
         }

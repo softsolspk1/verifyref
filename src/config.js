@@ -41,6 +41,9 @@ module.exports = {
   COPYLEAKS_EMAIL: env.COPYLEAKS_EMAIL || '',
   COPYLEAKS_API_KEY: env.COPYLEAKS_API_KEY || '',
   COPYLEAKS_SANDBOX: /^(1|true|yes)$/i.test(env.COPYLEAKS_SANDBOX || ''),
+  // the external full-text comparison runs by itself only when the in-house Similarity Index reaches this percentage
+  // (0 = every report, 101 = only when the editor asks for it on the Full Screening page)
+  EXTERNAL_SIMILARITY_MIN: (v => (Number.isFinite(v) && v >= 0 ? v : 15))(parseFloat(env.EXTERNAL_SIMILARITY_MIN)),
   S2_API_KEY: env.S2_API_KEY || '',
   NCBI_API_KEY: env.NCBI_API_KEY || '',
   GOOGLE_BOOKS_API_KEY: env.GOOGLE_BOOKS_API_KEY || '',

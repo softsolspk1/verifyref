@@ -91,6 +91,19 @@ const ok = m => console.log(`  ✓ ${m}`);
   assert.strictEqual(row.status, 'exported');
   assert.strictEqual(row.completed.items.length, 1);
   ok('callbacks stored: completed, each exported result, export done; repeats ignored');
+
+  // paid per scan: it runs only when the editor asks for it or the in-house index reaches the threshold, without the
+  // reference list
+  const doc = `${'Body sentence of the manuscript about tablets. '.repeat(40)}\nReferences\n1. Khan A. A paper. J Pharm 2020.\n`;
+  const low = P.externalPlan(doc, { inHouse: 9, min: 15 });
+  assert.ok(!low.text && /9%\) is under 15%/.test(low.skipped), 'skipped under the threshold');
+  const high = P.externalPlan(doc, { inHouse: 15, min: 15 });
+  assert.ok(high.text && !high.skipped, 'run from the threshold');
+  assert.ok(!/References|Khan A/.test(high.text) && high.text.startsWith('Body sentence'), 'sent without the reference list');
+  assert.ok(P.externalPlan(doc, { inHouse: 2, min: 101, requested: true }).text, "run when the editor asks for it, whatever the index");
+  assert.ok(!P.externalPlan(doc, { inHouse: 50, min: 15 }).skipped && P.externalPlan('no list here '.repeat(50), { inHouse: 50, min: 0 }).text.length > 0, 'a text without a reference list is sent whole');
+  assert.deepStrictEqual(P.externalPlan(doc, { inHouse: 50, enabled: false }), { text: null, skipped: null }, 'not set up: nothing said');
+  ok('external comparison only on request or from the threshold, without the reference list');
   console.log('external similarity test passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -143,7 +143,8 @@ router.post('/checks/:id/recheck', user, wrap(async (req, res) => {
     const job = await createJob(req.user.id, 'check', {
       kind: 'manuscript', bodyText, referencesText, meta: { ...c.result.meta, version: null },
       imagesCheckId: c.result.images?.checkId || null, imagesHandled: true, imagesNote: c.result.images?.checkId ? null : c.result.imagesNote || null,
-      recheckOf: c.row.id, issueId: c.row.issue_id, compareSubmissions: !!c.result.plagiarism?.submissions?.compared
+      recheckOf: c.row.id, issueId: c.row.issue_id, compareSubmissions: !!c.result.plagiarism?.submissions?.compared,
+      externalCompare: !!c.result.plagiarism?.external?.requested
     });
     return res.json({ success: true, jobId: job.id, scope: 'full' });
   }

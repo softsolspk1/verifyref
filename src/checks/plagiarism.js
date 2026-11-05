@@ -408,7 +408,7 @@ function externalSources(ext, prep) {
     out.push({ key: `ext:${item.url || item.id}`, type: db ? 'submission' : 'internet', title: item.title || host || (db ? 'Submitted document (external database)' : 'Web page'),
       journal: db ? 'External database of submitted documents' : host, year: item.metadata?.publishDate ? String(item.metadata.publishDate).slice(0, 4) : null, doi: null, url: item.url || null,
       via: db ? 'Full-text similarity service (database of submitted documents)' : 'Full-text similarity service (web and publications)', compared: 'full text, paraphrase included (external service)',
-      hit, passages: joined.sort((a, b) => b.words - a.words), text: String(res.value || '') });
+      hit, passages: joined.sort((a, b) => b.words - a.words) });
   }
   return out;
 }
@@ -485,11 +485,17 @@ const epmcRecord = x => ({ type: 'publication', title: x.title, journal: x.journ
 
 // ------------------------------------------------------------------ reference list
 
+/** Where the reference list starts: its heading (at) and the line after it (after), or null - the last such heading past 30 % of the text */
+function bibliographyAt(text) {
+  let found = null;
+  for (const m of String(text).matchAll(/\n\s*(?:\d{1,2}\.?\s*)?(?:references|bibliography|literature cited|works cited|reference list)\s*:?\s*\n/gi)) if (m.index > text.length * 0.3) found = { at: m.index, after: m.index + m[0].length };
+  return found;
+}
+
 /** The entries of the manuscript's reference list (one per line, after its heading), as word ranges: [{ from, to, raw }] */
 function referenceEntries(prep) {
   const { text, words } = prep;
-  let start = -1;
-  for (const m of text.matchAll(/\n\s*(?:\d{1,2}\.?\s*)?(?:references|bibliography|literature cited|works cited|reference list)\s*:?\s*\n/gi)) if (m.index > text.length * 0.3) start = m.index + m[0].length;
+  const start = bibliographyAt(text)?.after ?? -1;
   if (start < 0) return [];
   const firstAt = c => { let lo = 0, hi = words.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (words[mid].start < c) lo = mid + 1; else hi = mid; } return lo; };
   const out = [];
@@ -500,6 +506,18 @@ function referenceEntries(prep) {
     if (to - from >= 5) out.push({ from, to, raw: line.trim() });
   }
   return out;
+}
+
+/**
+ * Whether the external full-text comparison (paid per scan) runs for a report, and on which text: when the editor asked
+ * for it or the in-house Similarity Index reaches min; the text up to the reference list (matched in-house), so a scan
+ * costs fewer credits. -> { text } to scan, or { skipped: why } (null when the service is not set up)
+ */
+function externalPlan(text, { requested = false, inHouse = 0, enabled = true, min = cfg.EXTERNAL_SIMILARITY_MIN } = {}) {
+  if (!enabled) return { text: null, skipped: null };
+  if (!requested && !(inHouse >= min)) return { text: null, skipped: `not used for this report: the in-house Similarity Index (${inHouse}%) is under ${min}%, and the editor did not ask for it` };
+  const bib = bibliographyAt(text);
+  return { text: bib ? text.slice(0, bib.at) : text, skipped: null };
 }
 
 /** A text as compared words in one string, with a space at each end (to look for a word sequence in it) */
@@ -547,7 +565,7 @@ async function citedWork(ref) {
  *   sources: [{ key, no, type, percent, ranges, passages: [{ from, to, words, text, source }], ... }], alsoMatched,
  *   document: [{ t, s }], settings: { excluded, minWords }, filters, selfMatches, checked, privacy, method }
  */
-async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions = null }, update = () => {}) {
+async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions = null, external = false }, update = () => {}) {
   await shared();
   const prep = prepare(body, bibliography);
   const mine = prep.words;
@@ -559,8 +577,6 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     if (self && !selfMatches.some(s => s.title === c.title)) selfMatches.push({ title: c.title, journal: c.journal || null, year: c.year || null, doi: c.doi || null, url: c.url || null });
     return self;
   };
-  // the external full-text comparison runs alongside the in-house search (it waits for the service's callbacks)
-  const extRun = EXT.enabled() ? EXT.scanText(prep.text, { update }) : null;
   const covered = new Uint8Array(mine.length); // words already matched by a compared full text: not searched again
   const texts = new Map(); // source key -> its text, for the reference list (4c)
   const markCovered = hit => hit.forEach((h, k) => { if (h) covered[k] = 1; });
@@ -726,22 +742,9 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     phraseSources.push({ key, type: c.rec.type, title: c.rec.title, journal: c.rec.journal, year: c.rec.year, doi: c.rec.doi, url: c.rec.url, via: c.rec.via, compared: 'matching passages (full text not open)', hit, passages: passages.sort((a, b) => b.words - a.words) });
   }
 
-  // 4b. the external full-text comparison: its sources join the others; one the in-house search found too keeps one
-  // entry, with the matches of both
-  const ext = extRun ? await extRun : null;
-  const extSources = ext && !ext.error ? externalSources(ext, prep) : [];
   const own = [...fromSubs, ...fromRepo, ...compared, ...phraseSources];
-  const sameAs = (a, b) => (a.url && b.url && String(a.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') === String(b.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''));
-  for (const x of extSources) {
-    const twin = own.find(o => sameAs(o, x));
-    const k = (twin || x).key;
-    if (x.text) texts.set(k, `${texts.get(k) || ''} ${x.text}`);
-    if (!twin) { own.push(x); continue; }
-    x.hit.forEach((h, k) => { if (h) twin.hit[k] = 1; });
-    twin.passages = finishRuns(twin.hit.slice(), mine).sort((a, b) => b.words - a.words).map(p => twin.passages.find(q => q.from <= p.from && q.to >= p.to) || x.passages.find(q => q.from <= p.from && q.to >= p.to) || p);
-  }
 
-  // 4c. the reference list, entry by entry, as Turnitin matches a bibliography: an entry is matched in full to every
+  // 4b. the reference list, entry by entry, as Turnitin matches a bibliography: an entry is matched in full to every
   // compared source that lists the same work (its title, and its first author), whatever the citation style - word
   // sequences alone match only the title, as styles order authors, year, volume and pages differently. An entry no
   // compared source has is matched to the cited work's own bibliographic record (Crossref), as Turnitin matches it to
@@ -787,8 +790,8 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     }
   }
 
-  // 5. primary sources (shared with the report view: public/js/shared/similarity.js)
-  const all = own.map(src => ({
+  // primary sources (shared with the report view: public/js/shared/similarity.js)
+  const primary = () => own.map(src => ({
     key: src.key, type: src.type, title: String(src.title || '').replace(/<[^>]+>/g, ''), journal: src.journal || null, year: src.year || null, doi: src.doi || null, url: src.url || null, checkId: src.checkId || null,
     via: src.via, compared: src.compared, matchedWords: src.passages.reduce((a, p) => a + p.words, 0),
     ranges: src.passages.map(p => [p.from, p.to]).sort((a, b) => a[0] - b[0]),
@@ -797,12 +800,31 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   // word ranges inside quotation marks: left out of the matches unless the editor includes quotations
   const quoted = [];
   mine.forEach((w, k) => { if (!w.quoted) return; const last = quoted[quoted.length - 1]; if (last && last[1] === k) last[1] = k + 1; else quoted.push([k, k + 1]); });
-  const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT, quoted, includeQuotes: true, minWords: FLOOR });
+  const viewOf = all => SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT, quoted, includeQuotes: true, minWords: FLOOR });
+
+  // 4c. the external full-text comparison (paid per scan), only when it matters: the editor asked for it, or the in-house
+  // Similarity Index reaches EXTERNAL_SIMILARITY_MIN. It gets the text without the reference list (matched in 4b), so a
+  // scan costs fewer credits; its sources join the others, and one the in-house search found too keeps one entry.
+  const inHouse = viewOf(primary()).summary.similarity;
+  const plan = externalPlan(prep.text, { requested: external, inHouse, enabled: EXT.enabled() });
+  const ext = plan.text ? await EXT.scanText(plan.text, { update }) : null;
+  const extSkipped = plan.skipped;
+  const extSources = ext && !ext.error ? externalSources(ext, prep) : [];
+  const sameAs = (a, b) => (a.url && b.url && String(a.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') === String(b.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''));
+  for (const x of extSources) {
+    const twin = own.find(o => sameAs(o, x));
+    if (!twin) { own.push(x); continue; }
+    x.hit.forEach((h, k) => { if (h) twin.hit[k] = 1; });
+    twin.passages = finishRuns(twin.hit.slice(), mine).sort((a, b) => b.words - a.words).map(p => twin.passages.find(q => q.from <= p.from && q.to >= p.to) || x.passages.find(q => q.from <= p.from && q.to >= p.to) || p);
+  }
+
+  // 5. the report's numbers
+  const view = viewOf(primary());
   const s = view.summary;
 
   const subsOn = Array.isArray(submissions);
   const extUsed = !!(ext && !ext.error);
-  const databases = [...(extUsed ? [`External full-text similarity service: the whole text compared with web pages and publications, paraphrase included (${extSources.length} source(s) matched)`] : ext?.error ? [`External full-text similarity service: not used for this report (${ext.error})`] : []),
+  const databases = [...(extUsed ? [`External full-text similarity service: the text without the reference list compared with web pages and publications, paraphrase included (${extSources.length} source(s) matched${external ? '; asked for by the editor' : ''})`] : ext?.error ? [`External full-text similarity service: not used for this report (${ext.error})`] : extSkipped ? [`External full-text similarity service: ${extSkipped}`] : []),
     ...(subsOn ? [`Earlier PJPS submissions (opt-in): ${submissions.length} sharing text with this manuscript compared in full`] : []), 'PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
     ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches${stats.openalexBudget ? '; stopped: the daily OpenAlex search budget is used up - add funds at openalex.org/pricing' : ''})`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
   return {
@@ -812,10 +834,10 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     summary: s,
     repository: subsOn ? `not stored: this manuscript was not added to any repository; earlier PJPS submissions were compared at the editor's request (${submissions.length} sharing text)` : 'not stored: this manuscript was not added to any repository, and earlier unpublished PJPS submissions were not compared (no-repository setting, as in Turnitin)',
     submissions: { compared: subsOn || extSources.some(x => x.type === 'submission'), candidates: subsOn ? submissions.length : 0, matched: fromSubs.length + extSources.filter(x => x.type === 'submission').length },
-    external: ext ? { used: extUsed, sources: extSources.length, paraphrased: extSources.some(x => x.passages.some(p => p.paraphrased)), aiText: extUsed ? EXT.aiEstimate(ext.completed) : null, ...(ext.error ? { error: ext.error } : {}) } : null,
+    external: ext ? { used: extUsed, requested: !!external, inHouse, sources: extSources.length, paraphrased: extSources.some(x => x.passages.some(p => p.paraphrased)), aiText: extUsed ? EXT.aiEstimate(ext.completed) : null, ...(ext.error ? { error: ext.error } : {}) } : extSkipped ? { used: false, requested: false, inHouse, threshold: cfg.EXTERNAL_SIMILARITY_MIN, skipped: extSkipped } : null,
     privacy: {
       stored: false,
-      statement: `The manuscript was not stored, indexed or added to any repository.${subsOn ? ' At the editor\'s request it was compared with earlier PJPS submissions, read from their own confidential reports inside PJPS.' : ''} Its text is kept only inside this confidential report, which a later report reads only when an editor turns on the comparison with earlier PJPS submissions. ${extUsed || ext?.pending ? `The full text, reference list included, was compared by an external full-text similarity service under a no-storage setting: it was not added to that service's database and the scan expires there after ${2} hours. Apart from that, only` : 'Only'} separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read.`
+      statement: `The manuscript was not stored, indexed or added to any repository.${subsOn ? ' At the editor\'s request it was compared with earlier PJPS submissions, read from their own confidential reports inside PJPS.' : ''} Its text is kept only inside this confidential report, which a later report reads only when an editor turns on the comparison with earlier PJPS submissions. ${extUsed || ext?.pending ? `The text without the reference list was compared by an external full-text similarity service under a no-storage setting: it was not added to that service's database and the scan expires there after ${2} hours. Apart from that, only` : 'Only'} separate 8-word passages were sent to the literature and web search services, which return the papers that contain them; their answers are cached under an irreversible hash of the query, without the passage. The uploaded file is deleted once it has been read.`
     },
     sources: view.sources,
     alsoMatched: view.alsoMatched,
@@ -830,7 +852,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     filters: { bibliography: prep.bibliographyFound ? 'included (the reference list is compared; exclude it in Filters)' : 'no reference list found', quotes: `included (${prep.quotedWords} quoted words)`, smallMatches: "not excluded (Turnitin's default; the shortest match counted is 5 words)", citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
     checked: { references: refStats, passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, databases },
-    coverage: `${extUsed ? 'The whole text with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
+    coverage: `${extUsed ? 'The text (without the reference list) with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
     method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are compared (the editor can exclude either), and matches of ${FLOOR} words or more are counted (the editor can exclude small matches). Each entry of the reference list is matched whole to every source listing the same work (title and first author, whatever the citation style), or else to the cited work's own record (Crossref, Open Library, Google Books)${refStats.entries ? ` - ${refStats.inSources + refStats.citedWork} of ${refStats.entries} entries matched` : ''}. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };
 }
@@ -876,4 +898,4 @@ function toCsv(pl) {
     [...(pl.sources || []), ...(pl.alsoMatched || [])].map(row));
 }
 
-module.exports = { checkPlagiarism, earlierSubmissions, externalSources, referenceEntries, citesWork, citedWork, applySettings, toCsv, prepare, overlap, match, rewordedSentences, PARA, finishRuns, citeSpans, searchWindows, shared };
+module.exports = { checkPlagiarism, earlierSubmissions, externalSources, externalPlan, referenceEntries, citesWork, citedWork, applySettings, toCsv, prepare, overlap, match, rewordedSentences, PARA, finishRuns, citeSpans, searchWindows, shared };

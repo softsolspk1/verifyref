@@ -68,7 +68,8 @@ export function renderCheckForm(view, kind) {
         <div class="grid grid-2">
           <div class="field"><label for="m-rev">Suggested reviewers <span class="muted">(names and e-mails, optional)</span></label><textarea id="m-rev" rows="3"></textarea>
             <label for="m-cover" style="margin-top:10px">Cover letter <span class="muted">(paste, optional — Module 4 checks it)</span></label><textarea id="m-cover" rows="3"></textarea>
-            <label class="row" style="gap:8px;margin-top:10px;font-weight:500"><input type="checkbox" id="m-subs"> Similarity report: compare with earlier PJPS submissions <span class="muted">("Submitted works", off by default)</span></label></div>
+            <label class="row" style="gap:8px;margin-top:10px;font-weight:500"><input type="checkbox" id="m-subs"> Similarity report: compare with earlier PJPS submissions <span class="muted">("Submitted works", off by default)</span></label>
+            <label class="row" style="gap:8px;margin-top:6px;font-weight:500"><input type="checkbox" id="m-ext"> Similarity report: full-text comparison by the external similarity service <span class="muted">(paid per report; otherwise only when the in-house Similarity Index is high)</span></label></div>
           <div class="field">${hasModule('images') ? `<div class="hint" style="margin-bottom:8px"><b>Module 5 Image Integrity</b> always analyses the figures of the uploaded Word (.docx) / PDF file, in your browser: duplicated, re-used and altered figures, and matches with published PJPS papers, retracted papers and PubMed Central figures. Where the external image check is set up, each whole figure is also sent for AI-generated image detection and a reverse image search of the web.</div>` : ''}<label for="m-img">Or attach an earlier Module 5 report instead <span class="muted">(optional)</span></label><select id="m-img"><option value="">— none —</option></select></div>
         </div>
       </div>` : ''}
@@ -171,7 +172,8 @@ export function renderCheckForm(view, kind) {
       suggestedReviewers: $('#m-rev', view)?.value || '',
       coverLetter: $('#m-cover', view)?.value || '',
       imagesCheckId: $('#m-img', view)?.value || null,
-      compareSubmissions: !!$('#m-subs', view)?.checked
+      compareSubmissions: !!$('#m-subs', view)?.checked,
+      externalCompare: !!$('#m-ext', view)?.checked
     };
     if (doc.edited) {
       body.entries = doc.edited;

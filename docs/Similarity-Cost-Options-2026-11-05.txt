@@ -1,0 +1,76 @@
+PJPS DATA INTEGRITY SYSTEM - SIMILARITY REPORT: CLOSER TO TURNITIN AT LOW COST
+5 November 2026
+
+1. WHY THE REPORT SHOWED 24% WHERE TURNITIN SHOWED 34%
+-------------------------------------------------------
+Report #102 (Ganoderma lucidum manuscript) was made before today's changes, and three of
+its sources of matches were not working:
+- The external full-text similarity service did not run: its credits were used up. It is
+  the only source of web matches today, so the report shows 0% Internet sources.
+- The OpenAlex search of publisher full texts stopped after 4 of its 150 searches: the
+  daily budget of the API key was used up.
+- The web is not searched by the in-house engine: no web search key is set on Vercel.
+Two gaps remain whatever is spent:
+- Turnitin's archive of student papers ("Submitted works"): no service sells access to it.
+- Paywalled papers: the in-house engine counts only the 8-word passages it finds in them;
+  Turnitin holds their full text and counts the whole copied sentence.
+
+Fixed today (deployed): the reference list is matched entry by entry, whatever the citation
+style, and open-access papers are compared with their own reference lists. On a
+29-reference manuscript the bibliography went from 30% to 98% matched and the in-house
+Similarity Index from 14.4% to 25.8%, before any web or external matches.
+
+
+2. RECOMMENDED STEPS
+--------------------
+Step 1 - OpenAlex publisher full texts (free for about 6 reports a day)
+- OpenAlex gives every API key $1 of free use per day. A full-text search costs
+  $1 per 1,000 calls, and a report makes up to 150: about $0.15 per report.
+- So about 6 reports a day are free; a $10 top-up covers about 65 more reports.
+- Where: openalex.org/pricing (add funds to the key in OPENALEX_API_KEY).
+- Local tests should use a separate key, so they do not spend the live key's budget.
+
+Step 2 - Web search with a Brave Search API key (about $0.20-0.30 per report)
+- Brave ended its free plan in February 2026. New accounts get $5 of credit every month
+  (about 1,000 searches), then $0.003-0.005 per search.
+- The engine searches up to 60 passages per report on the web (WEB_PHRASES): the monthly
+  credit covers about 16 reports.
+- Web matches are Turnitin's "Internet sources", missing from report #102 (0%).
+- Setup only, no code: add BRAVE_API_KEY in Vercel (Settings > Environment Variables),
+  then redeploy.
+- Not recommended: Google Programmable Search (closed to new customers, shuts down on
+  1 January 2027); SerpApi works but costs several times more per search.
+
+Step 3 - Earlier PJPS submissions as "Submitted works" (free)
+- The journal's own equivalent of Turnitin's student-paper archive: every manuscript is
+  compared with the earlier PJPS submissions that share text with it.
+- Already built, as an option per report ("Similarity report: compare with earlier PJPS
+  submissions"). Switching it on by default is a privacy decision for the journal.
+- Helps most with resubmitted and duplicate manuscripts.
+
+Step 4 - The external full-text service only when it matters (done, see section 3)
+- It runs when the editor asks for it on the Full Screening page, or when the in-house
+  Similarity Index reaches a threshold (15% by default).
+- The reference list is no longer sent to it (the in-house engine matches references
+  now), so each scan needs fewer credits (about 13% fewer on a typical manuscript).
+
+
+3. SETTINGS (Vercel > Settings > Environment Variables)
+--------------------------------------------------------
+OPENALEX_API_KEY            the OpenAlex key (Step 1)
+OPENALEX_PHRASES            OpenAlex searches per report (default 150)
+BRAVE_API_KEY               the Brave Search API key (Step 2)
+WEB_PHRASES                 web searches per report (default 60)
+EXTERNAL_SIMILARITY_MIN     the in-house Similarity Index (%) from which the external
+                            service runs by itself (default 15). 0 = every report;
+                            101 = only when the editor asks for it.
+After changing a setting, redeploy for it to take effect.
+
+
+4. WHAT TO EXPECT
+-----------------
+With Steps 1 and 2 a report covers publisher full texts, open-access papers, PubMed
+abstracts, the web, and every reference matched whole. The in-house engine reached 25.8%
+on a test manuscript without the web, so Steps 1 and 2 should bring reports into the high
+20s or low 30s where Turnitin shows 34%. This is an estimate: re-run report #102's
+manuscript after Steps 1 and 2 and compare it with Turnitin's report to confirm.

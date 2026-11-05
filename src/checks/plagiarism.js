@@ -2,8 +2,10 @@
 // broken down into Internet sources and Publications, a numbered list of primary sources whose percentages add up to the
 // index, and the manuscript text highlighted in each source's colour, every match shown next to the source's own wording.
 //
-//   1. Filters as in Turnitin: the bibliography is excluded, quoted text is excluded (the editor can include it: matches
-//      inside quotation marks are kept in the report, marked), matches shorter than MIN_MATCH words are excluded. In-text citation markers ([12], (Smith et al., 2020)) are ignored on both sides, so a copied
+//   1. Filters as in Turnitin's defaults: the bibliography and quotations are compared and no small match is excluded
+//      (matches of FLOOR words or more are kept); the editor excludes the bibliography, quotes, small matches (by word
+//      count) and small sources (by word count or percentage). Replaced and hidden characters are read through and
+//      flagged. In-text citation markers ([12], (Smith et al., 2020)) are ignored on both sides, so a copied
 //      sentence whose citation was changed or removed is still one match.
 //   2. Source discovery, as Turnitin compares every sentence: the PJPS repository of published texts; the open-access
 //      full texts of papers on the same subject; then every stretch of WINDOW words not matched yet - aligned on the
@@ -46,7 +48,8 @@ const MAX_PASSAGES = 12;     // matches kept per source with the source's own wo
 
 let SIM = null; // public/js/shared/similarity.js (ES module, loaded once)
 const shared = async () => SIM || (SIM = await import(pathToFileURL(path.join(__dirname, '../../public/js/shared/similarity.js')).href));
-const MIN_MATCH = 8;         // = SIM.MIN_MATCH
+const MIN_MATCH = 8;         // = SIM.MIN_MATCH: the shortest match of reports before version 5
+const FLOOR = K;             // = SIM.FLOOR: the shortest match kept; the editor's small-match filter raises it (Turnitin: off by default)
 
 const STOP = new Set(('a an the and or of in on at to for from by with without as is are was were be been being this that these those it its their there '
   + 'which who whom whose than then into onto over under between among within during after before about above below also such may might can could '
@@ -143,7 +146,7 @@ async function sourceText(c) {
   return { text: stripXml(x?.abstractText || ''), scope: 'abstract' };
 }
 
-/** Join matched runs separated by at most GAP words, then drop runs shorter than MIN_MATCH (Turnitin's small-match filter) */
+/** Join matched runs separated by at most GAP words, then drop runs shorter than FLOOR words */
 function finishRuns(hit, words) {
   for (let k = 0; k < hit.length;) {
     if (!hit[k]) { k++; continue; }
@@ -159,7 +162,7 @@ function finishRuns(hit, words) {
     if (!hit[k]) { k++; continue; }
     let e = k;
     while (e < hit.length && hit[e]) e++;
-    if (e - k < MIN_MATCH) for (let j = k; j < e; j++) hit[j] = 0;
+    if (e - k < FLOOR) for (let j = k; j < e; j++) hit[j] = 0;
     else passages.push({ from: k, to: e, words: e - k, text: words.slice(k, e).map(x => x.raw).join(' ') });
     k = e;
   }
@@ -674,7 +677,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   // word ranges inside quotation marks: left out of the matches unless the editor includes quotations
   const quoted = [];
   mine.forEach((w, k) => { if (!w.quoted) return; const last = quoted[quoted.length - 1]; if (last && last[1] === k) last[1] = k + 1; else quoted.push([k, k + 1]); });
-  const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT, quoted, includeQuotes: true });
+  const view = SIM.recompute(all, prep.text, { tokens: mine, total: mine.length, maxText: MAX_TEXT, quoted, includeQuotes: true, minWords: FLOOR });
   const s = view.summary;
 
   const subsOn = Array.isArray(submissions);
@@ -684,7 +687,8 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches${stats.openalexBudget ? '; stopped: the daily OpenAlex search budget is used up - add funds at openalex.org/pricing' : ''})`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
   return {
     kind: 'plagiarism',
-    version: 4, // 4: bibliography compared as a section, quotations included by default (Turnitin's defaults)
+    version: 5, // 4: bibliography compared as a section, quotations included by default; 5: matches from 5 words kept, small matches not excluded by default, flags (Turnitin's defaults)
+    floor: FLOOR,
     summary: s,
     repository: subsOn ? `not stored: this manuscript was not added to any repository; earlier PJPS submissions were compared at the editor's request (${submissions.length} sharing text)` : 'not stored: this manuscript was not added to any repository, and earlier unpublished PJPS submissions were not compared (no-repository setting, as in Turnitin)',
     submissions: { compared: subsOn || extSources.some(x => x.type === 'submission'), candidates: subsOn ? submissions.length : 0, matched: fromSubs.length + extSources.filter(x => x.type === 'submission').length },
@@ -700,12 +704,14 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     groups: view.groups,
     quoted,
     // Turnitin's defaults: bibliography and quotations included, the editor excludes them in Filters
-    settings: { excluded: [], minWords: MIN_MATCH, excludeSections: [], minPercent: 0, includeQuotes: true },
-    filters: { bibliography: prep.bibliographyFound ? 'included (the reference list is compared; exclude it in Filters)' : 'no reference list found', quotes: `included (${prep.quotedWords} quoted words)`, smallMatches: `excluded (fewer than ${MIN_MATCH} words)`, citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
+    settings: { excluded: [], minWords: FLOOR, excludeSections: [], minPercent: 0, minSourceWords: 0, includeQuotes: true },
+    // Turnitin's flags: replaced characters and hidden characters (read through by the comparison)
+    flags: SIM.textFlags(prep.text),
+    filters: { bibliography: prep.bibliographyFound ? 'included (the reference list is compared; exclude it in Filters)' : 'no reference list found', quotes: `included (${prep.quotedWords} quoted words)`, smallMatches: "not excluded (Turnitin's default; the shortest match counted is 5 words)", citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
     checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, databases },
     coverage: `${extUsed ? 'The whole text with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
-    method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are excluded, and so are matches shorter than ${MIN_MATCH} words. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
+    method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are compared (the editor can exclude either), and matches of ${FLOOR} words or more are counted (the editor can exclude small matches). Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };
 }
 
@@ -714,12 +720,14 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
  * higher minimum match length (Turnitin), sections left out of the comparison (iThenticate's "exclude abstract /
  * methods") and sources under a percentage left out (Turnitin's "exclude sources under x %")
  */
-async function applySettings(pl, { excluded = [], minWords = MIN_MATCH, excludeSections = [], minPercent = 0, includeQuotes = false } = {}) {
+async function applySettings(pl, { excluded = [], minWords = null, excludeSections = [], minPercent = 0, minSourceWords = 0, includeQuotes = false } = {}) {
   await shared();
   if (!pl || pl.error || (pl.version || 0) < 3) return pl;
   const text = (pl.document || []).map(d => d.t).join('');
   const all = [...(pl.sources || []), ...(pl.alsoMatched || [])].map(x => ({ ...x, excluded: undefined, small: undefined }));
-  const min = Math.max(MIN_MATCH, Math.min(200, parseInt(minWords, 10) || MIN_MATCH));
+  const floor = pl.floor || MIN_MATCH; // the shortest match the report kept
+  const min = Math.max(floor, Math.min(200, parseInt(minWords, 10) || floor));
+  const minSrc = Math.max(0, Math.min(500, parseInt(minSourceWords, 10) || 0));
   const keys = new Set(all.map(x => x.key));
   const ex = [...new Set([].concat(excluded || []))].filter(k => keys.has(k));
   const tokens = SIM.tokenize(text);
@@ -727,15 +735,15 @@ async function applySettings(pl, { excluded = [], minWords = MIN_MATCH, excludeS
   const exSec = [...new Set([].concat(excludeSections || []))].filter(k => secKeys.has(k) && k !== 'body');
   const minPct = Math.max(0, Math.min(10, Number(minPercent) || 0));
   const inclQ = !!includeQuotes && !!pl.quoted?.length;
-  const view = SIM.recompute(all, text, { tokens, total: pl.summary.words, excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct, quoted: pl.quoted || [], includeQuotes: inclQ });
+  const view = SIM.recompute(all, text, { tokens, total: pl.summary.words, excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct, minSourceWords: minSrc, quoted: pl.quoted || [], includeQuotes: inclQ });
   const qWords = (pl.quoted || []).reduce((a, [p, q]) => a + q - p, 0);
   const { sources: _s, smallSources: _p, sections: _c, ...filters } = pl.filters || {};
   return { ...pl, summary: view.summary, sources: view.sources, alsoMatched: view.alsoMatched, document: view.document, sections: view.sections, groups: view.groups,
-    settings: { excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct, includeQuotes: inclQ },
-    filters: { ...filters, smallMatches: `excluded (fewer than ${min} words)`,
+    settings: { excluded: ex, minWords: min, excludeSections: exSec, minPercent: minPct, minSourceWords: minSrc, includeQuotes: inclQ },
+    filters: { ...filters, smallMatches: min > floor ? `excluded (fewer than ${min} words)` : pl.floor ? "not excluded (Turnitin's default; the shortest match counted is 5 words)" : `excluded (fewer than ${min} words)`,
       ...(secKeys.has('references') ? { bibliography: exSec.includes('references') ? 'excluded by the editor' : 'included (the reference list is compared)' } : {}), ...(pl.quoted ? { quotes: `${inclQ ? 'included' : 'excluded'} (${qWords} quoted words)` } : {}),
       ...(ex.length ? { sources: `${ex.length} source(s) excluded by the editor` } : {}),
-      ...(minPct ? { smallSources: `sources under ${minPct}% excluded` } : {}),
+      ...(minPct || minSrc ? { smallSources: `sources under ${[minPct ? `${minPct}%` : '', minSrc ? `${minSrc} words` : ''].filter(Boolean).join(' or ')} excluded` } : {}),
       ...(exSec.length ? { sections: `excluded from the comparison: ${view.sections.filter(x => x.excluded).map(x => x.label).join(', ')}` } : {}) } };
 }
 
@@ -743,7 +751,7 @@ async function applySettings(pl, { excluded = [], minWords = MIN_MATCH, excludeS
 function toCsv(pl) {
   const F = require('../format');
   const row = x => [x.no ?? '', x.no ? x.percent : 0, x.words ?? 0, x.matchedWords ?? '', String(x.title || '').replace(/<[^>]+>/g, ''), x.type === 'internet' ? 'Internet source' : x.type === 'submission' ? 'Submitted work' : 'Publication',
-    x.journal || '', x.year || '', x.doi || '', x.url || '', x.via || '', x.compared || '', x.no ? '' : x.excluded ? 'excluded by the editor' : x.small ? 'under the source percentage filter' : 'all words credited to larger sources'];
+    x.journal || '', x.year || '', x.doi || '', x.url || '', x.via || '', x.compared || '', x.no ? '' : x.excluded ? 'excluded by the editor' : x.small ? 'under the small-source filter' : 'all words credited to larger sources'];
   return F.toCsv(['No.', 'Similarity %', 'Words credited', 'Words matched', 'Source', 'Type', 'Journal / site', 'Year', 'DOI', 'Link', 'Found via', 'Compared', 'Not counted because'],
     [...(pl.sources || []), ...(pl.alsoMatched || [])].map(row));
 }

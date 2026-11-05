@@ -1,10 +1,13 @@
 // views/similarity.js - the similarity (originality) report, laid out like Turnitin's viewer: the manuscript on the left
 // with every match highlighted in its source's colour, the Similarity Index and the primary sources on the right. A
 // source opens to show each match next to the source's own wording, with the words that differ marked; sources can be
-// excluded, the minimum match length raised, sections (abstract, methods ...) left out and small sources dropped,
+// excluded, quotes and the bibliography excluded, small matches excluded (off by default, as in Turnitin), sections
+// (abstract, methods ...) left out and small sources dropped (by percentage or word count), text flags shown,
 // recomputed with the same code as the server (shared/similarity.js) and saved with the report for the export.
 import { api, esc, $, $$, toast, download, ICONS } from '../core.js';
 import { recompute, tokenize, MIN_MATCH } from '../shared/similarity.js';
+
+const SOURCE_WORDS = [0, 10, 20, 30, 50, 100];
 
 // one colour per primary source (cycled), readable on light and dark backgrounds
 const COLORS = ['#d7263d', '#1b998b', '#3a50d9', '#f46036', '#8e44ad', '#2e86ab', '#c2185b', '#8d6e63', '#6b8e23', '#283593', '#e0a100', '#00897b', '#7b1fa2', '#5d4037', '#455a64'];
@@ -53,17 +56,20 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
   const tokens = tokenize(text);
   const all = [...(original.sources || []), ...(original.alsoMatched || [])].map(x => ({ ...x, excluded: undefined }));
   const st = original.settings || {};
-  const saved = { excluded: [...(st.excluded || [])], minWords: st.minWords || MIN_MATCH, excludeSections: [...(st.excludeSections || [])], minPercent: st.minPercent || 0, includeQuotes: !!st.includeQuotes };
-  const state = { excluded: new Set(saved.excluded), minWords: saved.minWords, excludeSections: new Set(saved.excludeSections), minPercent: saved.minPercent, includeQuotes: saved.includeQuotes, open: null, focus: null, panel: 'overview', at: -1 };
+  const floor = original.floor || MIN_MATCH; // the shortest match the report kept (5 words from version 5)
+  const saved = { excluded: [...(st.excluded || [])], minWords: st.minWords || floor, excludeSections: [...(st.excludeSections || [])], minPercent: st.minPercent || 0, minSourceWords: st.minSourceWords || 0, includeQuotes: !!st.includeQuotes };
+  const state = { excluded: new Set(saved.excluded), minWords: saved.minWords, excludeSections: new Set(saved.excludeSections), minPercent: saved.minPercent, minSourceWords: saved.minSourceWords, includeQuotes: saved.includeQuotes, open: null, focus: null, panel: 'overview', at: -1 };
   const quoted = original.quoted || null; // reports made before quotations could be included have no quoted ranges
   const quotedWords = (quoted || []).reduce((a, [p, q]) => a + q - p, 0);
+  const flags = original.flags || [];
+  const noBib = (original.version || 0) < 4 ? 'This report was made before the reference list was compared: run the screening again to include or exclude it' : 'No reference list was found in this manuscript (no References heading and no list extracted)';
   let pl = original;
 
   const sameSet = (set, list) => set.size === list.length && list.every(k => set.has(k));
-  const dirty = () => state.minWords !== saved.minWords || state.minPercent !== saved.minPercent || state.includeQuotes !== saved.includeQuotes || !sameSet(state.excluded, saved.excluded) || !sameSet(state.excludeSections, saved.excludeSections);
-  const filtered = () => state.excluded.size || state.minWords > MIN_MATCH || state.excludeSections.size || state.minPercent > 0 || state.includeQuotes !== ((original.version || 0) >= 4); // the default: quotes included from version 4 (Turnitin)
+  const dirty = () => state.minWords !== saved.minWords || state.minPercent !== saved.minPercent || state.minSourceWords !== saved.minSourceWords || state.includeQuotes !== saved.includeQuotes || !sameSet(state.excluded, saved.excluded) || !sameSet(state.excludeSections, saved.excludeSections);
+  const filtered = () => state.excluded.size || state.minWords > floor || state.excludeSections.size || state.minPercent > 0 || state.minSourceWords > 0 || state.includeQuotes !== ((original.version || 0) >= 4); // the default: quotes included from version 4 (Turnitin)
   const compute = () => {
-    const v = recompute(all, text, { tokens, total: original.summary.words, excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent, quoted: quoted || [], includeQuotes: state.includeQuotes });
+    const v = recompute(all, text, { tokens, total: original.summary.words, excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent, minSourceWords: state.minSourceWords, quoted: quoted || [], includeQuotes: state.includeQuotes });
     pl = { ...original, ...v };
   };
 
@@ -80,6 +86,7 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
         ${bar('Publications', s.publications, 'pub')}
         ${bar('Internet sources', s.internet, 'web')}
         ${pl.aiWriting ? `<div class="sim-ai" title="${esc((pl.aiWriting.parts || []).join(' · ') || 'No AI writing pattern found')}"><b>AI-writing indicator:</b> ${pl.aiWriting.leftovers ? `<span class="badge b-bad">chatbot text left in the manuscript (${pl.aiWriting.leftovers})</span> ` : ''}<span class="badge b-${pl.aiWriting.score >= 55 ? 'bad' : pl.aiWriting.score >= 25 ? 'warn' : 'good'}">${pl.aiWriting.score}/100</span> <span class="muted">an indicator, not proof (vocabulary, sentence rhythm, stock transitions); details in Module 4</span>${Number.isFinite(pl.external?.aiText) ? ` · <b>AI-text detector:</b> <span class="badge b-${pl.external.aiText >= 80 ? 'bad' : pl.external.aiText >= 50 ? 'warn' : 'good'}">${pl.external.aiText}% likely AI-written</span>` : ''}</div>` : Number.isFinite(pl.external?.aiText) ? `<div class="sim-ai"><b>AI-text detector:</b> <span class="badge b-${pl.external.aiText >= 80 ? 'bad' : pl.external.aiText >= 50 ? 'warn' : 'good'}">${pl.external.aiText}% likely AI-written</span> <span class="muted">an estimate, not proof</span></div>` : ''}
+        ${flags.length ? `<div class="sim-flags-line"><b>Flags:</b> ${flags.map(f => `<a href="#" class="badge b-bad" data-flags>${f.count} ${esc(f.label.toLowerCase())}</a>`).join(' ')} <span class="muted">text changed to hide it from similarity software</span></div>` : ''}
         ${pl.submissions?.compared ? bar('Submitted works (earlier PJPS submissions)', s.submissions, 'sub') : bar('Submitted works', 0, '', 'not compared')}
         <div class="sim-private" title="${esc(pl.privacy?.statement || pl.repository || '')}">🔒 <b>Not stored · no repository.</b> ${esc(pl.submissions?.compared ? `This manuscript was not saved to any database. At your request it was compared with ${pl.submissions.candidates} earlier PJPS submission(s) sharing text.` : pl.privacy ? 'This manuscript was not saved to any database. Earlier PJPS submissions were not compared (opt-in on the Full Screening form).' : 'This manuscript was not added to any repository.')}</div>
       </div></div>`;
@@ -87,9 +94,14 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
 
   const toolbar = () => {
     const n = $$('.sim-m', body).length;
+    const bibSec = (pl.sections || []).find(x => x.key === 'references');
+    const minOpts = [floor, ...[6, 8, 10, 12, 15, 20, 30, 50].filter(v => v > floor)];
     return `<div class="sim-toolbar no-print">
-      <label>Exclude matches under <select id="sim-min">${[8, 10, 12, 15, 20, 30, 50].map(v => `<option value="${v}" ${v === state.minWords ? 'selected' : ''}>${v}</option>`).join('')}</select> words</label>
-      <label title="Leave out sources whose share of the manuscript stays under this percentage">Sources under <select id="sim-pct">${PERCENTS.map(v => `<option value="${v}" ${v === state.minPercent ? 'selected' : ''}>${v ? `${v}%` : 'off'}</option>`).join('')}</select></label>
+      <label title="${bibSec ? `${bibSec.words.toLocaleString()} words in the reference list` : esc(noBib)}"><input type="checkbox" id="sim-bib" ${state.excludeSections.has('references') ? 'checked' : ''} ${bibSec ? '' : 'disabled'}> Exclude bibliography</label>
+      <label title="${quoted ? `${quotedWords} words in quotation marks` : 'This report was made before quotations were compared: run the screening again'}"><input type="checkbox" id="sim-quotes" ${state.includeQuotes ? '' : 'checked'} ${quoted ? '' : 'disabled'}> Exclude quotes</label>
+      <label title="Turnitin's default is off: every match counts">Exclude small matches <select id="sim-min">${minOpts.map(v => `<option value="${v}" ${v === state.minWords ? 'selected' : ''}>${v === floor && original.floor ? 'off' : `under ${v} words`}</option>`).join('')}</select></label>
+      <span class="sim-sep"></span>
+      <label title="Leave out sources whose share of the manuscript stays under this percentage">Exclude sources under <select id="sim-pct">${PERCENTS.map(v => `<option value="${v}" ${v === state.minPercent ? 'selected' : ''}>${v ? `${v}%` : 'off'}</option>`).join('')}</select></label>
       <span class="sim-sep"></span>
       <button class="btn btn-sm btn-ghost" id="sim-prev" title="Previous match">◀</button><span class="muted" id="sim-pos">${n ? `${state.at >= 0 ? state.at + 1 : '–'} / ${n}` : 'no matches'}</span><button class="btn btn-sm btn-ghost" id="sim-next" title="Next match">▶</button>
       ${state.focus ? `<span class="chip">Showing source ${state.focus} only <a href="#" id="sim-all">show all</a></span>` : ''}
@@ -119,8 +131,8 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
         <span class="sim-no" style="${no ? `background:${srcColor(no)}` : ''}">${no || '–'}</span>
         <span class="sim-src-main"><span class="sim-src-title">${sourceLink(x)}</span>
           <span class="sim-src-meta">${esc(TYPE[x.type] || x.type)}${metaLine(x) ? ` · ${metaLine(x)}` : ''}</span>
-          ${no ? `<span class="sim-bar sm"><span style="width:${Math.min(100, x.percent * 4)}%;background:${srcColor(no)}"></span></span>` : `<span class="sim-src-meta">${x.excluded ? 'Excluded by the editor' : x.small ? `Under ${state.minPercent}% of the manuscript (source filter)` : `${x.matchedWords || 0} matched words, all credited to larger sources`}</span>`}</span>
-        <span class="sim-pct">${no ? pctText(x.percent) : ''}</span>
+          ${no ? `<span class="sim-bar sm"><span style="width:${Math.min(100, x.percent * 4)}%;background:${srcColor(no)}"></span></span>` : `<span class="sim-src-meta">${x.excluded ? 'Excluded by the editor' : x.small ? 'Under the small-source filter' : `${x.matchedWords || 0} matched words, all credited to larger sources`}</span>`}</span>
+        <span class="sim-pct">${no ? `${pctText(x.percent)}<small>${x.matches || 0} match${x.matches === 1 ? '' : 'es'} · ${x.words} words</small>` : ''}</span>
       </div>
       ${open ? `<div class="sim-src-body">
         <div class="muted" style="font-size:12px;margin-bottom:6px">Found via ${esc(x.via || '—')} · compared: ${esc(x.compared || '—')}${x.matchedWords ? ` · ${x.matchedWords} matched words` : ''}</div>
@@ -136,7 +148,7 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
     const others = pl.alsoMatched || [];
     const secs = pl.sections || [];
     const groups = pl.groups || [];
-    const tabs = [['overview', `Matches (${credited.length})`], ...(groups.length ? [['groups', 'Match groups']] : []), ['all', `All sources (${credited.length + others.length})`], ...(secs.length > 1 ? [['sections', 'Sections']] : []), ['filters', 'Filters']];
+    const tabs = [['overview', `Matches (${credited.length})`], ...(groups.length ? [['groups', 'Match groups']] : []), ['all', `All sources (${credited.length + others.length})`], ...(secs.length > 1 ? [['sections', 'Sections']] : []), ...(flags.length ? [['flags', `Flags (${flags.reduce((a, f) => a + f.count, 0)})`]] : []), ['filters', 'Filters']];
     const list = state.panel === 'all' ? [...credited, ...others] : credited;
     const snippet = m => tokens.slice(m.from, Math.min(m.to, m.from + 18)).map(w => w.raw).join(' ') + (m.to - m.from > 18 ? ' …' : '');
     return `<div class="sim-tabs">${tabs.map(([k, l]) => `<button class="${state.panel === k ? 'active' : ''}" data-panel="${k}">${l}</button>`).join('')}</div>
@@ -145,6 +157,10 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
           ${groups.map(g => `<details class="sim-group"${g.matches.length && g.key !== 'cited' ? ' open' : ''}><summary><b>${g.matches.length} ${esc(g.label)}</b> <span class="muted">${pctText(g.percent)}</span><br><span class="muted" style="font-size:12px">${esc(g.about)}</span></summary>
             ${g.matches.length ? `<ol class="sim-group-list">${g.matches.slice(0, 60).map(m => `<li><span class="sim-no" style="background:${srcColor(m.no)}">${m.no}</span> <span>${esc(snippet(m))}</span> <span class="muted">${m.words} words</span> <button class="btn btn-sm btn-ghost" data-goto="${m.from}">Show ↗</button></li>`).join('')}</ol>${g.matches.length > 60 ? `<p class="muted">… ${g.matches.length - 60} more</p>` : ''}` : '<p class="muted">None.</p>'}
           </details>`).join('')}
+        </div>`
+      : state.panel === 'flags' ? `<div class="sim-filters">
+          <p class="muted">As in Turnitin's flags: text changed so that similarity software would miss it. The comparison read through these changes, so the matches already include the disguised text. Open the file and check the words listed.</p>
+          ${flags.map(f => `<div class="sim-group"><b>${f.count} ${esc(f.label)}</b><p class="muted" style="font-size:12px;margin:4px 0">${esc(f.about)}</p><ul class="sim-group-list">${f.examples.map(e => `<li><code>${esc(e.word)}</code></li>`).join('')}</ul>${f.count > f.examples.length ? `<p class="muted">… ${f.count - f.examples.length} more</p>` : ''}</div>`).join('')}
         </div>`
       : state.panel === 'sections' ? `<div class="sim-filters">
           <p class="muted">Similarity of each section. Overlap in Materials and methods is often standard wording; untick a section to leave it out of the comparison (its words then count neither as matched nor in the total).</p>
@@ -155,11 +171,12 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
           <p class="muted" style="margin-top:8px">Sections are found from the manuscript's headings (Abstract, Introduction, Materials and methods, Results, Discussion, Conclusion, Declarations).</p>
         </div>`
       : state.panel === 'filters' ? `<div class="sim-filters">
-          <p><b>Bibliography</b> — ${secs.some(x => x.key === 'references') ? `<label class="row" style="display:inline-flex;gap:6px;margin:0"><input type="checkbox" id="sim-bib" ${state.excludeSections.has('references') ? 'checked' : ''}> exclude bibliography (${(secs.find(x => x.key === 'references')?.words || 0).toLocaleString()} words in the reference list)</label>` : esc(pl.filters.bibliography)}</p>
-          <p><b>Quotations</b> — ${quoted ? `<label class="row" style="display:inline-flex;gap:6px;margin:0"><input type="checkbox" id="sim-quotes" ${state.includeQuotes ? '' : 'checked'}> exclude quoted text (${quotedWords} words in quotation marks)</label>` : esc(pl.filters.quotes)}</p>
+          <p><b>Bibliography</b> — ${secs.some(x => x.key === 'references') ? `<label class="row" style="display:inline-flex;gap:6px;margin:0"><input type="checkbox" data-exsec="references" ${state.excludeSections.has('references') ? 'checked' : ''}> exclude bibliography (${(secs.find(x => x.key === 'references')?.words || 0).toLocaleString()} words in the reference list)</label>` : esc(noBib)}</p>
+          <p><b>Quotations</b> — ${quoted ? `<label class="row" style="display:inline-flex;gap:6px;margin:0"><input type="checkbox" class="sim-quotes-f" ${state.includeQuotes ? '' : 'checked'}> exclude quoted text (${quotedWords} words in quotation marks)</label>` : esc(pl.filters.quotes)}</p>
+          ${[['abstract', 'Abstract'], ['methods', 'Methods and materials']].map(([k, l]) => secs.some(x => x.key === k) ? `<p><b>${l}</b> — <label class="row" style="display:inline-flex;gap:6px;margin:0"><input type="checkbox" data-exsec="${k}" ${state.excludeSections.has(k) ? 'checked' : ''}> exclude ${l.toLowerCase()} (${(secs.find(x => x.key === k)?.words || 0).toLocaleString()} words)</label></p>` : `<p><b>${l}</b> — <span class="muted">no ${l.toLowerCase()} heading found</span></p>`).join('')}
           ${pl.filters.citations ? `<p><b>In-text citations</b> — ${esc(pl.filters.citations)}</p>` : ''}
-          <p><b>Small matches</b> — excluded (fewer than ${state.minWords} words)</p>
-          <p><b>Small sources</b> — ${state.minPercent ? `sources under ${state.minPercent}% left out (${others.filter(x => x.small).length})` : 'all counted'}</p>
+          <p><b>Small matches</b> — ${state.minWords > floor || !original.floor ? `excluded (fewer than ${state.minWords} words)` : 'not excluded (every match of 5 words or more counts)'}</p>
+          <p><b>Small sources</b> — <label style="display:inline-flex;gap:6px;margin:0">exclude sources under <select id="sim-srcw">${SOURCE_WORDS.map(v => `<option value="${v}" ${v === state.minSourceWords ? 'selected' : ''}>${v ? `${v} words` : 'off'}</option>`).join('')}</select></label>${state.minPercent ? ` and under ${state.minPercent}%` : ''}${state.minPercent || state.minSourceWords ? ` <span class="muted">(${others.filter(x => x.small).length} left out)</span>` : ''}</p>
           <p><b>Excluded sources</b> — ${state.excluded.size ? [...state.excluded].map(k => esc(plain(all.find(x => x.key === k)?.title) || k)).join('; ') : 'none'}</p>
           <p><b>Excluded sections</b> — ${state.excludeSections.size ? secs.filter(x => x.excluded).map(x => esc(x.label)).join('; ') : 'none'}</p>
           ${pl.selfMatches?.length ? `<p><b>Not counted</b> — the manuscript's own published version or preprint: ${pl.selfMatches.map(x => esc(x.title)).join('; ')}</p>` : ''}
@@ -223,10 +240,14 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
     $$('[data-dl]', body).forEach(b => (b.onclick = () => download(`/api/checks/${checkId}/similarity?format=${b.dataset.dl}`).catch(e => toast(e.message, 'error'))));
     $('#sim-min', body).onchange = e => { state.minWords = +e.target.value; state.at = -1; paint(); };
     $('#sim-pct', body).onchange = e => { state.minPercent = +e.target.value; state.at = -1; paint(); };
-    const q = $('#sim-quotes', body);
-    if (q) q.onchange = () => { state.includeQuotes = !q.checked; state.at = -1; paint(); };
+    $$('#sim-quotes, .sim-quotes-f', body).forEach(q => (q.onchange = () => { state.includeQuotes = !q.checked; state.at = -1; paint(); }));
+    const exSec = (key, on) => { if (on) state.excludeSections.add(key); else state.excludeSections.delete(key); state.at = -1; state.focus = null; paint(); };
     const bib = $('#sim-bib', body);
-    if (bib) bib.onchange = () => { if (bib.checked) state.excludeSections.add('references'); else state.excludeSections.delete('references'); state.at = -1; state.focus = null; paint(); };
+    if (bib) bib.onchange = () => exSec('references', bib.checked);
+    $$('[data-exsec]', body).forEach(b => (b.onchange = () => exSec(b.dataset.exsec, b.checked)));
+    const srcw = $('#sim-srcw', body);
+    if (srcw) srcw.onchange = () => { state.minSourceWords = +srcw.value; state.at = -1; state.focus = null; paint(); };
+    $$('[data-flags]', body).forEach(a => (a.onclick = e => { e.preventDefault(); state.panel = 'flags'; paint(); }));
     $$('[data-section]', body).forEach(b => (b.onchange = () => {
       if (b.checked) state.excludeSections.delete(b.dataset.section); else state.excludeSections.add(b.dataset.section);
       state.at = -1; state.focus = null;
@@ -262,19 +283,20 @@ export function renderSimilarity(body, original, { checkId = null } = {}) {
     if (save) save.onclick = async () => {
       save.disabled = true;
       try {
-        const d = await api(`/api/checks/${checkId}/similarity`, { method: 'PATCH', body: { excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent, includeQuotes: state.includeQuotes } });
+        const d = await api(`/api/checks/${checkId}/similarity`, { method: 'PATCH', body: { excluded: [...state.excluded], minWords: state.minWords, excludeSections: [...state.excludeSections], minPercent: state.minPercent, minSourceWords: state.minSourceWords, includeQuotes: state.includeQuotes } });
         const ns = d.plagiarism.settings;
         saved.excluded = [...ns.excluded];
         saved.minWords = ns.minWords;
         saved.excludeSections = [...(ns.excludeSections || [])];
         saved.minPercent = ns.minPercent || 0;
+        saved.minSourceWords = ns.minSourceWords || 0;
         saved.includeQuotes = !!ns.includeQuotes;
         toast('Filters saved — the Word / PDF report uses them');
         paint();
       } catch (e) { toast(e.message, 'error'); save.disabled = false; }
     };
     const reset = $('#sim-reset', body);
-    if (reset) reset.onclick = () => { state.excluded = new Set(saved.excluded); state.minWords = saved.minWords; state.excludeSections = new Set(saved.excludeSections); state.minPercent = saved.minPercent; state.includeQuotes = saved.includeQuotes; paint(); };
+    if (reset) reset.onclick = () => { state.excluded = new Set(saved.excluded); state.minWords = saved.minWords; state.excludeSections = new Set(saved.excludeSections); state.minPercent = saved.minPercent; state.minSourceWords = saved.minSourceWords; state.includeQuotes = saved.includeQuotes; paint(); };
   }
 
   paint();

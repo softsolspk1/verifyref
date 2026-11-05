@@ -3,11 +3,24 @@
 // (excluding a source or raising the minimum match length, as in Turnitin's viewer), so the Similarity Index on screen,
 // after any change, and in the exported report are always computed the same way.
 
-export const MIN_MATCH = 8; // matches shorter than this many words are not counted (Turnitin's small-match filter)
+export const MIN_MATCH = 8; // reports before version 5: matches shorter than this many words were not kept
+export const FLOOR = 5;     // version 5: the shortest match kept (one compared sequence); Turnitin excludes no small match by default
 
-/** A word as compared: Unicode-normalised (ligatures, full-width forms), lower case, letters and digits, plural "s" off */
+// Cyrillic letters, and Greek capitals and omicron, drawn like Latin ones: put into Latin words to defeat similarity
+// software (Turnitin's "replaced characters" flag). Inside a word with Latin letters they are read as the Latin letter.
+const LOOKALIKE = { 'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x', 'і': 'i', 'ј': 'j', 'ѕ': 's', 'ԁ': 'd', 'һ': 'h', 'ӏ': 'l', 'ԛ': 'q', 'ԝ': 'w', 'ѵ': 'v',
+  'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 'О': 'O', 'Р': 'P', 'С': 'C', 'Т': 'T', 'Х': 'X', 'Ѕ': 'S', 'І': 'I', 'Ј': 'J', 'Ү': 'Y',
+  'Α': 'A', 'Β': 'B', 'Ε': 'E', 'Ζ': 'Z', 'Η': 'H', 'Ι': 'I', 'Κ': 'K', 'Μ': 'M', 'Ν': 'N', 'Ο': 'O', 'Ρ': 'P', 'Τ': 'T', 'Υ': 'Y', 'Χ': 'X', 'ο': 'o' };
+const LOOKALIKE_RE = new RegExp(`[${Object.keys(LOOKALIKE).join('')}]`, 'u');
+const LOOKALIKE_ALL = new RegExp(LOOKALIKE_RE.source, 'gu');
+const unmask = w => (LOOKALIKE_RE.test(w) && /\p{Script=Latin}/u.test(w) ? w.replace(LOOKALIKE_ALL, c => LOOKALIKE[c]) : w);
+
+/**
+ * A word as compared: Unicode-normalised (ligatures, full-width forms), look-alike letters in a Latin word read as Latin,
+ * lower case, letters and digits (invisible characters dropped), plural "s" off
+ */
 export function norm(w) {
-  const x = String(w).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const x = unmask(String(w).normalize('NFKC')).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
   return x.length > 4 && x.endsWith('s') && !x.endsWith('ss') ? x.slice(0, -1) : x;
 }
 
@@ -33,6 +46,34 @@ export function citeSpans(text) {
     if (/\p{Lu}[\p{L}'’-]+(?:\s+et\s+al\.?|\s+(?:and|&)\s+\p{Lu}[\p{L}'’-]+)?,?\s+(?:19|20)\d{2}[a-z]?\b/u.test(m[1])) out.push([m.index, m.index + m[0].length]);
   }
   return out.sort((a, b) => a[0] - b[0]);
+}
+
+const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF]/g;
+
+/**
+ * Turnitin's flags - text changed so that similarity software misses it: replaced characters (Latin words with Cyrillic
+ * or Greek look-alike letters; the Greek letters of science, TNF-α or ΔΔCt, are not flagged) and hidden characters
+ * (zero-width characters inside the text). The comparison reads through both (norm).
+ * -> [{ key, label, about, count, examples: [{ word, at }] }], only the flags raised
+ */
+export function textFlags(text) {
+  const t = String(text || '');
+  const out = [];
+  const replaced = [];
+  for (const m of t.matchAll(/[\p{L}\u200B-\u200D\u2060\uFEFF]{2,}/gu)) {
+    const w = m[0].replace(INVISIBLE, '');
+    if (!/\p{Script=Latin}/u.test(w)) continue;
+    const latin = (w.match(/\p{Script=Latin}/gu) || []).length;
+    const greek = /[ΑΒΕΖΗΙΚΜΝΟΡΤΥΧο]/u.test(w) && latin >= 3 && !/[α-ξπ-ωά-ώ]/u.test(w);
+    if (/\p{Script=Cyrillic}/u.test(w) || greek) replaced.push({ word: w, at: m.index });
+  }
+  if (replaced.length) out.push({ key: 'replaced', label: 'Replaced characters', count: replaced.length, examples: replaced.slice(0, 20),
+    about: 'Words with letters of another alphabet that look like Latin ones (Cyrillic or Greek), a way to hide copied text from similarity software. They were read as the Latin letters and compared.' });
+  const hidden = [...t.matchAll(INVISIBLE)];
+  if (hidden.length >= 3) out.push({ key: 'hidden', label: 'Hidden characters', count: hidden.length,
+    examples: hidden.slice(0, 20).map(m => ({ word: t.slice(Math.max(0, m.index - 24), m.index + 24).replace(INVISIBLE, '·').replace(/\s+/g, ' ').trim(), at: m.index })),
+    about: 'Invisible (zero-width) characters inside the text. They split words for similarity software; they were ignored when the text was compared.' });
+  return out;
 }
 
 /** Number of words in ranges [[from, to), ...] */
@@ -210,7 +251,7 @@ export const levelOf = (similarity, largest) => (similarity >= 25 || largest >= 
  *      groups: Turnitin's match groups (matchGroups),
  *      document: [{ t, s, x? }] (text in runs of one source number, 0 = not matched; x = in an excluded section) }
  */
-export function recompute(all, text, { tokens = null, total = null, excluded = [], minWords = MIN_MATCH, maxText = Infinity, excludeSections = [], minPercent = 0, quoted = [], includeQuotes = false } = {}) {
+export function recompute(all, text, { tokens = null, total = null, excluded = [], minWords = MIN_MATCH, maxText = Infinity, excludeSections = [], minPercent = 0, minSourceWords = 0, quoted = [], includeQuotes = false } = {}) {
   const words = tokens || tokenize(text);
   const n = total ?? words.length;
   const secs = sectionsOf(text, words, n);
@@ -227,11 +268,15 @@ export function recompute(all, text, { tokens = null, total = null, excluded = [
   const ex = new Set(excluded);
   let { owner, credited } = attribute(all, n, { excluded: [...ex], minWords, blocked: unmatched });
   // sources under minPercent are dropped once; their words go to a larger source that also has them, or stay unmatched
-  const small = new Set(minPercent > 0 ? all.filter((s, i) => credited[i] > 0 && pct(credited[i], base) < minPercent).map(s => s.key) : []);
+  // (and sources credited with fewer than minSourceWords words: Turnitin's "exclude sources by word count")
+  const small = new Set(minPercent > 0 || minSourceWords > 0 ? all.filter((s, i) => credited[i] > 0 && (pct(credited[i], base) < minPercent || credited[i] < minSourceWords)).map(s => s.key) : []);
   if (small.size) ({ owner, credited } = attribute(all, n, { excluded: [...ex, ...small], minWords, blocked: unmatched }));
   const ranked = all.map((s, i) => ({ s, i, words: credited[i] })).filter(x => x.words > 0).sort((a, b) => b.words - a.words || a.i - b.i);
   const number = new Map(ranked.map((x, j) => [x.i, j + 1]));
-  const sources = ranked.map((x, j) => ({ ...x.s, no: j + 1, percent: pct(x.words, base), similarity: pct(x.words, base), words: x.words }));
+  // matches per source: the separate highlighted runs credited to it
+  const runs = new Array(all.length).fill(0);
+  for (let k = 0; k < n; k++) if (owner[k] >= 0 && (k === 0 || owner[k - 1] !== owner[k])) runs[owner[k]]++;
+  const sources = ranked.map((x, j) => ({ ...x.s, no: j + 1, percent: pct(x.words, base), similarity: pct(x.words, base), words: x.words, matches: runs[x.i] }));
   const alsoMatched = all.filter((_, i) => !number.has(i)).map(s => ({ ...s, no: null, percent: 0, similarity: 0, words: 0, excluded: ex.has(s.key), ...(small.has(s.key) ? { small: true } : {}) }));
   const byType = type => pct(sources.filter(x => x.type === type).reduce((a, x) => a + x.words, 0), base);
   const similarity = pct(sources.reduce((a, x) => a + x.words, 0), base);

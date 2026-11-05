@@ -642,8 +642,28 @@ const simFilters = pl => [`bibliography ${pl.filters.bibliography}`, `quotes ${p
   ...(pl.filters.smallSources ? [pl.filters.smallSources] : []), ...(pl.filters.sources ? [pl.filters.sources] : []), ...(pl.filters.sections ? [`sections ${pl.filters.sections}`] : [])].join('; ');
 /** Similarity of each section of the manuscript (only when its headings were found) */
 const simSectionsTable = pl => ({ table: { headers: ['Section', 'Words', 'Matched words', 'Similarity'], rows: pl.sections.map(x => [x.label, x.words.toLocaleString(), x.excluded ? '-' : x.matched.toLocaleString(), x.excluded ? 'excluded by the editor' : simPt(x.similarity)]) } });
-const simSourcesTable = pl => ({ table: { headers: ['No.', 'Match', 'Source', 'Type', 'Words'], rows: pl.sources.map(x => [String(x.no), simPt(x.percent),
-  `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : x.url && !x.checkId ? ` (${x.url})` : ''}`, SIM_TYPE[x.type] || x.type, String(x.words ?? '')]) } });
+const simSourcesTable = pl => ({ table: { headers: ['No.', 'Match', 'Source', 'Type', 'Matches', 'Words'], rows: pl.sources.map(x => [String(x.no), simPt(x.percent),
+  `${x.title || '-'}${x.journal ? ` - ${x.journal}` : ''}${x.year ? `, ${x.year}` : ''}${x.doi ? ` (doi:${x.doi})` : x.url && !x.checkId ? ` (${x.url})` : ''}`, SIM_TYPE[x.type] || x.type, x.matches === undefined ? '-' : String(x.matches), String(x.words ?? '')]) } });
+
+/** Turnitin's exclusion settings, printed at the foot of its originality report: On / Off for each filter */
+function simSettingsTable(pl) {
+  const st = pl.settings || {}, secs = pl.sections || [], floor = pl.floor || 8;
+  const ex = new Set(st.excludeSections || []);
+  const onOff = (on, extra = '') => `${on ? 'On' : 'Off'}${extra}`;
+  const secRow = (k, l) => [l, secs.some(x => x.key === k) ? onOff(ex.has(k)) : 'Off (no such section found)'];
+  return { table: { headers: ['Filter', 'Setting'], rows: [
+    secRow('references', 'Exclude bibliography'),
+    ['Exclude quotes', pl.quoted ? onOff(!st.includeQuotes) : 'On (report made before quotes were compared)'],
+    ['Exclude matches', (st.minWords || floor) > floor || !pl.floor ? `< ${st.minWords || floor} words` : 'Off'],
+    ['Exclude small sources', [st.minPercent ? `< ${st.minPercent}%` : '', st.minSourceWords ? `< ${st.minSourceWords} words` : ''].filter(Boolean).join(' or ') || 'Off'],
+    secRow('abstract', 'Exclude abstract'),
+    secRow('methods', 'Exclude methods and materials'),
+    ['Excluded sources', String((st.excluded || []).length)]] } };
+}
+
+/** Turnitin's flags: replaced characters and hidden characters */
+const simFlagBlocks = pl => (pl.flags || []).length ? [{ h2: 'Flags' }, { p: 'Text changed so that similarity software would miss it. The comparison read through these changes; check the words in the file.', italics: true },
+  ...pl.flags.flatMap(f => [{ p: `${f.count} ${f.label}`, bold: true, color: '9B1C1C' }, { p: f.about }, { bullets: f.examples.map(e => e.word) }])] : [];
 
 /** The largest matches of the first n primary sources, the manuscript next to the source's wording */
 function simMatchBlocks(pl, n) {
@@ -670,6 +690,9 @@ function similarityReportBlocks(r) {
       text: `Publications ${simPt(s.publications)} - Internet sources ${simPt(s.internet)} - Submitted works: ${pl.submissions?.compared ? `${simPt(s.submissions)} (earlier PJPS submissions, compared at the editor's request)` : 'not compared (no repository)'}. ${s.sources} primary source(s), the largest ${simPt(s.largestSource)}.` } },
     { kv: [['Filters', simFilters(pl)], ['Repository', pl.repository || 'not stored']] }
   ];
+  const text = (pl.document || []).map(d => d.t).join('');
+  blocks.push({ h2: 'Document details' }, { kv: [['File', meta.fileName || meta.filename || '-'], ['Words', s.words.toLocaleString()], ['Characters', text.length.toLocaleString()], ['Submitted', r.createdAt ? new Date(r.createdAt).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '-'], ['Report no.', r.id ? String(r.id) : '-']] });
+  blocks.push({ h2: 'Exclusion settings' }, simSettingsTable(pl), ...simFlagBlocks(pl));
   if (pl.privacy) blocks.push({ p: pl.privacy.statement, italics: true });
   if (Number.isFinite(pl.external?.aiText)) blocks.push({ kv: [['AI-text detector', `${pl.external.aiText}% likely AI-written - an estimate, not proof`]] });
   if (pl.aiWriting) blocks.push({ kv: [['AI-writing indicator', `${pl.aiWriting.score}/100${pl.aiWriting.leftovers ? ` - chatbot text left in the manuscript (${pl.aiWriting.leftovers})` : ''} - an indicator, not proof${pl.aiWriting.parts?.length ? `: ${pl.aiWriting.parts.join('; ')}` : ''}`]] });

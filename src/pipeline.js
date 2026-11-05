@@ -55,7 +55,8 @@ function normalizeMeta(meta = {}) {
     authors,
     affiliations: Array.isArray(meta.affiliations) ? meta.affiliations : String(meta.affiliations || '').split('\n').map(s => s.trim()).filter(Boolean),
     manuscriptCode: (meta.manuscriptCode || '').trim(),
-    version: meta.version ? parseInt(meta.version, 10) : null
+    version: meta.version ? parseInt(meta.version, 10) : null,
+    ...(meta.fileName ? { fileName: String(meta.fileName).slice(0, 200) } : {})
   };
 }
 

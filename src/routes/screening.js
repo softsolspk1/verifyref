@@ -49,7 +49,7 @@ router.post('/papermill', mod('papermill'), upload.single('file'), wrap(async (r
   const meta = normalizeMeta({
     title: b.title || d.title || ms.filename, manuscriptCode: b.manuscriptCode || d.manuscriptCode || '', abstract: b.abstract || d.abstract || '',
     authors: lines(b.authors).length ? lines(b.authors) : (d.authors || []).map(a => a.name),
-    affiliations: lines(b.affiliations).length ? lines(b.affiliations) : d.affiliations || [], keywords: b.keywords || d.keywords || [], version: b.version || null
+    affiliations: lines(b.affiliations).length ? lines(b.affiliations) : d.affiliations || [], keywords: b.keywords || d.keywords || [], version: b.version || null, fileName: ms.filename
   });
   const job = await createJob(req.user.id, 'papermill', { text: ms.text, bodyText: ms.bodyText, referencesText: ms.referencesText, meta, suggestedReviewers: b.suggestedReviewers || '', coverLetter: String(b.coverLetter || '').slice(0, 20000), imagesCheckId: b.imagesCheckId || null, save: b.save !== 'false' });
   res.json({ success: true, jobId: job.id });
@@ -337,7 +337,7 @@ router.patch('/checks/:id/similarity', auth.requireUser, wrap(async (req, res) =
   if (!pl || pl.error) return res.status(404).json({ success: false, message: 'Similarity report not found.' });
   if ((pl.version || 0) < 3) return res.status(409).json({ success: false, message: 'This report was made with an earlier method; run the screening again to use the filters.' });
   const b = req.body || {};
-  const next = await require('../checks/plagiarism').applySettings(pl, { excluded: b.excluded, minWords: b.minWords, excludeSections: b.excludeSections, minPercent: b.minPercent, includeQuotes: b.includeQuotes === true });
+  const next = await require('../checks/plagiarism').applySettings(pl, { excluded: b.excluded, minWords: b.minWords, excludeSections: b.excludeSections, minPercent: b.minPercent, minSourceWords: b.minSourceWords, includeQuotes: b.includeQuotes === true });
   const store = require('../reportStore');
   const r = await store.load(c.row.result);
   r.plagiarism = next;

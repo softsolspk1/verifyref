@@ -90,5 +90,21 @@ const { pathToFileURL } = require('url');
   const xml = await (await require('jszip').loadAsync(docx)).file('word/document.xml').async('string');
   for (const s of ['Document Details', 'Overall Similarity', 'Filtered from the Report', 'Match Groups', 'Top Sources', 'Integrity Flags']) assert.ok(xml.includes(s), `Word export has "${s}"`);
   console.log("  ✓ Word / PDF export in Turnitin's layout: cover page, Integrity Overview, top sources, highlighted submission");
+
+  // 7. the reference list matched entry by entry: the same work in another citation style (JATS reference list) is found,
+  // another work with words of the same title is not
+  const { parseReferenceEntry } = require('../src/parse');
+  const apa = 'Ahmad, Y., Fatima, K., Le Quesne, P. W., & Atta-ur-Rahman. (1983). Further alkaloidal constituents of the leaves of Rhazya stricta. Phytochemistry, 22(2), 419-422.';
+  const bodyText = Array.from({ length: 30 }, (_, i) => `Sentence ${i} of the manuscript body describes the extraction of leaves in methanol.`).join(' ');
+  const prepRef = P.prepare(bodyText, `${apa}\nKhan, R. (2016). Antibacterial activities of Rhazya stricta leaf extracts. Journal of Plant Studies, 4, 1-9.`);
+  const entries = P.referenceEntries(prepRef);
+  assert.strictEqual(entries.length, 2, 'two entries in the reference list');
+  assert.strictEqual(prepRef.words.slice(entries[0].from, entries[0].to).map(w => w.raw).join(' '), apa.replace(' &', ''), 'an entry spans its whole line ("&" is not a word)');
+  const norm = t => ` ${SIM.tokenize(t).map(w => w.n).join(' ')} `;
+  const ref = parseReferenceEntry(apa, 1);
+  assert.ok(P.citesWork(norm('Ahmad Y Fatima K Le Quesne PW Atta-ur-Rahman Further alkaloidal constituents of the leaves of Rhazya stricta Phytochemistry 1983 22 419 422'), ref), 'same work, other style');
+  assert.ok(!P.citesWork(norm('Smith J Further alkaloidal constituents of the leaves of Rhazya stricta Planta Med 2001'), ref), 'same title words, other first author');
+  assert.ok(!P.citesWork(norm('Ahmad Y Alkaloidal constituents of Rhazya stricta roots 1990'), ref), 'other title');
+  console.log('  ✓ reference list matched entry by entry, whatever the citation style');
   console.log('similarity Turnitin features test passed');
 })().catch(e => { console.error(e); process.exit(1); });

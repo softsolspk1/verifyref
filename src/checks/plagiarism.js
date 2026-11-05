@@ -408,7 +408,7 @@ function externalSources(ext, prep) {
     out.push({ key: `ext:${item.url || item.id}`, type: db ? 'submission' : 'internet', title: item.title || host || (db ? 'Submitted document (external database)' : 'Web page'),
       journal: db ? 'External database of submitted documents' : host, year: item.metadata?.publishDate ? String(item.metadata.publishDate).slice(0, 4) : null, doi: null, url: item.url || null,
       via: db ? 'Full-text similarity service (database of submitted documents)' : 'Full-text similarity service (web and publications)', compared: 'full text, paraphrase included (external service)',
-      hit, passages: joined.sort((a, b) => b.words - a.words) });
+      hit, passages: joined.sort((a, b) => b.words - a.words), text: String(res.value || '') });
   }
   return out;
 }
@@ -483,6 +483,63 @@ async function topicNeighbours(text, meta = {}, n = 20) {
 const epmcRecord = x => ({ type: 'publication', title: x.title, journal: x.journalTitle || null, year: x.pubYear || null, doi: x.doi || null, pmcid: x.pmcid || null, pmid: x.pmid || null, via: 'Europe PMC',
   url: x.pmcid ? `https://europepmc.org/article/PMC/${x.pmcid}` : x.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${x.pmid}/` : x.doi ? `https://doi.org/${x.doi}` : null });
 
+// ------------------------------------------------------------------ reference list
+
+/** The entries of the manuscript's reference list (one per line, after its heading), as word ranges: [{ from, to, raw }] */
+function referenceEntries(prep) {
+  const { text, words } = prep;
+  let start = -1;
+  for (const m of text.matchAll(/\n\s*(?:\d{1,2}\.?\s*)?(?:references|bibliography|literature cited|works cited|reference list)\s*:?\s*\n/gi)) if (m.index > text.length * 0.3) start = m.index + m[0].length;
+  if (start < 0) return [];
+  const firstAt = c => { let lo = 0, hi = words.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (words[mid].start < c) lo = mid + 1; else hi = mid; } return lo; };
+  const out = [];
+  let at = start;
+  for (const line of text.slice(start).split('\n')) {
+    const from = firstAt(at), to = firstAt(at + line.length);
+    at += line.length + 1;
+    if (to - from >= 5) out.push({ from, to, raw: line.trim() });
+  }
+  return out;
+}
+
+/** A text as compared words in one string, with a space at each end (to look for a word sequence in it) */
+const normText = t => ` ${SIM.tokenize(t).map(w => w.n).join(' ')} `;
+
+/** Does a source (normText) list the work of a parsed reference entry: its whole title, and its first author's name */
+function citesWork(norm, ref) {
+  const title = SIM.tokenize(ref?.title || '').map(w => w.n);
+  if (title.length < 4 || !norm.includes(` ${title.join(' ')} `)) return false;
+  const first = SIM.norm(ref.authors?.[0]?.family || '');
+  return first.length < 2 || norm.includes(` ${first} `);
+}
+
+/**
+ * The cited work's own record, or null: Crossref (by the entry's DOI, else by its title, author, year and journal), then
+ * for a book Open Library and Google Books (same title and first author; any edition, so not the year)
+ */
+async function citedWork(ref) {
+  const S = require('../sources');
+  const title = ref?.title || '';
+  if (SIM.tokenize(title).length < 3) return null;
+  const sameTitle = x => x && Math.max(titleSimilarity(title, x.title || ''), titleSimilarity(title, x.shortTitle || '')) >= 0.85;
+  const same = x => sameTitle(x) && (!ref.year || !x.year || Math.abs(x.year - ref.year) <= 1);
+  if (ref.doi) {
+    const r = await S.crossrefDoi(ref.doi).catch(() => null);
+    if (same(r?.record)) return r.record;
+  }
+  const r = await S.crossrefSearch(ref).catch(() => null);
+  const rec = (r?.records || []).find(same);
+  if (rec) return rec;
+  const first = SIM.norm(ref.authors?.[0]?.family || '');
+  const sameBook = x => sameTitle(x) && (!first || (x.authors || []).some(a => SIM.norm(a.family || '') === first));
+  for (const find of [S.openLibrarySearch, S.googleBooksSearch]) {
+    const b = await find(ref).catch(() => null);
+    const book = (b?.records || []).find(sameBook);
+    if (book) return book;
+  }
+  return null;
+}
+
 // ------------------------------------------------------------------ main
 
 /**
@@ -505,6 +562,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   // the external full-text comparison runs alongside the in-house search (it waits for the service's callbacks)
   const extRun = EXT.enabled() ? EXT.scanText(prep.text, { update }) : null;
   const covered = new Uint8Array(mine.length); // words already matched by a compared full text: not searched again
+  const texts = new Map(); // source key -> its text, for the reference list (4c)
   const markCovered = hit => hit.forEach((h, k) => { if (h) covered[k] = 1; });
   const stats = { queries: 0, searchErrors: 0, webSearches: 0, openalexSearches: 0, windows: 0, windowsFound: 0, neighbours: 0, common: 0 };
 
@@ -524,6 +582,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     }
     const o = await match(prep, d.text);
     if (!o.passages.length) return null;
+    texts.set(d.sourceKey, d.text);
     const m = d.meta || {};
     markCovered(o.hit);
     return { key: d.sourceKey, type: d.kind, title: d.title, journal: m.journal || null, year: m.year || null, doi: m.doi || null, url: m.url || null,
@@ -534,6 +593,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const fromSubs = (await pool(submissions || [], 2, async d => {
     const o = await match(prep, d.text);
     if (!o.passages.length) return null;
+    texts.set(`check:${d.checkId}`, d.text);
     markCovered(o.hit);
     return { key: `check:${d.checkId}`, type: 'submission', title: `${d.manuscriptCode ? `${d.manuscriptCode} - ` : ''}${d.title || 'Earlier PJPS submission'}`, journal: 'Earlier PJPS submission',
       year: d.date ? new Date(d.date).getFullYear() : null, checkId: d.checkId, via: 'Earlier PJPS submissions (opt-in)', compared: 'full text (confidential PJPS report)', hit: o.hit, passages: o.passages };
@@ -552,6 +612,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     await corpus.addDoc({ kind: c.type, sourceKey: key, title: c.title, meta: { journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, scope: t.scope, withRefs: true }, text: t.text }).catch(() => null);
     const o = await match(prep, t.text);
     if (!o.passages.length) return null;
+    texts.set(key, t.text);
     markCovered(o.hit);
     const out = { key, type: c.type, title: c.title, journal: c.journal, year: c.year, doi: c.doi, url: c.url, via: c.via, compared: t.scope, hit: o.hit, passages: o.passages };
     compared.push(out);
@@ -673,9 +734,57 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const sameAs = (a, b) => (a.url && b.url && String(a.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') === String(b.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''));
   for (const x of extSources) {
     const twin = own.find(o => sameAs(o, x));
+    const k = (twin || x).key;
+    if (x.text) texts.set(k, `${texts.get(k) || ''} ${x.text}`);
     if (!twin) { own.push(x); continue; }
     x.hit.forEach((h, k) => { if (h) twin.hit[k] = 1; });
     twin.passages = finishRuns(twin.hit.slice(), mine).sort((a, b) => b.words - a.words).map(p => twin.passages.find(q => q.from <= p.from && q.to >= p.to) || x.passages.find(q => q.from <= p.from && q.to >= p.to) || p);
+  }
+
+  // 4c. the reference list, entry by entry, as Turnitin matches a bibliography: an entry is matched in full to every
+  // compared source that lists the same work (its title, and its first author), whatever the citation style - word
+  // sequences alone match only the title, as styles order authors, year, volume and pages differently. An entry no
+  // compared source has is matched to the cited work's own bibliographic record (Crossref), as Turnitin matches it to
+  // the work's own pages.
+  const entries = referenceEntries(prep);
+  const refStats = { entries: entries.length, inSources: 0, citedWork: 0 };
+  if (entries.length) {
+    update(`Matching the ${entries.length} entries of the reference list`);
+    const { parseReferenceEntry } = require('../parse');
+    const touched = new Set();
+    const addEntry = (src, e, note) => {
+      for (let k = e.from; k < e.to; k++) src.hit[k] = 1;
+      (src.refPassages = src.refPassages || []).push({ from: e.from, to: e.to, source: note });
+      touched.add(src);
+    };
+    const withText = own.filter(x => texts.has(x.key)).map(x => ({ x, norm: normText(texts.get(x.key)) }));
+    const missing = [];
+    entries.forEach((e, i) => {
+      e.ref = parseReferenceEntry(e.raw, i + 1);
+      const hits = withText.filter(s => citesWork(s.norm, e.ref));
+      for (const s of hits) addEntry(s.x, e, "The same reference, in this source's reference list");
+      if (hits.length) refStats.inSources++; else missing.push(e);
+    });
+    await pool(missing, 4, async e => {
+      const rec = await citedWork(e.ref).catch(() => null);
+      if (!rec || isSelf(rec)) return;
+      const key = rec.doi ? `doi:${String(rec.doi).toLowerCase()}` : rec.url ? `url:${rec.url}` : `title:${String(rec.title).toLowerCase().slice(0, 200)}`;
+      let src = own.find(o => o.key === key || (o.doi && rec.doi && String(o.doi).toLowerCase() === String(rec.doi).toLowerCase()));
+      if (!src) {
+        src = { key, type: 'publication', title: rec.title, journal: rec.journal || rec.publisher || null, year: rec.year || null, doi: rec.doi || null, url: rec.doi ? `https://doi.org/${rec.doi}` : rec.url || null,
+          via: `${rec.source || 'Crossref'} (the cited work)`, compared: 'bibliographic record of the cited work', hit: new Uint8Array(mine.length), passages: [] };
+        own.push(src);
+      }
+      addEntry(src, e, `The cited work: ${[rec.title, rec.journal || rec.publisher, rec.year].filter(Boolean).join(', ')}`);
+      refStats.citedWork++;
+    });
+    // the sources' matches again, the reference entries joined to them
+    for (const src of touched) {
+      const old = src.passages;
+      src.passages = finishRuns(src.hit.slice(), mine).sort((a, b) => b.words - a.words)
+        .map(p => old.find(q => q.from <= p.from && q.to >= p.to) || { ...p, source: src.refPassages.filter(r => r.to > p.from && r.from < p.to).map(r => r.source).slice(0, 3).join(' … ') || undefined });
+      delete src.refPassages;
+    }
   }
 
   // 5. primary sources (shared with the report view: public/js/shared/similarity.js)
@@ -720,9 +829,9 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     flags: SIM.textFlags(prep.text),
     filters: { bibliography: prep.bibliographyFound ? 'included (the reference list is compared; exclude it in Filters)' : 'no reference list found', quotes: `included (${prep.quotedWords} quoted words)`, smallMatches: "not excluded (Turnitin's default; the shortest match counted is 5 words)", citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
-    checked: { passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, databases },
+    checked: { references: refStats, passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, databases },
     coverage: `${extUsed ? 'The whole text with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
-    method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are compared (the editor can exclude either), and matches of ${FLOOR} words or more are counted (the editor can exclude small matches). Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
+    method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are compared (the editor can exclude either), and matches of ${FLOOR} words or more are counted (the editor can exclude small matches). Each entry of the reference list is matched whole to every source listing the same work (title and first author, whatever the citation style), or else to the cited work's own record (Crossref, Open Library, Google Books)${refStats.entries ? ` - ${refStats.inSources + refStats.citedWork} of ${refStats.entries} entries matched` : ''}. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };
 }
 
@@ -767,4 +876,4 @@ function toCsv(pl) {
     [...(pl.sources || []), ...(pl.alsoMatched || [])].map(row));
 }
 
-module.exports = { checkPlagiarism, earlierSubmissions, externalSources, applySettings, toCsv, prepare, overlap, match, rewordedSentences, PARA, finishRuns, citeSpans, searchWindows, shared };
+module.exports = { checkPlagiarism, earlierSubmissions, externalSources, referenceEntries, citesWork, citedWork, applySettings, toCsv, prepare, overlap, match, rewordedSentences, PARA, finishRuns, citeSpans, searchWindows, shared };

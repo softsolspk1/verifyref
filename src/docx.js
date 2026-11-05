@@ -524,6 +524,8 @@ function imagesBlocks(r, { section = null } = {}) {
   if (external.length && !section) blocks.push({ pageBreak: true }, { h2: 'External publication matches' }, { p: `${external.length} panel(s) of this manuscript match figures published elsewhere. Each match is shown with both pictures further below.` }, { table: { headers: ['This manuscript', 'Publication', 'Link', 'Database', 'Confidence'], rows: external } });
   if (r.guidance?.available) blocks.push({ p: `Suggested handling — ${r.guidance.decision.action}. ${r.guidance.decision.desk}`, bold: true });
   if (r.disclaimer) blocks.push({ p: r.disclaimer, italics: true });
+  // what the review left out and why (figure section repeating the in-text figures, drawings, generated figures)
+  for (const n of r.reviewNotes || []) blocks.push({ p: n, italics: true });
 
   if (findings.length) {
     blocks.push(h('Findings overview'), { table: { headers: ['#', 'Finding', 'Location', 'Transformation', 'Measured agreement', 'Severity', 'Confidence', 'Editor'], rows: findings.map((f, i) => [String(i + 1), `${IMG_KIND[f.kind] || f.kind} (${IMG_CAT[f.category || 'duplication']})`, loc(f), f.kind === 'duplicate' || f.kind === 'partial' || f.kind === 'clone' ? imgTransform(f.transform) : '—', imgEvidence(f), sev(f.level), conf(f), label[marks.get(f.id)] || '—']) } });

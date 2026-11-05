@@ -362,6 +362,18 @@ async function storeFingerprint({ checkId, userId, meta, shingles: sh, text }) {
 
 // ------------------------------------------------------------------ scoring
 
+/** The Module 5 signal from the image report summary ({ findings: byLevel, categories }), or null */
+function imagesSignal(images) {
+  const f = images?.findings;
+  if (!f) return null;
+  const cat = images.categories || {};
+  const catText = Object.entries({ duplication: 'duplicated', manipulation: 'manipulated', ai: 'AI-generated', chart: 'duplicated-chart' }).filter(([k]) => cat[k]).map(([k, l]) => `${cat[k]} ${l}`).join(', ');
+  const signal = (title, severity, weight) => ({ group: 'data', code: 'images', title, severity, weight, evidence: [], note: '' });
+  if (f.high) return signal(`Image Integrity (Module 5): ${f.high} strong finding(s)${catText ? ` (${catText})` : ' of duplicated or edited figures'}`, 'high', 5);
+  if (f.medium) return signal(`Image Integrity (Module 5): ${f.medium} finding(s) to check`, 'medium', 2);
+  return null;
+}
+
 function riskLevel(signals) {
   const score = signals.reduce((a, s) => a + s.weight, 0);
   const highs = signals.filter(s => s.severity === 'high').length;
@@ -738,13 +750,8 @@ async function detectPaperMill(input, update = () => {}) {
     dup.waves.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId} (${String(m.date).slice(0, 10)}): “${m.title || ''}” — title template ${m.titleTemplate}% alike, ${m.textOverlap}% shared text`, checkId: m.checkId })),
     `Paper mills send batches of manuscripts made from one template, by different author groups, over a few weeks. Several submissions in the last ${WAVE_DAYS} days share this one's title pattern or boilerplate text. Common for one research group's series; compare the methods, figures and data of the manuscripts listed.`);
 
-  if (input.images?.findings) {
-    const f = input.images.findings;
-    const cat = input.images.categories || {};
-    const catText = Object.entries({ duplication: 'duplicated', manipulation: 'manipulated', ai: 'AI-generated', chart: 'duplicated-chart' }).filter(([k]) => cat[k]).map(([k, l]) => `${cat[k]} ${l}`).join(', ');
-    if (f.high) sig('data', 'images', `Image Integrity (Module 5): ${f.high} strong finding(s)${catText ? ` (${catText})` : ' of duplicated or edited figures'}`, 'high', 5);
-    else if (f.medium) sig('data', 'images', `Image Integrity (Module 5): ${f.medium} finding(s) to check`, 'medium', 2);
-  }
+  const imgSig = imagesSignal(input.images);
+  if (imgSig) signals.push(imgSig);
 
   const risk = riskLevel(signals);
   const groups = ['text', 'references', 'authors', 'data'];
@@ -783,4 +790,4 @@ function papermillProblems(r) {
   return [`Paper mill risk ${r.risk.level} (score ${r.risk.score})`, ...r.signals.filter(s => s.severity !== 'low').slice(0, 5).map(s => s.title)];
 }
 
-module.exports = { textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv, riskLevel };
+module.exports = { imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv, riskLevel };

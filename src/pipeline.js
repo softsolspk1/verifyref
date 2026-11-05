@@ -145,13 +145,8 @@ async function screening(result, { input, body, refs, meta, update }) {
   result._shingles = pm._shingles;
   delete pm._shingles;
   result.papermill = pm;
-  if (images) {
-    // what the front page and the exports need without the thumbnails (the full report stays in its own saved check)
-    const brief = f => ({ kind: f.kind, category: f.category || 'duplication', level: f.level, a: f.a?.label, b: f.a?.panel !== f.b?.panel ? f.b?.label : null, description: f.description });
-    result.images = { checkId: images.checkId, summary: images.summary, findings: (imageReport.findings || []).slice(0, 30).map(brief),
-      references: (imageReport.references || []).slice(0, 30).map(m => ({ panel: m.panelLabel, source: m.sourceName, title: m.title, doi: m.doi, journal: m.journal, year: m.year, figure: m.figure, level: m.level, description: m.description })),
-      earlier: (imageReport.earlier || []).length };
-  } else if (input.imagesNote) result.imagesNote = String(input.imagesNote).slice(0, 300);
+  if (images) result.images = imagesBlock(imageReport, images.checkId);
+  else if (input.imagesNote) result.imagesNote = String(input.imagesNote).slice(0, 300);
 
   // Plagiarism (text overlap with the literature) and novelty / citation outlook; neither may stop the report
   update('Similarity report: comparing the text with published papers, the web and earlier PJPS submissions', 98);
@@ -178,6 +173,31 @@ async function screening(result, { input, body, refs, meta, update }) {
 }
 
 /** Front page: one line per module and the desk-review recommendation */
+/** What the Full Screening Report keeps of the image report (no thumbnails; the full report stays in its own check) */
+function imagesBlock(imageReport, checkId) {
+  const brief = f => ({ kind: f.kind, category: f.category || 'duplication', level: f.level, a: f.a?.label, b: f.a?.panel !== f.b?.panel ? f.b?.label : null, description: f.description });
+  return { checkId, summary: imageReport.summary, findings: (imageReport.findings || []).slice(0, 30).map(brief),
+    references: (imageReport.references || []).slice(0, 30).map(m => ({ panel: m.panelLabel, source: m.sourceName, title: m.title, doi: m.doi, journal: m.journal, year: m.year, figure: m.figure, level: m.level, description: m.description })),
+    earlier: (imageReport.earlier || []).length, reviewNotes: imageReport.reviewNotes || [] };
+}
+
+/**
+ * A Full Screening Report brought up to date with its (re-reviewed) image report: the image section, the paper-mill
+ * image signal and risk, and the recommendation. Returns the updated result.
+ */
+function refreshScreeningImages(result, imageReport, checkId) {
+  const r = JSON.parse(JSON.stringify(result));
+  r.images = imagesBlock(imageReport, checkId);
+  if (r.papermill?.signals) {
+    const PM = require('./papermill');
+    const sig = PM.imagesSignal({ findings: imageReport.summary.byLevel || {}, categories: imageReport.summary.byCategory || {} });
+    r.papermill.signals = r.papermill.signals.filter(s => s.code !== 'images').concat(sig ? [sig] : []);
+    r.papermill.risk = PM.riskLevel(r.papermill.signals);
+  }
+  r.screening = screeningSummary(r);
+  return r;
+}
+
 function screeningSummary(r) {
   const s = r.references.summary;
   const c = r.citations?.summary;
@@ -287,4 +307,4 @@ async function loadShared(user, id) {
   return shared ? loadCheck(row.user_id, id) : null;
 }
 
-module.exports = { runCheck, saveCheck, saveResult, loadCheck, loadShared, prepare, normalizeMeta, screeningSummary };
+module.exports = { imagesBlock, refreshScreeningImages, runCheck, saveCheck, saveResult, loadCheck, loadShared, prepare, normalizeMeta, screeningSummary };

@@ -106,6 +106,43 @@ async function compareChartsWithEarlier(charts, { excludeCode = null, excludeChe
 }
 
 /** Sanitise and store a browser analysis; returns { id, earlier } */
+/** The problem lines of an image report (My Activity list) */
+function imageProblems(r) {
+  const { byLevel, level } = r.summary;
+  const refCount = (r.references || []).length + (r.referenceCharts || []).length, earlier = (r.earlier || []).length;
+  return [`Image risk ${level}`, byLevel.high ? `${byLevel.high} strong image finding(s)` : null, byLevel.medium ? `${byLevel.medium} image finding(s) to check` : null, earlier ? `${earlier} figure(s) matching earlier PJPS manuscripts` : null,
+    refCount ? `${refCount} figure(s) matching published PJPS / retracted-paper figures` : null].filter(Boolean);
+}
+
+/** Finding counts by level and the report's risk level (findings, matches with earlier PJPS manuscripts and references) */
+function imageLevel(findings, earlier = [], earlierCharts = [], refMatches = [], refCharts = []) {
+  const byLevel = { high: findings.filter(f => f.level === 'high').length, medium: findings.filter(f => f.level === 'medium').length };
+  if (earlier.some(e => e.distance <= 3) || earlierCharts.some(e => e.correlation >= 0.998)) byLevel.high++;
+  if (refMatches.some(m => m.level === 'high') || refCharts.some(c => c.correlation >= 0.998)) byLevel.high++;
+  const level = byLevel.high ? 'HIGH' : byLevel.medium || earlier.length || earlierCharts.length || refMatches.length + refCharts.length ? 'MEDIUM' : 'LOW';
+  return { byLevel, level };
+}
+
+/**
+ * A saved image report reviewed again with the current rules (src/imageReview.js): findings, labels, counts, level,
+ * confidence and suggested handling recomputed. Returns the updated result (the input is not changed).
+ */
+async function rereviewImageReport(saved) {
+  const r = JSON.parse(JSON.stringify(saved));
+  const review = await require('./imageReview').reviewFindings({ images: r.images || [], panels: r.panels || [], findings: r.findings || [] });
+  r.findings = review.findings.slice(0, 80);
+  for (const im of r.images || []) if (review.copies[im.id] && !/repeated in the figure section/.test(im.label)) im.label = `${(r.images.find(o => o.id === review.copies[im.id]) || im).label} (repeated in the figure section, ${(im.label.match(/page \d+/) || ['later page'])[0]})`;
+  for (const p of r.panels || []) if (review.copies[p.imageId]) p.repeatOf = review.copies[p.imageId];
+  const { byLevel, level } = imageLevel(r.findings, r.earlier, r.earlierCharts, r.references, r.referenceCharts);
+  r.summary = { ...r.summary, findings: r.findings.length, byLevel, level,
+    byKind: r.findings.reduce((a, f) => ({ ...a, [f.kind]: (a[f.kind] || 0) + 1 }), {}), byCategory: r.findings.reduce((a, f) => ({ ...a, [f.category]: (a[f.category] || 0) + 1 }), {}) };
+  r.reviewNotes = review.notes;
+  r.guidance = KB.guidance(level);
+  r.summary.byConfidence = SCORE.scoreResult(r);
+  r.analysisVersion = VERSION;
+  return r;
+}
+
 async function saveImageCheck(userId, input, { save = true } = {}) {
   const meta = { title: String(input.meta?.title || '').slice(0, 300), manuscriptCode: String(input.meta?.manuscriptCode || '').slice(0, 60), filename: String(input.meta?.filename || '').slice(0, 200), panelsAdjusted: Math.max(0, Number(input.meta?.panelsAdjusted) | 0) };
   const panels = (input.panels || []).slice(0, 400).map(p => ({
@@ -113,7 +150,8 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     box: p.box && ['x', 'y', 'w', 'h'].every(k => Number.isFinite(p.box[k])) ? { x: p.box.x | 0, y: p.box.y | 0, w: p.box.w | 0, h: p.box.h | 0 } : null,
     hashes: (p.hashes || []).filter(isHex).slice(0, 8), windows: (p.windows || []).filter(isHex).slice(0, 5), thumb: cap(p.thumb, 40000), w: p.w | 0, h: p.h | 0
   }));
-  const findings = (input.findings || []).slice(0, 80).map((f, i) => ({
+  // the review below drops figure-section repeats before the limit of 80 applies, so repeats cannot push real findings out
+  const rawFindings = (input.findings || []).slice(0, 400).map((f, i) => ({
     id: String(f.id || `f${i + 1}`), kind: KINDS.includes(f.kind) ? f.kind : 'duplicate', category: CATEGORIES.includes(f.category) ? f.category : 'duplication', details: (Array.isArray(f.details) ? f.details : []).slice(0, 8).map(d => String(d).slice(0, 300)), level: f.level === 'high' ? 'high' : 'medium', description: String(f.description || '').slice(0, 400),
     a: { panel: String(f.a?.panel), label: String(f.a?.label || '').slice(0, 120), box: f.a?.box || null }, b: { panel: String(f.b?.panel), label: String(f.b?.label || '').slice(0, 120), box: f.b?.box || null },
     transform: f.transform || null, score: Number(f.score) || 0,
@@ -124,7 +162,14 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
     // manipulation: enhanced view of the panel (the original and the close-up are thumbA / zoomA)
     enhA: cap(f.enhA, 80000), enhAW: f.enhAW | 0, enhAH: f.enhAH | 0, code: cap(f.code, 40)
   })).map(f => ({ ...f, assessment: KB.assess(f) }));
-  const usable = panels.filter(p => !p.blank && p.type !== 'chart');
+  // a figure placed in the text and again in the figure section is one figure; photo-only findings on drawings and on
+  // generated figures are not reported (src/imageReview.js)
+  const imageList = (input.images || []).slice(0, 200).map(im => ({ id: String(im.id), label: String(im.label || '').slice(0, 160), width: im.width | 0, height: im.height | 0, panels: im.panels | 0, source: String(im.source || '') }));
+  const review = await require('./imageReview').reviewFindings({ images: imageList, panels, findings: rawFindings });
+  const findings = review.findings.slice(0, 80);
+  for (const im of imageList) if (review.copies[im.id]) im.label = `${imageList.find(o => o.id === review.copies[im.id])?.label || im.label} (repeated in the figure section, ${(im.label.match(/page \d+/) || ['later page'])[0]})`;
+  for (const p of panels) if (review.copies[p.imageId]) p.repeatOf = review.copies[p.imageId];
+  const usable = panels.filter(p => !p.blank && p.type !== 'chart' && !p.repeatOf);
   let earlier = await compareWithEarlier(usable, { excludeCode: meta.manuscriptCode || null });
   const charts = cleanSeries(input.charts);
   let earlierCharts = await compareChartsWithEarlier(charts, { excludeCode: meta.manuscriptCode || null });
@@ -141,11 +186,8 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
       refs = r.refs;
     } else refs = { matches: [], charts: [], searched: null, error: `The PJPS image databases are on the web platform and could not be searched (${r.error}). Only the manuscripts screened on this computer were compared; run the check again when online.` };
   } else refs = await REFS.matchManuscript(usable, charts).catch(e => ({ matches: [], charts: [], searched: null, error: e.message }));
-  const byLevel = { high: findings.filter(f => f.level === 'high').length, medium: findings.filter(f => f.level === 'medium').length };
-  if (earlier.some(e => e.distance <= 3) || earlierCharts.some(e => e.correlation >= 0.998)) byLevel.high++;
-  if (refs.matches.some(m => m.level === 'high') || refs.charts.some(c => c.correlation >= 0.998)) byLevel.high++;
+  const { byLevel, level } = imageLevel(findings, earlier, earlierCharts, refs.matches, refs.charts);
   const refCount = refs.matches.length + refs.charts.length;
-  const level = byLevel.high ? 'HIGH' : byLevel.medium || earlier.length || earlierCharts.length || refCount ? 'MEDIUM' : 'LOW';
   const result = {
     kind: 'images', module: 5, meta, createdAt: new Date().toISOString(),
     summary: {
@@ -155,7 +197,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
       referencesPjps: refs.matches.filter(m => m.source === 'pjps').length + refs.charts.filter(m => m.source === 'pjps').length,
       referencesRetracted: refs.matches.filter(m => m.source === 'retracted').length + refs.charts.filter(m => m.source === 'retracted').length, level
     },
-    images: (input.images || []).slice(0, 200).map(im => ({ id: String(im.id), label: String(im.label || '').slice(0, 160), width: im.width | 0, height: im.height | 0, panels: im.panels | 0, source: String(im.source || '') })),
+    images: imageList, reviewNotes: review.notes,
     panels, findings, earlier, earlierCharts, references: refs.matches, referenceCharts: refs.charts, referencesSearched: refs.searched, referencesError: refs.error || null, coverage: coverageOf(Number(input.externalChecked) || 0), provenanceChecked: Number(input.provenance) || 0, externalChecked: Number(input.externalChecked) || 0, externalErrors: (Array.isArray(input.externalErrors) ? input.externalErrors : []).slice(0, 5).map(e => String(e).slice(0, 200)),
     skipped: (input.skipped || []).slice(0, 100).map(s => ({ name: String(s.name || '').slice(0, 160), reason: String(s.reason || '').slice(0, 200) })),
     vendor: await vendorStatus(),
@@ -166,8 +208,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
   };
   result.summary.byConfidence = SCORE.scoreResult(result);
   if (!save) return { result, earlier };
-  const problems = [`Image risk ${level}`, byLevel.high ? `${byLevel.high} strong image finding(s)` : null, byLevel.medium ? `${byLevel.medium} image finding(s) to check` : null, earlier.length ? `${earlier.length} figure(s) matching earlier PJPS manuscripts` : null,
-    refCount ? `${refCount} figure(s) matching published PJPS / retracted-paper figures` : null].filter(Boolean);
+  const problems = imageProblems(result);
   const id = await saveResult(userId, 'images', result, { title: meta.title || meta.filename || 'Image integrity', manuscriptCode: meta.manuscriptCode, refTotal: panels.length, problems, counts: { suspicious: byLevel.high, unverified: byLevel.medium } });
   if (usable.length || charts.length) {
     await db.query("INSERT INTO fingerprints(check_id, user_id, manuscript_code, kind, title, data) VALUES($1, $2, $3, 'image', $4, $5)",
@@ -225,4 +266,4 @@ async function withExportThumbs(result, userId, { max = 20 } = {}) {
   return { ...result, references: refs };
 }
 
-module.exports = { compareWithEarlier, compareChartsWithEarlier, saveImageCheck, vendorStatus, withExportThumbs, MATCH_DISTANCE };
+module.exports = { imageProblems, imageLevel, rereviewImageReport, compareWithEarlier, compareChartsWithEarlier, saveImageCheck, vendorStatus, withExportThumbs, MATCH_DISTANCE };

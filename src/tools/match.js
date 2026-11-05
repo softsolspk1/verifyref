@@ -198,6 +198,20 @@ function expandBinomials(claim, text) {
 /** The claim without its citations: author names and years in "(Khan et al., 2021)" or "[3]" are not claim content */
 const withoutCitations = claim => String(claim).replace(/\([^()]*\b(?:19|20)\d{2}[a-z]?[^()]*\)/g, ' ').replace(/\[[\d,\s–-]+\]/g, ' ');
 
+/**
+ * The claim as the language model reads it: no citations and no narrative attribution. A citation in the hypothesis
+ * makes the model reject a passage that states the claim word for word ("… task (Vaswani et al., 2017)." entailment 0.00,
+ * the same sentence without it 0.99), and "Khan et al. (2019) showed that X" is checked as "X".
+ */
+const VERB = '(?:showed|shown|reported|found|demonstrated|observed|suggested|noted|stated|concluded|confirmed|revealed|indicated|described|proposed)';
+function claimForModel(claim) {
+  return String(claim)
+    .replace(new RegExp(`^\\s*(?:As\\s+${VERB}\\s+by\\s+|According\\s+to\\s+)?[\\p{Lu}][\\p{L}'’-]+(?:\\s+(?:et\\s+al\\.?|(?:and|&)\\s+[\\p{Lu}][\\p{L}'’-]+))?\\s*\\(\\s*(?:19|20)\\d{2}[a-z]?\\s*\\)\\s*(?:(?:have|has|had)\\s+)?(?:${VERB}\\s+(?:that\\s+)?|,\\s*)?`, 'u'), '')
+    .replace(/\([^()]*\b(?:19|20)\d{2}[a-z]?[^()]*\)/g, ' ').replace(/\[[\d,\s–-]+\]/g, ' ')
+    .replace(/\s+([.,;:])/g, '$1').replace(/\s{2,}/g, ' ').trim()
+    .replace(/^\p{Ll}/u, c => c.toUpperCase());
+}
+
 /** Document frequencies over a set of passages */
 function idfOf(passages) {
   const df = new Map();
@@ -294,6 +308,21 @@ function verdictOf(best, { fullText, decided } = {}) {
 }
 
 /**
+ * A source names its subject once ("we propose … the Transformer") and then writes "our model achieves 28.4 BLEU": the
+ * model, reading one passage, cannot know they are the same. When the claim's subject (a capitalised name in the claim)
+ * is named elsewhere in the source but not in the passage, the model reads that name in place of "our model / the
+ * proposed method / this extract". Only the model's input (modelText) changes; the editor sees the passage as written.
+ */
+const SELF_REF = /\b(?:our|the\s+proposed|this|the\s+present)\s+(?:new\s+)?(model|method|approach|system|network|architecture|algorithm|framework|technique|formulation|compound|extract|drug|assay|device|tool|scheme)\b/i;
+function withSubject(claim, top, passages) {
+  // a capitalised name the source itself writes mid-sentence (so not an ordinary word that starts a sentence)
+  const doc = passages.map(p => p.text).join(' ');
+  const subject = [...claim.matchAll(/(?:^|\s)(?:[Tt]he\s+)?([\p{Lu}][\p{L}\d-]{2,}(?:\s+[\p{Lu}][\p{L}\d-]{2,}){0,2})/gu)].map(m => m[1]).find(n => doc.includes(` ${n}`));
+  if (!subject) return top;
+  return top.map(p => (!p.text.includes(subject) && SELF_REF.test(p.text) ? { ...p, modelText: p.text.replace(SELF_REF, `the ${subject}`) } : p));
+}
+
+/**
  * Verdict for a claim against one source's passages, corrected by the language model when it is available (tools/nli.js):
  * { best, verdict, notes, conflict }. best is the evidence passage shown to the editor - the one the model judged on.
  * deadline (ms timestamp): after it the word matcher alone decides (long manuscripts on a time-limited server).
@@ -302,7 +331,8 @@ async function judge(claim, passages, { fullText, deadline } = {}) {
   const top = passages?.length ? bestPassages(claim, passages, 3) : [];
   const base = verdictOf(top[0], { fullText });
   if (!top.length) return { best: null, ...base, conflict: false };
-  const d = await require('./nli').decide(claim, top, base, { deadline }).catch(() => null);
+  const modelClaim = claimForModel(claim);
+  const d = await require('./nli').decide(modelClaim, withSubject(modelClaim, top, passages), base, { deadline }).catch(() => null);
   if (!d) return { best: top[0], ...base, conflict: base.verdict === 'unsupported' && !!top[0].conflict };
   const v = verdictOf(d.passage, { fullText, decided: d.decision });
   const [reading, prob] = [['states the claim', d.entailment], ['contradicts the claim', d.contradiction], ['neither states nor contradicts the claim', 1 - d.entailment - d.contradiction]].reduce((a, b) => (b[1] > a[1] ? b : a));
@@ -335,4 +365,4 @@ function adjustWording(claim, evidence) {
   return changes.length ? { wording: s.replace(/\s{2,}/g, ' '), changes } : null;
 }
 
-module.exports = { terms, stem, numbersIn, sentenceSpans, passagesOf, idfOf, scorePassage, bestPassages, verdictOf, judge, adjustWording, polarity };
+module.exports = { terms, stem, numbersIn, sentenceSpans, passagesOf, idfOf, scorePassage, bestPassages, verdictOf, judge, adjustWording, polarity, claimForModel };

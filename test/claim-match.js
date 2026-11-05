@@ -45,5 +45,10 @@ const reworded = [
     assert.strictEqual(v.verdict, want, `${claim} → expected ${want}`);
     assert.strictEqual(v.conflict, conflict, `${claim} → contradiction expected: ${conflict}`);
   }
-  console.log(`claim-match: language model passed (${reworded.length} reworded cases)`);
+  // the citation in the claim and the source's "our model" must not stop the model reading a verbatim statement
+  assert.strictEqual(M.claimForModel('Khan et al. (2019) showed that curcumin heals wounds [3].'), 'Curcumin heals wounds.');
+  const v = await M.judge('The Transformer reached 28.4 BLEU on the WMT 2014 English-to-German translation task (Vaswani et al., 2017).',
+    M.passagesOf('We propose a new simple network architecture, the Transformer, based solely on attention mechanisms. Experiments on two machine translation tasks show these models to be superior in quality. Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results.'), { fullText: true });
+  assert.strictEqual(v.verdict, 'full', 'cited claim stated by "our model" in the source -> full');
+  console.log(`claim-match: language model passed (${reworded.length} reworded cases, citation and "our model" cases)`);
 })().catch(e => { console.error(e); process.exit(1); });

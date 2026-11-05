@@ -71,3 +71,29 @@ The larger `nli-deberta-v3-small` (165 MB) was scored the same way and did worse
 flagged 17%, supported claims judged Full 12%), so the extra-small model is used. About 0.1 s per passage on one CPU
 core; Verify Citations lets the model read for up to 3 minutes per manuscript, then the word matcher decides alone.
 Every verdict names the model's reading in its notes and quotes the passage it judged on.
+
+## 2026-11-05: rule refitted; citations and "our model" no longer hide support
+
+Two faults found on real documents, which SciFact (claims without citations) could not show:
+- The claim reached the model with its citation: "... translation task (Vaswani et al., 2017)." got entailment 0.00
+  from a passage stating it word for word, 0.99 without the citation. The model now reads the claim without citations
+  and without narrative attribution ("Khan et al. (2019) showed that X" is checked as "X"): `match.claimForModel`.
+- A source names its subject once and then writes "our model achieves 28.4 BLEU". When the claim's subject is named
+  elsewhere in the source, the model reads that name in place of "our model / the proposed method / this extract"
+  (the editor still sees the passage as written): `match.withSubject`.
+
+The decision rule was refitted on the train split under stricter limits (no-evidence and contradicted claims passed as
+Full at most 2.5%, supported claims called contradicted at most 7%). The larger `DeBERTa-v3-base-mnli-fever-anli`
+(fitted the same way) did not do better on the held-out split (supported found 70%, contradicted passed as Full 4%,
+supported called contradicted 9%), so the extra-small model stays.
+
+| Dev split (held out) | Before | After |
+|---|---|---|
+| Supported claims found (Full or Partial) | 73% | 72% |
+| Supported claims judged Full | 28% | 22% |
+| Contradicted claims flagged as contradicted | 27% | **38%** |
+| Contradicted claims passed as Full | 1% | 1% |
+| No-evidence claims passed as Full | 2.3% | **0.8%** |
+| Supported claims called contradicted | 7% | 7% |
+
+Real uploaded PDF (test/audit-m3c.js, arXiv 1706.03762): 6 of 6 (the verbatim BLEU claim had been read as Partial).

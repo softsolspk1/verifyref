@@ -43,15 +43,15 @@ async function infer(m, premise, hypothesis) {
 
 /**
  * Decision rule over the matcher's top passages (at most 3), fitted on the SciFact train split under limits on false
- * alarms (no-evidence claims passed as Full <= 2%, supported claims called contradicted <= 8%) and checked on the held-out
- * dev split (scripts/benchmark-claims.js --nli):
- *   contradiction  - a passage sharing at least 40% of the claim's terms contradicts it (contradiction - entailment >= 0.8)
+ * alarms (no-evidence claims passed as Full <= 2%, contradicted claims passed as Full <= 2.5%, supported claims called
+ * contradicted <= 7%) and checked on the held-out dev split (scripts/benchmark-claims.js); refitted 5 Nov 2026:
+ *   contradiction  - a passage sharing at least 20% of the claim's terms contradicts it (contradiction - entailment >= 0.98)
  *   matcher contradiction overruled when a passage entails the claim (>= 0.5) - reported as partial
- *   full           - a passage entails the claim (>= 0.9)
- *   partial        - weak entailment (>= 0.2) where the matcher found nothing
+ *   full           - a passage entails the claim (>= 0.98), or (>= 0.8) when it shares at least half of the claim's terms
+ *   partial        - entailment (>= 0.3) where the matcher found nothing
  *   full -> partial when no passage entails the claim (< 0.2)
  */
-const RULE = { covC: 0.4, tc: 0.8, keepE: 0.5, te: 0.9, tp: 0.2, demote: 0.2 };
+const RULE = { covC: 0.2, tc: 0.98, keepE: 0.5, te: 0.98, covF: 0.5, te2: 0.8, tp: 0.3, demote: 0.2 };
 
 /**
  * Model-corrected decision for a claim and its top passages (from match.bestPassages(claim, passages, 3)).
@@ -63,7 +63,7 @@ async function decide(claim, top, base, { deadline } = {}) {
   const m = await load();
   if (!m) return null;
   const scored = [];
-  for (const p of top.slice(0, 3)) scored.push({ p, ...(await infer(m, p.text, claim)) });
+  for (const p of top.slice(0, 3)) scored.push({ p, ...(await infer(m, p.modelText || p.text, claim)) });
   const byE = scored.reduce((a, b) => (b.entailment > a.entailment ? b : a));
   const byC = scored.filter(s => s.p.coverage >= RULE.covC)
     .reduce((a, b) => (!a || b.contradiction - b.entailment > a.contradiction - a.entailment ? b : a), null);
@@ -72,7 +72,7 @@ async function decide(claim, top, base, { deadline } = {}) {
   const out = (decision, s) => ({ decision, passage: s.p, entailment: s.entailment, contradiction: s.contradiction });
   if (C >= RULE.tc) return out('contradicts', byC);
   if (wordConflict) return E >= RULE.keepE ? out('partial', byE) : out('contradicts', scored[0]);
-  if (E >= RULE.te) return out('full', byE);
+  if (E >= RULE.te || (E >= RULE.te2 && byE.p.coverage >= RULE.covF)) return out('full', byE);
   if (E >= RULE.tp && base.verdict === 'unsupported') return out('partial', byE);
   if (base.verdict === 'full' && E < RULE.demote) return out('partial', scored[0]);
   // the matcher's verdict stands; the evidence shown is the passage the model reads as stating the claim, if any

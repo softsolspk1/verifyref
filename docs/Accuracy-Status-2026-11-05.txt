@@ -21,7 +21,7 @@ Module                         Status       Headline figure
                                             45 of 45 feature checks (1.1-1.9) pass
 2  Reference Style / Converter Strong       All test cases correct (0 false alarms, 0 missed)
 3A Citations vs reference list Strong       All planted problems found; 17/17 hard forms
-3B Claim supported by source   Moderate     73% of supported claims found; 27% of
+3B Claim supported by source   Moderate     72% of supported claims found; 38% of
                                             contradictions flagged (SciFact benchmark)
 3C Citation patterns           Good         6 of 6 planted patterns flagged (small test)
 4  Paper Mill Detection        Weak-Moderate 38 of 150 real mill papers flagged (25%),
@@ -140,25 +140,27 @@ Small test sets:
 - Generated sources, 7 claims (supported, opposite, wrong figure, no source, retracted
   evidence, invented work): 7 / 7
 
-SciFact benchmark (1,259 expert-labelled claim-source pairs, ABSTRACT ONLY), current version
-with the language model (since 4 Nov):
+SciFact benchmark (1,259 expert-labelled claim-source pairs, ABSTRACT ONLY), version of 5 Nov
+(language model with the rule refitted on the train split; figures on the held-out split):
 
-                                                   Held-out (340)   Train (919)
-Supported claims found (Full or Partial)           73%              71%
-Supported claims judged "Full support"             28%              32%
-Contradicted claims flagged as contradicted        27%              35%
-Contradicted claims passed as "Full support"       1%               4%
-No-evidence claims passed as "Full support"        2.3%             1.7%
+                                                   Before (4 Nov)   Now (5 Nov)
+Supported claims found (Full or Partial)           73%              72%
+Supported claims judged "Full support"             28%              22%
+Contradicted claims flagged as contradicted        27%              38%
+Contradicted claims passed as "Full support"       1%               1%
+No-evidence claims passed as "Full support"        2.3%             0.8%
 Supported claims wrongly called contradicted       7%               7%
 
+Fixed on 5 Nov: the citation inside a claim ("... (Vaswani et al., 2017).") made the language
+model reject a source stating the claim word for word; and "our model achieves ..." in a source
+was not linked to the name the claim uses. Both fixed (real PDF test now 6 / 6).
+
 Meaning: a "Full support" verdict can be trusted (almost never given to a wrong claim), but
-about 1 in 4 supported claims is missed and about 3 in 4 contradictions are not flagged when
+about 1 in 4 supported claims is missed and about 6 in 10 contradictions are not flagged when
 only the abstract is available. With the uploaded PDF or open full text, more support is found.
 
-Under test (not in use): a larger language model looked better on the benchmark (78% supported
-found, 38% contradictions flagged, 3% supported wrongly called contradicted), but these figures
-are optimistic because the rule was tuned on the same claims. The proper test was interrupted
-(computer low on memory) and must be repeated before any switch.
+A larger language model (DeBERTa-v3-base) was tested the same way and did not do better on the
+held-out claims, so the smaller, faster model stays.
 
 3C. Citation patterns (self-citation, stacking, author concentration, off-topic, blocks)
 - 6 of 6 planted patterns flagged. Small test only; no public benchmark exists.
@@ -242,6 +244,6 @@ WHAT WOULD RAISE ACCURACY MOST
 Module 1   200+ labelled references from real PJPS submissions; HEC HJRS list and a Google
            Scholar key for regional journals.
 Module 2   PJPS editor sign-off on the rules; test on 100 accepted PJPS manuscripts.
-Module 3B  Finish the larger language-model test (needs free memory); fetch more full texts.
+Module 3B  Fetch more full texts; a 100-claim gold set from PJPS manuscripts checked by an editor.
 Module 4   Use PJPS's own case decisions to tune the weights; PubPeer; refresh the mill index.
 Module 5   Better candidate stage for partial copies; dense copy-move detection.

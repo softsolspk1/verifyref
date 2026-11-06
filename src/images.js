@@ -127,16 +127,39 @@ function imageLevel(findings, earlier = [], earlierCharts = [], refMatches = [],
  * A saved image report reviewed again with the current rules (src/imageReview.js): findings, labels, counts, level,
  * confidence and suggested handling recomputed. Returns the updated result (the input is not changed).
  */
+/** Labels and panels after the review: repeated pictures point to the first one, bars of drawn charts are charts */
+function markReviewed(images, panels, review) {
+  const stored = new Set(review.stored || []);
+  for (const im of images) {
+    const of = review.copies[im.id];
+    if (!of || /repeated in the figure section|stored again in the file/.test(im.label)) continue;
+    const orig = images.find(o => o.id === of)?.label || im.label;
+    im.label = stored.has(im.id) ? `${orig} (same picture stored again in the file)` : `${orig} (repeated in the figure section, ${(im.label.match(/page \d+/) || ['later page'])[0]})`;
+  }
+  const bars = new Set(review.bars || []);
+  for (const p of panels) {
+    if (review.copies[p.imageId]) p.repeatOf = review.copies[p.imageId];
+    if (bars.has(p.id)) { p.type = 'chart'; p.drawnBar = true; }
+  }
+}
+
 async function rereviewImageReport(saved) {
   const r = JSON.parse(JSON.stringify(saved));
   const review = await require('./imageReview').reviewFindings({ images: r.images || [], panels: r.panels || [], findings: r.findings || [] });
   r.findings = review.findings.slice(0, 80);
-  for (const im of r.images || []) if (review.copies[im.id] && !/repeated in the figure section/.test(im.label)) im.label = `${(r.images.find(o => o.id === review.copies[im.id]) || im).label} (repeated in the figure section, ${(im.label.match(/page \d+/) || ['later page'])[0]})`;
-  for (const p of r.panels || []) if (review.copies[p.imageId]) p.repeatOf = review.copies[p.imageId];
+  markReviewed(r.images || [], r.panels || [], review);
+  // matches with published or earlier figures on a repeated copy or on a bar of a drawn chart are not image matches
+  const skip = new Set((r.panels || []).filter(p => p.repeatOf || p.drawnBar).map(p => p.id));
+  r.references = (r.references || []).filter(m => !skip.has(m.panel));
+  r.earlier = (r.earlier || []).filter(m => !skip.has(m.panel));
   const { byLevel, level } = imageLevel(r.findings, r.earlier, r.earlierCharts, r.references, r.referenceCharts);
   r.summary = { ...r.summary, findings: r.findings.length, byLevel, level,
-    byKind: r.findings.reduce((a, f) => ({ ...a, [f.kind]: (a[f.kind] || 0) + 1 }), {}), byCategory: r.findings.reduce((a, f) => ({ ...a, [f.category]: (a[f.category] || 0) + 1 }), {}) };
+    byKind: r.findings.reduce((a, f) => ({ ...a, [f.kind]: (a[f.kind] || 0) + 1 }), {}), byCategory: r.findings.reduce((a, f) => ({ ...a, [f.category]: (a[f.category] || 0) + 1 }), {}),
+    images: (r.images || []).filter(im => !review.copies[im.id]).length || r.summary?.images || 0, earlier: r.earlier.length, references: r.references.length,
+    referencesPjps: r.references.filter(m => m.source === 'pjps').length + (r.referenceCharts || []).filter(m => m.source === 'pjps').length,
+    referencesRetracted: r.references.filter(m => m.source === 'retracted').length + (r.referenceCharts || []).filter(m => m.source === 'retracted').length };
   r.reviewNotes = review.notes;
+  if (skip.size && (saved.references || []).length > r.references.length) r.reviewNotes.push(`${(saved.references || []).length - r.references.length} match(es) with published figures on repeated copies or on bars of drawn charts were removed: a plain drawn bar resembles many published figures.`);
   r.guidance = KB.guidance(level);
   r.summary.byConfidence = SCORE.scoreResult(r);
   require('./imageExplain').explainReport(r);
@@ -168,8 +191,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
   const imageList = (input.images || []).slice(0, 200).map(im => ({ id: String(im.id), label: String(im.label || '').slice(0, 160), width: im.width | 0, height: im.height | 0, panels: im.panels | 0, source: String(im.source || '') }));
   const review = await require('./imageReview').reviewFindings({ images: imageList, panels, findings: rawFindings });
   const findings = review.findings.slice(0, 80);
-  for (const im of imageList) if (review.copies[im.id]) im.label = `${imageList.find(o => o.id === review.copies[im.id])?.label || im.label} (repeated in the figure section, ${(im.label.match(/page \d+/) || ['later page'])[0]})`;
-  for (const p of panels) if (review.copies[p.imageId]) p.repeatOf = review.copies[p.imageId];
+  markReviewed(imageList, panels, review);
   const usable = panels.filter(p => !p.blank && p.type !== 'chart' && !p.repeatOf);
   let earlier = await compareWithEarlier(usable, { excludeCode: meta.manuscriptCode || null });
   const charts = cleanSeries(input.charts);

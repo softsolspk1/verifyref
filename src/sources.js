@@ -736,8 +736,9 @@ const webSearchEnabled = () => scholarEnabled() || require('./webSearch').enable
 
 async function googleWebSearch(ref) {
   const title = q(ref.title || '').slice(0, 250);
-  if (!scholarEnabled()) {
-    // no SerpApi key: the same exact-title search through the web search the similarity report uses
+  if (!scholarEnabled() || require('./webSearch').provider() !== 'SerpApi (Google)') {
+    // the web search the similarity report uses (Brave Search / Google Programmable Search; SerpApi's few searches are
+    // kept for Google Scholar)
     if (!webSearchEnabled()) return { skipped: true };
     if (title.length < 15) return { hits: [] };
     const w = await require('./webSearch').phraseSearch(title, 8).catch(e => ({ ok: false, error: e.message }));
@@ -875,7 +876,7 @@ const DATABASES = [
   'Crossref', 'DOI Foundation (Handle)', 'DataCite', 'OpenAlex', 'PubMed', 'Europe PMC',
   'Semantic Scholar', 'arXiv', 'DBLP', 'Open Library', 'Google Books', 'ERIC', 'CORE'
 ];
-const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (SerpApi)', 'Google (SerpApi)'] : DATABASES);
+const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (SerpApi)', ...(require('./webSearch').provider() === 'SerpApi (Google)' ? ['Google (SerpApi)'] : [])] : DATABASES);
 
 module.exports = {
   crossrefInJournal,

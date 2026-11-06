@@ -356,7 +356,7 @@ async function verifyReference(ref, opts = {}) {
   if (!web && !confident() && S.webSearchEnabled() && (ref.title || '').length >= 15) {
     const g = await S.googleWebSearch(ref).catch(e => ({ error: e.message }));
     if (!g.skipped) {
-      mark(S.scholarEnabled() ? 'Google' : 'Web search', g.error ? 'error' : g.hits?.length ? 'found' : 'not-found');
+      mark(require('../webSearch').provider() === 'SerpApi (Google)' ? 'Google' : 'Web search', g.error ? 'error' : g.hits?.length ? 'found' : 'not-found');
       if (!g.error) web = g.hits || [];
     }
   }

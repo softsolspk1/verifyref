@@ -11,7 +11,8 @@ const {
   BorderStyle, LevelFormat, Header, Footer, PageNumber, TableOfContents, PageBreak
 } = require('docx');
 
-const R = require('./audit-results-2026-11-06.json');
+// AUDIT_RESULTS=<file.json> builds the report from another results file (the final evening audit of the same day)
+const R = require(process.env.AUDIT_RESULTS ? path.resolve(process.env.AUDIT_RESULTS) : './audit-results-2026-11-06.json');
 
 const FONT = 'Calibri';
 const NAVY = '1F3864';
@@ -71,11 +72,11 @@ add(
 // ------------------------------------------------------------------ 1. summary
 add(
   h1('1. Summary'),
-  p(`Every feature of the five modules, the Full Screening Report and the Similarity Report was checked again from the start on ${R.date}: ${R.counts.features} features in all, each against test cases whose correct answer is known in advance, a published benchmark, or both. ${R.counts.fixed} gaps found during the audit were fixed the same day and measured again. The table gives each module's headline figure; sections 3 to 9 list every feature with its result and section 10 what would raise accuracy further.`),
+  R.summaryText ? p(R.summaryText) : p(`Every feature of the five modules, the Full Screening Report and the Similarity Report was checked again from the start on ${R.date}: ${R.counts.features} features in all, each against test cases whose correct answer is known in advance, a published benchmark, or both. ${R.counts.fixed} gaps found during the audit were fixed the same day and measured again. The table gives each module's headline figure; sections 3 to 9 list every feature with its result and section 10 what would raise accuracy further.`),
   table(['Module', 'Measured accuracy (6 Nov 2026)', 'Rating', 'Main limit'], R.summary.map(r => [r.module, r.result, [r.rating, r.tone], r.limit]), [18, 44, 11, 27]),
   gap(),
   p([run('What "accuracy" means. ', { bold: true }), run('Modules 1 to 3 give one correct answer per case, so accuracy is the share answered correctly. Modules 4 and 5 and the Similarity Report are screening aids, measured by detection (the share of real problems found) and false alarms (the share of clean papers or images flagged). A perfect score on N cases means the true error rate is below about 3/N (95% confidence).')]),
-  h2('1.1 Gaps found and fixed on 6 November'),
+  h2(R.fixesTitle || '1.1 Gaps found and fixed on 6 November'),
   table(['Gap found', 'Effect before the fix', 'Fix and result'], R.fixes.map(f => [f.gap, f.before, [f.after, 'ok']]), [26, 34, 40]),
   gap(),
   h2('1.2 Speed of a Full Screening'),
@@ -110,13 +111,20 @@ for (const [title, m] of sections) {
   if (m.limits?.length) { add(h2('Honest limits')); for (const l of m.limits) add(bullet(l)); }
 }
 
-// ------------------------------------------------------------------ 10. what would raise accuracy
+// ------------------------------------------------------------------ 10. gaps left (optional section)
+const G = R.gaps ? 1 : 0;
+if (R.gaps) {
+  add(h1('10. Gaps left'), p(R.gaps.intro));
+  add(table(['Module', 'Gap still open', 'Effect today', 'Severity', 'What closes it'], R.gaps.rows.map(([m, g, e, sev, fix]) => [m, g, e, [sev, sev === 'High' ? 'bad' : sev === 'Medium' ? 'warn' : 'ok'], fix]), [12, 26, 26, 10, 26]), gap());
+}
+
+// ------------------------------------------------------------------ what would raise accuracy
 add(
-  h1('10. What would raise accuracy further'),
+  h1(`${10 + G}. What would raise accuracy further`),
   p('In order of effect. Items marked "PJPS" need a decision, an account or data from PJPS; the others are development work.'),
   table(['Priority', 'Action', 'Module', 'Expected effect'], R.next, [10, 44, 14, 32]),
   gap(),
-  h1('11. Test suite'),
+  h1(`${11 + G}. Test suite`),
   p(R.suite)
 );
 
@@ -139,5 +147,5 @@ const doc = new Document({
   }]
 });
 
-const out = process.argv[2] || path.join(__dirname, 'PJPS-Full-Audit-Report-2026-11-06.docx');
+const out = process.argv[2] || path.join(__dirname, R.outName || 'PJPS-Full-Audit-Report-2026-11-06.docx');
 Packer.toBuffer(doc).then(buf => { fs.writeFileSync(out, buf); console.log(`Written ${out} (${buf.length} bytes)`); });

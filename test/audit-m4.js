@@ -35,7 +35,7 @@ Livak KJ and Schmittgen TD (2001). Analysis of relative gene expression data usi
 
 const MILL = `Counterfeit consciousness assisted network pharmacology of a plant extract against breast cancer through the PI3K/AKT signaling pathway
 Chen Fang, Fukang Sun, Ahmed Raza
-Department of Biomedical Sciences, Shenzhen Institute of Technology, Shenzhen, China
+Department of Urology, Ruijin Hospital, Shanghai Jiao Tong University School of Medicine, Shanghai, China
 Corresponding author: fang.chen2024@163.com; ahmed.raza.research@gmail.com
 
 Abstract

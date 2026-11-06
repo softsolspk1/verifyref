@@ -1581,7 +1581,10 @@ async function ensureDatasetsNow({ force = false, maxAgeDays = 7, budgetMs = Inf
   for (const d of all) {
     const loaded = await time(`${d[0]}_loaded_at`);
     const inProgress = d[0] === 'oaj' && !!(await getMeta('oaj_harvest'));
-    if (force || inProgress || !loaded || Date.now() - loaded > (d[4] || maxAgeDays) * 86400000 || (d[0] === 'rw' && noAuthors)) todo.push({ d, order: Math.max(loaded, await time(`${d[0]}_tried_at`)) });
+    // a forced refresh does not start the OpenAlex journal list again within its 30 days: ~1,100 paid OpenAlex requests
+    // for a list that changes little in a month
+    const forced = force && !(d[0] === 'oaj' && loaded && Date.now() - loaded < (d[4] || maxAgeDays) * 86400000);
+    if (forced || inProgress || !loaded || Date.now() - loaded > (d[4] || maxAgeDays) * 86400000 || (d[0] === 'rw' && noAuthors)) todo.push({ d, order: Math.max(loaded, await time(`${d[0]}_tried_at`)) });
   }
   todo.sort((a, b) => a.order - b.order);
   const results = {};

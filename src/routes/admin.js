@@ -277,6 +277,10 @@ defineJob('publisher-journals', async (input, { update }) => {
 });
 
 router.post('/admin/datasets/refresh', wrap(async (req, res) => {
+  // one refresh at a time: four started together on 6 Nov downloaded the same pages side by side (duplicates, paid
+  // OpenAlex requests four times) and kept each other from finishing; a second click follows the running one
+  const running = await db.one("SELECT id FROM jobs WHERE kind = 'datasets' AND status IN ('queued', 'running') AND created_at > now() - interval '3 hours' ORDER BY created_at DESC LIMIT 1");
+  if (running) return res.json({ success: true, jobId: running.id, alreadyRunning: true });
   const job = await createJob(req.user.id, 'datasets', {});
   res.json({ success: true, jobId: job.id });
 }));

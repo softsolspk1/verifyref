@@ -162,6 +162,12 @@ global.fetch = async (url, opts) => {
   assert.strictEqual(art7.status, 'verified', `found by the looser search, PDF read (got ${art7.status}: ${art7.reason} ${JSON.stringify(art7.record && [art7.record.title, art7.record.source, art7.record.year])})`);
   console.log('  ✓ exact phrase finds nothing: the title words with the first author find the PDF: verified');
 
+  // a common surname with a looser title from another year (Crossref: Patel 2012, "... sustained release matrix tablets
+  // of captopril") is another Patel's paper, not this reference with a wrong year
+  const patel = await check({ index: 11, raw: `Patel, P.K., 2019. ${ARTICLE7}.`, title: ARTICLE7, authors: [{ family: 'Patel', given: 'P.K.' }], year: 2019 });
+  assert.ok(patel.status !== 'miscited' && !patel.record, `common surname alone does not make a match (got ${patel.status}: ${patel.reason})`);
+  console.log('  ✓ common surname with a looser title from another year: not taken as the cited work');
+
   unrelated = true;
   const none = await check({ index: 4, raw: 'Raza K (2020). Pharmacovigilance awareness among Zyxomira hospital nurses. Larkana.', title: 'Pharmacovigilance awareness among Zyxomira hospital nurses', authors: [{ family: 'Raza', given: 'K' }], year: 2020 });
   assert.ok(!none.web?.length && none.checked['Web search'] === 'not-found' && none.status !== 'verified', 'unrelated pages ignored');

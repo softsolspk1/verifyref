@@ -149,7 +149,10 @@ const greyRef = ref => !!(ref.looksLikeWeb || ref.looksLikeBook || ref.type === 
 
 /** A same- or similar-title record that disagrees on authors / year / journal / volume is another publication, not this one */
 function differentWork(ref, rec, s) {
-  if (s.authorScore === 1) return false;
+  // the first author settles it when the titles are close, or when a second cited author is on the record too. A common
+  // surname (Patel, Khan, Wang) alone does not: a looser title by "Patel" from another year is another Patel's paper
+  const coAuthor = (ref.authors || []).slice(1, 4).some(a => (rec.authors || []).some(b => nameMatch(a, b)));
+  if (s.authorScore === 1 && (s.tSim >= 0.75 || coAuthor)) return false;
   // a book or web page "matched" to a record by other authors is not that book or page
   if (greyRef(ref) && s.authorScore === 0) return true;
   const vol = v => (String(v || '').match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, '');

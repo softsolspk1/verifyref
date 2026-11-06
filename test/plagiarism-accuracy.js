@@ -126,7 +126,7 @@ function reword(p) {
   // stored submission, is credited to that submission
   const pub = again2.sources.find(x => x.type === 'publication');
   console.log(`  second run: paper found via ${pub?.via}, ${pub?.matchedWords} matched words (first run ${top.matchedWords})`);
-  assert.ok(pub && /PJPS repository/.test(pub.via) && Math.abs(pub.matchedWords - top.matchedWords) <= 5, 'second run finds the paper in the repository with the same matched text');
+  assert.ok(pub && /PJPS (?:text )?repository/.test(pub.via) && Math.abs(pub.matchedWords - top.matchedWords) <= 5, 'second run finds the paper in the repository with the same matched text');
   console.log('plagiarism accuracy test passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -673,7 +673,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     for (const x of common ? res.slice(0, 1) : res) hitWindow(w, epmcRecord(x));
     return res;
   };
-  update(`Searching ${windows.length} passages of the manuscript in Europe PMC`);
+  update(`Searching ${windows.length} passages of the manuscript in the published literature`);
   const unknown = [];
   let done = 0;
   // most passages are found nowhere: neighbouring passages are first asked together ("a" OR "b" OR "c", a count only);
@@ -692,7 +692,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     for (const w of g) {
       stats.searched++;
       const res = any ? await epmcPhrase(w) : [];
-      if (++done % 50 < 1) update(`Searching passages in Europe PMC (${done}/${windows.length})`);
+      if (++done % 50 < 1) update(`Searching passages in the published literature (${done}/${windows.length})`);
       if (!res || !res.length) unknown.push(w);
     }
   });
@@ -717,7 +717,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const oaLeft = require('../http').openalexBudget();
   const oaList = oaLeft.out ? [] : spread(unknown, oaLeft.leftUsd === null ? OPENALEX_PHRASES : Math.max(0, Math.min(OPENALEX_PHRASES, Math.floor((oaLeft.leftUsd - OPENALEX_RESERVE_USD) / 0.001))));
   if (oaLeft.out || oaList.length < Math.min(OPENALEX_PHRASES, unknown.length)) stats.openalexBudget = true;
-  if (oaList.length) update(`Searching ${oaList.length} passages in OpenAlex full texts (publishers)`);
+  if (oaList.length) update(`Searching ${oaList.length} passages in publisher full texts`);
   let oaSpent = false; // OpenAlex's daily budget used up (HTTP 429): the remaining searches would all fail
   await pool(oaList, 8, async w => {
     const left = require('../http').openalexBudget();
@@ -734,7 +734,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   // Wikipedia (Turnitin's most frequent internet source; free, exact-phrase search) for passages no literature index has.
   // An article behind several passages is read in full below, like an open-access paper
   const wikiList = spread(unknown.filter(w => !w.found), WIKI_PHRASES);
-  if (wikiList.length) update(`Searching ${wikiList.length} passages in Wikipedia`);
+  if (wikiList.length) update(`Searching ${wikiList.length} passages in internet sources`);
   await pool(wikiList, 4, async w => {
     if (late()) return;
     stats.wikiSearches++;
@@ -751,7 +751,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   // the open web (SerpApi, Brave Search or Google Programmable Search) for passages no literature index has
   if (WEB.enabled()) {
     const web = spread(unknown.filter(w => !w.found), WEB_PHRASES);
-    if (web.length) update(`Searching ${web.length} passages on the web (${WEB.provider()})`);
+    if (web.length) update(`Searching ${web.length} passages on the web`);
     await pool(web, 2, async w => {
       if (late()) return;
       stats.webSearches++;
@@ -878,7 +878,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     ...(stats.timeLimited ? [`Time limit reached: ${stats.searched} of ${stats.windows} passages were searched before the report had to be saved; the passages searched are kept, so running the report again searches further`] : []),
     ...(subsOn ? [`Earlier PJPS submissions (opt-in): ${submissions.length} sharing text with this manuscript compared in full`] : []), 'PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
     ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches${stats.openalexBudget ? '; stopped: the daily OpenAlex search budget is used up - add funds at openalex.org/pricing' : ''})`] : []), ...(stats.wikiSearches ? [`Wikipedia (${stats.wikiSearches} passage searches)`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The wider web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
-  return {
+  return hideServiceNames({
     kind: 'plagiarism',
     version: 5, // 4: bibliography compared as a section, quotations included by default; 5: matches from 5 words kept, small matches not excluded by default, flags (Turnitin's defaults)
     floor: FLOOR,
@@ -905,7 +905,54 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     checked: { references: refStats, passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, wikiSearches: stats.wikiSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, timeLimited: stats.timeLimited, passagesSearched: stats.searched, databases },
     coverage: `${extUsed ? 'The text (without the reference list) with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), Wikipedia (${WIKI_PHRASES} passage searches at most), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
     method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are compared (the editor can exclude either), and matches of ${FLOOR} words or more are counted (the editor can exclude small matches). Each entry of the reference list is matched whole to every source listing the same work (title and first author, whatever the citation style), or else to the cited work's own record (Crossref, Open Library, Google Books)${refStats.entries ? ` - ${refStats.inSources + refStats.citedWork} of ${refStats.entries} entries matched` : ''}. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
-  };
+  });
+}
+
+// ------------------------------------------------------------------ the services behind the report are not named
+
+/** "Found via" of a source, as the editor sees it: the kind of source, never the search service or database behind it */
+function viaLabel(v) {
+  const s = String(v || '');
+  if (!s) return s;
+  if (/PJPS repository/i.test(s)) return 'PJPS text repository';
+  if (/Earlier PJPS submissions|Full-text similarity service/i.test(s)) return s;
+  if (/the cited work/i.test(s)) return 'Bibliographic record of the cited work';
+  if (/same subject/i.test(s)) return 'Open-access literature (same subject)';
+  if (/^(?:Web\b|Wikipedia)/i.test(s)) return 'Internet';
+  if (/OpenAlex|publisher/i.test(s)) return 'Publisher full texts';
+  return 'Published literature';
+}
+const SERVICE_TEXT = [
+  [/Europe PMC \(open-access full texts and all PubMed abstracts\)/g, 'Open-access literature and biomedical abstracts'],
+  [/Open-access literature and all PubMed abstracts \(Europe PMC\)/g, 'Open-access literature and biomedical abstracts'],
+  [/;? ?stopped: the daily OpenAlex search budget is used up - add funds at openalex\.org\/pricing/g, '; stopped: the daily search allowance was used up'],
+  [/OpenAlex index of publisher full texts/g, 'Publisher full texts'],
+  [/publisher full texts indexed by OpenAlex/g, 'publisher full texts'],
+  [/The web \((?:Brave Search|SerpApi \(Google\)|Google Programmable Search), /g, 'Web pages ('],
+  [/the open web \((?:Brave Search|SerpApi \(Google\)|Google Programmable Search)\)/g, 'the open web'],
+  [/The wider web: not searched \(no web search key: SerpApi, Brave Search or Google Programmable Search\)/g, 'The wider web: not searched'],
+  [/The web: not searched \(no web search key: SerpApi, Brave Search or Google Programmable Search\)/g, 'The wider web: not searched'],
+  [/not the open web \(add a web search key: SerpApi, Brave Search or Google Programmable Search\)/g, 'not the wider web'],
+  [/^Wikipedia \((\d+) passage searches\)$/g, 'Encyclopedia articles ($1 passage searches)'],
+  [/Wikipedia \((\d+) passage searches at most\)/g, 'encyclopedia articles ($1 passage searches at most)'],
+  [/ \(Crossref, Open Library, Google Books\)/g, ''],
+  [/\b(?:Europe PMC|OpenAlex|Crossref|Open Library|Google Books|Semantic Scholar|SerpApi|Brave Search|Google Programmable Search)\b/g, 'the literature index'],
+  [/\bPubMed\b/g, 'biomedical']
+];
+const plainText = t => SERVICE_TEXT.reduce((s, [re, by]) => s.replace(re, by), String(t || ''));
+
+/**
+ * A similarity report without the names of the search services and databases behind it (the editor sees kinds of
+ * source: internet, publications, publisher full texts, the PJPS repository). Applied to new reports and, on reading,
+ * to reports saved before. Returns the same object.
+ */
+function hideServiceNames(pl) {
+  if (!pl || pl.kind !== 'plagiarism') return pl;
+  for (const list of [pl.sources, pl.alsoMatched]) for (const s of list || []) if (s && s.via) s.via = viaLabel(s.via);
+  if (Array.isArray(pl.checked?.databases)) pl.checked.databases = pl.checked.databases.map(plainText);
+  if (pl.coverage) pl.coverage = plainText(pl.coverage);
+  if (pl.method) pl.method = plainText(pl.method);
+  return pl;
 }
 
 /**
@@ -949,4 +996,5 @@ function toCsv(pl) {
     [...(pl.sources || []), ...(pl.alsoMatched || [])].map(row));
 }
 
-module.exports = { checkPlagiarism, earlierSubmissions, externalSources, externalPlan, referenceEntries, citesWork, citedWork, applySettings, toCsv, prepare, overlap, match, rewordedSentences, PARA, finishRuns, citeSpans, searchWindows, shared };
+module.exports = {
+  hideServiceNames, checkPlagiarism, earlierSubmissions, externalSources, externalPlan, referenceEntries, citesWork, citedWork, applySettings, toCsv, prepare, overlap, match, rewordedSentences, PARA, finishRuns, citeSpans, searchWindows, shared };

@@ -344,6 +344,8 @@ async function loadCheck(userId, id) {
   if (!row) return null;
   const result = row.result ? await require('./reportStore').load(row.result) : null;
   if (result) { result.id = row.id; result.createdAt = row.created_at; result.issueId = row.issue_id; }
+  // similarity reports saved before 6 Nov 2026 named the search services behind them
+  if (result?.plagiarism || result?.kind === 'plagiarism') require('./checks/plagiarism').hideServiceNames(result.plagiarism || result);
   return { row, result };
 }
 

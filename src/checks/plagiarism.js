@@ -44,6 +44,7 @@ const OPENALEX_PHRASES = Math.max(0, parseInt(cfg.OPENALEX_PHRASES || 150, 10) |
 const K = 5;                 // words per compared sequence
 const GAP = 2;               // different words allowed inside one match
 const COMMON = 25;           // a passage found in more papers than this is stock wording: credited to the first paper only
+const OPENALEX_RESERVE_USD = 0.3; // OpenAlex budget kept for the reference checks of the day (Module 1)
 const WIKI_PHRASES = Math.max(0, parseInt(cfg.WIKI_PHRASES || 120, 10) || 0); // passages no literature index has, searched in Wikipedia per report (free)
 const WIKI = 'https://en.wikipedia.org/w/api.php';
 // what is kept in the cache of a Wikipedia phrase search: the article titles found, nothing of the query
@@ -711,11 +712,16 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   windows.push(...edges);
 
   // OpenAlex full text (paid per search beyond its free daily allowance): spread over the passages Europe PMC lacked
-  const oaList = spread(unknown, OPENALEX_PHRASES);
+  // each OpenAlex full-text search is paid from a small daily budget that Module 1 also needs: the phrase searches stop
+  // while less than OPENALEX_RESERVE_USD is left
+  const oaLeft = require('../http').openalexBudget();
+  const oaList = oaLeft.out ? [] : spread(unknown, oaLeft.leftUsd === null ? OPENALEX_PHRASES : Math.max(0, Math.min(OPENALEX_PHRASES, Math.floor((oaLeft.leftUsd - OPENALEX_RESERVE_USD) / 0.001))));
+  if (oaLeft.out || oaList.length < Math.min(OPENALEX_PHRASES, unknown.length)) stats.openalexBudget = true;
   if (oaList.length) update(`Searching ${oaList.length} passages in OpenAlex full texts (publishers)`);
   let oaSpent = false; // OpenAlex's daily budget used up (HTTP 429): the remaining searches would all fail
   await pool(oaList, 8, async w => {
-    if (oaSpent || late()) return;
+    const left = require('../http').openalexBudget();
+    if (oaSpent || late() || left.out || (left.leftUsd !== null && left.leftUsd < OPENALEX_RESERVE_USD)) { if (!late()) stats.openalexBudget = true; return; }
     stats.openalexSearches++;
     const r = await getJson(`https://api.openalex.org/works?filter=fulltext.search:${encodeURIComponent(`"${w.phrase}"`)}&per-page=5&select=id,title,doi,publication_year,primary_location,open_access,ids${cfg.OPENALEX_API_KEY ? `&api_key=${cfg.OPENALEX_API_KEY}` : ''}`, { ttl: 30 * 86400, timeout: 25000, retries: 1, private: keepOpenAlex });
     if (!r.ok) { stats.searchErrors++; if (r.status === 429) { oaSpent = true; stats.openalexBudget = true; } return; }

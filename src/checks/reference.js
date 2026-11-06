@@ -283,7 +283,11 @@ async function verifyReference(ref, opts = {}) {
   // Rank by score; near-ties go to the record agreeing on year/journal (avoids late duplicate deposits)
   // a reference that names a journal is matched to the published article, not to an earlier preprint of the same paper
   const avoidPreprint = rec => !!ref.journal && !PREPRINT_VENUE.test(ref.journal) && isPreprint(rec);
-  const rank = c => c.score + (c.yearScore ?? 0.5) * 4 + (c.journalScore ?? 0.5) * 3 + (c.rec.doi ? 1 : 0) - (avoidPreprint(c.rec) ? 8 : 0);
+  // a repository copy with no journal, volume or pages (CORE, theses portals) cannot check the cited details: when the
+  // reference names its journal and volume, the journal's own records go first (PRISMA 2020 cited with a wrong BMJ volume
+  // was "Verified" against such a copy)
+  const sparse = rec => !!ref.journal && !!(ref.volume || ref.pages) && !rec.journal && !rec.volume && !rec.pages;
+  const rank = c => c.score + (c.yearScore ?? 0.5) * 4 + (c.journalScore ?? 0.5) * 3 + (c.rec.doi ? 1 : 0) - (avoidPreprint(c.rec) ? 8 : 0) - (sparse(c.rec) ? 6 : 0);
   const best = () => candidates.filter(c => !(idRecord && c.rec === idRecord && !idMatches)).sort((a, b) => rank(b) - rank(a))[0];
 
   // ---- 2. Every free scholarly database is searched for every reference, all at once: the result lists each database
@@ -313,6 +317,9 @@ async function verifyReference(ref, opts = {}) {
   // PubMed's citation matcher (journal, year, volume, first page) finds the paper when the title is misspelled: asked only
   // when the databases above could not verify the reference (PubMed allows few requests a second; it gated every check)
   if (!confident()) take('PubMed', await S.pubmedCitationMatch(ref).catch(e => ({ error: e.message })));
+  // the best record carries no journal details (a repository copy) or another journal (a work co-published in several):
+  // the cited journal's own record is looked for, so the cited volume and pages are checked against it
+  { const b = best(); if (b && ref.journal && (ref.volume || ref.pages) && (sparse(b.rec) || b.journalScore === 0)) take('Crossref', await S.crossrefInJournal(ref).catch(e => ({ error: e.message }))); }
   // ---- 2b. Google Scholar (SerpApi, paid per search): only when nothing free could verify the reference
   if (!confident() && S.scholarEnabled() && (ref.title || '').length >= 12) {
     const gs = await S.googleScholarSearch(ref).catch(e => ({ error: e.message }));
@@ -437,7 +444,9 @@ async function classify(v, retraction) {
   // the search is complete enough to call a work missing when the indexes that hold nearly every journal article answered:
   // Crossref and OpenAlex, and PubMed or Europe PMC. Smaller databases (DBLP, ERIC, CORE ...) that time out prove nothing.
   const answered = n => v.checked[n] === 'found' || v.checked[n] === 'not-found';
-  const incomplete = !(answered('Crossref') && answered('OpenAlex') && (answered('PubMed') || answered('Europe PMC'))) || errors >= 8;
+  // OpenAlex without daily budget left (it charges per request) cannot be asked: Crossref with PubMed or Europe PMC decide
+  const openalexOk = answered('OpenAlex') || require('../http').openalexBudget().out;
+  const incomplete = !(answered('Crossref') && openalexOk && (answered('PubMed') || answered('Europe PMC'))) || errors >= 8;
   const anyFound = !!record;
   let status, reason;
 

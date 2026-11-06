@@ -83,6 +83,14 @@ async function crossrefSearch(ref) {
   return { records: (r.data.message.items || []).map(fromCrossref) };
 }
 
+/** Crossref records of the title in the cited journal only (a work published in several journals, e.g. a reporting guideline) */
+async function crossrefInJournal(ref) {
+  if (!ref.title || !ref.journal) return { records: [] };
+  const r = await getJson(`https://api.crossref.org/works?query.bibliographic=${enc(q(ref.title))}&query.container-title=${enc(ref.journal)}&rows=10&${mailto}`);
+  if (!r.ok) return { error: r.error || r.status };
+  return { records: (r.data.message.items || []).map(fromCrossref) };
+}
+
 // ---------------------------------------------------------------- 2. DOI Foundation handle registry
 
 async function doiHandle(doi) {
@@ -694,6 +702,7 @@ const DATABASES = [
 const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (SerpApi)', 'Google (SerpApi)'] : DATABASES);
 
 module.exports = {
+  crossrefInJournal,
   DATABASES, databases, scholarEnabled, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,

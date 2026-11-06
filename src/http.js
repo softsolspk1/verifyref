@@ -94,6 +94,11 @@ async function probe() {
 const cooldown = new Map();
 // Time until which the OpenAlex API key is left off (its daily budget is spent), and the URL without it
 let openalexKeyOut = 0;
+// OpenAlex charges per request (USD 0.001 a search): the key has a daily budget, requests without it share USD 0.10 a day
+// per network address. What is left (from its response headers), and the time until which no budget is left at all
+let openalexLeftUsd = null, openalexOut = 0;
+/** { leftUsd (null = not known yet), out: true while no OpenAlex request can be paid } */
+const openalexBudget = () => ({ leftUsd: openalexLeftUsd, out: openalexOut > Date.now() });
 const withoutKey = url => url.replace(/([?&])api_key=[^&]*&?/, '$1').replace(/[?&]$/, '');
 
 // Two-tier cache: in-process LRU in front of the PostgreSQL cache table
@@ -191,6 +196,8 @@ async function request(url, options = {}) {
   // OpenAlex with our key once its daily budget is spent: the free shared allowance still answers, so the key is left off
   // until the budget resets (midnight UTC) instead of failing every lookup of Modules 1, 3, 4 and the similarity report
   if (host === 'api.openalex.org' && openalexKeyOut > Date.now() && /[?&]api_key=/.test(url)) return request(withoutKey(url), options);
+  // neither the key nor the free allowance has budget left: answered at once instead of a refused request per lookup
+  if (host === 'api.openalex.org' && openalexOut > Date.now()) return { ok: false, status: 429, error: 'OpenAlex daily budget spent', budget: true };
   // A host that keeps answering "too many requests" is skipped for a while instead of retried for every lookup
   const cool = cooldown.get(host);
   if (cool && cool > Date.now()) return { ok: false, status: 429, error: 'rate-limited (cooling down)' };
@@ -238,6 +245,18 @@ async function request(url, options = {}) {
       openalexKeyOut = Date.now() + Math.min(Math.max(after, 600), 86400) * 1000;
       console.warn(`OpenAlex: the API key's daily budget is spent; using the free allowance for ${Math.round(Math.min(Math.max(after, 600), 86400) / 3600)} h`);
       return request(withoutKey(url), options);
+    }
+    if (host === 'api.openalex.org') {
+      const left = parseFloat(result.headers?.['x-ratelimit-remaining-usd']);
+      if (Number.isFinite(left)) openalexLeftUsd = left;
+      // the free allowance is spent too: no OpenAlex request until it resets (the callers go on without OpenAlex)
+      if (result.status === 429 && /budget/i.test(result.text || '')) {
+        const after = parseInt(result.headers?.['retry-after'] || '0', 10);
+        openalexOut = Date.now() + Math.min(Math.max(after, 600), 86400) * 1000;
+        openalexLeftUsd = 0;
+        console.warn(`OpenAlex: no daily budget left (key and free allowance); not asked for ${Math.round(Math.min(Math.max(after, 600), 86400) / 3600)} h`);
+        return { ...result, ok: false, error: 'OpenAlex daily budget spent', budget: true };
+      }
     }
     const retryable = result.status === 429 || result.status >= 500 || result.status === 0;
     if (!retryable || attempt >= retries) break;
@@ -296,4 +315,4 @@ async function getBuffer(url, options = {}) {
 // Purge expired cache rows occasionally
 setInterval(() => { purgeCache().catch(() => {}); }, 6 * 3600 * 1000).unref();
 
-module.exports = { request, getJson, getText, getBuffer, USER_AGENT, sleep, isOnline, onConnectivity, probe, cacheGet, cacheSet, purgeCache, cacheObjectKey, CACHE_R2_MIN };
+module.exports = { openalexBudget, request, getJson, getText, getBuffer, USER_AGENT, sleep, isOnline, onConnectivity, probe, cacheGet, cacheSet, purgeCache, cacheObjectKey, CACHE_R2_MIN };

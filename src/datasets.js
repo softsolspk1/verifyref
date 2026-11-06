@@ -88,9 +88,15 @@ async function retractionsFor(dois) {
 }
 
 /** Retracted papers listing an author with this surname (candidates; exact matching is done by the caller) */
-async function retractionsByAuthor(family) {
+/**
+ * Retractions listing an author by surname; with a first name (2+ letters) the row must carry it too. Common surnames
+ * (Wang, Li, Sun ...) match thousands of rows: the first 200 by surname alone used to cut off the right person's.
+ */
+async function retractionsByAuthor(family, given = '') {
   if (!family || family.length < 3) return [];
-  return db.all("SELECT doi, retraction_date, nature, reason, title, journal, authors, institution, country FROM retractions WHERE authors ILIKE $1 AND nature ILIKE '%retraction%' LIMIT 200", [`%${family}%`]);
+  const first = String(given || '').trim().split(/[\s.]+/)[0] || '';
+  if (first.length >= 2) return db.all("SELECT doi, retraction_date, nature, reason, title, journal, authors, institution, country FROM retractions WHERE authors ILIKE $1 AND authors ILIKE $2 AND nature ILIKE '%retraction%' LIMIT 2000", [`%${family}%`, `%${first}%`]);
+  return db.all("SELECT doi, retraction_date, nature, reason, title, journal, authors, institution, country FROM retractions WHERE authors ILIKE $1 AND nature ILIKE '%retraction%' LIMIT 2000", [`%${family}%`]);
 }
 
 async function journalRetractionCounts(journalName) {

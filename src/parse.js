@@ -737,7 +737,7 @@ function extractManuscriptMeta(text) {
   const lines = head.split('\n').map(l => l.trim()).filter(Boolean);
   const meta = { title: '', authors: [], affiliations: [], abstract: '', keywords: [] };
 
-  const absIdx = lines.findIndex(l => /^(?:abstract|summary)\b[:.\s]*/i.test(l));
+  const absIdx = lines.findIndex(l => /^(?:【\s*)?(?:abstract|summary)\b[:.\s】]*/i.test(l));
   const skip = l => /^(?:original (?:research )?article|research (?:article|paper)|review article|short communication|case report|manuscript|running title|title:?)$/i.test(l) || /^page \d+/i.test(l);
   const headLines = (absIdx > 0 ? lines.slice(0, absIdx) : lines.slice(0, 12)).filter(l => !skip(l));
 
@@ -748,7 +748,10 @@ function extractManuscriptMeta(text) {
   const titleParts = [];
   while (i < headLines.length && titleParts.join(' ').length < 250) {
     const l = headLines[i].replace(/^title:\s*/i, '');
-    if (LABEL.test(l) || AFFIL_RE.test(l) || (titleParts.length && looksLikeAuthorLine(l))) break;
+    // a title can name a department ("... in the Emergency Department"): an affiliation line starts with its mark or lists
+    // places with commas
+    const affiliation = AFFIL_RE.test(l) && (/^(?:\[\s*\d|[\d¹²³⁴⁵⁶⁷⁸⁹*#⁎†])/.test(l) || (l.match(/,/g) || []).length >= 2 || titleParts.length > 0);
+    if (LABEL.test(l) || affiliation || (titleParts.length && looksLikeAuthorLine(l))) break;
     if (l.split(' ').length >= 3 || titleParts.length) titleParts.push(l);
     i++;
     if (titleParts.length && /[a-z]$/.test(l) === false && l.length < 60) break;
@@ -765,13 +768,15 @@ function extractManuscriptMeta(text) {
       continue;
     }
     if (/@/.test(l)) continue;
-    if (AFFIL_RE.test(l)) meta.affiliations.push(l.replace(/^[\d*†‡§¹²³⁴⁵⁶⁷⁸⁹,\s]+/, ''));
+    if (AFFIL_RE.test(l)) meta.affiliations.push(l.replace(/^(?:\[[\d,\s]*\]|[\d*†‡§¹²³⁴⁵⁶⁷⁸⁹⁎#,\s])+/, ''));
     else if (looksLikeAuthorLine(l)) meta.authors.push(...parseAuthorLine(l));
   }
 
+  // the same person named again (corresponding-author line)
+  meta.authors = meta.authors.filter((x, k, all) => all.findIndex(y => y.name.toLowerCase() === x.name.toLowerCase()) === k);
   if (absIdx >= 0) {
     const absText = [];
-    const first = lines[absIdx].replace(/^(?:abstract|summary)\b[:.\s]*/i, '');
+    const first = lines[absIdx].replace(/^(?:【\s*)?(?:abstract|summary)\b[:.\s】]*/i, '');
     if (first) absText.push(first);
     for (let j = absIdx + 1; j < lines.length; j++) {
       if (/^(?:key\s*words?|index terms)\b/i.test(lines[j]) || /^(?:\d+\.?\s*)?introduction\b/i.test(lines[j])) break;
@@ -785,14 +790,28 @@ function extractManuscriptMeta(text) {
   return meta;
 }
 
+// affiliation and role marks written after (or between) author names: 1, ¹, [2], [1,3], 2,*, 1#, ⁎, †, [] ...
+const AUTHOR_MARK = /(?:\[\s*[\d,\s–-]*\]|[\d⁰¹²³⁴⁵⁶⁷⁸⁹*#⁎†‡§¶✉](?:\s*,\s*(?=[\d⁰¹²³⁴⁵⁶⁷⁸⁹*#⁎†‡§¶]))?)+/g;
+// degrees and titles that follow or precede a name on a title page
+const DEGREE = /^(?:ph\.?\s?d|m\.?\s?d|m\.?\s?phil|m\.?\s?sc|b\.?\s?sc|m\.?\s?pharm|pharm\.?\s?d|mbbs|fcps|frcp|professor|prof|dr|associate professor|assistant professor|lecturer)\.?$/i;
+/** The names of a title-page author line, the marks between them read as separators: ['Lei Wang', 'Fareeha Majid', ...] */
+function authorNames(l) {
+  return String(l).replace(AUTHOR_MARK, ',').split(/\s*(?:,|;|\band\b|&)\s*/)
+    .map(n => n.trim().replace(/^(?:dr|prof|professor)\.?\s+/i, '').replace(/\s+/g, ' ')).filter(n => n && !DEGREE.test(n));
+}
+// a person's name: 2-5 capitalised words (or initials + surname); one word or all capitals is not taken ("SELUMETINIB",
+// "FOR PEER REVIEW"), nor a place, institution or heading word
+const NOT_A_NAME = /\b(?:university|college|department|institute|hospital|school|faculty|centre|center|laboratory|province|china|pakistan|india|iran|egypt|saudi|arabia|turkey|review|abstract|keywords?|introduction|systems?|article|research)\b/i;
+const isPersonName = n => /^[\p{Lu}][\p{L}.'’\-]*(?:\s+[\p{Lu}][\p{L}.'’\-]*){1,4}$/u.test(n) && !NOT_A_NAME.test(n) && (n !== n.toUpperCase() || /^(?:[\p{Lu}]\.\s*)+[\p{Lu}][\p{L}'’\-]+$/u.test(n));
+
 function looksLikeAuthorLine(l) {
   if (l.length > 400 || /[.:]\s+[a-z]/.test(l)) return false;
-  const names = l.replace(/[\d*†‡§¹²³⁴⁵⁶⁷⁸⁹]+/g, '').split(/\s*(?:,|;|\band\b|&)\s*/).filter(Boolean);
-  return names.length >= 1 && names.every(n => /^[\p{Lu}][\p{L}.'’\-]*(?:\s+[\p{Lu}][\p{L}.'’\-]*){0,4}$/u.test(n.trim()));
+  const names = authorNames(l);
+  return names.length >= 1 && names.every(isPersonName);
 }
 
 function parseAuthorLine(l) {
-  return l.replace(/[\d*†‡§¹²³⁴⁵⁶⁷⁸⁹]+/g, '').split(/\s*(?:,|;|\band\b|&)\s*/).map(s => s.trim()).filter(s => s.length > 2).map(n => ({ name: n, ...splitName(n) }));
+  return authorNames(l).filter(isPersonName).map(n => ({ name: n, ...splitName(n) }));
 }
 
 // ------------------------------------------------------------------ in-text citations

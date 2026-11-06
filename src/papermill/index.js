@@ -62,8 +62,10 @@ async function screenerMatches(text) {
   // are skipped before searching the text (searching all of them held the server for several seconds)
   const words = new Set(lower.split(WORD_SPLIT));
   for (const fp of fps) {
-    if (!(fp._words || (fp._words = fp.terms.flatMap(t => t.split(WORD_SPLIT)).filter(Boolean))).every(w => words.has(w))) continue;
-    const at = fp.terms.map(t => findWhole(lower, t));
+    // the phrases written as the text is ("dulbecco’s" with a curly apostrophe never matched the straightened text)
+    const terms = fp._terms || (fp._terms = fp.terms.map(t => String(t).toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ')));
+    if (!(fp._words || (fp._words = terms.flatMap(t => t.split(WORD_SPLIT)).filter(Boolean))).every(w => words.has(w))) continue;
+    const at = terms.map(t => findWhole(lower, t));
     if (at.some(i => i === -1)) continue;
     const phrase = fp.terms.join(' + ');
     const example = ctx(lower, at[0], fp.terms[0].length);
@@ -274,7 +276,7 @@ async function authorRetractions(authors, affiliations = []) {
   const myPk = /pakistan|\bpk\b/i.test((affiliations || []).join(' '));
   for (const a of authors.slice(0, 15)) {
     if (!a.family || a.family.length < 3) continue;
-    const rows = await D.retractionsByAuthor(a.family).catch(() => []);
+    const rows = await D.retractionsByAuthor(a.family, a.given).catch(() => []);
     for (const r of rows) {
       const names = String(r.authors || '').split(/\s*;\s*/).map(n => splitName(n.trim())).filter(n => n.family);
       if (!names.some(n => nameMatch(n, a) === 'exact' || (nameMatch(n, a) === 'likely' && n.given && a.given && n.given[0] === a.given[0]))) continue;
@@ -570,7 +572,9 @@ async function detectPaperMill(input, update = () => {}) {
   const fake = refs.filter(r => r.status === 'suspicious');
   if (fake.length) sig('references', 'fabricated', `${fake.length} reference(s) not found in any database (possibly fabricated)`, fake.length >= 3 ? 'high' : 'medium', fake.length >= 3 ? 4 : 2, fake.slice(0, 10).map(r => ({ text: `[${r.index}] ${r.raw.slice(0, 160)}`, note: r.reason })));
   const millRetracted = refs.filter(r => r.retraction && D.MILL_REASON_RE.test(r.retraction.reason || ''));
-  if (millRetracted.length) sig('references', 'mill-retraction', `${millRetracted.length} cited paper(s) retracted for paper-mill reasons`, 'high', Math.min(8, 4 * millRetracted.length), millRetracted.map(r => ({ text: `[${r.index}] ${r.record?.title || r.raw.slice(0, 140)}`, note: r.retraction.reason?.split(';').slice(0, 3).join('; ') })));
+  // one such citation alone: 8 of 150 mill papers but also 2 of 126 ordinary ones (combined benchmark, 6 Nov), so it no
+  // longer flags a manuscript by itself (no mill paper was missed by the change); two or more are a strong signal
+  if (millRetracted.length) sig('references', 'mill-retraction', `${millRetracted.length} cited paper(s) retracted for paper-mill reasons`, millRetracted.length >= 2 ? 'high' : 'medium', millRetracted.length >= 2 ? Math.min(8, 4 * millRetracted.length) : 2, millRetracted.map(r => ({ text: `[${r.index}] ${r.record?.title || r.raw.slice(0, 140)}`, note: r.retraction.reason?.split(';').slice(0, 3).join('; ') })));
   const otherRetracted = refs.filter(r => r.status === 'retracted' && !millRetracted.includes(r));
   // flagged by a published integrity audit but not retracted (Module 1 attaches the record); not benchmarked: weak weight
   const flaggedRefs = refs.filter(r => r.flagged && r.status !== 'retracted');

@@ -7,7 +7,7 @@ const auth = require('../auth');
 const P = require('../parse');
 const W = require('../docx');
 const { defineJob, createJob } = require('../jobs');
-const { prepare, normalizeMeta, saveResult, loadCheck, screeningSummary } = require('../pipeline');
+const { prepare, normalizeMeta, saveResult, loadCheck, loadShared, screeningSummary } = require('../pipeline');
 const { checkReferences } = require('../checks/reference');
 const { analyzeCitationPattern } = require('../editor/pattern');
 const { detectPaperMill, storeFingerprint, papermillProblems } = require('../papermill');
@@ -243,7 +243,7 @@ const confidentialBlocks = async (c, userId) => (c.row.kind === 'papermill' ? W.
 
 /** Confidential Word export of a Module 4 / Module 5 report */
 router.get('/checks/:id/confidential', auth.requireUser, wrap(async (req, res) => {
-  const c = await loadCheck(req.user.id, req.params.id);
+  const c = await loadShared(req.user, req.params.id);
   if (!c?.result) return res.status(404).json({ success: false, message: 'Report not found.' });
   const kind = c.row.kind;
   // CSV of the findings (Module 4 signals, Module 5 findings and matches), confidential like the Word / PDF
@@ -314,13 +314,13 @@ router.get('/shared/:token', wrap(async (req, res) => {
 
 /** Full Screening Report as Word: editor version (all modules) or author version (Modules 1-3) */
 router.get('/checks/:id/screening', auth.requireUser, wrap(async (req, res) => {
-  const c = await loadCheck(req.user.id, req.params.id);
+  const c = await loadShared(req.user, req.params.id);
   if (!c?.result?.screening) return res.status(404).json({ success: false, message: 'Full Screening Report not found.' });
   const version = req.query.version === 'author' ? 'author' : 'editor';
   if (version === 'author' && !require('../modules').permissionsOf(req.user).includes('reports')) return res.status(403).json({ success: false, message: 'Only editors can prepare the author version.' });
   // editor version: the full Module 5 report attached to the screening goes in as section 5
   if (version === 'editor' && c.result.images?.checkId) {
-    const img = await loadCheck(req.user.id, c.result.images.checkId).catch(() => null);
+    const img = await loadCheck(c.row.user_id, c.result.images.checkId).catch(() => null);
     if (img?.result) c.result.images.report = await IMG.withExportThumbs(img.result, req.user.id);
   }
   if (req.query.format === 'pdf') return sendFile(res, await require('../pdf').buildPdf(W.screeningBlocks(c.result, version)), `screening-${version}-${c.row.manuscript_code || c.row.id}.pdf`, 'application/pdf');
@@ -351,7 +351,7 @@ router.patch('/checks/:id/similarity', auth.requireUser, wrap(async (req, res) =
 
 /** The similarity report alone, as Word or PDF (confidential: it holds the manuscript text), or its sources as CSV */
 router.get('/checks/:id/similarity', auth.requireUser, wrap(async (req, res) => {
-  const c = await loadCheck(req.user.id, req.params.id);
+  const c = await loadShared(req.user, req.params.id);
   const pl = c?.result?.plagiarism;
   if (!pl || pl.error) return res.status(404).json({ success: false, message: 'Similarity report not found.' });
   const blocks = W.similarityReportBlocks({ ...c.result, id: c.row.id });

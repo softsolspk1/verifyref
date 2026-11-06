@@ -159,7 +159,8 @@ async function screening(result, { input, body, refs, meta, update, side, stage,
   let images = null;
   let imageReport = null;
   if (input.imagesCheckId && input.userId) {
-    const c = await loadCheck(input.userId, input.imagesCheckId);
+    // a re-run started by a Super Admin keeps the figures report of the user who owns the original
+    const c = await loadCheck(input.recheckOwner || input.userId, input.imagesCheckId);
     if (c?.result?.summary) { imageReport = c.result; images = { findings: c.result.summary.byLevel || {}, categories: c.result.summary.byCategory || {}, level: c.result.summary.level, checkId: c.row.id, summary: c.result.summary }; }
   }
   const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');

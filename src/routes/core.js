@@ -88,7 +88,9 @@ router.post('/checks', user, wrap(async (req, res) => {
   if (!b.text && !b.referencesText && !(b.entries || []).length) return res.status(400).json({ success: false, message: 'Provide a manuscript or a reference list.' });
   // a browser tab opened before an update still runs the old screening form, which can skip Module 5 without saying so
   if (kind === 'manuscript' && req.get('sec-fetch-site') && !b.imagesHandled) return res.status(409).json({ success: false, message: 'This page is out of date — press Ctrl+F5 to reload it, then run the Full Screening again.' });
-  const job = await createJob(req.user.id, 'check', { ...b, kind });
+  // re-runs are started by POST /checks/:id/recheck only, after the access check (recheckOwner reads another user's reports)
+  const { recheckOf, recheckOwner, ...input } = b;
+  const job = await createJob(req.user.id, 'check', { ...input, kind });
   res.json({ success: true, jobId: job.id, offline: cfg.DESKTOP && !isOnline() });
 }));
 
@@ -104,7 +106,7 @@ async function runAndSaveCheck(b, { userId, update, stage, deadline, jobId }) {
     // the image report the screening made itself belongs to this report only (not listed separately)
     if (b.imagesEmbedded && result.images?.checkId && result.id) await db.query("UPDATE checks SET embedded_in = $1 WHERE id = $2 AND user_id = $3 AND kind = $4", [result.id, result.images.checkId, userId, 'images']);
     if (shingles) await require('../papermill').storeFingerprint({ checkId: result.id, userId, meta: result.meta, shingles, text: b.bodyText || b.text }).catch(e => console.error('Fingerprint not stored:', e.message));
-    if (b.recheckOf) result.changes = await changesSince(userId, b.recheckOf, result);
+    if (b.recheckOf) result.changes = await changesSince(b.recheckOwner || userId, b.recheckOf, result);
     // Desktop: references that could not be verified offline are re-checked when the connection returns
     if (cfg.DESKTOP && result.references?.summary?.pending && result.id && (b.saveMode || 'full') === 'full') {
       await enqueue(userId, { kind: 'recheck', checkId: result.id, label: `Online verification: ${result.meta.manuscriptCode || result.meta.title || 'check #' + result.id}` });
@@ -146,12 +148,12 @@ router.post('/checks/:id/recheck', user, wrap(async (req, res) => {
     const job = await createJob(req.user.id, 'check', {
       kind: 'manuscript', bodyText, referencesText, meta: { ...c.result.meta, version: null },
       imagesCheckId: c.result.images?.checkId || null, imagesHandled: true, imagesNote: c.result.images?.checkId ? null : c.result.imagesNote || null,
-      recheckOf: c.row.id, issueId: c.row.issue_id, compareSubmissions: !!c.result.plagiarism?.submissions?.compared,
+      recheckOf: c.row.id, recheckOwner: c.row.user_id, issueId: c.row.issue_id, compareSubmissions: !!c.result.plagiarism?.submissions?.compared,
       externalCompare: !!c.result.plagiarism?.external?.requested
     });
     return res.json({ success: true, jobId: job.id, scope: 'full' });
   }
-  const job = await createJob(req.user.id, 'check', { kind: 'references', referencesText, meta: { ...c.result.meta, version: null }, recheckOf: c.row.id, issueId: c.row.issue_id });
+  const job = await createJob(req.user.id, 'check', { kind: 'references', referencesText, meta: { ...c.result.meta, version: null }, recheckOf: c.row.id, recheckOwner: c.row.user_id, issueId: c.row.issue_id });
   res.json({ success: true, jobId: job.id, scope: 'references' });
 }));
 registerQueued('check', runAndSaveCheck);
@@ -190,8 +192,9 @@ router.get('/checks', user, wrap(async (req, res) => {
   res.json({ success: true, checks: rows });
 }));
 
+// the owner, a Super Admin or a case manager of a linked case (loadShared): reading and re-running a report
 async function checkOr404(req, res) {
-  const c = await loadCheck(req.user.id, req.params.id);
+  const c = await loadShared(req.user, req.params.id);
   if (!c) { res.status(404).json({ success: false, message: 'Check not found.' }); return null; }
   if (!c.result) { res.status(410).json({ success: false, message: 'This check was saved as counts only; the full report is not stored.' }); return null; }
   return c;
@@ -251,8 +254,8 @@ router.get('/checks/:id/letter', mod('reports'), wrap(async (req, res) => {
 }));
 
 router.get('/checks/:id/compare/:otherId', mod('reports'), wrap(async (req, res) => {
-  const a = await loadCheck(req.user.id, req.params.otherId);
-  const b = await loadCheck(req.user.id, req.params.id);
+  const a = await loadShared(req.user, req.params.otherId);
+  const b = await loadShared(req.user, req.params.id);
   if (!a?.result || !b?.result) return res.status(404).json({ success: false, message: 'Both checks must exist with full reports saved.' });
   if (![a, b].every(c => ['manuscript', 'references'].includes(c.row.kind))) return res.status(400).json({ success: false, message: 'Only manuscript or reference checks can be compared.' });
   const cmp = R.compareRevisions(a.result, b.result);

@@ -1,5 +1,5 @@
 // webSearch.js - exact-phrase web search for the similarity report (Turnitin's "Internet sources"). Uses the first
-// provider configured: SerpApi (Google results; SERPAPI_KEY), Brave Search API (BRAVE_API_KEY; free tier 2,000 searches a
+// provider configured: SerpApi (Google results; SERPAPI_KEY), Brave Search API (BRAVE_API_KEY, Search plan: USD 5 per 1,000 searches, USD 5 free credit a
 // month) or Google Programmable Search (GOOGLE_CSE_KEY + GOOGLE_CSE_CX; 100 searches a day free). Only the phrase is
 // sent, never the manuscript, and it is cached only under a hash with the links found (http.js "private").
 const cfg = require('./config');

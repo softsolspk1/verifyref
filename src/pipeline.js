@@ -62,8 +62,12 @@ function normalizeMeta(meta = {}) {
 
 /**
  * kind: 'manuscript' (everything) | 'references' (Reference + Journal check) | 'citations' (Citation Check only)
+ * ctx (from the job runner): { stage(key, fn) - a stage finished by an earlier, stopped run is reused; deadline - when
+ * this run must save what it has }
  */
-async function runCheck(input, update) {
+async function runCheck(input, update, ctx = {}) {
+  const stage = ctx.stage || ((key, fn) => fn());
+  const deadline = ctx.deadline || Infinity;
   const kind = input.kind || 'manuscript';
   const opts = { citations: kind !== 'references', journals: kind !== 'citations', pattern: kind === 'manuscript', ...(input.options || {}) };
   const meta = normalizeMeta(input.meta);
@@ -78,6 +82,18 @@ async function runCheck(input, update) {
   const result = { kind, meta, createdAt: new Date().toISOString(), truncated, totalFound, datasets: await require('./datasets').datasetHealth() };
   if (textOnly) result.noReferenceList = noList ? 'No reference list was found in the document, so the bibliography, PJPS style and citation checks were not run. The other modules reviewed the text.' : 'The reference list is empty.';
 
+  // Full Screening: the similarity report, novelty and author identity need only the text, so they run while Module 1
+  // checks the references (they used to wait for it, then for each other); the progress line shows both
+  let side = null, say = update;
+  if (kind === 'manuscript') {
+    const steps = { main: '', text: '' };
+    const show = () => update([steps.main, steps.text].filter(Boolean).join(' · '));
+    say = (s, p) => { if (s) steps.main = s; update(null, p); show(); };
+    const textStep = s => { if (s) { steps.text = s; show(); } };
+    side = textModules({ input, body, refs, meta, update: textStep, stage, deadline });
+    side.catch(() => null);
+  }
+
   if (kind === 'citations') {
     update('Matching in-text citations with the reference list', 30);
     result.citations = checkCitations(body, refs);
@@ -87,32 +103,32 @@ async function runCheck(input, update) {
 
   const refWeight = opts.journals ? 65 : 90;
   const dbCount = require('./sources').databases().length;
-  update(`Checking ${refs.length} references against all ${dbCount} databases and Retraction Watch`, 5);
-  result.references = await checkReferences(refs, {
-    onProgress: (d, n) => update(`Checking references (${d}/${n}) against all ${dbCount} databases and Retraction Watch`, 5 + d / n * refWeight)
-  });
+  say(`Checking ${refs.length} references against all ${dbCount} databases and Retraction Watch`, 5);
+  result.references = await stage('references', () => checkReferences(refs, {
+    onProgress: (d, n) => say(`Checking references (${d}/${n}) against all ${dbCount} databases and Retraction Watch`, 5 + d / n * refWeight)
+  }));
 
   if (opts.citations && result.noReferenceList) {
     result.citations = { error: result.noReferenceList };
   } else if (opts.citations && body && body.trim().length > 200) {
-    update('Matching in-text citations with the reference list', 72);
+    say('Matching in-text citations with the reference list', 72);
     result.citations = checkCitations(body, refs);
   } else if (opts.citations) {
     result.citations = { error: 'Upload the full manuscript to check in-text citations (only a reference list was provided).' };
   }
 
   if (opts.journals) {
-    update('Checking cited journals (indexing, quartile, predatory lists)', 75);
-    result.journals = await checkCitedJournals(result.references.results, {
-      onProgress: (d, n) => update(`Checking cited journals (${d}/${n})`, 75 + d / n * 20)
-    });
+    say('Checking cited journals (indexing, quartile, predatory lists)', 75);
+    result.journals = await stage('journals', () => checkCitedJournals(result.references.results, {
+      onProgress: (d, n) => say(`Checking cited journals (${d}/${n})`, 75 + d / n * 20)
+    }));
   }
 
   if (opts.pattern) {
-    update('Analysing the citation pattern', 96);
+    say('Analysing the citation pattern', 96);
     result.pattern = analyzeCitationPattern(meta, result.references.results);
   }
-  update('Bibliography quality indicators', 96);
+  say('Bibliography quality indicators', 96);
   const { bibliographyIndicators } = require('./checks/indicators');
   result.indicators = await bibliographyIndicators(meta, result.references.results, result.journals);
   // RefGuard-style reference quality: paratexts, Quality / Impact / Recency / Diversity, comparison with earlier submissions
@@ -121,17 +137,17 @@ async function runCheck(input, update) {
   if (rq?.paratexts?.length) result.indicators.flags.push({ severity: 'low', code: 'paratext', message: `${rq.paratexts.length} reference(s) point to an erratum, editorial, letter, notice or abstract rather than a research paper` });
   if (result.citations?.error && kind === 'manuscript') delete result.citations.summary;
 
-  if (kind === 'manuscript') await screening(result, { input, body, refs, meta, update });
+  if (kind === 'manuscript') await screening(result, { input, body, refs, meta, update: say, side, stage });
   return result;
 }
 
 /** Full Screening Report: add Module 2 compliance and Module 4 (+5) to a manuscript check, then the front page */
-async function screening(result, { input, body, refs, meta, update }) {
+async function screening(result, { input, body, refs, meta, update, side, stage }) {
   const { checkCompliance, nlmForRefs } = require('./checks/compliance');
   update('Module 2: PJPS style compliance', 97);
   const recById = new Map(result.references.results.map(r => [r.index, r.record && r.status !== 'suspicious' ? r.record : null]));
   const records = refs.map(r => recById.get(r.index) || null);
-  result.compliance = refs.length ? checkCompliance(refs, { records, body, nlm: await nlmForRefs(refs, records) }) : null;
+  result.compliance = refs.length ? checkCompliance(refs, { records, body, nlm: await stage('nlm', () => nlmForRefs(refs, records)) }) : null;
 
   update('Module 4: paper-mill signals', 98);
   const { detectPaperMill } = require('./papermill');
@@ -142,35 +158,48 @@ async function screening(result, { input, body, refs, meta, update }) {
     if (c?.result?.summary) { imageReport = c.result; images = { findings: c.result.summary.byLevel || {}, categories: c.result.summary.byCategory || {}, level: c.result.summary.level, checkId: c.row.id, summary: c.result.summary }; }
   }
   const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');
-  const pm = await detectPaperMill({ text, body, meta, references: result.references.results, pattern: result.pattern, suggestedReviewers: input.suggestedReviewers || '', coverLetter: String(input.coverLetter || '').slice(0, 20000), images });
+  const pm = await stage('papermill', () => detectPaperMill({ text, body, meta, references: result.references.results, pattern: result.pattern, suggestedReviewers: input.suggestedReviewers || '', coverLetter: String(input.coverLetter || '').slice(0, 20000), images }));
   result._shingles = pm._shingles;
   delete pm._shingles;
   result.papermill = pm;
   if (images) result.images = imagesBlock(imageReport, images.checkId);
   else if (input.imagesNote) result.imagesNote = String(input.imagesNote).slice(0, 300);
 
-  // Plagiarism (text overlap with the literature) and novelty / citation outlook; neither may stop the report
-  update('Similarity report: comparing the text with published papers, the web and earlier PJPS submissions', 98);
-  if (body && body.trim().length > 1500) {
-    const PL = require('./checks/plagiarism');
-    // "Submitted works" (opt-in): earlier PJPS submissions sharing text, other versions of this manuscript left out
-    const submissions = input.compareSubmissions ? await PL.earlierSubmissions(body, { excludeCode: meta.manuscriptCode || null, excludeCheckIds: [input.recheckOf] }).catch(() => []) : null;
-    result.plagiarism = await PL.checkPlagiarism({ body, bibliography: refs.map(r => r.raw).join('\n'), meta, submissions, external: !!input.externalCompare }).catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
-    // an earlier PJPS submission with the same text (Module 4 fingerprints) belongs in the overlap report too
-    const dup = (pm.signals || []).find(x => x.code === 'duplicate');
-    if (dup && result.plagiarism && !result.plagiarism.error) result.plagiarism.earlierSubmissions = (dup.evidence || []).map(e => e.text);
-    // Turnitin shows an AI-writing indicator next to the similarity: Module 4's (same text, computed once, local only)
-    const aw = pm.details?.aiWriting;
-    if (aw && result.plagiarism && !result.plagiarism.error) result.plagiarism.aiWriting = { score: aw.score, parts: aw.parts || [], leftovers: (pm.details.aiLeftovers || []).length };
-  } else result.plagiarism = { kind: 'plagiarism', error: 'Upload the full manuscript text to check for plagiarism (only a reference list was provided).' };
-  update('Novelty and citation outlook (OpenAlex)', 99);
-  result.novelty = await require('./checks/novelty').checkNovelty({ meta, journal: { name: cfg.HOME_JOURNAL.name, issn: cfg.HOME_JOURNAL.issn[0] } })
-    .catch(e => ({ kind: 'novelty', error: `The novelty assessment could not be completed: ${e.message}` }));
-  update('Author identity (ORCID registry, OpenAlex)', 99);
-  result.authorIdentity = await require('./checks/authorIdentity').checkAuthorIdentity({ text, meta })
-    .catch(e => ({ kind: 'authors', error: `The author identity check could not be completed: ${e.message}` }));
+  // the similarity report, novelty and author identity (started with Module 1)
+  update('Finishing the similarity report, novelty and author identity', 98);
+  Object.assign(result, await side);
+  // an earlier PJPS submission with the same text (Module 4 fingerprints) belongs in the overlap report too
+  const dup = (pm.signals || []).find(x => x.code === 'duplicate');
+  if (dup && result.plagiarism && !result.plagiarism.error) result.plagiarism.earlierSubmissions = (dup.evidence || []).map(e => e.text);
+  // Turnitin shows an AI-writing indicator next to the similarity: Module 4's (same text, computed once, local only)
+  const aw = pm.details?.aiWriting;
+  if (aw && result.plagiarism && !result.plagiarism.error) result.plagiarism.aiWriting = { score: aw.score, parts: aw.parts || [], leftovers: (pm.details.aiLeftovers || []).length };
 
   result.screening = screeningSummary(result);
+}
+
+/**
+ * The Full Screening modules that need only the text, run side by side: the similarity report (text overlap with the
+ * literature), novelty / citation outlook and author identity. None may stop the report. -> { plagiarism, novelty, authorIdentity }
+ */
+async function textModules({ input, body, refs, meta, update, stage, deadline }) {
+  const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');
+  const similarity = stage('similarity', async () => {
+    if (!(body && body.trim().length > 1500)) return { kind: 'plagiarism', error: 'Upload the full manuscript text to check for plagiarism (only a reference list was provided).' };
+    const PL = require('./checks/plagiarism');
+    update('Similarity report: comparing the text with published papers, the web and earlier PJPS submissions');
+    // "Submitted works" (opt-in): earlier PJPS submissions sharing text, other versions of this manuscript left out
+    const submissions = input.compareSubmissions ? await PL.earlierSubmissions(body, { excludeCode: meta.manuscriptCode || null, excludeCheckIds: [input.recheckOf] }).catch(() => []) : null;
+    // the similarity search stops in time for the rest of the report to be saved within this run
+    return PL.checkPlagiarism({ body, bibliography: refs.map(r => r.raw).join('\n'), meta, submissions, external: !!input.externalCompare, deadline: deadline - 30000 }, s => update(`Similarity: ${s}`))
+      .catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
+  });
+  const novelty = stage('novelty', () => require('./checks/novelty').checkNovelty({ meta, journal: { name: cfg.HOME_JOURNAL.name, issn: cfg.HOME_JOURNAL.issn[0] } })
+    .catch(e => ({ kind: 'novelty', error: `The novelty assessment could not be completed: ${e.message}` })));
+  const authors = stage('authors', () => require('./checks/authorIdentity').checkAuthorIdentity({ text, meta })
+    .catch(e => ({ kind: 'authors', error: `The author identity check could not be completed: ${e.message}` })));
+  const [plagiarism, novelty_, authorIdentity] = await Promise.all([similarity, novelty, authors]);
+  return { plagiarism, novelty: novelty_, authorIdentity };
 }
 
 /** Front page: one line per module and the desk-review recommendation */

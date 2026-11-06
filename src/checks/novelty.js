@@ -122,6 +122,8 @@ const SEM = { floor: 0.55, same: 0.92, top: 0.8 };
 /**
  * input: { meta: { title, abstract, keywords }, journal: { name, issn } }  ->  novelty report
  */
+const EMBED_MAX = 100; // works compared by meaning (sentence embeddings)
+
 async function checkNovelty({ meta = {}, journal = {} }, update = () => {}) {
   const title = String(meta.title || '').trim();
   const abstract = String(meta.abstract || '').trim();
@@ -214,8 +216,12 @@ async function checkNovelty({ meta = {}, journal = {} }, update = () => {}) {
   // meaning compared by sentence embeddings (tools/embed.js): reworded abstracts of the same study are close even when
   // they share few words
   update('Comparing meaning with the closest works');
-  const vecs = await require('../tools/embed').embed([`${title}. ${abstract}`, ...prior.map(w => `${w.title}. ${w.abstract}`)]).catch(() => null);
-  if (vecs) prior.forEach((w, i) => { w.semantic = Math.round(require('../tools/embed').dot(vecs[0], vecs[i + 1]) * 1000) / 1000; });
+  // the language model reads the EMBED_MAX works closest in wording only (the model runs on this server's processor: all
+  // of them took about three minutes and held up the rest of the report); 1,200 characters is about what it reads anyway
+  rank(prior);
+  const near = prior.slice(0, EMBED_MAX);
+  const vecs = await require('../tools/embed').embed([`${title}. ${abstract}`, ...near.map(w => `${w.title}. ${w.abstract}`)].map(t => t.slice(0, 1200)), { batch: 8 }).catch(() => null);
+  if (vecs) near.forEach((w, i) => { w.semantic = Math.round(require('../tools/embed').dot(vecs[0], vecs[i + 1]) * 1000) / 1000; });
   rank(prior);
   const top = prior.slice(0, 10);
   const maxSim = top[0].similarity;

@@ -9,8 +9,11 @@ const db = require('./db');
 const STALE_SECONDS = 45;     // no heartbeat for this long = the run was stopped
 const HEARTBEAT_MS = 10000;
 const MAX_ATTEMPTS = 6;
+// one run's time on Vercel (its functions stop at 300 s): long stages stop searching in time to save what they found
+const RUN_BUDGET_MS = process.env.VERCEL ? 240000 : Infinity;
 
 const runners = new Map();
+const STOPPED = 'This check was stopped by the server too many times before it could finish. Run it again: the parts already looked up are reused, so the next run is faster.';
 
 /** Register a job kind: fn(input, { userId, update }) => result. Input must be JSON-serialisable. */
 function defineJob(kind, fn) {
@@ -35,7 +38,7 @@ async function runJob(id) {
   const job = await db.one(`UPDATE jobs SET attempts = attempts + 1, heartbeat = now(), status = 'running'
     WHERE id = $1 AND status IN ('queued', 'running') AND attempts < $2
       AND (heartbeat IS NULL OR heartbeat < now() - make_interval(secs => $3))
-    RETURNING id, user_id, kind, input, attempts, progress`, [id, MAX_ATTEMPTS, STALE_SECONDS]);
+    RETURNING id, user_id, kind, input, attempts, progress, partial`, [id, MAX_ATTEMPTS, STALE_SECONDS]);
   if (!job) return;
   const attempt = job.attempts;
   const mine = `id = $1 AND attempts = ${Number(attempt)}`; // a superseded run can no longer write
@@ -58,15 +61,26 @@ async function runJob(id) {
   const timer = setInterval(() => { if (dirty || Date.now() - lastWrite > HEARTBEAT_MS - 500) flush(); }, HEARTBEAT_MS);
   flush();
 
+  // stage(key, fn): a stage finished by an earlier run of this job is not run again (its result is kept in jobs.partial)
+  const partial = job.partial || {};
+  const stage = async (key, fn) => {
+    if (partial[key] !== undefined) return partial[key];
+    const out = await fn();
+    partial[key] = out ?? null;
+    await db.query(`UPDATE jobs SET partial = COALESCE(partial, '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb) WHERE ${mine}`, [id, key, JSON.stringify(out ?? null)]).catch(() => {});
+    return out;
+  };
+  const deadline = Date.now() + RUN_BUDGET_MS;
+
   try {
-    const result = await runners.get(job.kind)(job.input, { userId: job.user_id, update });
+    const result = await runners.get(job.kind)(job.input, { userId: job.user_id, update, stage, deadline, attempt });
     clearInterval(timer);
     // the input (manuscript text) is dropped as soon as the job ends: the job table never keeps an unpublished manuscript
-    await db.query(`UPDATE jobs SET status = 'done', progress = 100, step = 'Complete', result = $2, input = '{}', heartbeat = now() WHERE ${mine}`, [id, JSON.stringify(result ?? null)]);
+    await db.query(`UPDATE jobs SET status = 'done', progress = 100, step = 'Complete', result = $2, input = '{}', partial = NULL, heartbeat = now() WHERE ${mine}`, [id, JSON.stringify(result ?? null)]);
   } catch (err) {
     clearInterval(timer);
     console.error(`Job ${job.kind} failed:`, err);
-    await db.query(`UPDATE jobs SET status = 'error', error = $2, input = '{}', heartbeat = now() WHERE ${mine}`, [id, err.message || String(err)]);
+    await db.query(`UPDATE jobs SET status = 'error', error = $2, input = '{}', partial = NULL, heartbeat = now() WHERE ${mine}`, [id, err.message || String(err)]);
   }
 }
 
@@ -78,9 +92,9 @@ async function getJob(id, userId) {
   if (!j || j.user_id !== userId) return null;
   if ((j.status === 'running' || j.status === 'queued') && j.stale) {
     if (j.attempts >= MAX_ATTEMPTS) {
-      await db.query(`UPDATE jobs SET status = 'error', error = $2, input = '{}' WHERE id = $1 AND status IN ('queued', 'running')`,
-        [id, 'This check was interrupted too many times. Try again with fewer references.']);
-      return { ...j, status: 'error', error: 'This check was interrupted too many times. Try again with fewer references.' };
+      await db.query(`UPDATE jobs SET status = 'error', error = $2, input = '{}', partial = NULL WHERE id = $1 AND status IN ('queued', 'running')`,
+        [id, STOPPED]);
+      return { ...j, status: 'error', error: STOPPED };
     }
     background(runJob(id));
     j.step = 'Resuming…';

@@ -92,8 +92,8 @@ router.post('/checks', user, wrap(async (req, res) => {
   res.json({ success: true, jobId: job.id, offline: cfg.DESKTOP && !isOnline() });
 }));
 
-async function runAndSaveCheck(b, { userId, update }) {
-  const result = await runCheck({ ...b, userId }, update);
+async function runAndSaveCheck(b, { userId, update, stage, deadline }) {
+  const result = await runCheck({ ...b, userId }, update, { stage, deadline });
   const shingles = result._shingles;
   delete result._shingles;
   if (b.save !== false) {

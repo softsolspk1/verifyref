@@ -1,0 +1,183 @@
+{
+  "date": "6 November 2026",
+  "version": "3.2.10",
+  "counts": { "features": 43, "fixed": 9 },
+  "summary": [
+    { "module": "1. Check Bibliography", "result": "84 of 85 references judged correctly on three ground-truth sets (27 + 30 + 28); 45 of 45 feature checks (1.1-1.9) pass", "rating": "Very high", "tone": "ok", "limit": "Regional journals no database indexes stay \"Unverified\"; one case needs OpenAlex's volume data (section 3)" },
+    { "module": "2. Reference Style & PJPS Converter", "result": "14 of 14 style deviations found, 0 false alarms; 6 of 6 in-text rules; conversion correct from 7 of 7 source styles; Track Changes output works", "rating": "Very high", "tone": "ok", "limit": "Constructed test cases; PJPS editor sign-off on the house rules still pending" },
+    { "module": "3A. Citations vs reference list", "result": "Every planted problem found (missing, uncited, year mismatch, spelling, ambiguous, \"et al.\", numbering, order)", "rating": "Very high", "tone": "ok", "limit": "Planted cases only" },
+    { "module": "3B. Claim supported by source", "result": "Ground truth 13 of 13 (7 generated sources + 6 on a real PDF / open full text). SciFact benchmark (340 expert pairs, abstract only): 72% of supported claims found, 38% of contradictions flagged, 1% of contradicted claims passed as Full support", "rating": "Moderate", "tone": "warn", "limit": "About 1 in 4 supported claims missed and 6 in 10 contradictions not flagged when only the abstract is open" },
+    { "module": "3C. Citation patterns", "result": "6 of 6 planted patterns flagged (self-citation, stacking, author concentration, off-topic, blocks)", "rating": "Good", "tone": "ok", "limit": "Small planted test; no public benchmark exists" },
+    { "module": "4. Paper Mill Detection", "result": "Planted mill manuscript: 10 of 10 signals found (HIGH); clean control LOW. Benchmark of the whole module (150 real mill papers vs 126 ordinary, all measurable signals added up): 46/150 (30.7%) flagged MEDIUM or HIGH, 5/126 (4.0%) false alarms", "rating": "Screening aid", "tone": "warn", "limit": "About 7 in 10 real mill papers are not flagged from text and references alone; author and image signals add more but cannot be benchmarked" },
+    { "module": "5. Image Integrity", "result": "Generated copies: whole-image copies 125/125, partial copies 18/25, cloned areas 15/25, 0/30 false alarms. Real expert-annotated figures (BioFors): duplicates 87/155 (56%), 0 false reports on 17,571 unrelated pairs; cloned areas 32% found vs 11% of clean images reported", "rating": "Good on copies,\nweak on edits", "tone": "warn", "limit": "Cloned areas and splicing are hard; figures never leave PJPS, so the 155-160 million figure databases of commercial services are not searched" },
+    { "module": "Similarity Report", "result": "Planted copied text found (word-for-word, reworded, quoted) with the right primary source; paraphrase benchmark: 73% of SpinnerChief and 42% of SpinBot rewritten words matched, 0 of 24,600 invented words matched; Wikipedia now searched", "rating": "Good", "tone": "ok", "limit": "Open web searched only with a web-search key (Brave Search key being set up); paywalled full texts only through OpenAlex passage search" },
+    { "module": "Full Screening Report", "result": "Demonstration manuscript with planted problems in every module: all reported, recommendation \"Investigate\"; editor and author versions correct; 163 s (audit server, cold)", "rating": "Works", "tone": "ok", "limit": "Depends on the modules above" }
+  ],
+  "fixes": [
+    { "gap": "Full Screening stopped by Vercel before it finished", "before": "Reports of 5-7 November never appeared: the server stops a task after 300 s, each restart began again from the first step (one report: 33 minutes, 6 restarts, then an error)", "after": "Modules run side by side, finished steps are kept and reused on a restart, long searches stop in time to save the report: a 42-reference manuscript now takes about 3 minutes" },
+    { "gap": "Novelty check held the server", "before": "The language model read about 460 abstracts: 3 minutes, the server frozen 5-8 s at a time", "after": "The 100 closest works only: 59 s; novelty accuracy test unchanged (near-duplicate found at 94%, new study 94/100)" },
+    { "gap": "Module 5 ran before everything else", "before": "The figures were analysed first; the screening started only afterwards", "after": "The figures are analysed in the browser while the server screens the text; the image report joins the screening before the paper-mill step" },
+    { "gap": "OpenAlex budget spent: Module 1 stopped verifying", "before": "OpenAlex now charges per search (key USD 1 a day; without key USD 0.10 a day per address). Once spent, references were left \"Verification could not be completed\" (4 of 45 Module 1 feature checks failed)", "after": "Crossref with PubMed / Europe PMC decide when OpenAlex has no budget; the similarity search keeps USD 0.30 of the budget for reference checks: 45 of 45 again" },
+    { "gap": "Authors not read from the title page", "before": "11 of the last 20 real screenings had no authors: names with marks (Lei Wang¹, Fareeha Majid[2], Jin Zhe1#) were rejected, so author identity, self-citation and the Module 4 author signals did not run", "after": "Authors found in 16 of 20 (all 16 that name their authors; the other 4 are blinded), with no false names such as \"FOR PEER REVIEW\", \"PhD\" or \"China\"" },
+    { "gap": "Earlier retractions of authors with common surnames missed", "before": "The Retraction Watch search by surname stopped at 200 rows, so for Sun, Wang, Li or Zhang the right person's retraction was cut off; the planted author with a paper-mill retraction was never found", "after": "Searched by surname and first name (up to 2,000 rows): the planted author is found; Module 4 planted signals 10 of 10 (was 9 of 10)" },
+    { "gap": "7 tortured-phrase fingerprints could never match", "before": "Fingerprints written with a curly apostrophe (\"Dulbecco’s changed Eagle’s medium\") were compared with text whose apostrophes had been straightened", "after": "Fingerprints written the same way as the text: all 14,729 found in a text containing them (was 14,722)" },
+    { "gap": "A single cited mill-retracted paper flagged a manuscript MEDIUM by itself", "before": "It occurs in 8 of 150 mill papers but also 2 of 126 ordinary ones", "after": "Weight 2 for one such citation, strong signal from two: false alarms 6 to 5 of 126, no mill paper missed (combined benchmark, both halves)" },
+    { "gap": "A repository copy without journal details could pass a miscited reference", "before": "PRISMA 2020 cited with a wrong BMJ volume was \"Verified\" against a CORE copy that has no journal, volume or pages", "after": "Records of the cited journal go first and the journal's own record is looked up: matched to BMJ (10.1136/bmj.n71), year difference reported, DOI supplied" }
+  ],
+  "speed": {
+    "intro": "Measured on a real 6,992-word manuscript with 42 references (report #94), on the office PC (the web portal on Vercel is closer to the databases and is usually faster). \"Cold\" means nothing was in the cache, as for a new manuscript.",
+    "rows": [
+      ["Whole Full Screening", "515 s (cache warm)", "about 190-216 s (cold)", "Similarity, novelty and author identity run alongside Module 1; Module 5 alongside the text; checkpoints"],
+      ["Module 1, 42 references", "82 s", "60 s", "PubMed's citation matcher only when needed; 6 references at a time; NCBI key used on every call when set"],
+      ["Module 4 paper mill", "52 s", "10 s", "Journal-list lookups in parallel (23 s to 4 s); lists loaded while Module 1 runs; phrase scan pre-filtered"],
+      ["Novelty", "189 s", "59 s", "Language model on the 100 closest works"],
+      ["Similarity Report", "216 s", "143 s", "Neighbouring passages searched together first (Europe PMC searches 761 to 512); repository texts read in parallel"],
+      ["Module 5 figures", "before the screening", "alongside it", "The browser analyses the figures while the server screens the text"]
+    ],
+    "note": "Cloudflare R2: reports, uploads, datasets and the HTTP cache were already on R2; on 6 November the language model used by the novelty and similarity checks was added, so a new Vercel server copies it from R2 instead of downloading it from Hugging Face on every cold start. Report results are at most about 0.6 MB, well within Vercel's 4.5 MB response limit."
+  },
+  "method": [
+    ["Ground-truth audits (live databases)", "test/audit-m1.js, audit-m1-hard.js, audit-m1-real.js, audit-m1b.js, audit-m1-features.js, audit-m23.js, audit-m3b.js, audit-m3c.js, audit-m4.js and audit-full.js: the web edition with its real databases on cases whose correct answer is known in advance."],
+    ["Module 3B benchmark", "SciFact (Wadden et al., EMNLP 2020), dev split: 340 claim-abstract pairs labelled by experts; never used for tuning."],
+    ["Module 4 benchmarks", "150 papers retracted for paper-mill reasons (Retraction Watch) and 126 ordinary papers of the same journals and years (Europe PMC): text signals, reference signals, look-alike signal, and on 6 November for the first time all of them added up as the live tool does (scripts/benchmark-papermill-combined.js). Changes are kept only if they hold on both halves of the set."],
+    ["Module 5 benchmarks", "60 pristine scientific images with generated copies and copy-moves (RSIID method); BioFors (Sabir et al., ICCV 2021): real figure panels with expert annotations of duplication, cloning and splicing."],
+    ["Similarity benchmarks", "test/plagiarism-accuracy.js (planted copied, reworded and quoted passages from a real open-access paper); scripts/benchmark-similarity.js (Machine-Paraphrase Corpus: SpinBot and SpinnerChief rewrites of arXiv paragraphs; false matches on real same-subject papers)."],
+    ["Speed", "A real submission (report #94) timed step by step, cold (PJPS_HTTP_NOCACHE=1) and warm."],
+    ["Real submissions", "Author detection checked on the title pages of the last 20 Full Screenings."],
+    ["Automated test suite", "npm test (35 test programs) after every fix."]
+  ],
+  "conditions": "The paid OpenAlex daily budget (and the free allowance of this office's network address) was used up during the speed tests, so the audits of 6 November ran without OpenAlex. This exposed the gap fixed in section 1.1 and is a fair test of a busy day; on 4 November OpenAlex was available. One Module 1 case (PRISMA 2020 cited with a wrong BMJ volume) needs OpenAlex's volume data and is counted as missed.",
+  "m1": {
+    "intro": "Every reference is searched in 13 scholarly databases (Crossref, DOI registry, DataCite, OpenAlex, PubMed, Europe PMC, Semantic Scholar, arXiv, DBLP, Open Library, Google Books, ERIC, CORE) and Retraction Watch.",
+    "tables": [{
+      "title": "Ground-truth sets",
+      "headers": ["Test set", "Cases", "Correct", "Accuracy"],
+      "rows": [["Original audit set: genuine, miscited, fabricated, wrong DOI, inserted words, retracted, regional, duplicate", "27", "26", ["96%", "ok"]], ["Held-out set: genuine, typo, book, report, wrong details, wrong DOI, invented, retracted", "30", "30", ["100%", "ok"]], ["Real-world forms: ALL-CAPS titles, Greek symbols, dx.doi.org links, short page ranges, print year +1", "28", "28", ["100%", "ok"]], ["Total", "85", "84", ["98.8%", "ok"]]],
+      "widths": [58, 12, 12, 18],
+      "note": "The one miss: PRISMA 2020 cited as BMJ 2020, 370: n71 (the real record is BMJ 2021, 372: n71). Without OpenAlex no database gives the volume of the BMJ record, so the wrong volume cannot be seen; it is reported Verified with the year difference noted and the correct DOI supplied. With OpenAlex available (4 November) it was Miscited."
+    }],
+    "features": [
+      ["1.1", "Input: manuscript upload (list found automatically), pasted list, .bib / .ris, list editing (split / merge), garbled PDF text", "audit-m1-features 1.1 (7 checks), audit-m1b (.docx .txt .rtf; broken .odt / .doc / .pdf refused with a message)", "7 of 7; .bib / .ris read; garbled lines, hyphenation and ligatures repaired", "ok"],
+      ["1.2", "Verification in 13 databases + Retraction Watch; matched on title, authors, year, journal, volume, pages, DOI", "Three ground-truth sets (85 references)", "84 of 85 correct (98.8%); with OpenAlex out of budget Crossref + PubMed / Europe PMC decide", "fixed"],
+      ["1.3", "Verdict, 0-100 confidence, differing fields, corrected PJPS reference, link", "audit-m1-features 1.2-1.3 (9 checks)", "9 of 9", "ok"],
+      ["1.4", "Fabrication checks: DOI not resolving / another paper, DOI with junk repaired, false PMID / arXiv, journal mismatch, inserted words, regional journals \"Not indexed\"", "audit-m1-features 1.4 (6 checks); ground-truth sets", "6 of 6; 8 of 8 invented references Suspicious; regional journals never Suspicious", "ok"],
+      ["1.5", "Retractions, expressions of concern, reason and date; editor alerted when a cited work is retracted later", "audit-m1-features 1.5; audit-m1b alerts run", "2 of 2; monitoring job runs", "ok"],
+      ["1.6", "Link check (working / broken / redirected), kept apart from the verdict", "audit-m1-features 1.6", "3 of 3", "ok"],
+      ["1.7", "Reference age: chart, last 5 / 10 years, older than 10, few-recent warning", "audit-m1-features 1.7", "4 of 4", "ok"],
+      ["1.8", "Self-citation, PJPS self-citation, predatory / hijacked journals, duplicates", "audit-m1-features 1.8; audit-m1b", "4 of 4; predatory journal and 50% self-citation of the planted list found", "ok"],
+      ["1.9", "Summary, filter, Word, PDF, CSV, BibTeX, RIS, corrected list (PJPS / APA / Vancouver), re-check showing only changes", "audit-m1-features 1.9; audit-m1 exports", "10 of 10; every export downloads", "ok"]
+    ],
+    "limits": [
+      "True error rate below about 3.5% (95% confidence) on 85 cases; 200+ references from real PJPS submissions would show whether it is below 1-2%.",
+      "Regional Pakistani journals that no database indexes are reported \"Unverified / Not indexed\", not confirmed.",
+      "OpenAlex charges per search. When its daily budget is spent the check still works, but details only OpenAlex holds (e.g. the volume of some BMJ records) cannot be compared. Funding the OpenAlex key (openalex.org/pricing) avoids this.",
+      "PubMed allows 3 requests a second without an NCBI key (10 with one); with many references the check waits for PubMed."
+    ]
+  },
+  "m2": {
+    "intro": "Checks every reference against the PJPS house style rule by rule, and converts any source style to PJPS, in-text citations included.",
+    "features": [
+      ["2.1", "Style compliance rule by rule: authors, et al., year, title, journal abbreviation, volume(issue): pages, DOI, missing fields, order, a/b suffixes, score; in-text format", "audit-m23 (14 references with known deviations; 6 in-text rules); test/pjps-style.js; test/style-errors.js", "14 of 14, 0 false alarms, 0 missed; 6 of 6 in-text rules; order and suffix rules found; 3 official PJPS examples pass", "ok"],
+      ["2.2", "Converter: APA, Vancouver, Harvard, IEEE, AMA, Chicago, Nature to PJPS; in-text numbered to author-year; list re-sorted; missing details from the matched record", "audit-m23 M2.2", "7 of 7 source styles (the Nature example carries no issue number, so none can be written); 4 of 4 citations converted in Word", "ok"],
+      ["2.3", "Review and output: before / after, Track Changes in Word, converted .docx, report of changes", "audit-m23 docx check", "Track Changes: 19 insertions, 7 deletions, layout unchanged; plain output also correct", "ok"]
+    ],
+    "limits": ["Tested on constructed cases, not yet on 100 accepted PJPS manuscripts.", "The PJPS editor has not yet signed off every house-style rule in writing."]
+  },
+  "m3": {
+    "intro": "Checks that in-text citations and the reference list match (3A), that each cited source supports its claim (3B) and citation patterns (3C).",
+    "tables": [{
+      "title": "3B on the SciFact benchmark (340 expert-labelled claim-abstract pairs, abstract only)",
+      "headers": ["Expert label", "Full support", "Partial", "Contradicts", "Not supported"],
+      "rows": [["Supported (138)", "30", "69", "9", "30"], ["Contradicted (71)", "1", "16", "27", "27"], ["Not enough information (131)", "1", "19", "10", "101"]],
+      "widths": [28, 18, 18, 18, 18],
+      "note": "Supported claims found (Full or Partial): 72%; contradictions flagged: 38%; contradicted claims passed as Full support: 1%; no-evidence claims passed as Full: 1%. A \"Full support\" verdict can be trusted; a missing one does not mean the claim is wrong."
+    }],
+    "features": [
+      ["3A", "Citations vs list: missing, uncited, year mismatch, spelling, ambiguous (2020a/b), wrong et al., numbering gaps / order, tables and footnotes", "audit-m23 M3.A (author-year and numbered manuscripts); test/citation-forms.js (17 hard forms)", "Every planted problem found: 3 of 3 missing, 1 of 1 uncited, year, spelling, ambiguous, et al., numbered dead / uncited / order; 17 of 17 hard forms", "ok"],
+      ["3B", "Claim vs source: uploaded PDF (with page), open full text or abstract; Full / Partial / Unsupported / Could not verify; retracted evidence flagged; runs locally", "audit-m3b (7 claims, generated sources); audit-m3c (6 claims, real PDF arXiv 1706.03762 and open full text); SciFact", "13 of 13 ground truth; SciFact as in the table above", "limit"],
+      ["3C", "Patterns: self-citation, stacking (journal / author group), off-topic self-citation, citation blocks", "audit-m3b pattern test", "6 of 6 planted patterns flagged, 2 blocks found", "ok"],
+      ["3D", "Output: combined report, Word / PDF / CSV, author letter in English and Urdu", "audit-m3b exports", "Every export downloads; English and Urdu letters produced", "ok"]
+    ],
+    "limits": ["With only the abstract open, about 1 in 4 supported claims is not found and 6 in 10 contradictions are not flagged. A larger language model (DeBERTa-v3) was tried on 5 November and did no better on held-out claims."]
+  },
+  "m4": {
+    "intro": "Gives a LOW / MEDIUM / HIGH risk with the evidence for every signal. A screening aid: it tells the editor where to look closer and never rejects a paper by itself.",
+    "tables": [{
+      "title": "Benchmark: 150 real paper-mill papers against 126 ordinary papers",
+      "headers": ["Scoring", "Mill papers MEDIUM+", "Ordinary papers MEDIUM+", "Mill HIGH", "Ordinary HIGH"],
+      "rows": [["Text signals only", "24/150 (16.0%)", "2/126 (1.6%)", "3/150", "0/126"], ["Text + look-alike of known mill papers", "38/150 (25.3%)", "3/126 (2.4%)", "-", "-"], ["Whole module as used (text + look-alike + reference signals), 6 Nov", "46/150 (30.7%)", "5/126 (4.0%)", "11/150 (7.3%)", "0/126"]],
+      "widths": [40, 16, 18, 13, 13],
+      "note": "The last row is the first measurement of the module as it scores a real manuscript. Signals that fired (mill / ordinary papers): look-alike 50 / 11, journals with many mill retractions 16 / 3, predatory journals 15 / 8, cited mill-retracted papers 8 / 2. If 2% of submissions come from mills, about 1 in 4 MEDIUM+ flags would be a mill paper: a flag means \"look closer\"."
+    }],
+    "features": [
+      ["4.1", "Text signals: tortured phrases (Problematic Paper Screener + PJPS list), template wording, AI-text leftovers, vague methods, hidden text", "audit-m4 planted manuscript; 40 random screener fingerprints; benchmark", "All planted text signals found; tortured phrases 38 of 40 with 0 false alarms (the 2 misses need a second context phrase by design); all 14,729 fingerprints found in a text containing them (7 fixed)", "fixed"],
+      ["4.2", "Reference signals: fabricated references, cited mill retractions, mill / predatory / hijacked journals, stacking", "audit-m4; reference benchmark", "Planted fabricated reference found; journals with many mill retractions 16/150 vs 3/126; single cited mill retraction re-weighted (false alarms 6 to 5)", "fixed"],
+      ["4.3", "Author and submission signals: earlier retractions (name + ORCID), free-mail, ORCID, affiliations, authorship changes, suggested reviewers", "audit-m4 (planted)", "Author with a paper-mill retraction found (first time; surname search fixed); free-mail, missing ORCID, authorship change between versions and suggested-reviewer links found", "fixed"],
+      ["4.4", "Biology / data: misidentified cell lines (Cellosaurus / ICLAC), primers (Seek & Blastn), images from Module 5", "audit-m4 planted cell lines; test/pharma-integrity.js", "Planted misidentified cell lines found; image findings feed the risk", "ok"],
+      ["4.5", "Duplicate submissions: text fingerprints, recycled title / abstract, figures via Module 5", "audit-m4", "Exact resubmission and resubmission with small edits both found", "ok"],
+      ["4.6", "Output: risk badge, weights and evidence, editor notes, decision record, confidential Word / PDF, never shown to reviewers", "audit-m4 access test", "Reviewer accounts blocked from running it and from the confidential export (403 / 404)", "ok"]
+    ],
+    "limits": ["About 7 in 10 real mill papers are not flagged from text and references. Author, ORCID, image and submission-history signals help on real submissions but cannot be measured on public papers.", "The look-alike signal finds new papers from mills already caught, not a brand-new mill.", "PubPeer comments and STM Integrity Hub (cross-publisher duplicates) need a key or membership."]
+  },
+  "m5": {
+    "intro": "Finds figures that are duplicated, reused or edited, inside PJPS: figures never leave the system (PJPS decision).",
+    "tables": [{
+      "title": "Benchmarks",
+      "headers": ["Benchmark", "Task", "Result"],
+      "rows": [["Generated copies (60 scientific images)","Whole copies rotated, mirrored, resized, recompressed",["125/125 found","ok"]],["Generated copies","Copy with contrast / brightness change",["22/25","ok"]],["Generated copies","Partial copy (55% crop)",["18/25","warn"]],["Generated copies","Cloned area inside one image",["15/25","warn"]],["Generated copies","Clean image pairs falsely reported",["0/30","ok"]],["BioFors (real, expert-annotated)","Duplicated panels within a paper (155 annotated pairs, 60 papers)",["87 found (56%); 49 as Strong (32%)","warn"]],["BioFors (real, expert-annotated)","Reports not in the annotation (same papers)",["167 (64 Strong), about 1 Strong per paper; some are real duplicates the annotators missed","warn"]],["BioFors (real, expert-annotated)","Unrelated figures (17,571 pairs of blots and microscopy)",["0 false reports","ok"]],["BioFors (real, expert-annotated)","Cloned area inside one image (78 vs 231 clean)",["32% found vs 11% of clean images reported","bad"]],["BioFors (real, expert-annotated)","Splicing in blots (121 vs 140 clean)",["12% vs 10%: no separation (indicator only)","bad"]]],
+      "widths": [22, 48, 30]
+    }],
+    "features": [
+      ["5.1", "Image extraction from .docx / .pdf / figure files; panels split, panel labels read, figure type guessed", "test/images-engine.mjs; test/images-report-e2e.mjs; image-refs test (PDF extraction, strip stitching)", "Pass", "ok"],
+      ["5.2", "Duplication inside the manuscript: rotated, mirrored, resized, cropped, partial", "RSIID generated copies; BioFors real duplicates", "Whole copies 125/125; contrast change 22/25; partial (55% crop) 18/25; real duplicates (BioFors) 87/155 (56%), 0 false reports on 17,571 unrelated pairs", "limit"],
+      ["5.3", "Cloned (copy-move) areas inside one image", "RSIID copy-move; BioFors cloned areas", "Generated copy-moves 15/25 with 0/30 false alarms on clean images; BioFors: 32% found vs 11% of clean images reported", "weak"],
+      ["5.4", "Forensic viewer: contrast, error level, noise, edges, overlay slider", "test/forensics.mjs", "Pass (no automatic splicing verdict, by design)", "ok"],
+      ["5.5", "Western blot and gel checks: lanes compared, repeated / flipped bands", "test/images-engine.mjs blot cases", "Pass on planted blots; splicing an indicator only", "limit"],
+      ["5.6", "Reuse of earlier figures: PJPS fingerprint store, authors' open-access figures (Europe PMC)", "test/image-similarity.mjs; test/screening-embedded-images.js", "Earlier PJPS figures and reference figures matched in tests", "ok"],
+      ["5.7", "Vendor connection (ImageTwin / Proofig)", "-", "Removed by PJPS policy: figures stay in-house", "na"],
+      ["5.8", "Output: risk badge, image pairs side by side, editor marks findings, query letter, confidential export, feeds Module 4", "test/images-report-e2e.mjs; test/image-confidence.mjs", "Pass; image findings raise the Module 4 risk", "ok"],
+      ["5.9", "Runs alongside the Full Screening (new) and offline on the desktop", "test/screening-embedded-images.js (new parallel case); test/desktop-sync.js", "The screening waits for the browser's figure report and embeds it; offline image check runs", "fixed"]
+    ],
+    "limits": ["Exact and lightly altered whole-image copies are found reliably with no false alarms between unrelated figures; partial overlaps, cloned areas and spliced blots are weak.", "AI-generated images are judged on file markers and statistics only."]
+  },
+  "sim": {
+    "intro": "Compares the manuscript with published papers, open-access full texts, the web and (on request) earlier PJPS submissions, in Turnitin's layout and filters.",
+    "tables": [{
+      "title": "Measured accuracy",
+      "headers": ["Test", "Result"],
+      "rows": [["Planted manuscript: three paragraphs copied word for word, one reworded, one quoted sentence, from a real open-access paper (test/plagiarism-accuracy.js)", ["Pass: the right primary source, the reworded paragraph marked paraphrased, the quote filtered", "ok"]], ["SpinnerChief rewrites (100 paragraphs)", ["73.4% of rewritten words matched; 84 of 100 paragraphs at least half found", "ok"]], ["SpinBot rewrites (100 paragraphs, heavy rewording)", ["41.7% of rewritten words matched; 28 of 100 at least half found", "warn"]], ["Invented paragraphs (24,600 words)", ["0 words matched", "ok"]], ["Real papers on the same subject, not copied (28 pairs, 154,500 words)", ["0.21% of words added by the paraphrase pass", "ok"]], ["Paragraph copied from Wikipedia (6 Nov)", ["Found and credited to the Wikipedia article", "ok"]]],
+      "widths": [55, 45]
+    }],
+    "features": [
+      ["S1", "Internet sources", "Wikipedia test; configuration", "Wikipedia searched from 6 Nov; the open web needs a web-search key (Brave Search key being set up by PJPS)", "ext"],
+      ["S2", "Earlier PJPS submissions (opt-in)", "test/similarity-engine.js", "Found by fingerprint; same manuscript and re-run left out", "ok"],
+      ["S3", "Filters: quotes, bibliography, small matches, sections; flags; Word / PDF in Turnitin's layout", "test/similarity-turnitin.js", "Pass", "ok"],
+      ["S4", "Paraphrase detection (local language model)", "Machine-Paraphrase Corpus", "See the table above", "limit"],
+      ["S5", "Speed and time limit", "Report #94 cold", "143 s cold (was 216 s); stops in time on Vercel and says how many passages were searched", "fixed"],
+      ["S6", "External full-text comparison (on request or from 15%)", "test/external-similarity.js", "Pass; the service is never named in the report", "ok"]
+    ],
+    "limits": ["Turnitin's own archive of student papers is not available.", "Paywalled sources are found only through OpenAlex passage search (paid per search) and the external comparison.", "Translated plagiarism (Urdu / Chinese source) is not detected."]
+  },
+  "full": {
+    "intro": "Runs all five modules on one submission and gives the desk-review recommendation, with an editor version and an author version (Modules 1-3).",
+    "features": [
+      ["F1", "All modules on one manuscript with a recommendation", "audit-full (demonstration manuscript, planted problems in every module)", "All planted problems reported; \"Investigate before any further processing\"; 163 s", "ok"],
+      ["F2", "Editor version (confidential) and author version", "audit-full exports", "Editor version mentions Modules 4 and 5 and is marked confidential; author version does not", "ok"],
+      ["F3", "Runs within Vercel's time limit; resumes after a restart without starting over", "Report #94 timed; test/screening-embedded-images.js", "About 3 minutes; finished steps reused", "fixed"],
+      ["F4", "Versions by manuscript code, re-check in full", "audit-full history", "Versions listed by code", "ok"],
+      ["F5", "Roles: Reviewer gets Modules 1-3 only", "audit-m4 access test; audit-full admin", "Reviewer blocked from Modules 4, 5 and confidential exports", "ok"],
+      ["F6", "Super Admin: users, datasets, audit log, age rule, tortured-phrase list", "audit-full admin", "All respond; duplicate e-mail refused", "ok"]
+    ]
+  },
+  "next": [
+    ["1", "Fund the OpenAlex key (openalex.org/pricing): a Full Screening uses about 250 OpenAlex searches, so USD 1 a day covers only about 4 screenings (PJPS)", "1, 3, 4, Similarity", "Module 1 keeps every database; similarity searches publisher full texts on every report"],
+    ["2", "Set BRAVE_API_KEY in Vercel (PJPS, in progress)", "Similarity", "Internet sources searched on the open web, as Turnitin's \"Internet\" category"],
+    ["3", "Free NCBI API key (ncbi.nlm.nih.gov/account) as NCBI_API_KEY (PJPS)", "1", "PubMed answers 4 times as many requests at once: faster Module 1"],
+    ["4", "Free Semantic Scholar API key (PJPS)", "1, Similarity", "Semantic Scholar answers reliably; its passage search could be added to the similarity report"],
+    ["5", "200+ labelled references and 100 accepted manuscripts from real PJPS submissions", "1, 2", "Error rates below 1-2% shown, house style confirmed"],
+    ["6", "PJPS's own case decisions to tune Module 4 weights; PubPeer key", "4", "Detection above 30% at the same false-alarm rate"],
+    ["7", "A 100-claim gold set from PJPS manuscripts checked by an editor", "3B", "Claim support measured on PJPS's own field"],
+    ["8", "Better candidate stage for partial copies; dense copy-move detection", "5", "Partial duplicates and cloned areas found more often"]
+  ],
+  "suite": "npm test: 35 test programs, all passed on 6 November 2026 after every fix."
+}

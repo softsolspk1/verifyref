@@ -103,15 +103,19 @@ async function candidatesByHashes(hashes, { excludeCode = null, excludeTitle = n
   const rows = await db.all(`SELECT d.id, d.kind, d.source_key, d.title, d.meta, d.r2_key, x.shared FROM (
       SELECT doc_id, COUNT(*)::int AS shared FROM corpus_hashes WHERE h = ANY($1::bigint[]) GROUP BY doc_id HAVING COUNT(*) >= $2 ORDER BY COUNT(*) DESC LIMIT $3
     ) x JOIN corpus_docs d ON d.id = x.doc_id ORDER BY x.shared DESC`, [hashes, minShared, limit * 2]).catch(() => []);
-  const out = [];
+  const kept = [];
   for (const r of rows) {
     const meta = typeof r.meta === 'string' ? JSON.parse(r.meta || '{}') : r.meta || {};
     if (excludeCode && meta.manuscriptCode && meta.manuscriptCode === excludeCode) continue;
     if (excludeTitle && r.kind === 'submission' && r.title && require('./text').titleSimilarity(excludeTitle, r.title) >= 0.95 && meta.manuscriptCode === excludeCode) continue;
-    const t = await docText(r);
-    if (t) out.push({ id: r.id, kind: r.kind, sourceKey: r.source_key, title: r.title, meta, shared: r.shared, text: t });
-    if (out.length >= limit) break;
+    kept.push({ r, meta });
   }
+  // the texts (on R2) are read 6 at a time, not one after another; the order (most shared fingerprints first) is kept
+  const texts = new Array(kept.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(6, kept.length) }, async () => { while (next < kept.length) { const i = next++; texts[i] = await docText(kept[i].r).catch(() => null); } }));
+  const out = [];
+  kept.forEach(({ r, meta }, i) => { if (texts[i] && out.length < limit) out.push({ id: r.id, kind: r.kind, sourceKey: r.source_key, title: r.title, meta, shared: r.shared, text: texts[i] }); });
   return out;
 }
 

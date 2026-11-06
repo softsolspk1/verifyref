@@ -68,6 +68,7 @@ function normalizeMeta(meta = {}) {
 async function runCheck(input, update, ctx = {}) {
   const stage = ctx.stage || ((key, fn) => fn());
   const deadline = ctx.deadline || Infinity;
+  const jobId = ctx.jobId || null;
   const kind = input.kind || 'manuscript';
   const opts = { citations: kind !== 'references', journals: kind !== 'citations', pattern: kind === 'manuscript', ...(input.options || {}) };
   const meta = normalizeMeta(input.meta);
@@ -91,6 +92,7 @@ async function runCheck(input, update, ctx = {}) {
     say = (s, p) => { if (s) steps.main = s; update(null, p); show(); };
     const textStep = s => { if (s) { steps.text = s; show(); } };
     side = textModules({ input, body, refs, meta, update: textStep, stage, deadline });
+    require('./papermill').warm().catch(() => null);   // Module 4's lists, loaded while Module 1 runs
     side.catch(() => null);
   }
 
@@ -137,18 +139,21 @@ async function runCheck(input, update, ctx = {}) {
   if (rq?.paratexts?.length) result.indicators.flags.push({ severity: 'low', code: 'paratext', message: `${rq.paratexts.length} reference(s) point to an erratum, editorial, letter, notice or abstract rather than a research paper` });
   if (result.citations?.error && kind === 'manuscript') delete result.citations.summary;
 
-  if (kind === 'manuscript') await screening(result, { input, body, refs, meta, update: say, side, stage });
+  if (kind === 'manuscript') await screening(result, { input, body, refs, meta, update: say, side, stage, jobId });
   return result;
 }
 
 /** Full Screening Report: add Module 2 compliance and Module 4 (+5) to a manuscript check, then the front page */
-async function screening(result, { input, body, refs, meta, update, side, stage }) {
+async function screening(result, { input, body, refs, meta, update, side, stage, jobId }) {
   const { checkCompliance, nlmForRefs } = require('./checks/compliance');
   update('Module 2: PJPS style compliance', 97);
   const recById = new Map(result.references.results.map(r => [r.index, r.record && r.status !== 'suspicious' ? r.record : null]));
   const records = refs.map(r => recById.get(r.index) || null);
   result.compliance = refs.length ? checkCompliance(refs, { records, body, nlm: await stage('nlm', () => nlmForRefs(refs, records)) }) : null;
 
+  // Module 5 runs in the browser while the server screens the text (imagesPending): its report is attached to this job
+  // when saved, and is needed from here on (the paper-mill image signal)
+  if (input.imagesPending && !input.imagesCheckId && !input.imagesNote && jobId) Object.assign(input, await imagesFromBrowser(jobId, update));
   update('Module 4: paper-mill signals', 98);
   const { detectPaperMill } = require('./papermill');
   let images = null;
@@ -163,6 +168,7 @@ async function screening(result, { input, body, refs, meta, update, side, stage 
   delete pm._shingles;
   result.papermill = pm;
   if (images) result.images = imagesBlock(imageReport, images.checkId);
+  if (images && input.imagesEmbedded) result._imagesEmbedded = true;
   else if (input.imagesNote) result.imagesNote = String(input.imagesNote).slice(0, 300);
 
   // the similarity report, novelty and author identity (started with Module 1)
@@ -200,6 +206,24 @@ async function textModules({ input, body, refs, meta, update, stage, deadline })
     .catch(e => ({ kind: 'authors', error: `The author identity check could not be completed: ${e.message}` })));
   const [plagiarism, novelty_, authorIdentity] = await Promise.all([similarity, novelty, authors]);
   return { plagiarism, novelty: novelty_, authorIdentity };
+}
+
+/**
+ * The Module 5 report the browser attaches to the job ({ imagesCheckId, imagesEmbedded } or { imagesNote }). A run
+ * that Vercel stops while waiting resumes here (the stages before are kept); after IMAGES_WAIT_MS from the job's start
+ * the screening goes on without the figures.
+ */
+const IMAGES_WAIT_MS = 25 * 60000;
+async function imagesFromBrowser(jobId, update) {
+  const { jobInput } = require('./jobs');
+  const started = Number((await db.one('SELECT EXTRACT(EPOCH FROM created_at) * 1000 AS t FROM jobs WHERE id = $1', [jobId]))?.t) || Date.now();
+  for (let i = 0; ; i++) {
+    const cur = await jobInput(jobId).catch(() => null) || {};
+    if (cur.imagesCheckId || cur.imagesNote) return { imagesCheckId: cur.imagesCheckId || null, imagesEmbedded: !!cur.imagesEmbedded, imagesNote: cur.imagesNote || null };
+    if (Date.now() - started > IMAGES_WAIT_MS) return { imagesNote: 'Not checked — the figure analysis in the browser did not finish (was the page closed?). Run Module 5 on the manuscript file separately.' };
+    if (i % 5 === 0) update('Waiting for the figure analysis (Module 5) in this browser');
+    await new Promise(r => setTimeout(r, 2000));
+  }
 }
 
 /** Front page: one line per module and the desk-review recommendation */

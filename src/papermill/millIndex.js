@@ -169,4 +169,4 @@ function abstractOf(meta = {}, text = '') {
   return body.split(/\s+/).slice(0, 350).join(' ');
 }
 
-module.exports = { titleLookalikes, abstractLookalikes, abstractOf, abstractIndex, ABSTRACTS };
+module.exports = { titleLookalikes, abstractLookalikes, abstractOf, abstractIndex, titleIndex, ABSTRACTS };

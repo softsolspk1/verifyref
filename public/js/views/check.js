@@ -204,23 +204,31 @@ export function renderCheckForm(view, kind) {
           ? `Not checked — figures can be analysed only from a Word .docx or PDF file, and ${doc.filename} is a ${ext || 'different'} file. Save it as .docx or PDF and run the screening again.`
           : 'Not checked — the manuscript text was pasted, so there were no figures to analyse. Upload the Word .docx or PDF file to include Module 5.';
       }
-      if (m.screening && !body.imagesCheckId && doc.file && hasModule('images')) {
-        const prog = $('#progress', view);
+      // Module 5 analyses the figures in this browser while the server screens the text (they used to run one after the
+      // other); its saved report is attached to the running screening, which waits for it before the paper-mill step
+      const figures = m.screening && !body.imagesCheckId && doc.file && hasModule('images');
+      if (figures) body.imagesPending = true;
+      const { jobId } = await api('/api/checks', { body });
+      if (figures) {
+        const prog = document.createElement('div');
+        $('#progress', view).before(prog);
         prog.innerHTML = '<div class="progress"><h3>Module 5: analysing the figures</h3><div class="progress-bar"><span style="width:2%"></span></div><div class="muted step">Reading the figures…</div></div>';
         const bar = $('.progress-bar span', prog), step = $('.step', prog);
         const set = (st, p) => { if (st) step.textContent = st; if (p !== undefined) bar.style.width = `${Math.max(2, Math.min(99, p))}%`; };
-        try {
-          const { analyseAndSave } = await import('./images.js');
-          const img = await analyseAndSave([doc.file], { title: body.meta.title, manuscriptCode: body.meta.manuscriptCode, filename: doc.file.name }, set);
-          body.imagesCheckId = img.id;
-          body.imagesEmbedded = true;
-        } catch (e) {
-          // no figures in the file, or the analysis failed: the rest of the screening still runs, and the report says why
-          body.imagesNote = e.noFigures ? 'The manuscript file contains no figures that could be analysed.' : `The image analysis could not be completed: ${e.message}`;
-        }
-        prog.innerHTML = '';
+        (async () => {
+          let attach;
+          try {
+            const { analyseAndSave } = await import('./images.js');
+            const img = await analyseAndSave([doc.file], { title: body.meta.title, manuscriptCode: body.meta.manuscriptCode, filename: doc.file.name }, set);
+            attach = { imagesCheckId: img.id, imagesEmbedded: true };
+          } catch (e) {
+            // no figures in the file, or the analysis failed: the rest of the screening still runs, and the report says why
+            attach = { imagesNote: e.noFigures ? 'The manuscript file contains no figures that could be analysed.' : `The image analysis could not be completed: ${e.message}` };
+          }
+          prog.remove();
+          await api(`/api/jobs/${jobId}/images`, { body: attach }).catch(() => {});
+        })();
       }
-      const { jobId } = await api('/api/checks', { body });
       const result = await runJob(jobId, $('#progress', view), `Running ${m.title}`);
       renderReport($('#result', view), result, { kind });
       toast(result.queuedForOnline ? `Check complete — ${result.queuedForOnline} reference(s) will be verified automatically when you are back online` : 'Check complete');

@@ -299,8 +299,6 @@ async function verifyReference(ref, opts = {}) {
     ['OpenAlex', S.openalexSearch(ref)],
     ['Europe PMC', S.europepmcSearch(ref)],
     ['PubMed', S.pubmedSearch(ref)],
-    // PubMed's citation matcher (journal, year, volume, first page): finds the paper when the title is misspelled
-    ['PubMed', S.pubmedCitationMatch(ref)],
     ['Semantic Scholar', S.s2Search(ref)],
     ['DataCite', S.dataciteSearch(ref)],
     ['DBLP', S.dblpSearch(ref)],
@@ -312,6 +310,9 @@ async function verifyReference(ref, opts = {}) {
   ];
   const results = await Promise.all(all.map(([, p]) => p.catch(e => ({ error: e.message }))));
   all.forEach(([n], i) => take(n, results[i]));
+  // PubMed's citation matcher (journal, year, volume, first page) finds the paper when the title is misspelled: asked only
+  // when the databases above could not verify the reference (PubMed allows few requests a second; it gated every check)
+  if (!confident()) take('PubMed', await S.pubmedCitationMatch(ref).catch(e => ({ error: e.message })));
   // ---- 2b. Google Scholar (SerpApi, paid per search): only when nothing free could verify the reference
   if (!confident() && S.scholarEnabled() && (ref.title || '').length >= 12) {
     const gs = await S.googleScholarSearch(ref).catch(e => ({ error: e.message }));
@@ -549,7 +550,7 @@ async function classify(v, retraction) {
  * opts: { concurrency, onProgress(done, total), checkLinks, style }
  */
 async function checkReferences(refs, opts = {}) {
-  const { concurrency = 4, onProgress, checkLinks = true } = opts;
+  const { concurrency = 6, onProgress, checkLinks = true } = opts;
   const style = opts.style || detectStyle(refs);
   const results = new Array(refs.length);
   let next = 0, done = 0;

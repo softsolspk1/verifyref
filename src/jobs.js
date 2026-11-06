@@ -73,7 +73,7 @@ async function runJob(id) {
   const deadline = Date.now() + RUN_BUDGET_MS;
 
   try {
-    const result = await runners.get(job.kind)(job.input, { userId: job.user_id, update, stage, deadline, attempt });
+    const result = await runners.get(job.kind)(job.input, { userId: job.user_id, update, stage, deadline, attempt, jobId: id });
     clearInterval(timer);
     // the input (manuscript text) is dropped as soon as the job ends: the job table never keeps an unpublished manuscript
     await db.query(`UPDATE jobs SET status = 'done', progress = 100, step = 'Complete', result = $2, input = '{}', partial = NULL, heartbeat = now() WHERE ${mine}`, [id, JSON.stringify(result ?? null)]);
@@ -102,9 +102,20 @@ async function getJob(id, userId) {
   return j;
 }
 
+/** Add fields to the input of the owner's job while it runs (read by the job with jobInput) */
+async function attachToJob(id, userId, fields) {
+  const r = await db.query(`UPDATE jobs SET input = input || $3::jsonb WHERE id = $1 AND user_id = $2 AND status IN ('queued', 'running')`, [id, userId, JSON.stringify(fields)]);
+  return (r.rowCount ?? r.affectedRows ?? 0) > 0;
+}
+
+/** The current input of a job (fields attached after it started) */
+async function jobInput(id) {
+  return (await db.one('SELECT input FROM jobs WHERE id = $1', [id]))?.input || null;
+}
+
 /** Remove finished jobs older than a day */
 function purgeJobs() {
   return db.query("DELETE FROM jobs WHERE created_at < now() - interval '1 day'").catch(() => {});
 }
 
-module.exports = { defineJob, createJob, getJob, purgeJobs };
+module.exports = { defineJob, createJob, getJob, purgeJobs, attachToJob, jobInput };

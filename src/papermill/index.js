@@ -39,6 +39,7 @@ function torturedPhrases(text, extra = []) {
 }
 
 const isWordChar = c => !!c && /[\p{L}\p{N}]/u.test(c);
+const WORD_SPLIT = /[^\p{L}\p{N}]+/u;
 
 /** First whole-word occurrence of a lower-case phrase in lower-case text, or -1 */
 function findWhole(lower, term) {
@@ -57,7 +58,11 @@ async function screenerMatches(text) {
   const fps = await D.ppsFingerprints().catch(() => []);
   if (!fps.length) return out;
   const lower = text.toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ');
+  // a whole-word match needs every word of the phrase among the text's words: the fingerprints with a word the text lacks
+  // are skipped before searching the text (searching all of them held the server for several seconds)
+  const words = new Set(lower.split(WORD_SPLIT));
   for (const fp of fps) {
+    if (!(fp._words || (fp._words = fp.terms.flatMap(t => t.split(WORD_SPLIT)).filter(Boolean))).every(w => words.has(w))) continue;
     const at = fp.terms.map(t => findWhole(lower, t));
     if (at.some(i => i === -1)) continue;
     const phrase = fp.terms.join(' + ');
@@ -437,6 +442,20 @@ async function textSignals(text, body = text, custom = [], opts = {}) {
  * input: { text (whole manuscript), body, meta, references: reference-check results, pattern?, suggestedReviewers?,
  *          images?: Module 5 summary { findings, level } }
  */
+/** fn over items, n at a time, results in order (the list lookups are database queries: one after another took ~20 s) */
+async function inParallel(items, n, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); } }));
+  return out;
+}
+
+/** Load the lists and indexes Module 4 reads (once per server): a Full Screening starts this with Module 1, so they are ready */
+function warm() {
+  const MI = require('./millIndex');
+  return Promise.all([D.warmEmailDomains(), D.ppsFingerprints(), customPhrases(), MI.titleIndex(), MI.abstractIndex()].map(p => Promise.resolve(p).catch(() => null)));
+}
+
 async function detectPaperMill(input, update = () => {}) {
   const text = input.text || input.body || '';
   const body = input.body || text;
@@ -571,16 +590,26 @@ async function detectPaperMill(input, update = () => {}) {
   const refList = idx => idx.map(i => `[${i}]`).join(' ');
   const yearOf = new Map(refs.map(r => [r.index, parseInt(r.record?.year || r.parsed?.year, 10) || null]));
   const risky = [], clones = [], citejacked = [], dropped = [];
-  for (const j of [...journals.values()].slice(0, 80)) {
+  // every journal's list lookups at once (predatory / hijacked lists, Scopus discontinued, paper-mill retractions), and
+  // each reference link against the clone sites; the results are read in the order of the list
+  const cited = [...journals.values()].slice(0, 80);
+  const lookups = await inParallel(cited, 6, j => Promise.all([
+    D.predatoryMatches({ journal: j.name, issns: [...j.issns] }).catch(() => []),
+    D.listLookupAll([...j.issns], j.name).catch(() => ({})),
+    D.millJournalFor(j.name).catch(() => null)
+  ]));
+  const linked = refs.filter(r => r.parsed?.url || r.record?.url);
+  const homepages = await inParallel(linked, 6, r => D.predatoryMatches({ homepage: r.parsed?.url || r.record?.url }).catch(() => []));
+  for (const [n, j] of cited.entries()) {
     // Stop Predatory Journals entries are left out here: on the benchmark (150 mill vs 126 ordinary papers) references to
     // them were as common in ordinary papers (7/126) as in mill papers (5/150); Journal Check still shows them
-    const m = (await D.predatoryMatches({ journal: j.name, issns: [...j.issns] }).catch(() => [])).filter(x => x.source !== 'stoppredatoryjournals.com');
+    const m = lookups[n][0].filter(x => x.source !== 'stoppredatoryjournals.com');
     // a hijacked-list name match only says that a clone of the journal exists (most such journals are genuine and indexed)
     if (m.some(x => x.kind !== 'hijacked')) risky.push({ ...j, kind: 'predatory' });
     else if (m.some(D.isCitejacked)) citejacked.push({ ...j, papers: m.find(D.isCitejacked).papers });
     else if (m.length) clones.push({ ...j, clone: m[0].domain, genuine: m[0].genuine_url });
     // Scopus discontinued the journal (Elsevier's Discontinued Titles sheet): references from its last covered year on
-    const hit = (await D.listLookupAll([...j.issns], j.name).catch(() => ({}))).scopus_discontinued;
+    const hit = lookups[n][1].scopus_discontinued;
     if (hit && !/policy/i.test(hit.data?.['Indexation Change'] || '')) {
       const year = parseInt(hit.data?.Year, 10) || null;
       const after = year ? j.refs.filter(i => (yearOf.get(i) || 0) >= year) : j.refs;
@@ -588,10 +617,9 @@ async function detectPaperMill(input, update = () => {}) {
     }
   }
   // the reference's own link on a clone website
-  for (const r of refs) {
-    const url = r.parsed?.url || r.record?.url;
-    if (!url || risky.some(j => j.refs.includes(r.index))) continue;
-    const h = (await D.predatoryMatches({ homepage: url }).catch(() => [])).find(x => x.kind === 'hijacked');
+  for (const [n, r] of linked.entries()) {
+    if (risky.some(j => j.refs.includes(r.index))) continue;
+    const h = homepages[n].find(x => x.kind === 'hijacked');
     if (h) risky.push({ name: `${h.name} (clone site ${h.domain})`, refs: [r.index], kind: 'hijacked' });
   }
   const riskyRefs = risky.reduce((a, j) => a + j.refs.length, 0);
@@ -612,8 +640,8 @@ async function detectPaperMill(input, update = () => {}) {
   // Journals with many paper-mill retractions (Retraction Watch). Benchmark (150 mill-retracted vs 126 ordinary papers):
   // >= 3 references and >= 15% of the list: 16/150 vs 3/126; >= 5 and >= 20%: 9/150 vs 1/126 (scripts/benchmark-papermill-refs.js).
   const millByJournal = new Map();   // full and abbreviated forms of one journal are grouped under its Retraction Watch name
-  for (const j of [...journals.values()].slice(0, 80)) {
-    const m = await D.millJournalFor(j.name).catch(() => null);
+  for (const [n, j] of cited.entries()) {
+    const m = lookups[n][2];
     if (!m) continue;
     if (!millByJournal.has(m.norm)) millByJournal.set(m.norm, { name: m.name, refs: [], mill: m.mill, total: m.total });
     millByJournal.get(m.norm).refs.push(...j.refs);
@@ -790,4 +818,4 @@ function papermillProblems(r) {
   return [`Paper mill risk ${r.risk.level} (score ${r.risk.score})`, ...r.signals.filter(s => s.severity !== 'low').slice(0, 5).map(s => s.title)];
 }
 
-module.exports = { imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv, riskLevel };
+module.exports = { warm, imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv };

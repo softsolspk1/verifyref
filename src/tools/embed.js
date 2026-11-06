@@ -15,9 +15,16 @@ function load() {
   if (OFF) return Promise.resolve(null);
   if (!loading && Date.now() - failedAt > RETRY_MS) {
     loading = (async () => {
+      // the model files come from Cloudflare R2 when a server stored them there (a new Vercel instance starts with an
+      // empty /tmp, and Hugging Face was a slow download on every cold start); else from Hugging Face, then stored on R2
+      const STORE = require('../datasetStore');
+      const prefix = `models/${MODEL}/`;
+      const fromR2 = await STORE.ensureLocal(prefix).then(([n]) => n > 0).catch(() => false);
       const T = await import('@huggingface/transformers');
       T.env.cacheDir = path.join(cfg.DATA_DIR, 'models');
-      return await T.pipeline('feature-extraction', MODEL, { dtype: 'q8' });
+      const fx = await T.pipeline('feature-extraction', MODEL, { dtype: 'q8' });
+      if (!fromR2 && STORE.enabled()) STORE.pushDataDir({ only: prefix }).catch(e => console.warn(`[embed] model not stored on R2: ${e.message}`));
+      return fx;
     })().catch(err => {
       console.warn(`[embed] model unavailable, word matching only: ${err.message}`);
       failedAt = Date.now(); loading = null;

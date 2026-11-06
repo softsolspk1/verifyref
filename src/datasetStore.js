@@ -191,7 +191,7 @@ async function pushDataDir({ onFile = () => {}, only = null } = {}) {
   const all = walk(cfg.DATA_DIR);
   const skip = unpackedCopies(all);
   const files = all.filter(rel => (!only || rel.startsWith(only)) && !skip.some(d => rel.startsWith(`${d}/`)) && !/\.(part|log)$/i.test(rel)
-    && !rel.startsWith('models/')); // the language model's cache (tools/nli.js) is downloaded from Hugging Face
+    && (!rel.startsWith('models/') || (only && only.startsWith('models/')))); // language models: only the one asked for (tools/embed.js)
   if (skip.length) onFile(`(skipped unpacked copies of stored archives: ${skip.join(', ')})`, {});
   const out = { files: files.length, stored: 0, unchanged: 0, bytes: 0, errors: [] };
   for (const rel of files) {

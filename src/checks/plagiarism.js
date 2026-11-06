@@ -39,10 +39,15 @@ const EPMC = 'https://www.ebi.ac.uk/europepmc/webservices/rest';
 const WEB_PHRASES = Math.max(0, parseInt(cfg.WEB_PHRASES || 60, 10) || 0); // passages no literature index has, searched on the web per report
 const MAX_SOURCES = 25;      // sources found by several passages, read in full where open
 const WINDOW = 8;            // words per searched passage
+const PHRASE_GROUP = 3;      // neighbouring passages asked together first (a group without a hit needs no single searches)
 const OPENALEX_PHRASES = Math.max(0, parseInt(cfg.OPENALEX_PHRASES || 150, 10) || 0); // OpenAlex full-text searches per report ($0.001 each beyond the free allowance)
 const K = 5;                 // words per compared sequence
 const GAP = 2;               // different words allowed inside one match
 const COMMON = 25;           // a passage found in more papers than this is stock wording: credited to the first paper only
+const WIKI_PHRASES = Math.max(0, parseInt(cfg.WIKI_PHRASES || 120, 10) || 0); // passages no literature index has, searched in Wikipedia per report (free)
+const WIKI = 'https://en.wikipedia.org/w/api.php';
+// what is kept in the cache of a Wikipedia phrase search: the article titles found, nothing of the query
+const keepWiki = d => ({ query: { searchinfo: { totalhits: d?.query?.searchinfo?.totalhits || 0 }, search: (d?.query?.search || []).map(x => ({ title: x.title })) } });
 const MAX_TEXT = 200000;     // characters of the manuscript shown highlighted in the report
 const MAX_PASSAGES = 12;     // matches kept per source with the source's own wording
 
@@ -583,13 +588,13 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const covered = new Uint8Array(mine.length); // words already matched by a compared full text: not searched again
   const texts = new Map(); // source key -> its text, for the reference list (4c)
   const markCovered = hit => hit.forEach((h, k) => { if (h) covered[k] = 1; });
-  const stats = { queries: 0, searchErrors: 0, webSearches: 0, openalexSearches: 0, windows: 0, windowsFound: 0, neighbours: 0, common: 0, searched: 0, timeLimited: false };
+  const stats = { queries: 0, searchErrors: 0, webSearches: 0, wikiSearches: 0, openalexSearches: 0, windows: 0, windowsFound: 0, neighbours: 0, common: 0, searched: 0, timeLimited: false };
 
   // 1. the PJPS text repository: published papers and web pages kept by earlier checks (never unpublished submissions)
   update('Comparing with the PJPS text repository');
   const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi }));
   const repoKeys = new Set(repo.map(d => d.sourceKey));
-  const fromRepo = (await pool(repo, 2, async d => {
+  const fromRepo = (await pool(repo, 6, async d => {
     if (late()) return null;
     // open-access full texts kept before reference lists were compared (no meta.withRefs) are read again with them
     if (/^pmc:/.test(d.sourceKey) && !d.meta?.withRefs) {
@@ -639,7 +644,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     return out;
   };
   update(`Comparing with ${neighbours.length} paper(s) on the same subject`);
-  await pool(neighbours, 4, async c => { if (late()) return; stats.neighbours++; await compare(c); });
+  await pool(neighbours, 6, async c => { if (late()) return; stats.neighbours++; await compare(c); });
 
   // 3. every stretch not matched yet is searched as an exact phrase - as Turnitin compares every sentence. Europe PMC
   // (open-access full texts and all PubMed abstracts) first; what it does not know goes to OpenAlex's full-text index
@@ -670,12 +675,25 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   update(`Searching ${windows.length} passages of the manuscript in Europe PMC`);
   const unknown = [];
   let done = 0;
-  await pool(windows, 6, async w => {
+  // most passages are found nowhere: neighbouring passages are first asked together ("a" OR "b" OR "c", a count only);
+  // only a group with a hit is searched passage by passage. Same matches, about a third of the searches (they were the
+  // longest part of the report)
+  const groups = [];
+  for (let i = 0; i < windows.length; i += PHRASE_GROUP) groups.push(windows.slice(i, i + PHRASE_GROUP));
+  await pool(groups, 8, async g => {
     if (late()) return;
-    stats.searched++;
-    const res = await epmcPhrase(w);
-    if (++done % 50 === 0) update(`Searching passages in Europe PMC (${done}/${windows.length})`);
-    if (!res || !res.length) unknown.push(w);
+    let any = true;
+    if (g.length > 1) {
+      stats.queries++;
+      const r = await getJson(`${EPMC}/search?format=json&resultType=idlist&pageSize=1&query=${encodeURIComponent(g.map(w => `"${w.phrase}"`).join(' OR '))}`, { ttl: 30 * 86400, timeout: 25000, retries: 2, private: d => ({ hitCount: d?.hitCount || 0 }) });
+      if (r.ok && !(r.data?.hitCount > 0)) any = false;
+    }
+    for (const w of g) {
+      stats.searched++;
+      const res = any ? await epmcPhrase(w) : [];
+      if (++done % 50 < 1) update(`Searching passages in Europe PMC (${done}/${windows.length})`);
+      if (!res || !res.length) unknown.push(w);
+    }
   });
   // a match seldom stops at the edge of a searched stretch: the stretches straddling each edge of a found one are searched
   // too, so a copied passage is credited in full, not only the words that fell inside one window
@@ -689,14 +707,14 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     }
   }
   if (edges.length) update(`Following ${edges.length} matches to their full length`);
-  await pool(edges, 6, w => (late() ? null : epmcPhrase(w)));
+  await pool(edges, 8, w => (late() ? null : epmcPhrase(w)));
   windows.push(...edges);
 
   // OpenAlex full text (paid per search beyond its free daily allowance): spread over the passages Europe PMC lacked
   const oaList = spread(unknown, OPENALEX_PHRASES);
   if (oaList.length) update(`Searching ${oaList.length} passages in OpenAlex full texts (publishers)`);
   let oaSpent = false; // OpenAlex's daily budget used up (HTTP 429): the remaining searches would all fail
-  await pool(oaList, 4, async w => {
+  await pool(oaList, 8, async w => {
     if (oaSpent || late()) return;
     stats.openalexSearches++;
     const r = await getJson(`https://api.openalex.org/works?filter=fulltext.search:${encodeURIComponent(`"${w.phrase}"`)}&per-page=5&select=id,title,doi,publication_year,primary_location,open_access,ids${cfg.OPENALEX_API_KEY ? `&api_key=${cfg.OPENALEX_API_KEY}` : ''}`, { ttl: 30 * 86400, timeout: 25000, retries: 1, private: keepOpenAlex });
@@ -706,6 +724,23 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     w.found = true;
     for (const x of res) hitWindow(w, { type: 'publication', title: x.title, journal: x.primary_location?.source?.display_name || null, year: x.publication_year || null, doi: cleanDoi(x.doi) || null,
       pmcid: x.ids?.pmcid ? String(x.ids.pmcid).replace(/^.*\//, '') : null, oaPdf: x.open_access?.oa_url || null, via: 'OpenAlex (publisher full texts)', url: x.doi || x.id });
+  });
+  // Wikipedia (Turnitin's most frequent internet source; free, exact-phrase search) for passages no literature index has.
+  // An article behind several passages is read in full below, like an open-access paper
+  const wikiList = spread(unknown.filter(w => !w.found), WIKI_PHRASES);
+  if (wikiList.length) update(`Searching ${wikiList.length} passages in Wikipedia`);
+  await pool(wikiList, 4, async w => {
+    if (late()) return;
+    stats.wikiSearches++;
+    const r = await getJson(`${WIKI}?action=query&list=search&format=json&srlimit=3&srprop=&srsearch=${encodeURIComponent(`"${w.phrase}"`)}`, { ttl: 30 * 86400, timeout: 20000, retries: 1, private: keepWiki });
+    if (!r.ok) { stats.searchErrors++; return; }
+    const res = (r.data?.query?.search || []).filter(x => !isSelf({ title: x.title }));
+    if (!res.length) return;
+    w.found = true;
+    for (const x of (r.data.query.searchinfo.totalhits > COMMON ? res.slice(0, 1) : res)) {
+      const page = encodeURIComponent(String(x.title).replace(/ /g, '_'));
+      hitWindow(w, { type: 'internet', title: `${x.title} - Wikipedia`, journal: 'en.wikipedia.org', year: null, doi: null, webUrl: `https://en.wikipedia.org/api/rest_v1/page/html/${page}`, via: 'Wikipedia', url: `https://en.wikipedia.org/wiki/${page}` });
+    }
   });
   // the open web (SerpApi, Brave Search or Google Programmable Search) for passages no literature index has
   if (WEB.enabled()) {
@@ -836,7 +871,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const databases = [...(extUsed ? [`External full-text similarity service: the text without the reference list compared with web pages and publications, paraphrase included (${extSources.length} source(s) matched${external ? '; asked for by the editor' : ''})`] : ext?.error ? [`External full-text similarity service: not used for this report (${ext.error})`] : extSkipped ? [`External full-text similarity service: ${extSkipped}`] : []),
     ...(stats.timeLimited ? [`Time limit reached: ${stats.searched} of ${stats.windows} passages were searched before the report had to be saved; the passages searched are kept, so running the report again searches further`] : []),
     ...(subsOn ? [`Earlier PJPS submissions (opt-in): ${submissions.length} sharing text with this manuscript compared in full`] : []), 'PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
-    ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches${stats.openalexBudget ? '; stopped: the daily OpenAlex search budget is used up - add funds at openalex.org/pricing' : ''})`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
+    ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches${stats.openalexBudget ? '; stopped: the daily OpenAlex search budget is used up - add funds at openalex.org/pricing' : ''})`] : []), ...(stats.wikiSearches ? [`Wikipedia (${stats.wikiSearches} passage searches)`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The wider web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
   return {
     kind: 'plagiarism',
     version: 5, // 4: bibliography compared as a section, quotations included by default; 5: matches from 5 words kept, small matches not excluded by default, flags (Turnitin's defaults)
@@ -861,8 +896,8 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     flags: SIM.textFlags(prep.text),
     filters: { bibliography: prep.bibliographyFound ? 'included (the reference list is compared; exclude it in Filters)' : 'no reference list found', quotes: `included (${prep.quotedWords} quoted words)`, smallMatches: "not excluded (Turnitin's default; the shortest match counted is 5 words)", citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
-    checked: { references: refStats, passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, timeLimited: stats.timeLimited, passagesSearched: stats.searched, databases },
-    coverage: `${extUsed ? 'The text (without the reference list) with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
+    checked: { references: refStats, passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, wikiSearches: stats.wikiSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, timeLimited: stats.timeLimited, passagesSearched: stats.searched, databases },
+    coverage: `${extUsed ? 'The text (without the reference list) with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), Wikipedia (${WIKI_PHRASES} passage searches at most), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
     method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are compared (the editor can exclude either), and matches of ${FLOOR} words or more are counted (the editor can exclude small matches). Each entry of the reference list is matched whole to every source listing the same work (title and first author, whatever the citation style), or else to the cited work's own record (Crossref, Open Library, Google Books)${refStats.entries ? ` - ${refStats.inSources + refStats.citedWork} of ${refStats.entries} entries matched` : ''}. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   };
 }

@@ -8,9 +8,10 @@ const USER_AGENT = `PJPSReferenceChecker/2.0 (Softsols Pakistan; mailto:${CONTAC
 // Per-host concurrency limits (public APIs ask for politeness)
 const HOST_LIMITS = {
   'api.crossref.org': 5,
-  'api.openalex.org': 5,
-  'eutils.ncbi.nlm.nih.gov': 2,
-  'www.ebi.ac.uk': 4,
+  'api.openalex.org': 8,
+  // NCBI allows 3 requests a second without an API key, 10 with one (NCBI_API_KEY, free at ncbi.nlm.nih.gov/account)
+  'eutils.ncbi.nlm.nih.gov': cfg.NCBI_API_KEY ? 8 : 2,
+  'www.ebi.ac.uk': 8,
   'api.semanticscholar.org': 1,
   'export.arxiv.org': 1,
   'dblp.org': 2,
@@ -55,6 +56,8 @@ function release(host) {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// diagnostics (timing a first run): PJPS_HTTP_NOCACHE=1 answers every request from the network, still storing the answers
+const NO_CACHE_READ = /^(1|true|yes)$/i.test(process.env.PJPS_HTTP_NOCACHE || '');
 
 // ---- Connectivity. The desktop edition works offline: once the network is unreachable, requests are answered from
 // the cache (or fail immediately) instead of waiting for timeouts and retries; a probe re-checks every 30 s.
@@ -172,12 +175,14 @@ async function request(url, options = {}) {
   const keep = typeof privateKeep === 'function' ? privateKeep : null;
   const cacheKey = method !== 'GET' || ttl <= 0 || (privateKeep && !keep) ? null
     : keep ? `p:${require('crypto').createHash('sha256').update(url).digest('hex')}` : `${json ? 'j' : 't'}:${url}`;
-  if (cacheKey) {
+  if (cacheKey && !NO_CACHE_READ) {
     const cached = await cacheGet(cacheKey);
     if (cached) return cached;
   }
 
   if (simulatedOffline()) { setOnline(false); return { ok: false, status: 0, error: 'offline', offline: true }; }
+  // every NCBI E-utilities call carries the API key when there is one (the cache key stays the URL without it)
+  if (cfg.NCBI_API_KEY && /^https:\/\/eutils\.ncbi\.nlm\.nih\.gov\//.test(url) && !/[?&]api_key=/.test(url)) url = `${url}${url.includes('?') ? '&' : '?'}api_key=${encodeURIComponent(cfg.NCBI_API_KEY)}`;
   if (cfg.DESKTOP && !online) {
     if (Date.now() - lastProbe < 30000 || !(await probe())) return { ok: false, status: 0, error: 'offline', offline: true };
   }

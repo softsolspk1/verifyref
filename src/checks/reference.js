@@ -335,12 +335,13 @@ async function verifyReference(ref, opts = {}) {
     }
   }
 
-  // ---- 2c. Google web search (SerpApi): only when nothing above found the work; shows whether the title exists on the web
+  // ---- 2c. Web search (Google through SerpApi, else the web search of the similarity report): only when nothing above
+  // found the work; shows whether the title exists on the web (journal sites, PubChem, WHO, publishers, repositories)
   let web = null;
-  if (!confident() && S.scholarEnabled() && (ref.title || '').length >= 15 && !(best()?.score >= 75)) {
+  if (!confident() && S.webSearchEnabled() && (ref.title || '').length >= 15 && !(best()?.score >= 75)) {
     const g = await S.googleWebSearch(ref).catch(e => ({ error: e.message }));
     if (!g.skipped) {
-      mark('Google', g.error ? 'error' : g.hits?.length ? 'found' : 'not-found');
+      mark(S.scholarEnabled() ? 'Google' : 'Web search', g.error ? 'error' : g.hits?.length ? 'found' : 'not-found');
       if (!g.error) web = g.hits || [];
     }
   }
@@ -463,8 +464,13 @@ async function classify(v, retraction) {
     v.foundOnWeb = h;
     const grey = ref.looksLikeWeb || ref.looksLikeBook || (!ref.journal && !ref.doi && !ref.pmid);
     const idFailed = issues.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code));
-    if (grey && !idFailed) { status = 'verified'; reason = `Found on the web by Google (${h.host}): the page title matches - check the author, year and publisher on that page`; }
-    else { status = 'unverified'; reason = `Not in the scholarly databases, but Google found the title on the web (${h.host}) - not a sign of fabrication; check the details on that page${idFailed ? '. The identifier given does not exist' : ''}`; }
+    // a journal article on a journal or publisher page with its exact title and first author: real, in a journal the
+    // scholarly databases do not cover (regional and new journals) - the volume and pages are checked on that page
+    const fam = String(ref.authors?.[0]?.family || '').toLowerCase();
+    const authorSeen = fam.length >= 3 && v.web.some(x => x.sim >= 0.95 && `${x.title} ${x.snippet || ''}`.toLowerCase().includes(fam));
+    if (grey && !idFailed) { status = 'verified'; reason = `Found on the web (${h.host}): the page title matches - check the author, year and publisher on that page`; }
+    else if (!idFailed && authorSeen) { status = 'verified'; reason = `Found on the web (${h.host}): the title and the first author match; the journal is not covered by the scholarly databases - check the volume and pages on that page`; }
+    else { status = 'unverified'; reason = `Not in the scholarly databases, but the title was found on the web (${h.host}) - not a sign of fabrication; check the details on that page${idFailed ? '. The identifier given does not exist' : ''}`; }
   } else if (!anyFound && v.closest && (ref.looksLikeWeb || (ref.looksLikeBook && !ref.doi) || (!ref.journal && !ref.doi && !ref.pmid)) && scoreCandidate(ref, v.closest).tSim < 0.7) {
     // a web page, report or book whose "closest record" is some unrelated paper: say what it is, not the stray match
     status = 'unverified';

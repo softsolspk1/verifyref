@@ -494,6 +494,24 @@ function finishEntry(ref, core, accessed) {
   ref.title = ref.title.replace(/\s*\[[^\]]*\]\s*$/, '').replace(/^[\s"“'‘]+|[\s"”'’.,]+$/g, '').trim();
   ref.journal = ref.journal.replace(/\s*\[Internet\]/i, '').replace(/^[\s"“'‘]+|[\s"”'’.,]+$/g, '').replace(/\b(?:Retrieved|Available)\b.*$/i, '').trim();
   if (/^\d+$/.test(ref.journal)) ref.journal = '';
+  // Elsevier Harvard: the volume follows the journal name without a comma ("Cell 144, 646-674", "Eur. Chem. Bull. 12,
+  // 1897-1908"): the journal was read as "Cell 144", so it could not be looked up and the volume and pages were lost
+  const jv = ref.journal.match(/^(.*[^\d\s])\s+(\d{1,4})$/);
+  if (jv && jv[1].replace(/[^\p{L}]/gu, '').length >= 3 && (!ref.volume || ref.volume === jv[2]) && Number(jv[2]) !== ref.year) {
+    ref.journal = jv[1].trim();
+    ref.volume = jv[2];
+    if (!ref.pages) {
+      const pm = core.match(new RegExp(String.raw`\b${jv[2]}\s*,\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)\b`));
+      if (pm && !(/^\d{4}$/.test(pm[1]) && Number(pm[1]) === ref.year)) ref.pages = pm[1].replace(/\s+/g, '').replace(/[–—]/g, '-');
+    }
+  }
+  // authors written "SURNAME, I.I., SURNAME, I.I., Title" without a year after them: the later authors were read as the
+  // start of the title, so the title search found nothing
+  const lead = ref.title.match(/^((?:[\p{Lu}][\p{L}'’\-]+,\s*(?:[\p{Lu}]\.\s?){1,3},\s*)+)(?=\S)/u);
+  if (lead && ref.title.length - lead[0].length >= 15) {
+    ref.authors = [...ref.authors, ...parseAuthors(lead[1].replace(/,\s*$/, ''))];
+    ref.title = ref.title.slice(lead[0].length).trim();
+  }
   ref.firstAuthorSurname = ref.authors[0]?.family || null;
   ref.looksLikeBook = !!ref.looksLikeBook || !!ref.isbn || (/\b(?:press|publisher|publishing|edition|ed\.|eds\.|books?)\b/i.test(core) && !ref.volume);
   ref.looksLikeWeb = ref.urls.length > 0 && !ref.doi && !ref.volume;

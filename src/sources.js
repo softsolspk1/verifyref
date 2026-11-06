@@ -661,19 +661,34 @@ async function googleScholarSearch(ref) {
  * pages whose title matches the cited title. This shows that the work exists somewhere on the web (journal site,
  * repository, report, thesis, web page); it does not confirm the bibliographic details. Returns { hits: [{ title, url, host, sim, snippet }] }.
  */
+/** A web search can be made: SerpApi (Google), or the similarity report's web search (Brave Search, Google Programmable Search) */
+const webSearchEnabled = () => scholarEnabled() || require('./webSearch').enabled();
+
 async function googleWebSearch(ref) {
-  if (!scholarEnabled()) return { skipped: true };
-  if (Date.now() < scholarBlockedUntil) return { error: 'Google paused (SerpApi searches used up or key rejected)' };
   const title = q(ref.title || '').slice(0, 250);
+  if (!scholarEnabled()) {
+    // no SerpApi key: the same exact-title search through the web search the similarity report uses
+    if (!webSearchEnabled()) return { skipped: true };
+    if (title.length < 15) return { hits: [] };
+    const w = await require('./webSearch').phraseSearch(title, 8).catch(e => ({ ok: false, error: e.message }));
+    if (!w.ok) return w.error === 'skipped' ? { skipped: true } : { error: w.error };
+    return { hits: webHits(ref, (w.results || []).map(o => ({ title: o.title, link: o.url, snippet: o.snippet }))) };
+  }
+  if (Date.now() < scholarBlockedUntil) return { error: 'Google paused (SerpApi searches used up or key rejected)' };
   if (title.length < 15) return { hits: [] };
   const r = await serpSearch('google', `"${title}"`, 8);
   if (r.skipped) return { skipped: true };
   if (serpBlocked(r)) { scholarBlockedUntil = Date.now() + 3600000; return { error: r.data?.error || `SerpApi HTTP ${r.status}` }; }
   if (!r.ok) return { error: r.data?.error || r.error || r.status };
   if (r.data?.error && !/hasn't returned any results/i.test(r.data.error)) return { error: r.data.error };
+  return { hits: webHits(ref, r.data?.organic_results || []) };
+}
+
+/** Web results whose page title is the reference's title (>= 0.9): [{ title, url, host, sim, snippet }] */
+function webHits(ref, results) {
   // page titles carry the site name ("Title | Journal", "Title - ScienceDirect") and Google shortens long ones with "..."
   const pageTitle = t => String(t || '').replace(/\s*(?:\||–|—|-\s)\s*[^|–—]{2,60}$/, '').replace(/(?:\.\.\.|…)\s*$/, '').trim();
-  const hits = (r.data?.organic_results || []).map(o => {
+  const hits = (results || []).map(o => {
     const t = pageTitle(o.title);
     const shortened = /(?:\.\.\.|…)\s*$/.test(String(o.title || ''));
     const full = String(ref.title || '');
@@ -682,7 +697,7 @@ async function googleWebSearch(ref) {
     try { host = new URL(o.link).hostname.replace(/^www\./, ''); } catch (e) { /* no link */ }
     return { title: o.title || '', url: o.link || '', host, sim: Math.round(sim * 100) / 100, snippet: String(o.snippet || '').slice(0, 300) };
   }).filter(h => h.url && h.sim >= 0.9);
-  return { hits: hits.slice(0, 3) };
+  return hits.slice(0, 3);
 }
 
 /** SerpApi account: plan and searches left this month (Admin > Data) */
@@ -703,7 +718,7 @@ const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (Serp
 
 module.exports = {
   crossrefInJournal,
-  DATABASES, databases, scholarEnabled, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
+  DATABASES, databases, scholarEnabled, webSearchEnabled, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,
   pubmedPmid, pubmedSearch, europepmcSearch, s2Doi, s2Search,

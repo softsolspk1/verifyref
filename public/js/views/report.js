@@ -481,12 +481,15 @@ function autoSearch(r) {
     ['Google Scholar', `https://scholar.google.com/scholar?q=${enc(q)}`],
     ['Google', `https://www.google.com/search?q=${enc(`"${plain}"`)}`]
   ];
-  const state = name => (r.checked || {})[name];
+  // the exact-title web search is "Google" through SerpApi, else "Web search" (the similarity report's web search)
+  const state = name => (r.checked || {})[name] ?? (name === 'Google' ? (r.checked || {})['Web search'] : undefined);
   const item = ([name, url]) => {
     const o = state(name);
-    if (o === 'found' && name === 'Google' && (r.web || []).length) return `${badge(name, 'good')} found on the web`;
+    const label = name === 'Google' && !(r.checked || {}).Google && (r.checked || {})['Web search'] ? 'Web' : name;
+    const page = (r.web || [])[0];
+    if (o === 'found' && name === 'Google' && page) return `${badge(label, 'good')} found on the web · <a href="${esc(page.url)}" target="_blank" rel="noopener">${esc(page.host || 'page')} ↗</a>`;
     if (o === 'found') return `${badge(name, (r.matchedIn || []).includes(name) ? 'good' : 'neutral')} ${(r.matchedIn || []).includes(name) ? 'matched' : 'similar record, not the same work'}`;
-    if (o === 'not-found') return `${badge(name, 'neutral')} no match`;
+    if (o === 'not-found') return `${badge(label, 'neutral')} no match`;
     const why = o === 'error' ? 'could not be searched' : 'not searched';
     return `${badge(name, 'warn')} ${why} · <a href="${esc(url)}" target="_blank" rel="noopener">search yourself ↗</a>`;
   };

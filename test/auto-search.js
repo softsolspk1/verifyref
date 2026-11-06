@@ -52,7 +52,7 @@ global.fetch = async (url, opts) => {
   // 2. a report found only on the web by Google: verified, with the page
   const report = await check({ index: 2, raw: `Provincial Health Department (2021). ${REPORT}. Larkana.`, title: REPORT, authors: [], year: 2021, looksLikeWeb: false, looksLikeBook: false });
   assert.strictEqual(report.status, 'verified', `report verified by Google (got ${report.status}: ${report.reason})`);
-  assert.ok(/Google/.test(report.reason) && report.web?.[0]?.host === 'health.example.gov.pk', 'reason and page shown');
+  assert.ok(/on the web/i.test(report.reason) && report.web?.[0]?.host === 'health.example.gov.pk', 'reason and page shown');
   assert.strictEqual(report.confidence, 70);
   assert.strictEqual(report.checked.Google, 'found');
   console.log('  ✓ report found only on the web: verified by Google, page linked');

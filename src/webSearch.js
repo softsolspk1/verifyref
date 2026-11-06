@@ -15,8 +15,10 @@ const enabled = () => !!provider();
 
 /** Results for an exact phrase: { ok, results: [{ url, title }], error? } */
 // extra: search operators after the phrase ("filetype:pdf")
-async function phraseSearch(phrase, n = 5, extra = '') {
-  const q = `"${String(phrase).replace(/"/g, '')}"${extra ? ` ${extra}` : ''}`;
+// quoted: false searches the words, not the exact phrase (a last, looser search)
+async function phraseSearch(phrase, n = 5, extra = '', { quoted = true } = {}) {
+  const p = String(phrase).replace(/"/g, '');
+  const q = `${quoted ? `"${p}"` : p}${extra ? ` ${extra}` : ''}`;
   if (provider() === 'SerpApi (Google)') {
     const r = await S.serpSearch('google', q, n, { private: true }).catch(e => ({ ok: false, error: e.message }));
     if (r.skipped) return { ok: false, error: 'skipped' };

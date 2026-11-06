@@ -753,8 +753,17 @@ async function googleWebSearch(ref) {
     // the full text as a PDF (a journal's or repository's copy, the "[PDF]" link Google Scholar shows): searched for
     // and read for the cited title and first author
     const p = await require('./webSearch').phraseSearch(title, 5, 'filetype:pdf').catch(() => ({ ok: false }));
-    const pdfs = (p.ok ? p.results || [] : []).map(o => o.url).filter(u => u && !found.some(f => f.link === u));
-    return { hits: pdfs.length ? await pageConfirm(ref, pdfs.slice(0, 3)) : [] };
+    const seen = new Set(found.map(f => f.link));
+    const pdfs = (p.ok ? p.results || [] : []).map(o => o.url).filter(u => u && !seen.has(u));
+    const inPdf = pdfs.length ? await pageConfirm(ref, pdfs.slice(0, 3)) : [];
+    if (inPdf.length) return { hits: inPdf };
+    // last: the title's words and the first author without quotes (an exact phrase misses a title the search engine
+    // indexed with other punctuation or a longer ending); only a page or PDF holding the whole title counts
+    pdfs.forEach(u => seen.add(u));
+    const fam = q(ref.authors?.[0]?.family || '');
+    const lw = await require('./webSearch').phraseSearch(`${title}${fam ? ` ${fam}` : ''}`, 6, '', { quoted: false }).catch(() => ({ ok: false }));
+    const loose = (lw.ok ? lw.results || [] : []).map(o => o.url).filter(u => u && !seen.has(u));
+    return { hits: loose.length ? await pageConfirm(ref, loose.slice(0, 4)) : [] };
   }
   if (Date.now() < scholarBlockedUntil) return { error: 'Google paused (SerpApi searches used up or key rejected)' };
   if (title.length < 15) return { hits: [] };

@@ -152,6 +152,16 @@ global.fetch = async (url, opts) => {
   assert.strictEqual(who.status, 'verified', `WHO report found on who.int verified (got ${who.status}: ${who.reason})`);
   console.log('  ✓ WHO Technical Report Series found on who.int: verified');
 
+  // the exact-phrase and PDF searches find nothing; the words with the first author find the article's PDF
+  const ARTICLE7 = 'Zyxomirol sustained release matrix tablets using optimization approach for Parkinson';
+  const looseUrl = 'https://archive.example.org/uploads/journals/wjx/article-1339.pdf';
+  brave[`${ARTICLE7} Zyxpatelia`] = [{ url: looseUrl, title: 'volume 9, january issue 1 13653', description: '' }];
+  pageBuffers[looseUrl] = await pdfOf(['World Journal of Example Research 1339', `${ARTICLE7.toUpperCase()}'S DISEASE`, 'Pankaj Kumar Zyxpatelia*, Divya Barua']);
+  const art7 = await check({ index: 10, raw: `Zyxpatelia, P.K., Barua, D., 2019. ${ARTICLE7}.`, title: ARTICLE7, authors: [{ family: 'Zyxpatelia', given: 'P.K.' }], year: 2019 });
+  assert.ok(calls.includes(`${ARTICLE7} Zyxpatelia`), 'looser search asked');
+  assert.strictEqual(art7.status, 'verified', `found by the looser search, PDF read (got ${art7.status}: ${art7.reason} ${JSON.stringify(art7.record && [art7.record.title, art7.record.source, art7.record.year])})`);
+  console.log('  ✓ exact phrase finds nothing: the title words with the first author find the PDF: verified');
+
   unrelated = true;
   const none = await check({ index: 4, raw: 'Raza K (2020). Pharmacovigilance awareness among Zyxomira hospital nurses. Larkana.', title: 'Pharmacovigilance awareness among Zyxomira hospital nurses', authors: [{ family: 'Raza', given: 'K' }], year: 2020 });
   assert.ok(!none.web?.length && none.checked['Web search'] === 'not-found' && none.status !== 'verified', 'unrelated pages ignored');

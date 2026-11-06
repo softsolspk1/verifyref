@@ -320,8 +320,9 @@ async function verifyReference(ref, opts = {}) {
   // the best record carries no journal details (a repository copy) or another journal (a work co-published in several):
   // the cited journal's own record is looked for, so the cited volume and pages are checked against it
   { const b = best(); if (b && ref.journal && (ref.volume || ref.pages) && (sparse(b.rec) || b.journalScore === 0)) take('Crossref', await S.crossrefInJournal(ref).catch(e => ({ error: e.message }))); }
-  // ---- 2b. Google Scholar (SerpApi, paid per search): only when nothing free could verify the reference
-  if (!confident() && S.scholarEnabled() && (ref.title || '').length >= 12) {
+  // ---- 2b. Google Scholar (SerpApi when configured, else read directly): only when nothing free could verify the reference
+  let web = null;
+  if (!confident() && S.scholarAvailable() && (ref.title || '').length >= 12) {
     const gs = await S.googleScholarSearch(ref).catch(e => ({ error: e.message }));
     if (!gs.skipped) {
       take('Google Scholar', gs);
@@ -332,13 +333,27 @@ async function verifyReference(ref, opts = {}) {
         if (cr?.record) take('Crossref', { record: cr.record });
         break;
       }
+      // a Scholar result with the cited title and a full-text copy ("[PDF] repository.edu"): the PDF (or the article
+      // page) is opened and read for the title and first author - many journals Scholar covers are in no database
+      if (!confident()) {
+        const hit = (gs.records || []).find(rec => scoreCandidate(ref, rec).tSim >= 0.9);
+        const urls = hit ? [...new Set([hit.pdfUrl, hit.url].filter(u => u && !/scholar.google./.test(u)))].slice(0, 2) : [];
+        const seen = urls.length ? await S.pageConfirm(ref, urls).catch(() => []) : [];
+        if (seen.length) { web = seen.map(h => ({ ...h, scholar: true, snippet: `Google Scholar lists it; ${h.snippet.charAt(0).toLowerCase()}${h.snippet.slice(1)}` })); mark('Google Scholar full text', 'found'); }
+      }
     }
   }
 
   // ---- 2c. Web search (Google through SerpApi, else the web search of the similarity report): only when nothing above
   // found the work; shows whether the title exists on the web (journal sites, PubChem, WHO, publishers, repositories)
-  let web = null;
-  if (!confident() && S.webSearchEnabled() && (ref.title || '').length >= 15 && !(best()?.score >= 75)) {
+  // the web address the reference gives (a PubChem record, a WHO report, a journal page or PDF): opened and read
+  if (!web && !confident() && (ref.title || '').length >= 10 && ref.urls?.length && !ref.doi) {
+    const own = await S.pageConfirm(ref, ref.urls.slice(0, 2), { webPage: true }).catch(() => []);
+    mark('Cited web address', own.length ? 'found' : 'not-found');
+    if (own.length) web = own;
+  }
+  // (also when a close but different record exists: a chapter whose closest record is its book, a WHO report)
+  if (!web && !confident() && S.webSearchEnabled() && (ref.title || '').length >= 15) {
     const g = await S.googleWebSearch(ref).catch(e => ({ error: e.message }));
     if (!g.skipped) {
       mark(S.scholarEnabled() ? 'Google' : 'Web search', g.error ? 'error' : g.hits?.length ? 'found' : 'not-found');
@@ -467,9 +482,9 @@ async function classify(v, retraction) {
     // a journal article on a journal or publisher page with its exact title and first author: real, in a journal the
     // scholarly databases do not cover (regional and new journals) - the volume and pages are checked on that page
     const fam = String(ref.authors?.[0]?.family || '').toLowerCase();
-    const authorSeen = fam.length >= 3 && v.web.some(x => x.sim >= 0.95 && `${x.title} ${x.snippet || ''}`.toLowerCase().includes(fam));
-    if (grey && !idFailed) { status = 'verified'; reason = `Found on the web (${h.host}): the page title matches - check the author, year and publisher on that page`; }
-    else if (!idFailed && authorSeen) { status = 'verified'; reason = `Found on the web (${h.host}): the title and the first author match; the journal is not covered by the scholarly databases - check the volume and pages on that page`; }
+    const authorSeen = fam.length >= 3 && v.web.some(x => x.sim >= 0.95 && (x.author || `${x.title} ${x.snippet || ''}`.toLowerCase().includes(fam)));
+    if (grey && !idFailed) { status = 'verified'; reason = h.kind ? `Found${h.scholar ? ' in Google Scholar' : ' on the web'} (${h.host}): ${h.snippet.charAt(0).toLowerCase()}${h.snippet.slice(1)} - check the author, year and publisher there` : `Found on the web (${h.host}): the page title matches - check the author, year and publisher on that page`; }
+    else if (!idFailed && authorSeen) { status = 'verified'; reason = `Found${h.scholar ? ' in Google Scholar' : ' on the web'} (${h.host}${h.kind === 'PDF' ? ', PDF' : ''}): the title and the first author match; the journal is not covered by the scholarly databases - check the volume and pages there`; }
     else { status = 'unverified'; reason = `Not in the scholarly databases, but the title was found on the web (${h.host}) - not a sign of fabrication; check the details on that page${idFailed ? '. The identifier given does not exist' : ''}`; }
   } else if (!anyFound && v.closest && (ref.looksLikeWeb || (ref.looksLikeBook && !ref.doi) || (!ref.journal && !ref.doi && !ref.pmid)) && scoreCandidate(ref, v.closest).tSim < 0.7) {
     // a web page, report or book whose "closest record" is some unrelated paper: say what it is, not the stray match
@@ -490,7 +505,10 @@ async function classify(v, retraction) {
     const plainlyOther = cs.tSim < 0.6 || (cs.tSim < 0.85 && noAuthors && (ref.authors?.length || 0) > 0 && cs.journalScore < 0.5);
     if (!incomplete && ref.journal && !ref.looksLikeBook && !ref.looksLikeWeb && !REGIONAL.test(ref.journal) && plainlyOther) {
       const journal = await journalProfile(ref.journal).catch(() => null);
-      if (journal && sameJournalName(ref.journal, journal.name) && journal.works > 300 && (!ref.year || (ref.year >= (journal.first || 0) && ref.year <= (journal.last || 9999)))) {
+      // many journals register only some of their articles (no DOI for the rest): without a DOI in the reference, a missing
+      // article only weighs as evidence in a journal of a major publisher, which registers every article with Crossref
+      const registersAll = ref.doi || (journal && await require('../datasets').publisherJournal({ issns: journal.issn || [], name: journal.name }).catch(() => null));
+      if (journal && sameJournalName(ref.journal, journal.name) && journal.works > 300 && (!ref.year || (ref.year >= (journal.first || 0) && ref.year <= (journal.last || 9999))) && registersAll) {
         status = 'suspicious';
         reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles); the closest record${about ? ` (${about})` : ''} is a different publication`;
         v.journalProfile = journal;
@@ -514,11 +532,17 @@ async function classify(v, retraction) {
     else if (incomplete) { status = 'unverified'; reason = 'Verification could not be completed (several databases did not respond); it will be clearer on a re-check'; }
     else if (regional) { status = 'unverified'; reason = `Not indexed — ${ref.journal} is a regional journal that the scholarly databases do not cover fully; check manually (not a sign of fabrication)`; v.notIndexed = true; }
     else if (wellIndexed) {
-      status = 'suspicious';
-      reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles)`;
-      // the major publishers register every article with Crossref, so a missing article there weighs more
+      // the major publishers register every article with Crossref, so a missing article there weighs more; elsewhere a
+      // reference without a DOI may simply be one of the articles the journal never registered
       const major = await require('../datasets').publisherJournal({ issns: journal.issn || [], name: journal.name }).catch(() => null);
-      if (major && (!ref.year || ref.year >= 2002)) reason += `; it is a ${major.publisher} journal, and ${major.publisher} registers every article with Crossref`;
+      if (ref.doi || major) {
+        status = 'suspicious';
+        reason = `Not found in any database although ${journal.name} is well indexed (${journal.works.toLocaleString()} articles)`;
+        if (major && (!ref.year || ref.year >= 2002)) reason += `; it is a ${major.publisher} journal, and ${major.publisher} registers every article with Crossref`;
+      } else {
+        status = 'unverified';
+        reason = `Not found in the databases or on the web; ${journal.name} is indexed (${journal.works.toLocaleString()} articles) but does not register every article, and no DOI is given - check manually`;
+      }
     }
     else if (grey) { status = 'unverified'; reason = 'Book, report or web source — not found in scholarly databases; check manually'; }
     else {
@@ -547,6 +571,13 @@ async function classify(v, retraction) {
     status = 'verified';
     const minor = issues.filter(i => ['year', 'last-page', 'issue', 'author-order'].includes(i.code)).map(i => i.message.toLowerCase());
     reason = minor.length ? `A record was found and the title and authors match; note: ${minor.join('; ')}` : 'A record was found and the title, authors and year match';
+  } else if (v.web?.some(h => h.sim >= 0.95 && h.author)) {
+    // the record is not a certain match on its own (Google Scholar shortens author lists and journal names), but its
+    // full text (PDF or article page) carries the cited title and first author
+    const h = v.web.find(x => x.sim >= 0.95 && x.author);
+    v.foundOnWeb = h;
+    status = 'verified';
+    reason = `Found${h.scholar ? ' in Google Scholar' : ' on the web'} (${h.host}${h.kind === 'PDF' ? ', PDF' : ''}): the full text carries the cited title and first author - check the volume and pages there`;
   } else if (REGIONAL.test(ref.journal || '')) {
     status = 'unverified';
     reason = `Not indexed — ${ref.journal} is a regional journal that the scholarly databases do not cover fully; the closest record is not a certain match, check manually (not a sign of fabrication)`;

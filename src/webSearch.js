@@ -13,8 +13,9 @@ const provider = () => (S.scholarEnabled() ? 'SerpApi (Google)' : cfg.BRAVE_API_
 const enabled = () => !!provider();
 
 /** Results for an exact phrase: { ok, results: [{ url, title }], error? } */
-async function phraseSearch(phrase, n = 5) {
-  const q = `"${String(phrase).replace(/"/g, '')}"`;
+// extra: search operators after the phrase ("filetype:pdf")
+async function phraseSearch(phrase, n = 5, extra = '') {
+  const q = `"${String(phrase).replace(/"/g, '')}"${extra ? ` ${extra}` : ''}`;
   if (S.scholarEnabled()) {
     const r = await S.serpSearch('google', q, n, { private: true }).catch(e => ({ ok: false, error: e.message }));
     if (r.skipped) return { ok: false, error: 'skipped' };

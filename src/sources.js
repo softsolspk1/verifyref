@@ -630,13 +630,83 @@ function fromScholar(o) {
     type: o.type === 'Book' || (kind && /^b/i.test(kind)) ? 'book' : kind && /citation/i.test(kind) ? 'citation' : 'article',
     url: link || (o.result_id ? `https://scholar.google.com/scholar?cluster=${enc(o.result_id)}` : ''),
     citedBy: o.inline_links?.cited_by?.total ?? null,
+    // the full-text copy Google Scholar links beside the result ("[PDF] repository.edu"): opened when the record alone
+    // cannot verify the reference
+    pdfUrl: (o.resources || []).find(x => /pdf/i.test(x.file_format || '') && x.link)?.link || (/\.pdf(?:$|[?#])/i.test(link) ? link : null),
     snippet: o.snippet || '',
     retracted: false, notices: []
   };
 }
 
+// ---- Google Scholar read directly (no SerpApi key): the results page is fetched and its result list parsed. Google
+// answers automated requests with a CAPTCHA after a while; Scholar is then left alone for an hour (the check goes on
+// with the web search), and every answer is cached 30 days so a re-check does not ask again.
+const scholarDirectEnabled = () => !cfg.DESKTOP && process.env.SCHOLAR_DIRECT !== 'off';
+let scholarDirectBlockedUntil = 0;
+const htmlText = h => String(h || '').replace(/<[^>]+>/g, '').replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+  .replace(/&#39;|&#x27;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&hellip;/g, '…').replace(/&#(\d+);/g, (m, n) => String.fromCharCode(+n)).replace(/\s+/g, ' ').trim();
+
+/** A Google Scholar results page -> the SerpApi shape of its results ({ title, link, result_id, publication_info, snippet, resources }) */
+function parseScholarHtml(html) {
+  const out = [];
+  for (const chunk of String(html || '').split(/<div class="gs_r gs_or gs_scl/).slice(1)) {
+    const ri = chunk.slice(chunk.indexOf('class="gs_ri"'));
+    const h3 = (ri.match(/<h3[^>]*class="gs_rt"[^>]*>([\s\S]*?)<\/h3>/) || [])[1];
+    if (!h3) continue;
+    const kind = (h3.match(/class="gs_ct[12]"[^>]*>\s*\[([A-Z]+)\]/) || [])[1];
+    const a = h3.match(/<a\s[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    const title = htmlText(a ? a[2] : h3.replace(/<span class="gs_ct[\s\S]*?<\/span>\s*<\/span>/, ''));
+    const pdf = (chunk.match(/class="gs_or_ggsm"[^>]*>\s*<a\s[^>]*href="([^"]+)"/) || [])[1];
+    const pdfKind = (chunk.match(/class="gs_ctg2"[^>]*>\[([A-Z]+)\]/) || [])[1];
+    out.push({
+      title: `${kind ? `[${kind}] ` : ''}${title}`,
+      link: a ? htmlText(a[1]) : '',
+      result_id: (chunk.match(/^[^>]*data-cid="([^"]+)"/) || [])[1] || null,
+      publication_info: { summary: htmlText((ri.match(/<div class="gs_a"[^>]*>([\s\S]*?)<\/div>/) || [])[1]) },
+      snippet: htmlText((ri.match(/<div class="gs_rs"[^>]*>([\s\S]*?)<\/div>/) || [])[1]),
+      resources: pdf ? [{ file_format: pdfKind || 'PDF', link: htmlText(pdf) }] : []
+    });
+  }
+  return out;
+}
+
+/** One Google Scholar search read from scholar.google.com: { ok, results } | { ok: false, blocked?, error } */
+async function scholarDirect(query) {
+  const key = `gsd:${query}`;
+  const http = require('./http');
+  const cached = await http.cacheGet(key);
+  if (cached) return cached;
+  const r = await http.getText(`https://scholar.google.com/scholar?hl=en&as_sdt=0%2C5&q=${enc(query)}`, {
+    ttl: 0, retries: 0, timeout: 15000,
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', 'Accept-Language': 'en-US,en;q=0.9', Accept: 'text/html,application/xhtml+xml' }
+  });
+  const text = r.text || (typeof r.data === 'string' ? r.data : '');
+  if (r.status === 429 || r.status === 403 || /gs_captcha|recaptcha|unusual traffic|\/sorry\/|<title>\s*Verifying/i.test(`${r.url || ''} ${text.slice(0, 20000)}`)) return { ok: false, blocked: true, error: 'Google Scholar asked for a CAPTCHA' };
+  if (!r.ok) return { ok: false, error: r.error || `HTTP ${r.status}` };
+  if (!/gs_res_ccl|gs_r gs_or|did not match any articles/i.test(text)) return { ok: false, error: 'Google Scholar page not recognised' };
+  const res = { ok: true, results: parseScholarHtml(text) };
+  http.cacheSet(key, res, Date.now() + 30 * 86400000);
+  return res;
+}
+
+async function googleScholarDirect(ref) {
+  // Google answers with a bot check (CAPTCHA, "Verifying..."): Scholar is left out for an hour, not counted as an error
+  if (Date.now() < scholarDirectBlockedUntil) return { skipped: true };
+  const title = q(ref.title || '').slice(0, 250);
+  if (title.length < 12) return { records: [] };
+  const fam = ref.authors?.[0]?.family ? ` author:"${q(ref.authors[0].family)}"` : '';
+  let r = await scholarDirect(`"${title}"${fam}`);
+  if (r.ok && !r.results.length && fam) r = await scholarDirect(title);
+  if (r.blocked) { scholarDirectBlockedUntil = Date.now() + 3600000; return { skipped: true }; }
+  if (!r.ok) return { error: r.error };
+  return { records: r.results.slice(0, 5).map(fromScholar).filter(x => x.type !== 'citation') };
+}
+
+/** Google Scholar can be asked: through SerpApi, else directly */
+const scholarAvailable = () => scholarEnabled() || scholarDirectEnabled();
+
 async function googleScholarSearch(ref) {
-  if (!scholarEnabled()) return { skipped: true };
+  if (!scholarEnabled()) return scholarDirectEnabled() ? googleScholarDirect(ref) : { skipped: true };
   if (Date.now() < scholarBlockedUntil) return { error: 'Google Scholar paused (SerpApi searches used up or key rejected)' };
   const title = q(ref.title || '').slice(0, 250);
   if (title.length < 12) return { records: [] };
@@ -672,7 +742,16 @@ async function googleWebSearch(ref) {
     if (title.length < 15) return { hits: [] };
     const w = await require('./webSearch').phraseSearch(title, 8).catch(e => ({ ok: false, error: e.message }));
     if (!w.ok) return w.error === 'skipped' ? { skipped: true } : { error: w.error };
-    return { hits: webHits(ref, (w.results || []).map(o => ({ title: o.title, link: o.url, snippet: o.snippet }))) };
+    const found = (w.results || []).map(o => ({ title: o.title, link: o.url, snippet: o.snippet }));
+    const hits = webHits(ref, found);
+    if (hits.length) return { hits };
+    const read = await pageConfirm(ref, found.map(o => o.link).filter(Boolean).slice(0, 4));
+    if (read.length) return { hits: read };
+    // the full text as a PDF (a journal's or repository's copy, the "[PDF]" link Google Scholar shows): searched for
+    // and read for the cited title and first author
+    const p = await require('./webSearch').phraseSearch(title, 5, 'filetype:pdf').catch(() => ({ ok: false }));
+    const pdfs = (p.ok ? p.results || [] : []).map(o => o.url).filter(u => u && !found.some(f => f.link === u));
+    return { hits: pdfs.length ? await pageConfirm(ref, pdfs.slice(0, 3)) : [] };
   }
   if (Date.now() < scholarBlockedUntil) return { error: 'Google paused (SerpApi searches used up or key rejected)' };
   if (title.length < 15) return { hits: [] };
@@ -681,13 +760,95 @@ async function googleWebSearch(ref) {
   if (serpBlocked(r)) { scholarBlockedUntil = Date.now() + 3600000; return { error: r.data?.error || `SerpApi HTTP ${r.status}` }; }
   if (!r.ok) return { error: r.data?.error || r.error || r.status };
   if (r.data?.error && !/hasn't returned any results/i.test(r.data.error)) return { error: r.data.error };
-  return { hits: webHits(ref, r.data?.organic_results || []) };
+  const hits = webHits(ref, r.data?.organic_results || []);
+  return { hits: hits.length ? hits : await pageConfirm(ref, (r.data?.organic_results || []).map(o => o.link).filter(Boolean).slice(0, 4)) };
+}
+
+// ---------------------------------------------------------------- pages and PDFs read for a reference
+// A search result whose title is not the article's ("(PDF) …", a file name, a repository page) or the web address a
+// reference gives is opened, and its text (a PDF's first pages) is read for the cited title and first author.
+const PAGE_MAX = 15e6;
+const textNorm = t => ` ${String(t || '').toLowerCase().replace(/(\p{L})-\s+(\p{L})/gu, '$1$2').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+const stripPage = h => String(h || '').replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
+
+/** The text of a page or PDF at this address (PDF: first three pages), or null */
+async function readPage(url) {
+  if (!/^https?:\/\//i.test(url)) return null;
+  const r = await require('./http').getBuffer(url, { timeout: 20000 });
+  if (!r.ok || !r.buffer || r.buffer.length > PAGE_MAX) return null;
+  if (r.buffer.slice(0, 1024).toString('latin1').includes('%PDF-')) {
+    const pages = await require('./tools/fulltext').filePages(r.buffer, 'page.pdf').catch(() => null);
+    return pages?.length ? { kind: 'PDF', text: pages.slice(0, 3).map(p => p.text).join(' ') } : null;
+  }
+  const html = r.buffer.toString('utf8');
+  const head = [(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '', ...[...html.matchAll(/<meta[^>]+content="([^"]{0,600})"/gi)].map(m => m[1])].join(' ');
+  return { kind: 'page', text: `${head} ${stripPage(html)}`.slice(0, 300000) };
+}
+
+/**
+ * Whether a text names the reference: { title, author } when its whole title is there (and its first author), or
+ * { words } for a cited web page whose page names most of the cited subject's distinctive words (a PubChem record
+ * "Domperidone Maleate | CID 6604595"); null otherwise
+ */
+function namesReference(ref, text, { webPage = false } = {}) {
+  const T = textNorm(text), title = textNorm(ref.title).trim();
+  const fam = textNorm(ref.authors?.[0]?.family).trim();
+  const author = fam.length >= 3 && T.includes(` ${fam} `);
+  if (title.split(' ').length >= 4 && T.includes(` ${title} `)) return { title: true, author };
+  if (webPage) {
+    const words = [...new Set(title.split(' ').filter(w => w.length >= 4 || /\d/.test(w)))];
+    if (words.length >= 2 && words.filter(w => T.includes(` ${w} `)).length >= Math.ceil(words.length * 0.7)) return { words: true, author };
+  }
+  return null;
+}
+
+/**
+ * A PubChem compound cited by CID or by its page (PubChem answers pages with a browser check, so its PUG REST API is
+ * asked): the record with that CID must carry the compound named in the reference. -> web hit or null
+ */
+async function pubchemConfirm(ref) {
+  const raw = String(ref.raw || '');
+  if (!/pubchem/i.test(raw)) return null;
+  let cid = (raw.match(/\bCID[:\s#]*(\d{1,10})\b/i) || [])[1];
+  const page = (raw.match(/pubchem\.ncbi\.nlm\.nih\.gov\/compound\/([^\s/?#]+)/i) || [])[1];
+  if (!cid && page) {
+    if (/^\d+$/.test(page)) cid = page;
+    else {
+      const r = await getJson(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${enc(decodeURIComponent(page).replace(/[-_]+/g, ' '))}/cids/JSON`, { ttl: 30 * 86400, timeout: 15000, retries: 1 });
+      cid = r.ok ? String(r.data?.IdentifierList?.CID?.[0] || '') : '';
+    }
+  }
+  if (!cid) return null;
+  const r = await getJson(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${enc(cid)}/property/Title/JSON`, { ttl: 30 * 86400, timeout: 15000, retries: 1 });
+  const name = r.ok ? r.data?.PropertyTable?.Properties?.[0]?.Title : null;
+  if (!name) return null;
+  const cited = textNorm(`${ref.title} ${page ? decodeURIComponent(page).replace(/[-_]+/g, ' ') : ''}`);
+  const words = textNorm(name).trim().split(' ').filter(w => w.length >= 3);
+  if (!words.length || !words.every(w => cited.includes(` ${w} `))) return null;
+  return { title: `${name} (PubChem CID ${cid})`, url: `https://pubchem.ncbi.nlm.nih.gov/compound/${cid}`, host: 'pubchem.ncbi.nlm.nih.gov', sim: 0.95, kind: 'record', snippet: `The PubChem record CID ${cid} is ${name}, as cited` };
+}
+
+/** Pages / PDFs at these addresses that name the reference, as web hits: [{ title, url, host, sim, snippet, author, kind }] */
+async function pageConfirm(ref, urls, { webPage = false } = {}) {
+  const pc = webPage ? await pubchemConfirm(ref).catch(() => null) : null;
+  if (pc) return [pc];
+  // the pages are read at once; the first (in result order) that names the reference is taken
+  const read = await Promise.all(urls.map(url => readPage(url).catch(() => null)));
+  for (const [i, url] of urls.entries()) {
+    let host = '';
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { continue; }
+    const p = read[i];
+    const n = p ? namesReference(ref, p.text, { webPage }) : null;
+    if (n) return [{ title: ref.title, url, host, sim: n.title ? 0.97 : 0.9, author: n.author, kind: p.kind,
+      snippet: `${p.kind === 'PDF' ? 'The PDF' : 'The page'} ${n.title ? `contains the cited title${n.author ? ' and the first author' : ''}` : 'names the cited subject'}` }];
+  }
+  return [];
 }
 
 /** Web results whose page title is the reference's title (>= 0.9): [{ title, url, host, sim, snippet }] */
 function webHits(ref, results) {
   // page titles carry the site name ("Title | Journal", "Title - ScienceDirect") and Google shortens long ones with "..."
-  const pageTitle = t => String(t || '').replace(/\s*(?:\||–|—|-\s)\s*[^|–—]{2,60}$/, '').replace(/(?:\.\.\.|…)\s*$/, '').trim();
+  const pageTitle = t => String(t || '').replace(/^\s*(?:[([]\s*(?:PDF|HTML|DOC|DOCX)\s*[)\]]\s*)+/i, '').replace(/\s*(?:\||–|—|-\s)\s*[^|–—]{2,60}$/, '').replace(/(?:\.\.\.|…)\s*$/, '').trim();
   const hits = (results || []).map(o => {
     const t = pageTitle(o.title);
     const shortened = /(?:\.\.\.|…)\s*$/.test(String(o.title || ''));
@@ -718,7 +879,7 @@ const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (Serp
 
 module.exports = {
   crossrefInJournal,
-  DATABASES, databases, scholarEnabled, webSearchEnabled, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
+  DATABASES, databases, scholarEnabled, scholarAvailable, parseScholarHtml, webSearchEnabled, pageConfirm, pubchemConfirm, namesReference, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,
   pubmedPmid, pubmedSearch, europepmcSearch, s2Doi, s2Search,

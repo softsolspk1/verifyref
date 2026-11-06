@@ -418,7 +418,11 @@ function upscaleGray(src, k) {
   return { w: nw, h: nh, g: out };
 }
 
-function orbCore(img, { max = 260, threshold = 18 } = {}) {
+// 380 keypoints per panel (was 260): a copied area covering a third of a panel kept too few of them. Benchmarks of 6 Nov:
+// generated partial copies 18 -> 22 of 25, copy-moves 15 -> 18 of 25; BioFors real duplicates 87 -> 91 of 155 (Strong 49
+// -> 55), cloned areas 25 -> 26 of 78, false reports unchanged (25 of 231 clean images, 0 of 17,571 unrelated pairs);
+// a 30-panel manuscript 10.1 s -> 12.9 s
+function orbCore(img, { max = 380, threshold = 18 } = {}) {
   const levels = [];
   let cur = img, scale = 1;
   while (Math.min(cur.w, cur.h) >= 64 && levels.length < 5) {

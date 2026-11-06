@@ -1,0 +1,121 @@
+PJPS DATA INTEGRITY SYSTEM - SUGGESTIONS TO RAISE ACCURACY AND SPEED
+Date: 6 November 2026 (from the full audit of Modules 1-5, docs/PJPS-Full-Audit-Report-2026-11-06.docx)
+
+Items marked [PJPS] need an account, a key, a decision or data from PJPS. The others are development work.
+
+
+=====================================================================================
+A. ACTIONS FOR PJPS (in order of effect)
+=====================================================================================
+
+1. [PJPS] Fund the OpenAlex API key  (https://openalex.org/pricing)
+   - OpenAlex now charges per search (about USD 0.001 each). The PJPS key has a budget of
+     USD 1 a day; without a key each network address gets only USD 0.10 a day.
+   - One Full Screening uses about 250 OpenAlex searches (Module 1 about 2 per reference,
+     the similarity report up to 150 phrase searches, the novelty check about 20).
+     USD 1 a day therefore covers only about 4 Full Screenings a day.
+   - When the budget is spent the system keeps working (fixed on 6 Nov), but:
+       * Module 1 loses details only OpenAlex holds (e.g. the volume of some BMJ records),
+       * the similarity report stops searching publisher full texts,
+       * the novelty assessment uses fewer related works.
+   - Suggested budget: USD 5-10 a day for 20-40 screenings a day.
+
+2. [PJPS] Web search key for the Similarity Report  (Brave Search API - in progress)
+   - Without it, "Internet sources" are only Wikipedia (added 6 Nov) and the external
+     comparison (on request or from 15%). Turnitin's "Internet" category needs the open web.
+   - Brave Search API: free tier 2,000 searches a month (about 30 reports at 60 searches each);
+     paid tiers beyond. Set BRAVE_API_KEY in Vercel -> Settings -> Environment Variables,
+     then redeploy.
+   - Alternatives already supported: Google Programmable Search (GOOGLE_CSE_KEY + GOOGLE_CSE_CX,
+     100 searches a day free) or SerpApi (SERPAPI_KEY, paid; also enables the Google Scholar
+     fallback in Module 1).
+
+3. [PJPS] Free NCBI API key  (https://www.ncbi.nlm.nih.gov/account/)
+   - Set NCBI_API_KEY in Vercel. PubMed then accepts 10 requests a second instead of 3, and
+     the system sends 8 PubMed requests at once instead of 2: Module 1 becomes faster
+     (PubMed was the main remaining wait).
+
+4. [PJPS] Free Semantic Scholar API key  (https://www.semanticscholar.org/product/api#api-key-form)
+   - Semantic Scholar often answers "Too many requests" without a key. With a key it answers
+     reliably in Module 1, and its passage ("snippet") search could be added to the
+     similarity report for publications.
+
+5. [PJPS] PubPeer API key
+   - Module 4 would show PubPeer comments on cited papers and on the authors' earlier papers.
+
+6. [PJPS] STM Integrity Hub membership
+   - Cross-publisher duplicate submission check (the same manuscript sent to several journals
+     at once) and the Papermill Alarm. Membership, not code.
+
+7. [PJPS] Labelled data from real PJPS submissions
+   - Module 1: 200+ references with the correct verdict, to show an error rate below 1-2%
+     (85 test cases today: below about 3.5%).
+   - Module 2: 100 accepted PJPS manuscripts, and the editor's written sign-off on every
+     house-style rule.
+   - Module 3B: a 100-claim gold set from PJPS manuscripts checked by an editor.
+   - Module 4: the outcomes of PJPS's own integrity cases (cleared / confirmed mill), to tune
+     the signal weights on PJPS's own submissions.
+
+8. [PJPS] Decision on figures leaving PJPS (Module 5)
+   - Today figures never leave PJPS, so the 155-160 million figure databases of ImageTwin /
+     Proofig are not searched and AI-generated images are judged on file markers only.
+     A vendor connection was built and removed by policy; it can be restored if PJPS signs a
+     vendor contract.
+
+
+=====================================================================================
+B. DEVELOPMENT WORK
+=====================================================================================
+
+Module 4 - Paper Mill Detection (31% of real mill papers flagged, 4% false alarms)
+   - Use PJPS case outcomes (A7) to tune the weights.
+   - More reference-network signals: references shared with known mill papers, citation
+     rings between the cited works.
+   - Refresh the mill look-alike index (title + abstract of every paper-mill retraction)
+     every month.
+
+Module 5 - Image Integrity (real duplicates 56%, cloned areas 32%, splicing indicator only)
+   - Better candidate stage for partial copies (about 6 in 10 missed duplicates never become
+     candidates).
+   - Dense copy-move detection for cloned areas.
+   - Fewer false alarms on flow-cytometry plots and repeated textures.
+
+Module 3B - Claim support (72% of supported claims found, 38% of contradictions flagged)
+   - Fetch more open full texts (the abstract alone misses much support).
+   - A model trained on biomedical claims once the PJPS gold set (A7) exists.
+
+Similarity Report
+   - Open web through the web-search key (A2).
+   - Semantic Scholar passage search (A4).
+   - Paraphrase: heavy rewording (SpinBot) is matched at 42% - a stronger local model.
+   - Translated plagiarism (Urdu / Chinese source rewritten in English) is not detected.
+
+Module 1
+   - Hold OpenAlex-only details: when OpenAlex is out of budget, look up the volume from the
+     publisher's own DOI record where possible.
+
+
+=====================================================================================
+C. WHAT WAS FIXED ON 6 NOVEMBER (for reference)
+=====================================================================================
+
+   - Full Screening no longer stopped by Vercel's 300-second limit (515 s -> about 3 minutes;
+     modules side by side; finished steps kept on a restart).
+   - Module 5 runs alongside the screening instead of before it.
+   - Paper mill step 52 s -> 10 s; novelty 189 s -> 59 s; Module 1 82 s -> 60 s;
+     similarity 216 s -> 143 s (cold).
+   - Language model stored on Cloudflare R2 (no download on every Vercel cold start).
+   - Wikipedia searched by the similarity report.
+   - OpenAlex budget: Module 1 keeps verifying when it is spent (41/45 -> 45/45 features).
+   - Authors read from title pages with affiliation marks (found in 16 of 20 real screenings,
+     all that name their authors; was 9 with false names).
+   - Earlier retractions of authors with common surnames found (planted signals 10/10).
+   - 7 tortured-phrase fingerprints with curly apostrophes now match (14,729 of 14,729).
+   - One cited mill-retracted paper re-weighted (false alarms 6 -> 5 of 126).
+   - Repository copies without journal details no longer pass a miscited reference.
+   - Module 5: 380 keypoints per panel (was 260): real duplicates 56% -> 59% (Strong 49 -> 55 of 155), generated
+     partial copies 18 -> 22 of 25, copy-moves 15 -> 18 of 25, no new false alarms; a 30-panel manuscript
+     10.1 s -> 12.9 s.
+   - Module 4: five new candidate signals measured (e-mail domains, reference relevance, reference count, data
+     statements, meaning look-alike of 13,417 mill abstracts); none raised detection without more false alarms,
+     so none was added (docs/benchmark-papermill-notes.md).

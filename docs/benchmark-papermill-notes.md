@@ -132,3 +132,29 @@ output of the mills already exposed, not of new mills.
 Out of scope is shown to the editor with weight 0 (`out-of-scope`): an editorial question, not evidence of a mill here.
 The cover-letter checks (`cover-*`) and waves of same-template submissions by other authors (`submission-wave`) cannot be
 benchmarked on published papers (no cover letters, no PJPS submission stream); they carry low weights (1-2).
+
+## Whole module and new candidate signals (2026-11-06)
+
+`scripts/benchmark-papermill-combined.js` scores the module as the live tool does: text signals, look-alike and the
+reference signals added up into one risk level. 150 mill papers / 126 ordinary papers, MEDIUM or HIGH:
+
+| Scoring | Half A mill / ordinary | Half B mill / ordinary | All |
+|---|---|---|---|
+| Text signals only | | | 24/150 vs 2/126 |
+| All measurable signals (before 6 Nov) | 24/70 vs 2/64 | 22/80 vs 4/62 | 46/150 vs 6/126 |
+| One cited mill retraction = weight 2, not HIGH (adopted) | 24/70 vs 1/64 | 22/80 vs 4/62 | 46/150 vs 5/126 |
+
+45 of the 104 mill papers still LOW have no signal at all. Candidates measured on the cached full texts
+(`scripts/explore-papermill-features.js`, `scripts/benchmark-papermill-meaning.js`), none adopted:
+
+| Candidate | Mill | Ordinary | Why not |
+|---|---|---|---|
+| All author e-mails free-mail | 35/150 | 36/126 | no separation |
+| Chinese free-mail (163, qq, 126 ...) | 34/150 | 27/126 | no separation |
+| Half the references share < 2 topic words with the paper | 5/150 | 4/126 | no separation |
+| Fewer than 25 references | 38/150 | 16/126 | half A 21/70 vs 4/64 but half B 17/80 vs 12/62 |
+| Data "available upon request" | 84/150 | 52/126 | weak (likelihood ratio about 1.3) |
+| Meaning look-alike: 3+ mill retractions at cosine >= 0.7 (all-MiniLM-L6-v2, 13,417 mill abstracts) | 24/150 | 4/126 | alone it separates (both halves), but added to the module: 48/150 vs 8/126 (+2 mill, +3 false alarms) - it finds mostly the papers the word look-alike already finds |
+
+The meaning index (`scripts/build-mill-embeddings.js`, data/papermill/mill-embeddings.*) and `millIndex.meaningLookalikes`
+are kept for later tests; the live tool does not use them.

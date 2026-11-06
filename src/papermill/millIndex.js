@@ -160,6 +160,47 @@ async function abstractLookalikes(title, abstract, { doi = null } = {}) {
   return hits.sort((a, b) => b[1] - a[1]).slice(0, 8).map(([i, sc]) => evidenceOf(ix.rows[i], sc));
 }
 
+// ------------------------------------------------------------------ meaning (sentence embeddings)
+
+// every mill retraction with an abstract as a unit vector (int8 x 127) of its title + abstract start, built by
+// scripts/build-mill-embeddings.js: a manuscript made from the same template with other genes, drugs or diseases is
+// close in meaning even when it shares few words
+const MEANING = 'papermill/mill-embeddings';
+const meaningText = (title, abs) => `${title || ''}. ${abs || ''}`.replace(/\s+/g, ' ').slice(0, 600);
+let meanIx = null, meanLoading = null;
+async function meaningIndex() {
+  if (meanIx && Date.now() - meanIx.at < DAY) return meanIx.empty ? null : meanIx;
+  if (!meanLoading) meanLoading = (async () => {
+    await require('../datasetStore').ensureLocal('papermill/').catch(() => {});
+    const base = path.join(cfg.DATA_DIR, MEANING);
+    let info, buf;
+    try { info = JSON.parse(fs.readFileSync(`${base}.json`, 'utf8')); buf = fs.readFileSync(`${base}.bin`); } catch { return { at: Date.now(), empty: true }; }
+    const byDoi = new Map((await millRows()).map(r => [r.doi, r]));
+    return { at: Date.now(), dim: info.dim, scale: info.scale, vecs: new Int8Array(buf.buffer, buf.byteOffset, buf.length), rows: info.dois.map(d => byDoi.get(d) || { doi: d, title: '' }) };
+  })().then(ix => { meanIx = ix; meanLoading = null; return ix; }, e => { meanLoading = null; throw e; });
+  const ix = await meanLoading;
+  return ix.empty ? null : ix;
+}
+
+/** Mill retractions closest in meaning to the manuscript's title + abstract: [{ score (cosine), title, journal, ... }] or null */
+async function meaningLookalikes(title, abstract, { doi = null, limit = 8, min = 0.6 } = {}) {
+  if (String(abstract || '').split(/\s+/).length < 30) return null;
+  const ix = await meaningIndex();
+  if (!ix) return null;
+  const v = (await require('../tools/embed').embed([meaningText(title, abstract)]).catch(() => null))?.[0];
+  if (!v) return null;
+  const { dim, scale, vecs, rows } = ix;
+  const own = normTitle(title);
+  const hits = [];
+  for (let i = 0; i < rows.length; i++) {
+    let s = 0;
+    for (let d = 0, o = i * dim; d < dim; d++) s += v[d] * vecs[o + d];
+    s /= scale;
+    if (s >= min && notSelf(rows[i], own, doi)) hits.push([i, s]);
+  }
+  return hits.sort((a, b) => b[1] - a[1]).slice(0, limit).map(([i, sc]) => evidenceOf(rows[i], sc));
+}
+
 /** The abstract of a manuscript: the given one, else the text after an "Abstract" heading, else the opening words */
 function abstractOf(meta = {}, text = '') {
   if (String(meta.abstract || '').trim().length > 150) return String(meta.abstract);
@@ -169,4 +210,4 @@ function abstractOf(meta = {}, text = '') {
   return body.split(/\s+/).slice(0, 350).join(' ');
 }
 
-module.exports = { titleLookalikes, abstractLookalikes, abstractOf, abstractIndex, titleIndex, ABSTRACTS };
+module.exports = { titleLookalikes, abstractLookalikes, meaningLookalikes, meaningIndex, abstractOf, abstractIndex, titleIndex, ABSTRACTS };

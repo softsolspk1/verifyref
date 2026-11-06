@@ -104,3 +104,23 @@ Three hand-made measures of a joined blot were tested on BioFors CSTD, split by 
 None separates spliced from clean blots: ordinary lane edges and blot borders produce the same patterns. The existing
 detector (background step of 12+ grey levels, 15 / 124 found, 10 / 151 clean blots flagged) was kept. Better splice
 detection needs a model trained on annotated splices; it is not reachable with these measures.
+
+## 380 keypoints per panel (2026-11-06)
+
+ORB keypoints kept per panel raised from 260 to 380 (public/js/images/engine.js, orbCore): a copied area covering a third
+of a panel kept too few of them. Measured the same day, same settings (`benchmark-public-images.mjs 60`,
+`benchmark-images.mjs --task all --docs 60 --neg 300`):
+
+| Benchmark | 260 | 380 |
+|---|---|---|
+| Generated partial copy (55% crop) | 18/25 | 22/25 |
+| Generated copy-move | 15/25 | 18/25 |
+| Generated clean pairs falsely reported | 0/30 | 0/30 |
+| BioFors duplicated panels found | 87/155 (56%) | 91/155 (59%) |
+| BioFors found as Strong | 49 | 55 |
+| BioFors reports not in the annotation (Strong) | 167 (64) | 171 (61) |
+| BioFors cloned areas found / clean images reported | 25/78 / 25/231 | 26/78 / 25/231 |
+| BioFors unrelated pairs falsely reported | 0/17,571 | 0/17,571 |
+| Time, 30-panel manuscript (prepare + compare) | 10.1 s | 12.9 s |
+
+500 keypoints gave the same generated-set results as 380 at a higher cost.

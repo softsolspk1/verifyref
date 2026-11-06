@@ -89,7 +89,7 @@ router.post('/checks', user, wrap(async (req, res) => {
   // a browser tab opened before an update still runs the old screening form, which can skip Module 5 without saying so
   if (kind === 'manuscript' && req.get('sec-fetch-site') && !b.imagesHandled) return res.status(409).json({ success: false, message: 'This page is out of date — press Ctrl+F5 to reload it, then run the Full Screening again.' });
   // re-runs are started by POST /checks/:id/recheck only, after the access check (recheckOwner reads another user's reports)
-  const { recheckOf, recheckOwner, ...input } = b;
+  const { recheckOf, recheckOwner, recheckChain, ...input } = b;
   const job = await createJob(req.user.id, 'check', { ...input, kind });
   res.json({ success: true, jobId: job.id, offline: cfg.DESKTOP && !isOnline() });
 }));
@@ -148,7 +148,7 @@ router.post('/checks/:id/recheck', user, wrap(async (req, res) => {
     const job = await createJob(req.user.id, 'check', {
       kind: 'manuscript', bodyText, referencesText, meta: { ...c.result.meta, version: null },
       imagesCheckId: c.result.images?.checkId || null, imagesHandled: true, imagesNote: c.result.images?.checkId ? null : c.result.imagesNote || null,
-      recheckOf: c.row.id, recheckOwner: c.row.user_id, issueId: c.row.issue_id, compareSubmissions: !!c.result.plagiarism?.submissions?.compared,
+      recheckOf: c.row.id, recheckOwner: c.row.user_id, recheckChain: [...(c.result.recheckChain || []), c.result.changes?.previousId].filter(Boolean), issueId: c.row.issue_id, compareSubmissions: !!c.result.plagiarism?.submissions?.compared,
       externalCompare: !!c.result.plagiarism?.external?.requested
     });
     return res.json({ success: true, jobId: job.id, scope: 'full' });

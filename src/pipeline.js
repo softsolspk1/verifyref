@@ -81,6 +81,9 @@ async function runCheck(input, update, ctx = {}) {
   // just after a server start the retraction and predatory-journal lists are still being restored: wait for them briefly
   await require('./datasets').coreDatasetsReady();
   const result = { kind, meta, createdAt: new Date().toISOString(), truncated, totalFound, datasets: await require('./datasets').datasetHealth() };
+  // a re-run and every earlier run of the same report: compared with each other, they are not duplicate submissions
+  const recheckChain = recheckIds(input);
+  if (recheckChain.length) result.recheckChain = recheckChain;
   if (textOnly) result.noReferenceList = noList ? 'No reference list was found in the document, so the bibliography, PJPS style and citation checks were not run. The other modules reviewed the text.' : 'The reference list is empty.';
 
   // Full Screening: the similarity report, novelty and author identity need only the text, so they run while Module 1
@@ -164,7 +167,7 @@ async function screening(result, { input, body, refs, meta, update, side, stage,
     if (c?.result?.summary) { imageReport = c.result; images = { findings: c.result.summary.byLevel || {}, categories: c.result.summary.byCategory || {}, level: c.result.summary.level, checkId: c.row.id, summary: c.result.summary }; }
   }
   const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');
-  const pm = await stage('papermill', () => detectPaperMill({ text, body, meta, references: result.references.results, pattern: result.pattern, suggestedReviewers: input.suggestedReviewers || '', coverLetter: String(input.coverLetter || '').slice(0, 20000), images }));
+  const pm = await stage('papermill', () => detectPaperMill({ text, body, meta, references: result.references.results, pattern: result.pattern, suggestedReviewers: input.suggestedReviewers || '', coverLetter: String(input.coverLetter || '').slice(0, 20000), images, excludeCheckIds: result.recheckChain || [] }));
   result._shingles = pm._shingles;
   delete pm._shingles;
   result.papermill = pm;
@@ -189,6 +192,9 @@ async function screening(result, { input, body, refs, meta, update, side, stage,
  * The Full Screening modules that need only the text, run side by side: the similarity report (text overlap with the
  * literature), novelty / citation outlook and author identity. None may stop the report. -> { plagiarism, novelty, authorIdentity }
  */
+/** The report a re-run repeats and every earlier run of it */
+const recheckIds = input => [...new Set([input.recheckOf, ...(input.recheckChain || [])].map(Number).filter(Boolean))].slice(0, 20);
+
 async function textModules({ input, body, refs, meta, update, stage, deadline }) {
   const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');
   const similarity = stage('similarity', async () => {
@@ -196,7 +202,7 @@ async function textModules({ input, body, refs, meta, update, stage, deadline })
     const PL = require('./checks/plagiarism');
     update('Similarity report: comparing the text with published papers, the web and earlier PJPS submissions');
     // "Submitted works" (opt-in): earlier PJPS submissions sharing text, other versions of this manuscript left out
-    const submissions = input.compareSubmissions ? await PL.earlierSubmissions(body, { excludeCode: meta.manuscriptCode || null, excludeCheckIds: [input.recheckOf] }).catch(() => []) : null;
+    const submissions = input.compareSubmissions ? await PL.earlierSubmissions(body, { excludeCode: meta.manuscriptCode || null, excludeCheckIds: recheckIds(input) }).catch(() => []) : null;
     // the similarity search stops in time for the rest of the report to be saved within this run
     return PL.checkPlagiarism({ body, bibliography: refs.map(r => r.raw).join('\n'), meta, submissions, external: !!input.externalCompare, deadline: deadline - 30000 }, s => update(`Similarity: ${s}`))
       .catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));

@@ -359,7 +359,8 @@ function templateSimilarity(a, b) {
   return k / Math.min(x.size, y.size);
 }
 
-async function duplicateSubmissions({ body, meta, excludeCode }) {
+async function duplicateSubmissions({ body, meta, excludeCode, excludeCheckIds = [] }) {
+  const skip = new Set(excludeCheckIds.map(Number).filter(Boolean));
   const mine = new Set(shingles(body));
   const waves = [];
   const myFamilies = new Set((meta.authors || []).map(a => String(a.family || a.name || '').trim().split(/\s+/).pop().toLowerCase()).filter(Boolean));
@@ -367,6 +368,8 @@ async function duplicateSubmissions({ body, meta, excludeCode }) {
   const out = [];
   for (const r of rows) {
     if (excludeCode && r.manuscript_code && r.manuscript_code === excludeCode) continue;
+    // a re-run is not a duplicate of the report it re-runs (or of earlier runs of the same report)
+    if (skip.has(Number(r.check_id))) continue;
     const theirs = r.data?.shingles || [];
     let inter = 0;
     for (const h of theirs) if (mine.has(h)) inter++;
@@ -806,7 +809,7 @@ async function detectPaperMill(input, update = () => {}) {
 
   update('Checking cell lines and earlier submissions', 70);
 
-  const dup = await duplicateSubmissions({ body, meta, excludeCode: meta.manuscriptCode }).catch(e => ({ compared: 0, matches: [], shingles: [], error: e.message }));
+  const dup = await duplicateSubmissions({ body, meta, excludeCode: meta.manuscriptCode, excludeCheckIds: input.excludeCheckIds || [] }).catch(e => ({ compared: 0, matches: [], shingles: [], error: e.message }));
   const strong = dup.matches.filter(m => m.textOverlap >= 50 || m.titleSimilarity >= 90);
   if (strong.length) sig('data', 'duplicate', `Matches an earlier PJPS submission (${strong.length})`, 'high', 5, strong.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId}: “${m.title || ''}” — ${m.textOverlap}% text overlap${m.titleSimilarity >= 90 ? `, title ${m.titleSimilarity}% similar` : ''}`, checkId: m.checkId })));
   else if (dup.matches.length) sig('data', 'duplicate-partial', `Partial text overlap with earlier PJPS submission(s) (${dup.matches.length})`, 'medium', 3, dup.matches.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId}: “${m.title || ''}” — ${m.textOverlap}% overlap`, checkId: m.checkId })));

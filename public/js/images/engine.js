@@ -206,6 +206,32 @@ function isChart(mask, w, box) {
   return hAxis && vAxis;
 }
 
+/**
+ * A drawn graphic (bar chart from Excel or GraphPad pasted as a picture): its mid-tones are a few exact grey values in
+ * flat areas, with white around them. Photographs, blots and micrographs always carry some noise. Measured on BioFors
+ * (6 Nov 2026): 0 of 700 blots, 700 micrographs, 700 photographs and 700 FACS plots pass; drawn bar charts all pass.
+ * Without it, solid bars were read as blots and each bar became a panel with "cloned areas" and "joined lanes".
+ */
+export function flatGraphic(img, box = { x: 0, y: 0, w: img.width, h: img.height }) {
+  const s = Math.min(1, 160 / Math.max(box.w, box.h));
+  const sm = resizeRGBA(img, box.w * s, box.h * s, box);
+  const w = sm.width, h = sm.height, n = w * h, g = new Uint8Array(n);
+  for (let i = 0; i < n; i++) g[i] = Math.round(0.299 * sm.data[i * 4] + 0.587 * sm.data[i * 4 + 1] + 0.114 * sm.data[i * 4 + 2]);
+  let white = 0, mid = 0, flat = 0;
+  const counts = new Map();
+  for (let i = 0; i < n; i++) if (g[i] >= 235) white++;
+  for (let y = 0; y < h - 1; y++) for (let x = 0; x < w - 1; x++) {
+    const v = g[y * w + x];
+    if (v >= 235 || v <= 25) continue;
+    mid++;
+    counts.set(v, (counts.get(v) || 0) + 1);
+    if (v === g[y * w + x + 1] && v === g[(y + 1) * w + x]) flat++;
+  }
+  if (white < n * 0.03 || mid < n * 0.1) return false;
+  const [c1 = 0, c2 = 0] = [...counts.values()].sort((a, b) => b - a);
+  return flat >= mid * 0.7 && c1 + c2 >= mid * 0.7;
+}
+
 function trim(mask, w, box) {
   let { x, y, w: bw, h: bh } = box;
   const rowEmpty = yy => { for (let xx = x; xx < x + bw; xx++) if (!mask[yy * w + xx]) return false; return true; };
@@ -230,7 +256,8 @@ export function splitPanels(img, { maxDim = 900, minSize = 40 } = {}) {
   (function cut(box, horizontal, depth) {
     box = trim(mask, w, box);
     if (box.w < min || box.h < min) return;
-    if (depth > 0 && !isChart(mask, w, box)) {
+    // a chart is one panel: its axes, or its flat drawn bars, are not cut apart
+    if (depth > 0 && !isChart(mask, w, box) && !flatGraphic(small, box)) {
       const parts = gutters(mask, w, box, horizontal);
       if (parts.length > 1) {
         for (const [a, b] of parts) cut(horizontal ? { x: box.x, y: box.y + a, w: box.w, h: b - a } : { x: box.x + a, y: box.y, w: b - a, h: box.h }, !horizontal, depth - 1);
@@ -280,6 +307,7 @@ export function classify(img, box) {
   for (let y = 0; y < gray.h; y++) { let a = 0; for (let x = 0; x < gray.w; x++) a += gray.g[y * gray.w + x]; rows.push(a / gray.w); }
   const rs = stats(rows); rowVar = rs.std;
   if (wf > 0.55 && colors.size < 70) return 'chart';
+  if (flatGraphic(img, box)) return 'chart';
   if (ch < 14 && (aspect > 1.6 || rowVar > 18) && df < 0.5 && wf < 0.6) return 'blot';
   if (pf > 0.25) return 'histology';
   if (df > 0.35 && ch > 18) return 'fluorescence';

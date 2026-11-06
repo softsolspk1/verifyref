@@ -261,32 +261,65 @@ function emailsOf(text) {
   return [...new Set((text.slice(0, 12000).match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) || []).map(e => e.toLowerCase().replace(/[.,;]+$/, '')))];
 }
 
-const AFF_STOP = new Set(['university', 'universit', 'department', 'faculty', 'college', 'institute', 'school', 'hospital', 'centre', 'center', 'pakistan', 'the', 'and', 'of', 'for', 'sciences', 'science', 'medical', 'pharmacy', 'pharmaceutical', 'research', 'national']);
+const AFF_STOP = new Set(['university', 'universit', 'department', 'faculty', 'college', 'institute', 'school', 'hospital', 'centre', 'center', 'pakistan', 'the', 'and', 'of', 'for', 'sciences', 'science', 'medical', 'pharmacy', 'pharmaceutical', 'research', 'national',
+  // subject and generic words shared by thousands of departments: "health" or "pathology" in common is not the same institution
+  'health', 'dental', 'dentistry', 'pathology', 'pharmacology', 'pharmaceutics', 'pharmacognosy', 'biochemistry', 'biotechnology', 'biology', 'chemistry', 'physics', 'zoology', 'botany', 'physiology', 'anatomy', 'microbiology', 'medicine', 'clinical', 'engineering', 'technology', 'information', 'studies', 'laboratory', 'state', 'government', 'public', 'international', 'applied', 'natural', 'basic', 'allied', 'veterinary', 'animal', 'animals', 'agriculture', 'agricultural', 'environment', 'environmental', 'teaching', 'campus', 'graduate', 'postgraduate', 'division', 'section', 'unit', 'program', 'programme', 'life', 'molecular', 'cell', 'cellular', 'nursing', 'surgery', 'women', 'children', 'general', 'city', 'province', 'provincial', 'federal', 'china', 'saudi', 'arabia', 'kingdom', 'republic', 'india', 'iran']);
+// Cities: a shared city is a weak hint only ("Multan" covers several universities and hospitals)
+const AFF_PLACES = new Set(['karachi', 'lahore', 'islamabad', 'rawalpindi', 'multan', 'faisalabad', 'peshawar', 'quetta', 'hyderabad', 'bahawalpur', 'sialkot', 'gujranwala', 'abbottabad', 'jamshoro', 'sargodha', 'larkana', 'sukkur', 'nawabshah', 'mardan', 'gujrat', 'sahiwal', 'kohat', 'dera', 'ismail', 'punjab', 'sindh', 'khyber', 'pakhtunkhwa', 'balochistan', 'lyari']);
 const affTokens = s => new Set(String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z]+/).filter(t => t.length > 3 && !AFF_STOP.has(t)));
+// A name is treated as common when Retraction Watch holds it on papers from this many different institutions: one
+// person retracted many times is usually at one or two places, a common name ("Muhammad Ali", "Wei Zhang") is everywhere
+const COMMON_NAME_PLACES = 4;
+// Neighbouring word pairs of the institution name ("veterinary animal" for the University of Veterinary and Animal
+// Sciences): institutions named only with subject words still match each other, a lone subject word does not
+const PAIR_SKIP = new Set(['the', 'and', 'of', 'for', 'department', 'faculty', 'institute', 'school', 'college', 'university', 'universit', 'centre', 'center', 'pakistan', 'dept']);
+// a pair with one of these words is generic ("health sciences", "medical dental" name hundreds of institutions)
+const PAIR_GENERIC = new Set(['sciences', 'science', 'medical', 'dental', 'health', 'research', 'studies', 'technology', 'engineering', 'hospital', 'medicine', 'pharmaceutical', 'pharmacy', 'clinical', 'national', 'international', 'applied', 'natural', 'life', 'basic', 'allied', 'general', 'teaching', 'government', 'public', 'state', 'key', 'laboratory']);
+const affPairs = s => {
+  const out = new Set();
+  for (const part of String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[;,]/)) {
+    const w = part.split(/[^a-z]+/).filter(t => t.length > 2 && !PAIR_SKIP.has(t));
+    for (let i = 0; i + 1 < w.length; i++) if (![w[i], w[i + 1]].some(t => AFF_PLACES.has(t) || PAIR_GENERIC.has(t))) out.add(`${w[i]} ${w[i + 1]}`);
+  }
+  return out;
+};
+const instKey = s => String(s || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim().slice(0, 40);
 
 /**
  * Retraction Watch lists authors by name only, so a name match can be another person. Each hit carries a confidence:
- *   high   - first name agrees (not only the initial) and the retracted paper's institution/country matches an affiliation
- *   medium - first name agrees in full
- *   low    - surname + initial only (common names such as "Wei Zhang" or "Muhammad Ali" land here)
+ *   high   - first name agrees (not only the initial) and the retracted paper's institution shares a distinctive word
+ *            with an affiliation (not a subject word such as "health" and not only the city)
+ *   medium - first name agrees in full and the name is not a common one
+ *   low    - surname + initial only, or a common name (retractions at 4+ different institutions) with no institution match
  */
 async function authorRetractions(authors, affiliations = []) {
   const out = [];
   const myAff = affTokens((affiliations || []).join(' '));
+  const myPairs = affPairs((affiliations || []).join('; '));
   const myPk = /pakistan|\bpk\b/i.test((affiliations || []).join(' '));
   for (const a of authors.slice(0, 15)) {
     if (!a.family || a.family.length < 3) continue;
     const rows = await D.retractionsByAuthor(a.family, a.given).catch(() => []);
+    const hits = [];
     for (const r of rows) {
       const names = String(r.authors || '').split(/\s*;\s*/).map(n => splitName(n.trim())).filter(n => n.family);
       if (!names.some(n => nameMatch(n, a) === 'exact' || (nameMatch(n, a) === 'likely' && n.given && a.given && n.given[0] === a.given[0]))) continue;
       const theirName = names.find(n => nameMatch(n, a) === 'exact' || nameMatch(n, a) === 'likely');
       const fullFirst = !!(theirName?.given && a.given && theirName.given.replace(/[.\s]/g, '').length > 1 && a.given.replace(/[.\s]/g, '').length > 1 && theirName.given.toLowerCase().split(/\s+/)[0].replace(/\./g, '') === a.given.toLowerCase().split(/\s+/)[0].replace(/\./g, ''));
       const theirAff = affTokens(r.institution);
-      const sharedAff = [...myAff].filter(t => theirAff.has(t));
+      const shared = [...myAff].filter(t => theirAff.has(t));
+      const theirPairs = affPairs(r.institution);
+      const pairs = [...myPairs].filter(p => theirPairs.has(p));
+      hits.push({ r, fullFirst, distinctive: [...shared.filter(t => !AFF_PLACES.has(t)), ...pairs], places: shared.filter(t => AFF_PLACES.has(t)) });
+    }
+    const common = new Set(hits.filter(h => h.fullFirst && h.r.institution).map(h => instKey(h.r.institution))).size >= COMMON_NAME_PLACES;
+    for (const { r, fullFirst, distinctive, places } of hits) {
       const sameCountry = myPk && /pakistan/i.test(r.country || '');
-      const confidence = fullFirst && (sharedAff.length >= 1 || (sameCountry && !r.institution)) ? 'high' : fullFirst ? 'medium' : 'low';
-      out.push({ confidence, institutionMatch: sharedAff.slice(0, 3), sameCountry, institution: (r.institution || '').slice(0, 160), author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: D.MILL_REASON_RE.test(r.reason || '') });
+      const confidence = !fullFirst ? 'low'
+        : distinctive.length ? 'high'
+        : common ? 'low'
+        : (places.length || (sameCountry && !r.institution)) ? 'high' : 'medium';
+      out.push({ confidence, commonName: common, institutionMatch: [...distinctive, ...places].slice(0, 3), sameCountry, institution: (r.institution || '').slice(0, 160), author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: D.MILL_REASON_RE.test(r.reason || '') });
     }
   }
   return out;
@@ -694,11 +727,11 @@ async function detectPaperMill(input, update = () => {}) {
   const retr = (await authorRetractions(authors, meta.affiliations)).filter(r => !orcidRetrDois.has(String(r.doi || '').toLowerCase()));
   const sure = r => r.confidence !== 'low';
   const millRetr = retr.filter(r => r.mill && sure(r));
-  const confNote = r => `${r.confidence} confidence${r.institutionMatch?.length ? ` (institution matches: ${r.institutionMatch.join(', ')})` : r.confidence === 'low' ? ' - surname and initial only, may be a different person' : ''}`;
+  const confNote = r => `${r.confidence} confidence${r.institutionMatch?.length ? ` (institution matches: ${r.institutionMatch.join(', ')})` : r.confidence === 'low' ? (r.commonName ? ' - common name (retractions at many different institutions), no institution in common: probably a different person' : ' - surname and initial only, may be a different person') : ''}`;
   if (millRetr.length) sig('authors', 'author-mill-retraction', `Author(s) with earlier retractions for paper-mill or fake-peer-review reasons (${millRetr.length})`, 'high', 5, millRetr.map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, note: r.reason?.split(';').slice(0, 3).join('; '), link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Matched by name in Retraction Watch — confirm it is the same person (affiliation, ORCID).');
   else if (retr.some(sure)) sig('authors', 'author-retraction', `Author(s) with earlier retractions (${retr.filter(sure).length})`, 'medium', 2, retr.filter(sure).map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, note: r.reason?.split(';').slice(0, 2).join('; '), link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Matched by name in Retraction Watch — confirm it is the same person.');
   const unsure = retr.filter(r => !sure(r));
-  if (unsure.length) sig('authors', 'author-retraction-name', `Possible earlier retraction(s) under a similar name (${unsure.length}) - probably other people`, 'low', 0.5, unsure.slice(0, 6).map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Retraction Watch gives author names only. These hits match the surname and first initial only; for common names they are usually different people. Check ORCID and affiliation before drawing any conclusion.');
+  if (unsure.length) sig('authors', 'author-retraction-name', `Possible earlier retraction(s) under a similar name (${unsure.length}) - probably other people`, 'low', 0.5, unsure.slice(0, 6).map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Retraction Watch gives author names only. These hits match the surname and first initial only, or a very common name with no institution in common; they are usually different people. Check ORCID and affiliation before drawing any conclusion.');
 
   const emails = emailsOf(text);
   // Cover letter (optional): written for another journal, template placeholders, another title, a third-party mailbox
@@ -822,4 +855,4 @@ function papermillProblems(r) {
   return [`Paper mill risk ${r.risk.level} (score ${r.risk.score})`, ...r.signals.filter(s => s.severity !== 'low').slice(0, 5).map(s => s.title)];
 }
 
-module.exports = { warm, imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, emailsOf, hiddenText, shingles, fnv };
+module.exports = { warm, imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, authorRetractions, emailsOf, hiddenText, shingles, fnv };

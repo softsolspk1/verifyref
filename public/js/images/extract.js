@@ -72,21 +72,34 @@ const FIG_RE = /^\s*(fig(?:ure)?\.?\s*[\dIVX]+[a-z]?)/i;
 
 // ------------------------------------------------------------------ Word
 
-async function fromDocx(file, onStep) {
-  const JSZip = await loadJSZip();
-  const zip = await JSZip.loadAsync(file);
-  const doc = zip.file('word/document.xml');
-  if (!doc) throw new Error('This is not a Word document.');
-  const rels = new DOMParser().parseFromString(await zip.file('word/_rels/document.xml.rels').async('string'), 'text/xml');
-  const target = {};
-  for (const r of rels.getElementsByTagName('Relationship')) target[r.getAttribute('Id')] = r.getAttribute('Target');
-  const xml = new DOMParser().parseFromString(await doc.async('string'), 'text/xml');
-  const paras = [...xml.getElementsByTagName('w:p')];
-  const textOf = p => [...p.getElementsByTagName('w:t')].map(t => t.textContent).join('');
+// Word keeps a second copy of every text box and drawing for older readers (mc:Fallback) and the old version of
+// tracked changes (w:del, w:moveFrom); pictures and captions there are not part of the document as read
+const HIDDEN_COPY = new Set(['mc:Fallback', 'w:del', 'w:moveFrom']);
+
+/** Closest paragraph holding a node, or null when the node sits in a hidden copy */
+function ownerParagraph(node) {
+  for (let n = node.parentNode; n; n = n.parentNode) {
+    if (HIDDEN_COPY.has(n.nodeName)) return null;
+    if (n.nodeName === 'w:p') return n;
+  }
+  return null;
+}
+
+/**
+ * Pictures of document.xml in document order: [{ id (relationship id), caption ("Fig. n" or ''), sub (part number
+ * when one paragraph holds several pictures, else 0) }]. A picture belongs to its own (innermost) paragraph only: a
+ * figure laid out in a text box or a group is read once, not again for every paragraph around it (6 Nov 2026: a
+ * manuscript of 14 figures was read as 56 pictures and every copy reported as a duplicate).
+ */
+export function docxPictureUses(xml) {
+  const paras = Array.from(xml.getElementsByTagName('w:p')).filter(p => !hiddenAncestor(p));
+  const textOf = p => Array.from(p.getElementsByTagName('w:t')).filter(t => ownerParagraph(t) === p).map(t => t.textContent).join('');
   // Images in document order, with the nearest "Figure n" caption (same paragraph or the next three / previous one)
   const uses = [];
   paras.forEach((p, i) => {
-    const ids = [...p.getElementsByTagName('a:blip')].map(b => b.getAttribute('r:embed')).concat([...p.getElementsByTagName('v:imagedata')].map(b => b.getAttribute('r:id'))).filter(Boolean);
+    const own = el => ownerParagraph(el) === p;
+    const ids = Array.from(p.getElementsByTagName('a:blip')).filter(own).map(b => b.getAttribute('r:embed'))
+      .concat(Array.from(p.getElementsByTagName('v:imagedata')).filter(own).map(b => b.getAttribute('r:id'))).filter(Boolean);
     if (!ids.length) return;
     let caption = '';
     for (const j of [i, i + 1, i + 2, i + 3, i - 1]) {
@@ -96,6 +109,24 @@ async function fromDocx(file, onStep) {
     }
     ids.forEach((id, k) => uses.push({ id, caption, sub: ids.length > 1 ? k + 1 : 0 }));
   });
+  return uses;
+}
+
+function hiddenAncestor(node) {
+  for (let n = node.parentNode; n; n = n.parentNode) if (HIDDEN_COPY.has(n.nodeName)) return true;
+  return false;
+}
+
+async function fromDocx(file, onStep) {
+  const JSZip = await loadJSZip();
+  const zip = await JSZip.loadAsync(file);
+  const doc = zip.file('word/document.xml');
+  if (!doc) throw new Error('This is not a Word document.');
+  const rels = new DOMParser().parseFromString(await zip.file('word/_rels/document.xml.rels').async('string'), 'text/xml');
+  const target = {};
+  for (const r of rels.getElementsByTagName('Relationship')) target[r.getAttribute('Id')] = r.getAttribute('Target');
+  const xml = new DOMParser().parseFromString(await doc.async('string'), 'text/xml');
+  const uses = docxPictureUses(xml);
   const images = [], skipped = [];
   const seen = new Map();
   let n = 0;

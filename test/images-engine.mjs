@@ -71,3 +71,24 @@ const fa = E.findIssues(unrelated).filter(f => f.kind !== 'clone');
 console.log(`unrelated panels: ${fa.length} cross-panel findings (${Date.now() - t1} ms)`);
 assert.strictEqual(fa.length, 0, 'no false alarms between unrelated panels');
 console.log('images engine false-alarm test passed');
+
+// Drawn bar chart pasted as a picture (no axis line, white gaps between bars, error bars): one chart panel, not each
+// bar as a "blot" with cloned areas and joined lanes (6 Nov 2026: 24 false manipulation findings on one manuscript)
+const chart = blank(560, 420);
+const rect = (x0, y0, w, h, v) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) chart.data.set([v, v, v, 255], (y * chart.width + x) * 4); };
+for (let y = 40; y < 400; y += 45) rect(20, y, 520, 1, 217);                                  // grid lines
+[[0.92, 0.9], [0.88, 0.9], [0.8, 0.82], [0.75, 0.78]].forEach(([a, b], i) => {
+  const x = 30 + i * 130, ha = Math.round(a * 360), hb = Math.round(b * 360);
+  rect(x, 400 - ha, 60, ha, 89); rect(x + 60, 400 - hb, 60, hb, 178);                         // dark and light bar
+  rect(x + 30, 400 - ha - 15, 1, 30, 0); rect(x + 90, 400 - hb - 15, 1, 30, 0);                 // error bars
+});
+const chartBoxes = E.splitPanels(chart);
+const chartPanels = chartBoxes.map((b, i) => E.preparePanel(chart, b, { id: `c${i + 1}`, label: `Chart ${i + 1}` }));
+console.log('bar chart:', chartPanels.map(p => `${p.id}:${p.type} ${p.box.w}x${p.box.h}`).join(' '));
+assert.ok(E.flatGraphic(chart), 'drawn chart recognised');
+assert.ok(!E.flatGraphic(A) && !E.flatGraphic(D), 'textured panels are not drawn graphics');
+assert.strictEqual(chartPanels.length, 1, 'bars are not cut into separate panels');
+assert.strictEqual(chartPanels[0].type, 'chart', 'bar chart typed as a chart, not a blot');
+const chartFindings = E.findIssues(chartPanels).filter(f => f.kind === 'clone' || f.kind === 'alteration');
+assert.strictEqual(chartFindings.length, 0, 'no cloned areas inside a bar chart');
+console.log('bar chart test passed');

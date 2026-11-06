@@ -46,6 +46,7 @@ const pdfOf = (lines) => new Promise(resolve => {
   doc.end();
 });
 let pdf4 = null, pdf5 = null;
+const pageBuffers = {};
 const scholarHtml = q => q.includes('mucoadhesive') ? '<html><head><title>Verifying...</title></head><body></body></html>' : !q.includes('Zyxomirol loaded chitosan') ? '<div id="gs_res_ccl">Your search did not match any articles.</div>'
   : `<div id="gs_res_ccl"><div class="gs_r gs_or gs_scl" data-cid="abc123" data-did="abc123"><div class="gs_ggs gs_fl"><div class="gs_ggsd"><div class="gs_or_ggsm"><a href="https://ijps.example.org/files/2021-14-3-55.pdf" data-clk="x"><span class="gs_ctg2">[PDF]</span> example.org</a></div></div></div><div class="gs_ri"><h3 class="gs_rt"><a id="abc123" href="https://ijps.example.org/article/55">${ARTICLE4.replace('chitosan', '<b>chitosan</b>')}</a></h3><div class="gs_a">S Qureshi, A Baloch&nbsp;- Example Journal of Pharmaceutical Sc…, 2021 - example.org</div><div class="gs_rs">Abstract …</div></div></div></div>`;
 const scholarCalls = [];
@@ -68,6 +69,7 @@ global.fetch = async (url, opts) => {
   if (u === 'https://ajp.example.edu/pdf/v9-2-101.pdf') return new Response(pdf5, { status: 200, headers: { 'content-type': 'application/pdf' } });
   if (u === 'https://ijps.example.org/files/2021-14-3-55.pdf') return new Response(pdf4, { status: 200, headers: { 'content-type': 'application/pdf' } });
   if (u === 'https://ijps.example.org/article/55') return new Response('<html><title>Article 55</title><body>Access denied</body></html>', { status: 200 });
+  if (pageBuffers[u]) return new Response(pageBuffers[u], { status: 200, headers: { 'content-type': 'application/pdf' } });
   if (pages[u]) return new Response(pages[u], { status: 200, headers: { 'content-type': 'text/html' } });
   return realFetch(url, opts);
 };
@@ -120,6 +122,35 @@ global.fetch = async (url, opts) => {
   assert.strictEqual(art5.status, 'verified', `article whose PDF copy holds the title and first author verified (got ${art5.status}: ${art5.reason})`);
   assert.ok(/PDF/.test(art5.reason), art5.reason);
   console.log('  ✓ Google Scholar bot check skipped quietly; PDF copy found by web search and read: verified');
+
+  // a whole issue's PDF (result title "volume 9, january issue 1"): the article is on a later page, cited with a curly
+  // apostrophe; other authors are named on the first pages
+  const ARTICLE6 = 'Zyxomirol controlled release tablet using an optimization approach for Alzheimer’s disease';
+  const issueUrl = 'https://archive.example.org/uploads/journals/wjx/volume-9-issue-1.pdf';
+  brave[ARTICLE6.replace('’', "'").toUpperCase()] = [{ url: issueUrl, title: 'volume 9, january issue 1 13652', description: '' }];
+  const issue = await pdfOf(['World Journal of Example Research, volume 9, issue 1', 'Contents', 'Patel R. Another paper on tablets']);
+  const issueDoc = await new Promise(resolve => {
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument(); const parts = [];
+    doc.on('data', c => parts.push(c)).on('end', () => resolve(Buffer.concat(parts)));
+    doc.text('World Journal of Example Research, volume 9, issue 1').text('Patel R. Another paper on tablets');
+    for (let p = 0; p < 6; p++) doc.addPage().text(`Article ${p}: stability of something else. Khan A, Shah B.`);
+    doc.addPage().text("ZYXOMIROL CONTROLLED RELEASE TABLET USING AN OPTIMIZATION APPROACH FOR ALZHEIMER'S DISEASE").text('Pankaj Kumar Patel*, Divya Barua and Anu Hardenia');
+    doc.end();
+  });
+  pageBuffers[issueUrl] = issueDoc;
+  const art6 = await check({ index: 8, raw: `Patel, P.K., Barua, D., Hardenia, A., 2019. ${ARTICLE6.toUpperCase()}.`, title: ARTICLE6.toUpperCase(), authors: [{ family: 'Patel', given: 'P.K.' }, { family: 'Barua', given: 'D.' }], year: 2019 });
+  assert.ok(calls.includes(ARTICLE6.replace('’', "'").toUpperCase()) || calls.some(c => c.includes("ALZHEIMER'S")), 'curly apostrophe searched as a plain one');
+  assert.strictEqual(art6.status, 'verified', `article on page 8 of an issue PDF verified (got ${art6.status}: ${art6.reason})`);
+  assert.ok(issue.length > 0);
+  console.log('  ✓ whole-issue PDF read past the first pages; curly apostrophe searched as plain: verified');
+
+  // a WHO Technical Report Series guideline found on who.int: a report, not a journal article
+  const WHO = 'Stability testing of zyxomirol active pharmaceutical ingredients and finished pharmaceutical products';
+  brave[WHO] = [{ url: 'https://www.who.int/publications/m/item/trs1010-annex10', title: `TRS 1010 - Annex 10: WHO guidelines on ${WHO.toLowerCase()}`, description: 'regulatory guidelines' }];
+  const who = await check({ index: 9, raw: `WECoSfP, P., 2018. ${WHO}. WHO Technical Report Series 1010.`, title: WHO, authors: [{ family: 'WECoSfP', given: 'P.' }], journal: 'WHO Technical Report Series', year: 2018, volume: '1010' });
+  assert.strictEqual(who.status, 'verified', `WHO report found on who.int verified (got ${who.status}: ${who.reason})`);
+  console.log('  ✓ WHO Technical Report Series found on who.int: verified');
 
   unrelated = true;
   const none = await check({ index: 4, raw: 'Raza K (2020). Pharmacovigilance awareness among Zyxomira hospital nurses. Larkana.', title: 'Pharmacovigilance awareness among Zyxomira hospital nurses', authors: [{ family: 'Raza', given: 'K' }], year: 2020 });

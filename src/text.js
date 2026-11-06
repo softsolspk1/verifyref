@@ -106,6 +106,9 @@ function tidyName(n) {
     if (m) [family, given] = [m[1], m[2]];
     else if (/^\p{Lu}\p{Ll}+(?:\s\p{Lu}\p{Ll}+){1,3}$/u.test(family)) { const w = family.split(' '); family = w.pop(); given = w.join(' '); } // "Jonathan Tinotenda Chanyandura"
   }
+  // some publishers' Crossref records (IntechOpen) put the middle initial before the family name: "Chigoziri" / "N. Njoku"
+  const lead = family.match(/^((?:\p{Lu}\.\s*){1,2})(\p{Lu}[\p{L}'-]+.*)$/u);
+  if (lead && given) [family, given] = [lead[2].trim(), `${given} ${lead[1].trim()}`];
   if (NAME_SUFFIX.test(family) && given.includes(' ')) { const g = given.split(' '); family = g.pop(); given = g.join(' '); }
   return { ...n, given, family };
 }

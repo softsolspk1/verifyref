@@ -31,7 +31,8 @@ function extraTitleWords(ref, rec) {
   const cited = String(ref.title || '');
   if (!cited || !rec?.title) return { invented: 0 };
   const tok = s => normalize(s).split(' ').filter(t => t && !TITLE_STOP.has(t));
-  const reg = new Set(tok(rec.title));
+  // a chapter's book title cited after the chapter title is not invented
+  const reg = new Set(tok(/chapter/i.test(rec.type || '') && rec.journal ? `${rec.title} ${rec.journal}` : rec.title));
   // a subtitle missing from the registered record is normal, unless the registered title already has its own subtitle
   const sub = /[:\u2013\u2014]/.test(rec.title) ? -1 : cited.search(/\s[:\u2013\u2014-]\s|:\s/);
   const main = sub > 0 ? cited.slice(0, sub) : cited;
@@ -58,6 +59,8 @@ function scoreCandidate(ref, rec) {
     // D7: a title with an inner full stop is cut early and the rest lands in the journal field - join them again
     ref.title && ref.journal ? titleSimilarity(`${ref.title}. ${ref.journal}`, rec.title) : 0,
     rec.shortTitle ? titleSimilarity(ref.title, rec.shortTitle) : 0,
+    // a chapter cited with its book's title after it ("Chapter title, Book title. IntechOpen")
+    ref.title && rec.journal && /chapter/i.test(rec.type || '') ? titleSimilarity(ref.title, `${rec.title}, ${rec.journal}`) : 0,
     ref.title ? titleContains(ref.title, rec.title) * 0.95 : 0,
     ref.title ? 0 : titleContains(ref.raw, rec.title) * 0.9,
     // the whole registered title written in the reference: a match even when the fields were split wrongly
@@ -452,6 +455,8 @@ function sameJournalName(cited, resolved) {
 // Pakistani and other regional journals that are often missing from Crossref/PubMed/OpenAlex: "Not indexed", not fake
 const REGIONAL = /\b(pak(istan)?|karachi|lahore|peshawar|islamabad|rawalpindi|sindh|punjab|khyber|balochistan|quetta|multan|faisalabad|hyderabad|ayub|jpma|jcpsp|liaquat|dow|isra|baqai|ziauddin|aga khan|nishtar|gomal|hamdard|bangladesh|nepal|sri lanka|iraq|iran|sudan|nigeria)\b/i;
 
+const REPORT_SERIES = /\b(?:technical\s+report|report\s+series|guidelines?|white\s+paper|working\s+paper|pharmacopoeia)\b/i;
+
 async function classify(v, retraction) {
   const { ref, record, issues } = v;
   const high = issues.filter(i => i.severity === 'high');
@@ -477,7 +482,8 @@ async function classify(v, retraction) {
     // for a journal article it is not a bibliographic match, so it stays unverified, but it is not a sign of fabrication
     const h = v.web[0];
     v.foundOnWeb = h;
-    const grey = ref.looksLikeWeb || ref.looksLikeBook || (!ref.journal && !ref.doi && !ref.pmid);
+    // a report series or guideline (WHO Technical Report Series, ICH guidelines) is not a journal article
+    const grey = ref.looksLikeWeb || ref.looksLikeBook || (!ref.journal && !ref.doi && !ref.pmid) || REPORT_SERIES.test(ref.journal || '');
     const idFailed = issues.some(i => ['doi-unregistered', 'pmid-invalid', 'arxiv-invalid'].includes(i.code));
     // a journal article on a journal or publisher page with its exact title and first author: real, in a journal the
     // scholarly databases do not cover (regional and new journals) - the volume and pages are checked on that page

@@ -19,7 +19,9 @@ function decodeXml(s) {
 const stripTags = s => decodeXml(String(s || '').replace(/<[^>]+>/g, ' '));
 
 // Search queries should use the cleaned title; strip characters that break API query syntax
-const q = s => String(s || '').replace(/["():[\]{}^~*?\\/!]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+// typographic apostrophes and quotes as typed ("ALZHEIMER’S" -> "ALZHEIMER'S"): an exact phrase with a curly apostrophe
+// finds nothing in Google Scholar and the web searches
+const q = s => String(s || '').replace(/[‘’‛′]/g, "'").replace(/[“”„]/g, ' ').replace(/["():[\]{}^~*?\\/!]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
 
 // ---------------------------------------------------------------- 1. Crossref
 
@@ -768,18 +770,18 @@ async function googleWebSearch(ref) {
 // ---------------------------------------------------------------- pages and PDFs read for a reference
 // A search result whose title is not the article's ("(PDF) …", a file name, a repository page) or the web address a
 // reference gives is opened, and its text (a PDF's first pages) is read for the cited title and first author.
-const PAGE_MAX = 15e6;
+const PAGE_MAX = 30e6;
 const textNorm = t => ` ${String(t || '').toLowerCase().replace(/(\p{L})-\s+(\p{L})/gu, '$1$2').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
 const stripPage = h => String(h || '').replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
 
-/** The text of a page or PDF at this address (PDF: first three pages), or null */
+/** The text of a page or PDF at this address (every page: an issue's PDF holds the article further in), or null */
 async function readPage(url) {
   if (!/^https?:\/\//i.test(url)) return null;
   const r = await require('./http').getBuffer(url, { timeout: 20000 });
   if (!r.ok || !r.buffer || r.buffer.length > PAGE_MAX) return null;
   if (r.buffer.slice(0, 1024).toString('latin1').includes('%PDF-')) {
     const pages = await require('./tools/fulltext').filePages(r.buffer, 'page.pdf').catch(() => null);
-    return pages?.length ? { kind: 'PDF', text: pages.slice(0, 3).map(p => p.text).join(' ') } : null;
+    return pages?.length ? { kind: 'PDF', text: pages.map(p => p.text).join(' ').slice(0, 3e6) } : null;
   }
   const html = r.buffer.toString('utf8');
   const head = [(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '', ...[...html.matchAll(/<meta[^>]+content="([^"]{0,600})"/gi)].map(m => m[1])].join(' ');
@@ -794,8 +796,11 @@ async function readPage(url) {
 function namesReference(ref, text, { webPage = false } = {}) {
   const T = textNorm(text), title = textNorm(ref.title).trim();
   const fam = textNorm(ref.authors?.[0]?.family).trim();
-  const author = fam.length >= 3 && T.includes(` ${fam} `);
-  if (title.split(' ').length >= 4 && T.includes(` ${title} `)) return { title: true, author };
+  const at = title.split(' ').length >= 4 ? T.indexOf(` ${title} `) : -1;
+  // the first author next to the title (an issue's PDF names hundreds of authors), else anywhere on the page
+  const near = at >= 0 ? T.slice(Math.max(0, at - 1500), at + title.length + 1500) : T;
+  const author = fam.length >= 3 && near.includes(` ${fam} `);
+  if (at >= 0) return { title: true, author };
   if (webPage) {
     const words = [...new Set(title.split(' ').filter(w => w.length >= 4 || /\d/.test(w)))];
     if (words.length >= 2 && words.filter(w => T.includes(` ${w} `)).length >= Math.ceil(words.length * 0.7)) return { words: true, author };

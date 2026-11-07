@@ -583,11 +583,15 @@ export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30, q
       const varc = s2 / 64 - (s / 64) ** 2;
       if (varc < minVar) continue; // flat block: background, would match everywhere
       for (let u = 0; u < 8; u++) for (let yy = 0; yy < 8; yy++) { let a = 0; for (let xx = 0; xx < 8; xx++) a += g[(y + yy) * w + x + xx] * DCT8[u * 8 + xx]; tmp[u * 8 + yy] = a; }
-      const f = ZIG.map(([u, v]) => { let a = 0; for (let yy = 0; yy < 8; yy++) a += tmp[u * 8 + yy] * DCT8[v * 8 + yy]; return Math.round(a / (u + v === 0 ? quant * 2.7 : quant)); });
-      feats.push({ x, y, f, k: f.join(',') });
+      const raw = ZIG.map(([u, v]) => { let a = 0; for (let yy = 0; yy < 8; yy++) a += tmp[u * 8 + yy] * DCT8[v * 8 + yy]; return a; });
+      const f = raw.map((a, i) => Math.round(a / (i === 0 ? quant * 2.7 : quant)));
+      // fine key: inside a group of blocks with the same coarse key (hundreds on a textured photo, more than `neigh`),
+      // an exact or near-exact copy sorts next to its source instead of somewhere in the group
+      feats.push({ x, y, f, k: f.join(','), fine: raw.map(a => Math.round(a / 2)) });
     }
   }
-  feats.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+  const cmpFine = (a, b) => { for (let i = 0; i < a.fine.length; i++) if (a.fine[i] !== b.fine[i]) return a.fine[i] - b.fine[i]; return 0; };
+  feats.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : cmpFine(a, b)));
   const shifts = new Map();
   for (let i = 0; i < feats.length; i++) {
     for (let j = i + 1; j < Math.min(feats.length, i + neigh) && feats[j].k === feats[i].k; j++) {
@@ -603,16 +607,34 @@ export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30, q
   const out = [];
   for (const s of shifts.values()) {
     if (s.pairs.length < minBlocks) continue;
-    const a = bbox(s.pairs.map(p => ({ x: p[0].x + 4, y: p[0].y + 4 }))), b = bbox(s.pairs.map(p => ({ x: p[1].x + 4, y: p[1].y + 4 })));
-    // Loose block matching proposes candidates; a real copy must also agree pixel by pixel (picture and noise residual)
+    // the copied area is where most matched blocks lie: a few stray matches of a repeated texture elsewhere at the same
+    // shift would stretch the box over uncopied picture and fail the pixel check
+    // (both boxes are checked: the trimmed one can be too small to measure the noise of a small copy)
+    const boxes = [trimmedPairs(s.pairs), s.pairs].map(ps => [bbox(ps.map(p => ({ x: p[0].x + 4, y: p[0].y + 4 }))), bbox(ps.map(p => ({ x: p[1].x + 4, y: p[1].y + 4 })))]);
+    let [a, b] = boxes[0];
+    // Loose block matching proposes candidates; a real copy must also agree pixel by pixel (picture and noise residual),
+    // over the area of the block centres
     let px = null;
     if (verify) {
-      px = regionAgreement(img, a, b);
+      for (const [ba, bb] of boxes) {
+        const v = regionAgreement(img, ba, bb);
+        if (v && (!px || (v.lp >= 0.9 && v.hp > px.hp) || px.lp < 0.9)) { px = v; a = ba; b = bb; }
+      }
       if (!px || px.lp < 0.9 || px.hp < 0.45) continue;
     }
     out.push({ pixel: px, blocks: s.pairs.length, dx: s.dx, dy: s.dy, a: { x: a.x - 4, y: a.y - 4, w: a.w + 8, h: a.h + 8 }, b: { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 } });
   }
   return out.sort((p, q) => q.blocks - p.blocks).slice(0, 3);
+}
+
+/** The block pairs between the 5th and 95th percentile of the source positions (both axes) */
+function trimmedPairs(pairs) {
+  if (pairs.length < 20) return pairs;
+  const q = (arr, f) => arr[Math.min(arr.length - 1, Math.floor(f * arr.length))];
+  const xs = pairs.map(p => p[0].x).sort((u, v) => u - v), ys = pairs.map(p => p[0].y).sort((u, v) => u - v);
+  const x0 = q(xs, 0.05), x1 = q(xs, 0.95), y0 = q(ys, 0.05), y1 = q(ys, 0.95);
+  const kept = pairs.filter(p => p[0].x >= x0 && p[0].x <= x1 && p[0].y >= y0 && p[0].y <= y1);
+  return kept.length >= 10 ? kept : pairs;
 }
 
 /** Correlation of the picture (lp) and of its noise residual (hp) between two same-size boxes of one image */
@@ -637,6 +659,7 @@ function regionAgreement(img, a, b) {
 // ------------------------------------------------------------------ analysis
 
 const WORK = 360; // analysis size (longest side) for keypoints
+const CLONE_WORK = 512; // analysis size for cloned areas (block matching)
 const describeTransform = t => {
   const deg = ((Math.round(t.rotation * 180 / Math.PI) % 360) + 360) % 360;
   const parts = [];
@@ -826,9 +849,12 @@ export function preparePanel(img, box, meta, gray = null) {
     hashes.push(phash32(orient(sq, k, mirror)));
     sqNorm.push(normalized(orient(sq64, k, mirror)));
   }
+  // cloned areas are searched at up to CLONE_WORK px: a panel shrunk for the keypoints no longer holds pixel-identical copies
+  const cs = Math.min(1, CLONE_WORK / Math.max(box.w, box.h));
+  const cloneGray = blank || type === 'chart' ? null : cs > s + 1e-6 ? resizeGray(gray, box.w * cs, box.h * cs, box) : work;
   const features = blank || type === 'chart' ? null : orb(work);
   const flipped = blank || type === 'chart' ? null : orb(flipH(work));
-  return { ...meta, box, type, blank, colour: colourOf(img, box), scale: s, work: { w: work.w, h: work.h }, workGray: work, hashes, sqNorm, features, flipped, hash: hashHex(hashes[0]) };
+  return { ...meta, box, type, blank, colour: colourOf(img, box), scale: s, work: { w: work.w, h: work.h }, workGray: work, cloneGray, cloneScale: cs > s + 1e-6 ? cs : s, hashes, sqNorm, features, flipped, hash: hashHex(hashes[0]) };
 }
 
 /** Light-weight fingerprint of a panel (8 orientations of the 64-bit hash) - used where the full analysis is not needed */
@@ -858,7 +884,9 @@ function pairDuplicate(A, B) {
   for (let k = 0; k < 8; k++) { const d = hamming64(A.hashes[0], B.hashes[k]); if (d < bestD) { bestD = d; bestK = k; } }
   if (bestD > 12) return null;
   const corr = ncc(A.sqNorm[0], B.sqNorm[bestK]);
-  if (corr < (A.type === 'chart' || B.type === 'chart' ? 0.97 : 0.88)) return null;
+  // the chart rule needs both to be charts: a photograph brightened until its background saturates reads as a flat
+  // graphic, while its original does not (and the noise check below still applies to the pair)
+  if (corr < (A.type === 'chart' && B.type === 'chart' ? 0.97 : 0.88)) return null;
   const mirror = bestK >= 4, rot = (bestK % 4) * 90;
   const scale = Math.sqrt((B.box.w * B.box.h) / (A.box.w * A.box.h));
   return { kind: 'duplicate', hamming: bestD, k: bestK, correlation: Math.round(corr * 100) / 100, transform: { rotation: (rot * Math.PI) / 180, flip: mirror, scale } };
@@ -1015,6 +1043,85 @@ function pairRegistered(A, B) {
     transform: { rotation: best.v.rot, flip: best.v.flip, scale: Math.sqrt((B.box.w * B.box.h) / (A.box.w * A.box.h)) } };
 }
 
+// ------------------------------------------------------------------ contained copies (one panel is a crop of another)
+// Keypoints miss a crop when its few points mostly fall on the cut edges or on repeated texture (RANSAC finds no common
+// position). Here the smaller panel, at several sizes and mirrored, is slid over the larger one: coarse (64 px), then
+// finer, then at work resolution; the best place is verified pixel by pixel with the noise check, as every other match.
+
+/** NCC of template T placed with its top-left corner at (x, y) of L */
+function nccWindow(L, T, x, y, tStat) {
+  let sl = 0, sll = 0, slt = 0;
+  for (let j = 0; j < T.h; j++) {
+    let il = (y + j) * L.w + x, it = j * T.w;
+    for (let i = 0; i < T.w; i++, il++, it++) { const v = L.g[il]; sl += v; sll += v * v; slt += v * T.g[it]; }
+  }
+  const n = T.w * T.h;
+  const den = Math.sqrt(Math.max(1e-9, (n * sll - sl * sl) * tStat.var));
+  return (n * slt - sl * tStat.sum) / den;
+}
+const tStatOf = T => { let s = 0, s2 = 0; for (const v of T.g) { s += v; s2 += v * v; } return { sum: s, var: T.g.length * s2 - s * s }; };
+
+/** Best placement of S (scaled by r, optionally mirrored) in L at one level; candidates restricted to a window */
+function placeAt(L, Sg, f, rs, win) {
+  let best = null;
+  for (const r of rs) {
+    const tw = Math.round(Sg.w * r * f), th = Math.round(Sg.h * r * f);
+    if (tw < 10 || th < 10 || tw > L.w || th > L.h) continue;
+    const T = resizeGray(Sg, tw, th), st = tStatOf(T);
+    if (st.var <= 0) continue;
+    const x0 = win ? Math.max(0, win.x0) : 0, x1 = Math.min(L.w - tw, win ? win.x1 : L.w), y0 = win ? Math.max(0, win.y0) : 0, y1 = Math.min(L.h - th, win ? win.y1 : L.h);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const c = nccWindow(L, T, x, y, st);
+      if (!best || c > best.c) best = { c, x, y, r, tw, th };
+    }
+  }
+  return best;
+}
+
+function pairContained(A, B) {
+  if (!A.workGray || !B.workGray || A.type === 'chart' || B.type === 'chart' || !A.features || !B.features) return null;
+  const swap = A.box.w * A.box.h < B.box.w * B.box.h;
+  const L = swap ? B : A, S = swap ? A : B;
+  // cheap gate: some shared keypoints (a crop keeps part of the larger panel's texture); unrelated panels rarely do
+  const shared = Math.max(matchFeatures(L.features, S.features).length, matchFeatures(L.features, S.flipped).length);
+  if (shared < 12) return null;
+  const Lg = L.workGray;
+  const fc = Math.min(1, 96 / Math.max(Lg.w, Lg.h)), fm = Math.min(1, 180 / Math.max(Lg.w, Lg.h));
+  const Lc = resizeGray(Lg, Lg.w * fc, Lg.h * fc), Lm = fm < 1 ? resizeGray(Lg, Lg.w * fm, Lg.h * fm) : Lg;
+  const rs = [];
+  for (let r = 0.25; r <= 4.01; r *= 1.1) rs.push(r);
+  let best = null;
+  for (const mirror of [false, true]) {
+    const Sg = mirror ? flipH(S.workGray) : S.workGray;
+    // a crop covers 8-85 % of the larger panel; a whole copy is the duplicate checks' work
+    const fit = rs.filter(r => { const a = (Sg.w * r * Sg.h * r) / (Lg.w * Lg.h); return a >= 0.08 && a <= 0.85; });
+    const c = placeAt(Lc, Sg, fc, fit, null);
+    if (!c || c.c < 0.5) continue;
+    // finer level: around the coarse place, neighbouring sizes
+    const k1 = fm / fc, rs1 = [c.r / 1.05, c.r, c.r * 1.05];
+    const m = placeAt(Lm, Sg, fm, rs1, { x0: Math.floor(c.x * k1) - 3, x1: Math.ceil(c.x * k1) + 3, y0: Math.floor(c.y * k1) - 3, y1: Math.ceil(c.y * k1) + 3 });
+    if (!m) continue;
+    let fine = m;
+    if (fm < 1) {
+      const k2 = 1 / fm;
+      // a crop is often not resized: 1:1 is tried whenever the estimate is close to it
+      fine = placeAt(Lg, Sg, 1, [m.r / 1.02, m.r, m.r * 1.02, ...(Math.abs(Math.log(m.r)) < 0.03 ? [1] : [])], { x0: Math.floor(m.x * k2) - 2, x1: Math.ceil(m.x * k2) + 2, y0: Math.floor(m.y * k2) - 2, y1: Math.ceil(m.y * k2) + 2 }) || m;
+    }
+    if (!best || fine.c > best.c) best = { ...fine, mirror, Sg };
+  }
+  if (!best || best.c < 0.75) return null;   // the decision is the pixel and noise check below
+  // L work -> S work for the placed crop (mirrored when found so)
+  const { x: X, y: Y, r, mirror } = best;
+  const lToS = (x, y) => { let sx = (x - X + 0.5) / r - 0.5; const sy = (y - Y + 0.5) / r - 0.5; if (mirror) sx = S.work.w - 1 - sx; return { x: sx, y: sy }; };
+  const sToL = (x, y) => { const sx = mirror ? S.work.w - 1 - x : x; return { x: X + (sx + 0.5) * r - 0.5, y: Y + (y + 0.5) * r - 0.5 }; };
+  const regionL = { x: X, y: Y, w: best.tw, h: best.th }, regionS = { x: 0, y: 0, w: S.work.w, h: S.work.h };
+  const v = swap ? nativeCheck(S, L, affineFrom(sToL), regionS) : nativeCheck(L, S, affineFrom(lToS), regionL);
+  if (!similarEnough(v)) return null;
+  return { kind: 'partial', method: 'crop', correlation: Math.round(best.c * 100) / 100, verification: v, coverage: Math.round((best.tw * best.th) / (Lg.w * Lg.h) * 100),
+    regionA: swap ? regionS : regionL, regionB: swap ? regionL : regionS,
+    transform: { rotation: 0, flip: mirror, scale: swap ? r : 1 / r } };
+}
+
 function selfClone(P) {
   const out = [];
   if (P.features && P.features.pts.length >= 20) {
@@ -1033,7 +1140,14 @@ function selfClone(P) {
   }
   if (!P.blank && P.type !== 'chart') {
     // tolerant block matching (survives JPEG recompression), every candidate verified pixel by pixel
-    for (const c of copyMoveBlocks(P.workGray, { quant: 20, neigh: 12, minBlocks: 15, minVar: 15, verify: true })) {
+    // searched at the larger clone size and at the work size: resampling can split a copy's fine noise from its source's
+    // at one size and not at the other. Block positions are scaled to the work image, as every other finding
+    const sizes = [[P.cloneGray || P.workGray, P.scale / (P.cloneScale || P.scale)]];
+    if (P.cloneGray && P.cloneGray !== P.workGray) sizes.push([P.workGray, 1]);
+    // step 2 (blocks every second pixel): at step 1 untouched microscopy textures gave several false cloned areas each (7 Nov tests)
+    const found = sizes.flatMap(([g, k]) => copyMoveBlocks(g, { step: 2, quant: 20, neigh: 12, minBlocks: 15, minVar: 15, verify: true })
+      .map(c0 => ({ ...c0, a: { x: c0.a.x * k, y: c0.a.y * k, w: c0.a.w * k, h: c0.a.h * k }, b: { x: c0.b.x * k, y: c0.b.y * k, w: c0.b.w * k, h: c0.b.h * k } })));
+    for (const c of found) {
       // the copied area must also share its fine noise; repeated textures (membrane, tissue) match only in the picture
       if ((c.pixel?.hp ?? 1) < 0.55 || (c.pixel?.lp ?? 1) < MIN_SIMILARITY) continue;
       if (out.some(o => Math.abs(o.regionA.x - c.a.x) < 20 && Math.abs(o.regionA.y - c.a.y) < 20)) continue;
@@ -1066,7 +1180,7 @@ export function findIssues(panels, progress = () => {}) {
       const dup = pairDuplicate(A, B);
       if (dup) {
         // a strong finding needs the full-resolution picture and its fine noise to agree, not just the 64 x 64 thumbnails
-        const v0 = A.type === 'chart' || B.type === 'chart' ? null : verifyWhole(A, B, dup.k);
+        const v0 = A.type === 'chart' && B.type === 'chart' ? null : verifyWhole(A, B, dup.k);
         // the noise of the two photographs compared at full resolution, edges left out (verifyWhole's thumbnail noise
         // still follows the band and edge layout, which images of the same kind share)
         const nat = v0 ? nativeCheck(A, B, wholeMap(A, B, dup.k), { x: 0, y: 0, w: A.work.w, h: A.work.h }) : null;
@@ -1094,6 +1208,14 @@ export function findIssues(panels, progress = () => {}) {
       if (part && (similarEnough(pv) || pResaved)) {
         findings.push({ kind: 'partial', level: !pResaved && part.inliers >= 25 && pv.picture >= 0.9 && pv.noise >= 0.5 && !channels ? 'high' : 'medium', verification: { region: Math.round(pv.picture * 100) / 100, noise: Math.round(pv.noise * 100) / 100, ...(pResaved ? { resaved: true } : {}) }, a: { panel: A.id, box: toImage(A, part.regionA) }, b: { panel: B.id, box: toImage(B, part.regionB) }, transform: part.transform, score: part.inliers,
           description: `Overlapping image content (${part.inliers} matching points, ${part.coverage}% of the panel; ${describeTransform(part.transform)}; matched areas ${Math.round(pv.picture * 100)}% similar, noise pattern ${pv.noise.toFixed(2)})${pResaved ? '. The fine noise differs, as when one copy was re-saved or compressed again: check this pair' : ''}${channels ? CHANNEL_NOTE : ''}` });
+        continue;
+      }
+      // one panel a crop of the other, where the keypoints found no common position
+      const crop = pairContained(A, B);
+      if (crop) {
+        const cv = crop.verification;
+        findings.push({ kind: 'partial', code: 'crop', level: cv.picture >= 0.9 && cv.noise >= 0.5 && !channels ? 'high' : 'medium', verification: { region: Math.round(cv.picture * 100) / 100, noise: Math.round(cv.noise * 100) / 100 }, a: { panel: A.id, box: toImage(A, crop.regionA) }, b: { panel: B.id, box: toImage(B, crop.regionB) }, transform: crop.transform, score: crop.correlation,
+          description: `One panel is a cropped part of the other (${crop.coverage}% of the larger panel; ${describeTransform(crop.transform)}; ${Math.round(cv.picture * 100)}% similar, noise pattern ${cv.noise.toFixed(2)})${channels ? CHANNEL_NOTE : ''}` });
       }
     }
   }

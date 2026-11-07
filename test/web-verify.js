@@ -56,7 +56,7 @@ const realFetch = global.fetch;
 global.fetch = async (url, opts) => {
   const u = String(url);
   if (u.startsWith('https://api.search.brave.com/')) {
-    const q = new URL(u).searchParams.get('q').replace(/^"|"$/g, '').replace(/" filetype:pdf$/, ' filetype:pdf');
+    const q = new URL(u).searchParams.get('q').replace(/^"|"$/g, '').replace(/" filetype:pdf$/, ' filetype:pdf').replace(/" site:researchgate\.net$/, ' site:researchgate.net');
     calls.push(q);
     const results = unrelated ? [{ url: 'https://example.org/x', title: 'Community pharmacy services in Pakistan: a review', description: '' }] : brave[q] || [];
     return new Response(JSON.stringify({ web: { results } }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -167,6 +167,16 @@ global.fetch = async (url, opts) => {
   const patel = await check({ index: 11, raw: `Patel, P.K., 2019. ${ARTICLE7}.`, title: ARTICLE7, authors: [{ family: 'Patel', given: 'P.K.' }], year: 2019 });
   assert.ok(patel.status !== 'miscited' && !patel.record, `common surname alone does not make a match (got ${patel.status}: ${patel.reason})`);
   console.log('  ✓ common surname with a looser title from another year: not taken as the cited work');
+
+  // a regional journal article found only on ResearchGate: judged on the result's title and snippet, the page is not opened
+  const ARTICLE8 = 'Zyxomirol herbal mouthwash reduces plaque index in orthodontic patients of Hyderabad Sindh';
+  brave[`${ARTICLE8} site:researchgate.net`] = [{ url: 'https://www.researchgate.net/publication/381234567_Zyxomirol_herbal_mouthwash', title: `(PDF) ${ARTICLE8} | Request PDF`, description: 'June 2023 · Journal of Example Dental College 12(2):88-93 · Zyxsoomro A, Baloch N' }];
+  const rgCalls = calls.length;
+  const art8 = await check({ index: 12, raw: `Zyxsoomro A, Baloch N (2023). ${ARTICLE8}. J. Example Dent. Coll., 12(2): 88-93.`, title: ARTICLE8, authors: [{ family: 'Zyxsoomro', given: 'A' }, { family: 'Baloch', given: 'N' }], journal: 'J. Example Dent. Coll.', year: 2023, volume: '12', pages: '88-93' });
+  assert.ok(calls.slice(rgCalls).includes(`${ARTICLE8} site:researchgate.net`), 'ResearchGate searched');
+  assert.strictEqual(art8.status, 'verified', `article found on ResearchGate with title and first author verified (got ${art8.status}: ${art8.reason})`);
+  assert.ok(/researchgate\.net/.test(art8.reason), art8.reason);
+  console.log('  ✓ regional journal article found only on ResearchGate (title and first author): verified');
 
   unrelated = true;
   const none = await check({ index: 4, raw: 'Raza K (2020). Pharmacovigilance awareness among Zyxomira hospital nurses. Larkana.', title: 'Pharmacovigilance awareness among Zyxomira hospital nurses', authors: [{ family: 'Raza', given: 'K' }], year: 2020 });

@@ -6,8 +6,9 @@ import * as E from '../public/js/images/engine.js';
 let seed = 42;
 const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 
-/** "Microscopy-like" texture: random soft blobs on a dark background */
-function texture(w, h, blobs = 70) {
+/** "Microscopy-like" texture: random soft blobs on a dark background (rng: the random source) */
+function texture(w, h, blobs = 70, rng = rnd) {
+  const rnd = rng;
   const d = new Uint8ClampedArray(w * h * 4);
   const f = new Float32Array(w * h);
   for (let b = 0; b < blobs; b++) {
@@ -92,3 +93,43 @@ assert.strictEqual(chartPanels[0].type, 'chart', 'bar chart typed as a chart, no
 const chartFindings = E.findIssues(chartPanels).filter(f => f.kind === 'clone' || f.kind === 'alteration');
 assert.strictEqual(chartFindings.length, 0, 'no cloned areas inside a bar chart');
 console.log('bar chart test passed');
+
+// 7 Nov 2026 engine changes: an unresized crop found by sliding the smaller panel over the larger one, a photograph
+// brightened until its background saturates (it reads as a flat graphic) still matched to its original, and a pasted
+// area in a large panel found at the clone search size (512 px) where the keypoint size (360 px) blurs it away
+{
+  // a 32-bit generator: rnd above multiplies in floating point beyond 2^53, so its noise falls into short cycles that
+  // repeat inside a large texture (real cloned areas for the block matching); kept above so the older cases stay as they are
+  let st = 2026;
+  const rng = () => { st = (st + 0x6D2B79F5) | 0; let t = Math.imul(st ^ (st >>> 15), 1 | st); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const big = texture(420, 420, 70, rng);   // a light texture: dense blobs saturate to white, and identical white areas match
+  const crop = { width: 200, height: 180, data: new Uint8ClampedArray(200 * 180 * 4) };
+  paste(crop, big, 0, 0, (x, y) => [x + 100, y + 120], 200, 180);
+  const bright = { width: 200, height: 200, data: A.data.map((v, i) => (i % 4 === 3 ? 255 : Math.min(255, v * 2.2 + 70))) };
+  const W = 900, H = 640, wide = texture(W, H, 230, rng);
+  // a 110 x 110 area near the top left pasted near the bottom right (not overlapping its source)
+  paste(wide, { width: W, height: H, data: wide.data.slice() }, 610, 430, (x, y) => [x + 90, y + 100], 110, 110);
+  const pp = [
+    E.preparePanel(big, { x: 0, y: 0, w: 420, h: 420 }, { id: 'big', label: 'Big' }),
+    E.preparePanel(crop, { x: 0, y: 0, w: 200, h: 180 }, { id: 'crop', label: 'Crop' }),
+    E.preparePanel(A, { x: 0, y: 0, w: 200, h: 200 }, { id: 'orig', label: 'Original' }),
+    E.preparePanel(bright, { x: 0, y: 0, w: 200, h: 200 }, { id: 'bright', label: 'Brightened' }),
+    E.preparePanel(wide, { x: 0, y: 0, w: W, h: H }, { id: 'wide', label: 'Wide' })
+  ];
+  console.log('7 Nov cases:', pp.map(p => `${p.id}:${p.type} work ${p.work.w}x${p.work.h}${p.cloneGray && p.cloneGray !== p.workGray ? ` clone ${p.cloneGray.w}x${p.cloneGray.h}` : ''}`).join(' '));
+  const t2 = Date.now();
+  const ff = E.findIssues(pp);
+  for (const f of ff) console.log(` ${f.level.padEnd(6)} ${f.kind.padEnd(9)} ${f.a.panel} ~ ${f.b.panel}: ${f.description.slice(0, 110)}`);
+  const pair = (a, b) => ff.filter(f => (f.a.panel === a && f.b.panel === b) || (f.a.panel === b && f.b.panel === a));
+  assert.ok(pair('big', 'crop').some(f => f.kind === 'partial'), 'unresized crop of the large panel found');
+  assert.ok(pair('orig', 'bright').some(f => f.kind === 'duplicate' || f.kind === 'partial'), 'brightened copy of a photograph found');
+  const wc = ff.filter(f => f.kind === 'clone' && f.a.panel === 'wide');
+  assert.ok(wc.length, 'pasted area inside a large panel found');
+  // the boxes are reported on the panel itself: the copy sits at (610, 430) and its source at (90, 100)
+  const near = (bx, x, y) => Math.abs(bx.x - x) < 60 && Math.abs(bx.y - y) < 60;
+  assert.ok(wc.some(f => (near(f.a.box, 90, 100) && near(f.b.box, 610, 430)) || (near(f.a.box, 610, 430) && near(f.b.box, 90, 100))), `clone boxes in panel coordinates (${JSON.stringify(wc.map(f => [f.a.box, f.b.box]))})`);
+  assert.ok(!ff.some(f => f.kind !== 'clone' && [f.a.panel, f.b.panel].includes('wide')), 'the unrelated large panel is not matched to the others');
+  // false alarms: panels with nothing pasted inside show no cloned area (block matching at every pixel gave 5 in 'big')
+  for (const id of ['big', 'crop']) assert.ok(!ff.some(f => f.kind === 'clone' && f.a.panel === id), `no cloned area inside the untouched panel ${id}`);
+  console.log(`7 Nov engine cases passed (${Date.now() - t2} ms)`);
+}

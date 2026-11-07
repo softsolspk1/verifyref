@@ -162,6 +162,8 @@ async function publish() {
   const state = readState();
   const version = Date.now();
   const old = await B.getManifest().catch(() => null);
+  // a run that added nothing (Europe PMC down) does not upload the same index again
+  if (old?.docs === state.docs && old?.entries === state.entries && Array.isArray(old.packSizes)) { log(`Nothing new since the published index (${state.docs.toLocaleString('en')} papers); not rebuilt`); return; }
   log(`Building index version ${version} from ${state.entries.toLocaleString('en')} entries`);
   let entries = 0, uploaded = 0;
   // 6 files built and uploaded at a time (each up to a few tens of MB)

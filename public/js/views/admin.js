@@ -98,7 +98,7 @@ export async function renderAdmin(view) {
           ${(b => `<tr>
             <td><b>PubMed Central full texts (similarity repository)</b><div class="muted">Open-access full texts from PubMed Central in the PJPS subject areas, loaded in bulk (about 2.25 million papers, newest first) and kept on cloud storage. The Similarity Report compares every manuscript with them. The count grows as each round of 50,000 papers is published.</div></td>
             <td>Similarity</td>
-            <td class="num">${b?.docs ? `${Number(b.docs).toLocaleString()} papers` : '0'}</td>
+            <td class="num">${b?.docs ? `${Number(b.docs).toLocaleString()} papers${b.entries ? `<div class="muted">${b.entries >= 1e9 ? `${(b.entries / 1e9).toFixed(2)} billion` : `${(b.entries / 1e6).toFixed(1)} million`} index entries</div>` : ''}` : '0'}</td>
             <td>${b?.builtAt ? fmtDate(b.builtAt) : desk ? badge('web platform', 'neutral') : badge('not loaded', 'warn')}</td>
             <td>${b?.docs ? badge('active', 'good') : desk ? `${badge('web platform', 'neutral')}<div class="muted">Searched on the web platform</div>` : badge('pending', 'warn')}</td>
           </tr>`)(ds.pmcFullTexts)}

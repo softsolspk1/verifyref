@@ -1257,6 +1257,8 @@ const DATASET_VIEWS = {
 
 /** One page of a dataset table: { label, cols, rows, total, page, size }; publisher_journals can be narrowed to one publisher */
 async function datasetRows(name, { q = '', page = 1, size = 50, publisher = '' } = {}) {
+  // the PMC full texts are on R2, not in a table: their catalogue is paged (no search)
+  if (name === 'pmc_fulltexts') return require('./corpusBulk').browse({ page, size });
   const v = DATASET_VIEWS[name];
   if (!v) return null;
   size = Math.min(Math.max(parseInt(size, 10) || 50, 1), 200);

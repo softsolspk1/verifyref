@@ -149,6 +149,31 @@ async function candidatesByHashes(hashes, { limit = 12, minShared = 2, budgetMs 
   return found.filter(Boolean).slice(0, limit);
 }
 
+/**
+ * One page of the bulk repository's papers, newest first (Admin > Data, View): { label, cols, rows, total, page, size,
+ * search: false }. Pages are counted with the manifest's packSizes; only the catalogue files of that page are read.
+ */
+async function browse({ page = 1, size = 50 } = {}) {
+  const label = 'PubMed Central full texts (similarity repository)';
+  const cols = ['title', 'journal', 'year', 'doi', 'pmcid', 'license', 'url'];
+  const m = enabled() ? await getManifest() : null;
+  if (!m?.docs || !Array.isArray(m.packSizes)) return { label, cols, rows: [], total: 0, page: 1, size, search: false, message: enabled() ? 'The list of papers appears after the next publish of the repository.' : 'The repository is searched on the web platform.' };
+  size = Math.min(Math.max(parseInt(size, 10) || 50, 1), 200);
+  const total = m.packSizes.reduce((a, n) => a + n, 0);
+  page = Math.min(Math.max(parseInt(page, 10) || 1, 1), Math.max(1, Math.ceil(total / size)));
+  // the packs are numbered oldest first (pack 0 holds the newest papers loaded first): the page's offset is walked through them
+  let skip = (page - 1) * size, p = 0;
+  while (p < m.packSizes.length && skip >= m.packSizes[p]) skip -= m.packSizes[p++];
+  const rows = [];
+  for (; p < m.packSizes.length && rows.length < size; p++, skip = 0) {
+    const list = [...(await catalogue(p)).values()].sort((a, b) => a.id - b.id);
+    for (const d of list.slice(skip, skip + size - rows.length)) {
+      rows.push({ title: d.title, journal: d.journal, year: d.year, doi: d.doi, pmcid: String(d.key || '').replace(/^pmc:/, ''), license: d.license, url: d.url });
+    }
+  }
+  return { label, cols, rows, total, page, size, search: false };
+}
+
 /** Size of the bulk repository (Admin > Data, similarity report) */
 async function stats() {
   const m = enabled() ? await getManifest() : null;
@@ -196,4 +221,4 @@ function buildIndexFile(pairs) {
   return out;
 }
 
-module.exports = { candidatesByHashes, countShared, docText, stats, getManifest, idxKey, bulkHashes, buildIndexFile, fileOf, shardOf, packOf, prefix, PACK, FILES, SHARDS, HEADER, SAMPLE, enabled };
+module.exports = { candidatesByHashes, countShared, docText, stats, browse, getManifest, idxKey, bulkHashes, buildIndexFile, fileOf, shardOf, packOf, prefix, PACK, FILES, SHARDS, HEADER, SAMPLE, enabled };

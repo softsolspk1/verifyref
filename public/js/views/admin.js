@@ -100,7 +100,7 @@ export async function renderAdmin(view) {
             <td>Similarity</td>
             <td class="num">${b?.docs ? `${Number(b.docs).toLocaleString()} papers${b.entries ? `<div class="muted">${b.entries >= 1e9 ? `${(b.entries / 1e9).toFixed(2)} billion` : `${(b.entries / 1e6).toFixed(1)} million`} index entries</div>` : ''}` : '0'}</td>
             <td>${b?.builtAt ? fmtDate(b.builtAt) : desk ? badge('web platform', 'neutral') : badge('not loaded', 'warn')}</td>
-            <td>${b?.docs ? badge('active', 'good') : desk ? `${badge('web platform', 'neutral')}<div class="muted">Searched on the web platform</div>` : badge('pending', 'warn')}</td>
+            <td>${b?.docs ? badge('active', 'good') : desk ? `${badge('web platform', 'neutral')}<div class="muted">Searched on the web platform</div>` : badge('pending', 'warn')}${viewBtn('pmc_fulltexts', b?.docs)}</td>
           </tr>`)(ds.pmcFullTexts)}
           ${(o => `<tr>
             <td><b>OpenAlex journal list</b><div class="muted">Every journal in OpenAlex (about 220,000) with all ISSNs, publisher, country, open-access and DOAJ status, APC, output and citation metrics (Journal Check when offline or when OpenAlex does not answer). Refreshed monthly.</div></td>
@@ -322,7 +322,10 @@ function viewDataset(table, publisher) {
           const d = await api(`/api/admin/datasets/${table}/rows?page=${page}&q=${encodeURIComponent(q)}${publisher ? `&publisher=${encodeURIComponent(publisher)}` : ''}`);
           $('#dv-title', el).textContent = d.label;
           const pages = Math.max(1, Math.ceil(d.total / d.size));
-          $('#dv-sub', el).textContent = `${d.total.toLocaleString()} ${q ? 'matching ' : ''}rows`;
+          $('#dv-sub', el).textContent = `${d.total.toLocaleString()} ${q ? 'matching ' : ''}rows${d.search === false ? ' · newest first' : ''}`;
+          // a list kept on cloud storage (the PMC full texts) is paged only
+          if (d.search === false) $('#dv-q', el).closest('.row').hidden = true;
+          if (d.message && !d.rows.length) { body.innerHTML = `<p class="muted">${esc(d.message)}</p>`; return; }
           body.innerHTML = d.rows.length ? `<div class="table-wrap"><table class="t"><tr>${d.cols.map(c => `<th>${esc(head(c))}</th>`).join('')}</tr>
             ${d.rows.map(r => `<tr>${d.cols.map(c => `<td>${cell(c, r[c])}</td>`).join('')}</tr>`).join('')}</table></div>
             <div class="row" style="justify-content:space-between;margin-top:10px"><span class="muted">Page ${page.toLocaleString()} of ${pages.toLocaleString()}</span>

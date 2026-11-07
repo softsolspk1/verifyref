@@ -100,6 +100,7 @@ async function flush(state, pack, docs) {
   state.docs += docs.length;
   state.entries += entries;
   state.nextPack = pack + 1;
+  (state.packSizes = state.packSizes || [])[pack] = docs.length;
   writeState(state);
   log(`pack ${pack}: ${docs.length} papers, ${entries.toLocaleString('en')} index entries (total ${state.docs.toLocaleString('en')} papers)`);
 }
@@ -139,6 +140,17 @@ async function load() {
   log(`Done: ${added.toLocaleString('en')} papers added this run; ${state.docs.toLocaleString('en')} in total; run --publish to update the index on R2`);
 }
 
+/** Papers in each pack (Admin > Data pages through the catalogue with it); packs loaded before it was recorded are counted from their catalogue on R2 */
+async function packSizes(state) {
+  const sizes = state.packSizes || [];
+  const missing = Array.from({ length: state.nextPack }, (_, p) => p).filter(p => sizes[p] == null);
+  await pool(missing, 16, async p => { sizes[p] = JSON.parse((await U.getObject(`${B.prefix()}/cat/p${p}.json`)).toString('utf8')).length; });
+  if (missing.some(p => sizes[p] == null)) throw new Error('could not count the papers of every pack - the manifest is not changed; run --publish again');
+  state.packSizes = sizes;
+  writeState(state);
+  return sizes.slice(0, state.nextPack);
+}
+
 async function publish() {
   const state = readState();
   const version = Date.now();
@@ -159,7 +171,7 @@ async function publish() {
     if (++uploaded % 32 === 0) log(`  ${uploaded} / ${B.FILES} index files uploaded`);
   });
   if (uploaded !== B.FILES) throw new Error(`only ${uploaded} of ${B.FILES} index files uploaded - the manifest is not changed; run --publish again`);
-  const manifest = { version, docs: state.docs, entries, packs: state.nextPack, builtAt: new Date().toISOString(), source: 'PubMed Central open access (PMC Article Datasets), PJPS subject areas' };
+  const manifest = { version, docs: state.docs, entries, packs: state.nextPack, packSizes: await packSizes(state), builtAt: new Date().toISOString(), source: 'PubMed Central open access (PMC Article Datasets), PJPS subject areas' };
   await U.putObject(`${B.prefix()}/manifest.json`, Buffer.from(JSON.stringify(manifest, null, 1)), 'application/json');
   log(`Published: ${manifest.docs.toLocaleString('en')} papers, ${entries.toLocaleString('en')} index entries`);
   // the previous version's files are removed once the new manifest is in place

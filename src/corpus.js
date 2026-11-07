@@ -1,7 +1,8 @@
 // corpus.js - the PJPS text repository, the in-house counterpart of Turnitin's own database. Full texts are kept in
-// Cloudflare R2 (corpus/<kind>/<id>.txt.gz); the database holds only a catalogue (corpus_docs) and a fingerprint index
-// (corpus_hashes: sampled hashes of 5-word sequences -> document), so the documents sharing text with a manuscript are
-// found in one indexed query and only those texts are read from R2.
+// Cloudflare R2 (corpus/<kind>/<id>.txt.gz); the database holds only a catalogue (corpus_docs). The fingerprint index
+// (sampled hashes of 5-word sequences -> document) is on R2 too (bulk/corpus, the layout of src/corpusBulk.js): new
+// documents' fingerprints wait in corpus_hashes and the daily cron moves them into the R2 index (compactIndex), so the
+// database stays small. A lookup reads both, and only the texts of the documents found are read from R2.
 // It holds published texts only: every source text the similarity check downloads (open-access papers, abstracts, web
 // pages) is kept, so the next check finds it without searching again. Manuscripts are never stored (no repository, as
 // Turnitin's setting for unpublished work).
@@ -100,9 +101,17 @@ async function candidates(text, opts = {}) {
 
 /** Repository documents sharing at least minShared of these fingerprints (used directly by the desktop sync API) */
 async function candidatesByHashes(hashes, { excludeCode = null, excludeTitle = null, limit = 12, minShared = 2 } = {}) {
-  const rows = await db.all(`SELECT d.id, d.kind, d.source_key, d.title, d.meta, d.r2_key, x.shared FROM (
-      SELECT doc_id, COUNT(*)::int AS shared FROM corpus_hashes WHERE h = ANY($1::bigint[]) GROUP BY doc_id HAVING COUNT(*) >= $2 ORDER BY COUNT(*) DESC LIMIT $3
-    ) x JOIN corpus_docs d ON d.id = x.doc_id ORDER BY x.shared DESC`, [hashes, minShared, limit * 2]).catch(() => []);
+  const pending = await db.all(`SELECT doc_id, COUNT(*)::int AS shared FROM corpus_hashes WHERE h = ANY($1::bigint[])
+    GROUP BY doc_id HAVING COUNT(*) >= $2 ORDER BY COUNT(*) DESC LIMIT $3`, [hashes, minShared, limit * 2]).catch(() => []);
+  const shared = new Map(await indexMatches(hashes, minShared));
+  // a document re-indexed since the last move to R2 (a full text after its abstract) counts by its rows in the database
+  const both = [...shared.keys()];
+  if (both.length) for (const r of await db.all('SELECT DISTINCT doc_id FROM corpus_hashes WHERE doc_id = ANY($1::int[])', [both]).catch(() => [])) shared.delete(r.doc_id);
+  for (const p of pending) shared.set(p.doc_id, p.shared);
+  const top = [...shared].sort((a, b) => b[1] - a[1]).slice(0, limit * 2);
+  const docs = top.length ? await db.all('SELECT id, kind, source_key, title, meta, r2_key FROM corpus_docs WHERE id = ANY($1::int[])', [top.map(t => t[0])]).catch(() => []) : [];
+  const byId = new Map(docs.map(d => [d.id, d]));
+  const rows = top.filter(([id]) => byId.has(id)).map(([id, n]) => ({ ...byId.get(id), shared: n }));
   const kept = [];
   for (const r of rows) {
     const meta = typeof r.meta === 'string' ? JSON.parse(r.meta || '{}') : r.meta || {};
@@ -121,6 +130,87 @@ async function candidatesByHashes(hashes, { excludeCode = null, excludeTitle = n
   return bulk.length ? [...out, ...bulk].sort((a, b) => b.shared - a.shared).slice(0, limit) : out;
 }
 
+// ------------------------------------------------------------------ the fingerprint index on R2 (bulk/corpus)
+
+const INDEX = 'corpus';
+
+/** [[doc id, shared fingerprints]] from the R2 index (web platform only) */
+async function indexMatches(hashes, minShared) {
+  if (!r2()) return [];
+  const B = require('./corpusBulk');
+  const m = await B.getManifest(INDEX).catch(() => null);
+  if (!m?.version || !m.entries) return [];
+  const counts = await B.countShared(INDEX, m, hashes.map(h => Number(h) >>> 0), Date.now() + 20000).catch(() => new Map());
+  return [...counts].filter(([, n]) => n >= minShared);
+}
+
+/**
+ * Move the fingerprints waiting in corpus_hashes into the R2 index (daily cron; scripts/corpus-compact.js for the first,
+ * large move). Builds a new index version from the current one plus the waiting rows, publishes its manifest, then
+ * removes the rows moved. Documents changed in the last 10 minutes wait for the next run (their rows may still be
+ * being written). Keeps the previous version for readers that still hold its manifest.
+ */
+async function compactIndex({ log = () => {} } = {}) {
+  if (!r2()) return { skipped: 'no R2' };
+  const B = require('./corpusBulk');
+  const { cut } = await db.one("SELECT now() - interval '10 minutes' AS cut");
+  const ready = (await db.all(`SELECT id FROM corpus_docs d WHERE updated_at < $1
+    AND EXISTS (SELECT 1 FROM corpus_hashes h WHERE h.doc_id = d.id)`, [cut])).map(r => r.id);
+  if (!ready.length) return { moved: 0 };
+  const moving = new Set(ready);
+  const live = new Set((await db.all('SELECT id FROM corpus_docs')).map(r => r.id));
+  const old = await B.getManifest(INDEX, { fresh: true });
+  const byFile = Array.from({ length: B.FILES }, () => []);
+  // the current index, without the documents re-indexed now and those removed from the repository
+  if (old?.version) {
+    await pool(Array.from({ length: B.FILES }, (_, f) => f), 32, async f => {
+      const b = await U.getObject(B.idxKey(INDEX, old.version, f));
+      if (!b) throw new Error(`index file ${f} of version ${old.version} is missing`);
+      const u = new Uint32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.length));
+      for (let i = B.SHARDS + 1; i + 1 < u.length; i += 2) if (live.has(u[i + 1]) && !moving.has(u[i + 1])) byFile[f].push(u[i], u[i + 1]);
+    });
+  }
+  log(`Index version ${old?.version || 'none'} read; adding ${ready.length.toLocaleString('en')} documents`);
+  for (let i = 0; i < ready.length; i += 200) {
+    const rows = await db.all('SELECT h, doc_id FROM corpus_hashes WHERE doc_id = ANY($1::int[])', [ready.slice(i, i + 200)]);
+    for (const r of rows) { const h = Number(r.h) >>> 0; byFile[B.fileOf(h)].push(h, r.doc_id); }
+  }
+  const version = Date.now();
+  let entries = 0, bytes = 0;
+  const docs = new Set();
+  await pool(Array.from({ length: B.FILES }, (_, f) => f), 8, async f => {
+    const pairs = byFile[f];
+    for (let i = 1; i < pairs.length; i += 2) docs.add(pairs[i]);
+    const out = B.buildIndexFile(pairs);
+    byFile[f] = null;
+    entries += pairs.length / 2;
+    bytes += out.length;
+    for (let attempt = 0; ; attempt++) {
+      try { await U.putObject(B.idxKey(INDEX, version, f), out, 'application/octet-stream'); break; }
+      catch (e) { if (attempt >= 3) throw e; await new Promise(r => setTimeout(r, 3000)); }
+    }
+  });
+  const manifest = { version, prev: old?.version || null, docs: docs.size, entries, bytes, builtAt: new Date().toISOString(), source: 'PJPS text repository (corpus_docs)' };
+  await U.putObject(`${B.prefix(INDEX)}/manifest.json`, Buffer.from(JSON.stringify(manifest, null, 1)), 'application/json');
+  await B.getManifest(INDEX, { fresh: true });   // this instance reads the new version at once
+  log(`Published index version ${version}: ${docs.size.toLocaleString('en')} documents, ${entries.toLocaleString('en')} entries`);
+  // a document re-indexed while this ran keeps its new rows (the next run moves them)
+  for (let i = 0; i < ready.length; i += 200) {
+    await db.query(`DELETE FROM corpus_hashes WHERE doc_id = ANY($1::int[]) AND doc_id IN (SELECT id FROM corpus_docs WHERE updated_at < $2)`, [ready.slice(i, i + 200), cut]);
+  }
+  // the version before the previous one is no longer read by anyone
+  if (old?.prev) await pool(Array.from({ length: B.FILES }, (_, f) => f), 16, f => U.deleteObject(B.idxKey(INDEX, old.prev, f)));
+  return { moved: ready.length, docs: docs.size, entries, version };
+}
+
+async function pool(items, n, fn) {
+  let next = 0, failed = null;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length && !failed) { const i = next++; try { await fn(items[i]); } catch (e) { failed = e; } }
+  }));
+  if (failed) throw failed;
+}
+
 /** Repository size by kind (Admin > Data) */
 async function stats() {
   const rows = await db.all('SELECT kind, COUNT(*)::int AS docs, COALESCE(SUM(words), 0)::bigint AS words FROM corpus_docs GROUP BY kind').catch(() => []);
@@ -130,4 +220,4 @@ async function stats() {
   return out;
 }
 
-module.exports = { addDoc, docText, candidates, candidatesByHashes, fingerprints, stats, keyOf };
+module.exports = { addDoc, docText, candidates, candidatesByHashes, compactIndex, fingerprints, stats, keyOf };

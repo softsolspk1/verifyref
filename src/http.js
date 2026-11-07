@@ -148,11 +148,20 @@ function cacheSet(key, value, expires) {
 }
 
 /** Expired rows go, with their R2 objects */
-async function purgeCache() {
-  const now = Date.now();
+async function purgeCache({ budgetMs = 30000 } = {}) {
+  const now = Date.now(), until = now + budgetMs;
   if (r2().enabled()) {
-    const gone = await db.all("SELECT value->>'__r2' AS k FROM cache WHERE expires_at < $1 AND value ? '__r2' LIMIT 5000", [now]);
-    for (const g of gone) await r2().deleteObject(g.k);
+    // the R2 objects of expired rows are deleted 16 at a time, then their rows; the rows without an R2 object go at
+    // once. (One object at a time, the run ended before any row was deleted and expired rows piled up for days.)
+    while (Date.now() < until) {
+      const gone = await db.all("SELECT key, value->>'__r2' AS k FROM cache WHERE expires_at < $1 AND value ? '__r2' LIMIT 500", [now]);
+      if (!gone.length) break;
+      let next = 0;
+      await Promise.all(Array.from({ length: 16 }, async () => { while (next < gone.length) await r2().deleteObject(gone[next++].k).catch(() => {}); }));
+      await db.query('DELETE FROM cache WHERE key = ANY($1::text[])', [gone.map(g => g.key)]);
+    }
+    await db.query("DELETE FROM cache WHERE expires_at < $1 AND NOT (value ? '__r2')", [now]);
+    return;
   }
   await db.query('DELETE FROM cache WHERE expires_at < $1', [now]);
 }

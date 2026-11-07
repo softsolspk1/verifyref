@@ -30,28 +30,74 @@ const enabled = () => U.enabled() && !cfg.DESKTOP;
 
 // ------------------------------------------------------------------ reading (the web platform)
 
-let manifest = null, manifestAt = 0;
-const headers = new Map();      // `${version}/${file}` -> Uint32Array of shard offsets
+const manifests = new Map();    // name -> { m, at }
+const headers = new Map();      // `${name}/${version}/${file}` -> Uint32Array of shard offsets
+const wholes = new Map();       // name -> { version, files: Promise<Uint32Array[]> } (a small index read in full)
 const cats = new Map();         // pack -> catalogue (most recently used kept)
+// an index up to this size (the fingerprint index of corpus.js, bulk/corpus) is read whole once and kept in memory:
+// a manuscript's ~4,000 hashes would otherwise be ~4,000 range requests
+const WHOLE_MAX = 96 * 1024 * 1024;
 
-async function getManifest() {
+const idxKey = (name, version, f) => `${prefix(name)}/idx/v${version}/f${f.toString(16).padStart(2, '0')}.bin`;
+
+async function getManifest(name = NAME, { fresh = false } = {}) {
   // kept 10 minutes (also "no bulk repository yet", so a missing manifest is not asked for on every check)
-  if (Date.now() - manifestAt < 10 * 60000) return manifest;
-  try {
-    const raw = await U.getObject(`${prefix()}/manifest.json`);
-    manifest = JSON.parse(raw.toString('utf8'));
-  } catch (e) { manifest = null; }
-  manifestAt = Date.now();
-  return manifest;
+  const c = manifests.get(name);
+  if (!fresh && c && Date.now() - c.at < 10 * 60000) return c.m;
+  let m = null;
+  try { m = JSON.parse((await U.getObject(`${prefix(name)}/manifest.json`)).toString('utf8')); } catch (e) { m = null; }
+  manifests.set(name, { m, at: Date.now() });
+  return m;
 }
 
-async function header(version, f) {
-  const k = `${version}/${f}`;
+async function header(name, version, f) {
+  const k = `${name}/${version}/${f}`;
   if (headers.has(k)) return headers.get(k);
-  const b = await U.getObjectRange(`${prefix()}/idx/v${version}/f${f.toString(16).padStart(2, '0')}.bin`, 0, HEADER - 1);
+  const b = await U.getObjectRange(idxKey(name, version, f), 0, HEADER - 1);
   const off = b && b.length === HEADER ? new Uint32Array(b.buffer.slice(b.byteOffset, b.byteOffset + HEADER)) : null;
   headers.set(k, off);
   return off;
+}
+
+/** The 256 files of a small index, read once per version: Uint32Array each (shard offsets, then the entries) */
+function wholeIndex(name, version) {
+  const w = wholes.get(name);
+  if (w && w.version === version) return w.files;
+  const files = pool(Array.from({ length: FILES }, (_, f) => f), 32, async f => {
+    const b = await U.getObject(idxKey(name, version, f));
+    return b && b.length >= HEADER ? new Uint32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.length - (b.length % 4))) : null;
+  });
+  wholes.set(name, { version, files });
+  files.catch(() => wholes.delete(name));
+  return files;
+}
+
+/** Index entries per document id for these hashes: Map(id -> number of the hashes it shares) */
+async function countShared(name, m, want, until = Infinity) {
+  const wanted = new Set(want);
+  const counts = new Map();
+  const tally = v => { for (let i = 0; i + 1 < v.length; i += 2) if (wanted.has(v[i])) counts.set(v[i + 1], (counts.get(v[i + 1]) || 0) + 1); };
+  // shards to read, one range request each (or a slice of the index kept in memory)
+  const byShard = new Map();
+  for (const h of wanted) { const k = `${fileOf(h)}:${shardOf(h)}`; if (!byShard.has(k)) byShard.set(k, { f: fileOf(h), s: shardOf(h) }); }
+  const shards = [...byShard.values()];
+  if (m.bytes && m.bytes <= WHOLE_MAX) {
+    const files = await wholeIndex(name, m.version);
+    for (const { f, s } of shards) {
+      const u = files[f];
+      if (u) tally(u.subarray(SHARDS + 1 + u[s] * 2, SHARDS + 1 + u[s + 1] * 2));
+    }
+    return counts;
+  }
+  await pool([...new Set(shards.map(x => x.f))], 16, f => header(name, m.version, f));
+  await pool(shards, 24, async ({ f, s }) => {
+    if (Date.now() > until) return;
+    const off = headers.get(`${name}/${m.version}/${f}`);
+    if (!off || off[s + 1] <= off[s]) return;
+    const b = await U.getObjectRange(idxKey(name, m.version, f), HEADER + off[s] * 8, HEADER + off[s + 1] * 8 - 1);
+    if (b) tally(new Uint32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.length)));
+  });
+  return counts;
 }
 
 async function catalogue(pack) {
@@ -89,22 +135,7 @@ async function candidatesByHashes(hashes, { limit = 12, minShared = 2, budgetMs 
   const until = Date.now() + budgetMs;
   const want = [...new Set(hashes.map(h => h >>> 0).filter(h => h % SAMPLE === 0))];
   if (want.length < minShared) return [];
-  const wanted = new Set(want);
-  // shards to read, one range request each
-  const byShard = new Map();
-  for (const h of want) { const k = `${fileOf(h)}:${shardOf(h)}`; if (!byShard.has(k)) byShard.set(k, { f: fileOf(h), s: shardOf(h) }); }
-  const shards = [...byShard.values()];
-  await pool([...new Set(shards.map(x => x.f))], 16, f => header(m.version, f));
-  const counts = new Map();
-  await pool(shards, 24, async ({ f, s }) => {
-    if (Date.now() > until) return;
-    const off = headers.get(`${m.version}/${f}`);
-    if (!off || off[s + 1] <= off[s]) return;
-    const b = await U.getObjectRange(`${prefix()}/idx/v${m.version}/f${f.toString(16).padStart(2, '0')}.bin`, HEADER + off[s] * 8, HEADER + off[s + 1] * 8 - 1);
-    if (!b) return;
-    const v = new Uint32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.length));
-    for (let i = 0; i + 1 < v.length; i += 2) if (wanted.has(v[i])) counts.set(v[i + 1], (counts.get(v[i + 1]) || 0) + 1);
-  });
+  const counts = await countShared(NAME, m, want, until);
   const top = [...counts].filter(([, n]) => n >= minShared).sort((a, b) => b[1] - a[1]).slice(0, limit * 2);
   const found = await pool(top, 6, async ([id, n]) => {
     if (Date.now() > until + 5000) return null;
@@ -165,4 +196,4 @@ function buildIndexFile(pairs) {
   return out;
 }
 
-module.exports = { candidatesByHashes, docText, stats, getManifest, bulkHashes, buildIndexFile, fileOf, shardOf, packOf, prefix, PACK, FILES, SHARDS, HEADER, SAMPLE, enabled };
+module.exports = { candidatesByHashes, countShared, docText, stats, getManifest, idxKey, bulkHashes, buildIndexFile, fileOf, shardOf, packOf, prefix, PACK, FILES, SHARDS, HEADER, SAMPLE, enabled };

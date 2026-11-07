@@ -356,6 +356,61 @@ const LIST_TYPES = {
   gsm: 'Google Scholar Metrics (h5-index, h5-median) — CSV of the "Top publications" lists of scholar.google.com/citations?view_op=top_venues (title, h5-index, h5-median, category)'
 };
 
+// The columns of each list that are read (interpretLists in src/checks/journal.js, src/papermill/index.js): only these
+// are kept in the database, the whole file stays on R2 (lists/<type>.csv / .xlsx). For each pattern the first column
+// matching it is kept, so pick() reads exactly the column it read from the full row. Add a pattern here when a check
+// starts reading another column (and upload the list again). Lists not named here keep every column.
+const LIST_FIELDS = {
+  sjr: [/best quartile/i, /quartile/i, /^sjr$/i, /^sjr\b/i, /h\s*index/i, /categor/i, /coverage/i],
+  wos_sjr: [/best quartile/i, /quartile/i, /^sjr$/i, /^sjr\b/i, /h\s*index/i, /categor/i, /coverage/i],
+  scopus: [/active/i, /status/i, /coverage/i, /discontinued by scopus/i, /^active or inactive$/i, /citescore/i],
+  wos_mjl: [/collection|edition|^index$/i, /categor/i, /^source$/i],
+  jcr: [/quartile/i, /^jif$|impact factor|^jif\b/i, /categor/i],
+  hjrs: [/^category$/i, /hjrs.*cat/i, /categor/i, /^cat/i, /subject|discipline|area/i],
+  ebsco: [/^database/i, /^product/i, /^collection/i, /peer.?review/i, /index.*start/i, /abstract.*start/i, /index.*stop/i, /abstract.*stop/i,
+    /full.?text.*start/i, /full.?text.*stop/i, /delay|embargo/i, /coverage policy/i, /coverage/i],
+  ici: [/^icv/i, /icv/i, /value/i, /year/i],
+  gsm: [/h5.?index/i, /h5.?median/i, /categor|subcat|field/i],
+  doaj_removed: [/reason/i, /date/i],
+  scopus_discontinued: [/^year$/i, /indexation change/i, /^volume$/i, /^issue$/i],
+  pmc: [/agreement status/i, /agreement to deposit/i, /embargo|release delay/i, /^earliest$/i, /^most recent$/i, /journal note/i, /pmc url/i]
+};
+// kept in every list: the title / ISSN columns, the publisher (shown on Admin > Data) and the system's own fields
+const LIST_ALWAYS = [/title/i, /issn/i, /publisher/i, /^(id|manual|reason|source|collection)$/i];
+
+/** A list row with only the columns read (see LIST_FIELDS), in the file's column order */
+function slimListRow(listType, row) {
+  const pats = LIST_FIELDS[listType];
+  if (!pats || !row || row.Manual === 'yes') return row;
+  const keys = Object.keys(row);
+  const keep = new Set();
+  for (const p of pats) { const k = keys.find(h => p.test(h)); if (k) keep.add(k); }
+  for (const p of LIST_ALWAYS) { const k = keys.find(h => p.test(h)); if (k) keep.add(k); }
+  return Object.fromEntries(keys.filter(k => keep.has(k)).map(k => [k, row[k]]));
+}
+
+/** Slim the rows already in the database (the lists uploaded before LIST_FIELDS); returns rows rewritten per list */
+async function slimJournalLists({ log = () => {} } = {}) {
+  const out = {};
+  for (const listType of Object.keys(LIST_FIELDS)) {
+    const rows = await db.all('SELECT issn, eissn, title, title_norm, data FROM journal_list_entries WHERE list_type = $1', [listType]);
+    if (!rows.length) continue;
+    // journals added by hand stay as they are
+    const data = rows.map(r => ({ r, d: typeof r.data === 'string' ? JSON.parse(r.data) : r.data })).filter(x => x.d?.Manual !== 'yes')
+      .map(({ r, d }) => [listType, r.issn, r.eissn, r.title, r.title_norm, JSON.stringify(slimListRow(listType, d))]);
+    await transaction(async client => {
+      await client.query(`DELETE FROM journal_list_entries WHERE list_type = $1 AND data->>'Manual' IS DISTINCT FROM 'yes'`, [listType]);
+      await bulkInsert(client, 'journal_list_entries', [
+        { name: 'list_type', type: 'text' }, { name: 'issn', type: 'text' }, { name: 'eissn', type: 'text' },
+        { name: 'title', type: 'text' }, { name: 'title_norm', type: 'text' }, { name: 'data', type: 'jsonb' }
+      ], data, 2000);
+    });
+    out[listType] = data.length;
+    log(`${listType}: ${data.length.toLocaleString('en')} rows slimmed`);
+  }
+  return out;
+}
+
 function findCol(headers, patterns) {
   for (const p of patterns) {
     const h = headers.find(x => p.test(x));
@@ -386,7 +441,7 @@ async function importJournalList(listType, filename, csv, { raw = null } = {}) {
     const eissn = eissnCol && eissnCol !== issnCol ? cleanIssn(row[eissnCol]) : issns[1] || null;
     const title = titleCol ? row[titleCol] : '';
     if (!title && !issns.length && !eissn) continue;
-    data.push([listType, issns[0] || null, eissn, title, normalizeJournal(title), JSON.stringify(row)]);
+    data.push([listType, issns[0] || null, eissn, title, normalizeJournal(title), JSON.stringify(slimListRow(listType, row))]);
   }
   if (raw || !Array.isArray(csv)) await store.put(`lists/${listType}${raw ? path.extname(filename).toLowerCase() || '.xlsx' : '.csv'}`, raw || csv, { source: `uploaded: ${filename}` }).catch(e => console.warn(`R2 copy of the ${listType} list failed: ${e.message}`));
   // journals added one at a time on Admin > Data stay when the list's CSV is uploaded again
@@ -1714,5 +1769,5 @@ module.exports = {
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
   loadStopPredatory, loadDoajWithdrawn, loadMirbase, mirbaseSpecies, mirKey, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadWosWikidata, loadFlaggedPapers, flaggedFor,
-  loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, addListEntry, removeListEntry, MANUAL_LISTS, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
+  loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, slimJournalLists, slimListRow, addListEntry, removeListEntry, MANUAL_LISTS, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
 };

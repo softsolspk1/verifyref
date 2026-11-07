@@ -104,13 +104,15 @@ if (cfg.DESKTOP) {
     await purgeJobs();
     // expired cache rows and their R2 objects
     await require('./src/http').purgeCache().catch(e => console.warn(`cache purge: ${e.message}`));
+    // the text repository's new fingerprints from the database into the index on R2 (keeps Neon small)
+    const corpusIndex = await require('./src/corpus').compactIndex().catch(e => ({ error: e.message }));
     // time-boxed: the stalest datasets first, the rest on the following days (all of them at once exceeded the function time limit)
     const datasets = await D.ensureDatasets({ budgetMs: 60000 });
     const alerts = await require('./src/alerts').runAlerts();
     const monitoring = await require('./src/integrity/monitoring').runMonitor({ limit: 150 }).catch(e => ({ error: e.message }));
     // Module 5: newly published PJPS papers into the image reference database (time-boxed; the rest follows tomorrow)
     const pjpsFigures = await require('./src/imageRefs').indexPjps({ limit: 40, budgetMs: 120000 }).catch(e => ({ error: e.message }));
-    res.json({ success: true, datasets, alerts, monitoring, pjpsFigures });
+    res.json({ success: true, corpusIndex, datasets, alerts, monitoring, pjpsFigures });
   }));
   // Second daily cron: grows the Module 5 image databases (retracted cases, publishers' open access, PubMed Central)
   app.get('/api/cron/images', wrap(async (req, res) => {

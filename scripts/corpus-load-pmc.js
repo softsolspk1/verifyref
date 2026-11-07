@@ -114,8 +114,15 @@ async function load() {
   // run stopped at any point resumes without losing or repeating papers
   while (added < LIMIT && state.cursor) {
     const url = `${EPMC}?format=json&resultType=lite&pageSize=1000&sort=P_PDATE_D%20desc&cursorMark=${encodeURIComponent(state.cursor)}&query=${encodeURIComponent(QUERY)}`;
-    const r = await fetchText(url, { timeout: 120000 });
-    if (r.status !== 200) { log('Europe PMC search failed; stopping (run again to continue)'); break; }
+    // Europe PMC's search fails now and then for a few minutes: tried again for up to 10 minutes (waits of 15 s
+    // doubling to 2 min) before the run stops, since a stopped run costs an early publish of the whole index
+    let r = await fetchText(url, { timeout: 120000 });
+    for (let wait = 15000, until = Date.now() + 10 * 60000; r.status !== 200 && Date.now() + wait < until; wait = Math.min(wait * 2, 120000)) {
+      log(`Europe PMC search failed (${r.status || 'no answer'}); trying again in ${wait / 1000} s`);
+      await new Promise(res => setTimeout(res, wait));
+      r = await fetchText(url, { timeout: 120000 });
+    }
+    if (r.status !== 200) { log('Europe PMC search failed for 10 minutes; stopping (run again to continue)'); break; }
     const data = JSON.parse(r.text);
     const list = (data.resultList?.result || []).filter(x => x.pmcid && !done.has(x.pmcid));
     const got = await pool(list.slice(0, LIMIT - added + 50), CONCURRENCY, async x => {

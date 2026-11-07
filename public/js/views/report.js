@@ -471,6 +471,22 @@ function scholarQuery(r) {
  * PubMed, Google Books, Google Scholar and Google are searched automatically; this shows what each one found. A source
  * that could not run (no SerpApi key for the two Google searches, offline, a source error) keeps a link to search it by hand.
  */
+/** A verified reference: where the web search and ResearchGate (searched for every reference) found it */
+function webSeenLine(r) {
+  const ck = r.checked || {};
+  const webName = ['Google', 'Google Search', 'Web search'].find(n => ck[n] != null);
+  if (!webName && ck.ResearchGate == null) return '';
+  const pages = r.webSeen || [];
+  const rg = pages.find(h => /researchgate\.net/i.test(h.url || ''));
+  const other = pages.find(h => !/researchgate\.net/i.test(h.url || ''));
+  const link = (h, text) => `<a href="${esc(h.url)}" target="_blank" rel="noopener">${esc(text)} ↗</a>`;
+  const label = webName === 'Web search' ? 'Web' : webName;
+  const parts = [];
+  if (webName) parts.push(other ? `${badge(label, 'good')} ${link(other, other.host || 'page')}` : `${badge(label, 'neutral')} ${ck[webName] === 'error' ? 'could not be searched' : 'no page with this title'}`);
+  if (ck.ResearchGate != null) parts.push(rg ? `${badge('ResearchGate', 'good')} ${link(rg, 'ResearchGate page')}` : `${badge('ResearchGate', 'neutral')} ${ck.ResearchGate === 'error' ? 'could not be searched' : 'not on ResearchGate'}`);
+  return `<span style="font-size:13px;margin-right:12px">${parts.join(' &nbsp; ')}</span>`;
+}
+
 function autoSearch(r) {
   const p = r.parsed || {};
   const q = scholarQuery(r);
@@ -489,7 +505,8 @@ function autoSearch(r) {
   const item = ([name, url]) => {
     const o = state(name);
     const label = name === 'Google' && ck.Google == null && ck['Google Search'] == null && ck['Web search'] != null ? 'Web' : name;
-    const page = name === 'ResearchGate' ? (r.web || []).find(h => /researchgate\.net/i.test(h.url || '')) : (r.web || [])[0];
+    const pages = [...(r.web || []), ...(r.webSeen || [])];
+    const page = name === 'ResearchGate' ? pages.find(h => /researchgate\.net/i.test(h.url || '')) : pages.find(h => !/researchgate\.net/i.test(h.url || '')) || pages[0];
     if (o === 'found' && name === 'ResearchGate' && page) return `${badge(name, 'good')} found · <a href="${esc(page.url)}" target="_blank" rel="noopener">ResearchGate page ↗</a>`;
     if (o === 'found' && name === 'Google' && page) return `${badge(label, 'good')} found on the web · <a href="${esc(page.url)}" target="_blank" rel="noopener">${esc(page.host || 'page')} ↗</a>`;
     if (o === 'found') return `${badge(name, (r.matchedIn || []).includes(name) ? 'good' : 'neutral')} ${(r.matchedIn || []).includes(name) ? 'matched' : 'similar record, not the same work'}`;
@@ -537,7 +554,7 @@ function refRow(r) {
       ${chosen.items?.get(r.index) ? `<div class="suggest"><b>${esc(chosen.label)}:</b> ${esc(chosen.items.get(r.index).text)}${chosen.items.get(r.index).matched ? '' : ' <span class="muted">(no verified record: as written)</span>'} <button class="btn btn-sm btn-ghost" data-copy="${esc(chosen.items.get(r.index).text)}">${ICONS.copy}</button></div>` : ''}
       ${r.suggestion ? `<div class="suggest"><b>Suggested reference:</b> ${esc(r.suggestion)} <button class="btn btn-sm btn-ghost" data-copy="${esc(r.suggestion)}">${ICONS.copy}</button></div>` : ''}
       ${chips ? `<div style="margin-top:10px"><div class="muted" style="font-size:12px;margin-bottom:4px">Databases checked</div><div class="chips">${chips}</div></div>` : ''}
-      ${r.status !== 'verified' || r.web?.length ? autoSearch(r) : `<div style="margin-top:8px"><a class="muted" style="font-size:12px" href="https://scholar.google.com/scholar?q=${enc(scholarQuery(r))}" target="_blank" rel="noopener">Find in Google Scholar ↗</a></div>`}
+      ${r.status !== 'verified' || r.web?.length ? autoSearch(r) : `<div style="margin-top:8px">${webSeenLine(r)}<a class="muted" style="font-size:12px" href="https://scholar.google.com/scholar?q=${enc(scholarQuery(r))}" target="_blank" rel="noopener">Find in Google Scholar ↗</a></div>`}
     </div>
   </div>`;
 }

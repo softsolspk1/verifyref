@@ -367,6 +367,17 @@ async function verifyReference(ref, opts = {}) {
       if (!g.error) web = g.hits || [];
     }
   }
+  // every other reference (one a database verified) is searched on the web and ResearchGate too: where the work is on
+  // the web, shown beside the record; it does not change the verdict
+  let webSeen = null;
+  if (!checked.has(S.webSearchName()) && S.webPresenceEnabled()) {
+    const p = await S.webPresence(ref).catch(() => ({ skipped: true }));
+    if (!p.skipped) {
+      mark(S.webSearchName(), p.web);
+      mark('ResearchGate', p.researchgate);
+      webSeen = p.hits?.length ? p.hits : null;
+    }
+  }
 
   let top = best();
   let record = idRecord && idMatches ? idRecord : top && top.score >= 50 ? top.rec : null;
@@ -441,7 +452,7 @@ async function verifyReference(ref, opts = {}) {
   // Offline (desktop): nothing reachable and nothing cached — verify later instead of calling it fabricated
   const outcomes = [...checked.values()];
   const offline = !record && !isOnline() && outcomes.length > 0 && outcomes.every(o => o === 'error');
-  return { ref, record, closest, openalexRecord, confidence, issues, matchedIn: record ? matchedIn : [], checked: Object.fromEntries(checked), topScore: top?.score || 0, offline, web };
+  return { ref, record, closest, openalexRecord, confidence, issues, matchedIn: record ? matchedIn : [], checked: Object.fromEntries(checked), topScore: top?.score || 0, offline, web, webSeen };
 }
 
 // ------------------------------------------------------------------ "well-indexed journal but article absent" check
@@ -674,6 +685,7 @@ async function checkReferences(refs, opts = {}) {
       matchedIn: v.matchedIn,
       checked: v.checked,
       web: v.web ? v.web.slice(0, 3) : null,
+      webSeen: v.webSeen ? v.webSeen.slice(0, 4) : null,
       suggestion: !rec || status === 'retracted' ? null
         : status !== 'verified' || (!v.ref.doi && rec.doi) ? formatReference({ ...rec, title: rec.title.replace(/^(retracted|withdrawn)\s*:\s*/i, '') }, style) : null,
       age: (rec?.year || v.ref.year) ? year - (rec?.year || v.ref.year) : null,

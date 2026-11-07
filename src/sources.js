@@ -787,6 +787,34 @@ async function googleWebSearch(ref) {
   return { hits: hits.length ? hits : await pageConfirm(ref, (r.data?.organic_results || []).map(o => o.link).filter(Boolean).slice(0, 4)) };
 }
 
+/**
+ * Every reference, also one a database verified, is searched on the web and on ResearchGate (Brave Search, or Google
+ * Programmable Search; never SerpApi, whose few searches are kept for Google Scholar). This only shows where the work
+ * is on the web: it does not change the reference's verdict. The same exact-title searches as googleWebSearch (cached
+ * 30 days), so a reference searched by both costs one search each. Returns { web, researchgate, hits } | { skipped }.
+ */
+const webPresenceEnabled = () => { const p = require('./webSearch').provider(); return !!p && p !== 'SerpApi (Google)'; };
+
+async function webPresence(ref) {
+  const title = q(ref.title || '').slice(0, 250);
+  if (!webPresenceEnabled() || title.length < 15) return { skipped: true };
+  const WEB = require('./webSearch');
+  const onRg = o => /researchgate\.net/i.test(o.url || o.link || '');
+  const w = await WEB.phraseSearch(title, 8).catch(e => ({ ok: false, error: e.message }));
+  if (w.error === 'skipped') return { skipped: true };
+  const found = w.ok ? (w.results || []).map(o => ({ title: o.title, link: o.url, snippet: o.snippet })) : [];
+  const hits = webHits(ref, found);
+  let rgHits = hits.filter(onRg);
+  let researchgate = rgHits.length ? 'found' : null;
+  if (!researchgate) {
+    const rg = await WEB.phraseSearch(title, 5, 'site:researchgate.net').catch(() => ({ ok: false }));
+    rgHits = webHits(ref, (rg.ok ? rg.results || [] : []).filter(onRg).map(o => ({ title: o.title, link: o.url, snippet: o.snippet })));
+    researchgate = rgHits.length ? 'found' : rg.ok ? 'not-found' : 'error';
+  }
+  const all = [...hits, ...rgHits.filter(h => !hits.some(x => x.url === h.url))];
+  return { web: !w.ok ? 'error' : hits.some(h => !onRg(h)) ? 'found' : 'not-found', researchgate, hits: all.slice(0, 4) };
+}
+
 // ---------------------------------------------------------------- pages and PDFs read for a reference
 // A search result whose title is not the article's ("(PDF) …", a file name, a repository page) or the web address a
 // reference gives is opened, and its text (a PDF's first pages) is read for the cited title and first author.
@@ -907,7 +935,7 @@ const databases = () => [...DATABASES, ...(scholarEnabled() ? ['Google Scholar (
 
 module.exports = {
   crossrefInJournal,
-  DATABASES, databases, webSearchName, scholarEnabled, scholarAvailable, parseScholarHtml, webSearchEnabled, pageConfirm, pubchemConfirm, namesReference, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
+  DATABASES, databases, webSearchName, webPresence, webPresenceEnabled, scholarEnabled, scholarAvailable, parseScholarHtml, webSearchEnabled, pageConfirm, pubchemConfirm, namesReference, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,
   pubmedPmid, pubmedSearch, europepmcSearch, s2Doi, s2Search,

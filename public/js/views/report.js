@@ -479,14 +479,18 @@ function autoSearch(r) {
     ['PubMed', `https://pubmed.ncbi.nlm.nih.gov/?term=${enc(plain)}`],
     ['Google Books', `https://www.google.com/search?tbm=bks&q=${enc(plain)}`],
     ['Google Scholar', `https://scholar.google.com/scholar?q=${enc(q)}`],
-    ['Google', `https://www.google.com/search?q=${enc(`"${plain}"`)}`]
+    ['Google', `https://www.google.com/search?q=${enc(`"${plain}"`)}`],
+    ['ResearchGate', `https://www.researchgate.net/search/publication?q=${enc(plain)}`]
   ];
-  // the exact-title web search is "Google" through SerpApi, else "Web search" (the similarity report's web search)
-  const state = name => (r.checked || {})[name] ?? (name === 'Google' ? (r.checked || {})['Web search'] : undefined);
+  // the exact-title web search is "Google" through SerpApi, "Google Search" through Google Programmable Search, else
+  // "Web search" (the similarity report's web search); ResearchGate is searched through it
+  const ck = r.checked || {};
+  const state = name => ck[name] ?? (name === 'Google' ? ck['Google Search'] ?? ck['Web search'] : undefined);
   const item = ([name, url]) => {
     const o = state(name);
-    const label = name === 'Google' && !(r.checked || {}).Google && (r.checked || {})['Web search'] ? 'Web' : name;
-    const page = (r.web || [])[0];
+    const label = name === 'Google' && ck.Google == null && ck['Google Search'] == null && ck['Web search'] != null ? 'Web' : name;
+    const page = name === 'ResearchGate' ? (r.web || []).find(h => /researchgate\.net/i.test(h.url || '')) : (r.web || [])[0];
+    if (o === 'found' && name === 'ResearchGate' && page) return `${badge(name, 'good')} found · <a href="${esc(page.url)}" target="_blank" rel="noopener">ResearchGate page ↗</a>`;
     if (o === 'found' && name === 'Google' && page) return `${badge(label, 'good')} found on the web · <a href="${esc(page.url)}" target="_blank" rel="noopener">${esc(page.host || 'page')} ↗</a>`;
     if (o === 'found') return `${badge(name, (r.matchedIn || []).includes(name) ? 'good' : 'neutral')} ${(r.matchedIn || []).includes(name) ? 'matched' : 'similar record, not the same work'}`;
     if (o === 'not-found') return `${badge(label, 'neutral')} no match`;

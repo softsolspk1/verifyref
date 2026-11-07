@@ -351,7 +351,7 @@ const LIST_TYPES = {
   scopus_discontinued: 'Scopus discontinued titles — the "Discontinued Titles" sheet of Elsevier\'s source list workbook (.xlsx; uploading the workbook on the Scopus row loads both)',
   rw_hijacked: 'Retraction Watch Hijacked Journal Checker — .xlsx or CSV export (clone websites of real journals)',
   pmc: 'PubMed Central journal list — downloaded automatically from NCBI (jlist.csv); upload only to replace it',
-  wos_mjl: 'Clarivate Web of Science Master Journal List (SCIE, SSCI, AHCI, ESCI) — CSV from mjl.clarivate.com → Downloads (free sign-in); put the collections in one file with a "Collection" column, or upload one collection whose name is in the file name (e.g. wos-core_SCIE.csv)',
+  wos_mjl: 'Clarivate Web of Science Master Journal List (SCIE, SSCI, AHCI, ESCI) — loaded automatically from Wikidata (the index of about 15,000 journals) until the Clarivate files are uploaded; CSV from mjl.clarivate.com → Downloads (free sign-in); put the collections in one file with a "Collection" column, or upload one collection whose name is in the file name (e.g. wos-core_SCIE.csv)',
   ici: 'Index Copernicus Journals Master List (ICV) — CSV export of journals.indexcopernicus.com (title, ISSN, ICV value and year)',
   gsm: 'Google Scholar Metrics (h5-index, h5-median) — CSV of the "Top publications" lists of scholar.google.com/citations?view_op=top_venues (title, h5-index, h5-median, category)'
 };
@@ -1349,6 +1349,48 @@ async function loadPmcJournals() {
   return n;
 }
 
+// ------------------------------------------------------------------ Web of Science collections (Wikidata)
+// Clarivate's Master Journal List downloads need a Clarivate sign-in. Wikidata (CC0) records the Web of Science index
+// of about 15,000 journals ("indexed in bibliographic review", P8875), taken from the Master Journal List: they fill the
+// "wos_mjl" list until the Clarivate files are uploaded, and never replace an uploaded list.
+
+const WOS_WIKIDATA = { SCIE: 'Q104047209', SSCI: 'Q1090953', AHCI: 'Q713927', ESCI: 'Q22908122' };
+const WOS_WIKIDATA_FILE = 'Wikidata (Web of Science index of each journal, CC0)';
+
+async function loadWosWikidata() {
+  const prev = await db.one('SELECT filename FROM journal_lists WHERE list_type = $1', ['wos_mjl']).catch(() => null);
+  // an uploaded Clarivate list is kept (checked again next month)
+  if (prev?.filename && prev.filename !== WOS_WIKIDATA_FILE) { await setMeta('wosw_loaded_at', new Date().toISOString()); await setMeta('wosw_count', 0); return 0; }
+  const byId = new Map();
+  for (const [coll, qid] of Object.entries(WOS_WIKIDATA)) {
+    const query = `SELECT ?j ?title ?issn WHERE { ?j wdt:P8875 wd:${qid} . OPTIONAL { ?j wdt:P236 ?issn } OPTIONAL { ?j wdt:P1476 ?t } OPTIONAL { ?j rdfs:label ?l FILTER(LANG(?l) = "en") } BIND(COALESCE(STR(?t), STR(?l)) AS ?title) }`;
+    const text = await store.sourceText(`wos-wikidata-${coll}.csv`, () => getText(`https://query.wikidata.org/sparql?query=${encodeURIComponent(query)}`, { headers: { Accept: 'text/csv' }, ttl: 0, timeout: 120000, retries: 2 }));
+    for (const r of csvToObjects(text)) {
+      const id = String(r.j || '').replace(/^.*\//, '');
+      if (!id) continue;
+      const e = byId.get(id) || { title: '', issns: new Set(), colls: new Set() };
+      if (!e.title && r.title) e.title = r.title;
+      if (cleanIssn(r.issn)) e.issns.add(cleanIssn(r.issn));
+      e.colls.add(coll);
+      byId.set(id, e);
+    }
+  }
+  const journals = [...byId].filter(([, e]) => e.title || e.issns.size);
+  if (journals.length < 5000) throw new Error(`Wikidata returned too few Web of Science journals (${journals.length})`);
+  const rows = [];
+  for (const [id, e] of journals) {
+    // ESCI and the three flagship indexes exclude each other: an ESCI entry beside SCIE / SSCI / AHCI is a journal promoted since
+    const colls = [...e.colls].filter(c => c !== 'ESCI' || e.colls.size === 1);
+    // a list row holds two ISSNs: a journal with more (earlier print / online ISSNs) gets a row for each further pair
+    const issns = [...e.issns];
+    for (let i = 0; i < Math.max(issns.length, 1); i += 2) rows.push({ Title: e.title, ISSN: issns.slice(i, i + 2).join(', '), Collection: colls.join('; '), Source: 'Wikidata', Wikidata: id });
+  }
+  await importJournalList('wos_mjl', WOS_WIKIDATA_FILE, rows);
+  await setMeta('wosw_loaded_at', new Date().toISOString());
+  await setMeta('wosw_count', journals.length);
+  return journals.length;
+}
+
 // ------------------------------------------------------------------ miRBase (mature microRNAs by species)
 
 const MIRBASE_URL = 'https://www.mirbase.org/download/mature.fa';
@@ -1487,6 +1529,7 @@ async function listStatus() {
     cellosaurus: { loadedAt: await getMeta('cello_loaded_at'), count: parseInt((await getMeta('cello_count')) || '0', 10) },
     jabrefAbbrevs: { loadedAt: await getMeta('jabref_loaded_at'), count: parseInt((await getMeta('jabref_count')) || '0', 10) },
     pmcJournals: { loadedAt: await getMeta('pmcj_loaded_at'), count: parseInt((await getMeta('pmcj_count')) || '0', 10) },
+    wosWikidata: { loadedAt: await getMeta('wosw_loaded_at'), count: parseInt((await getMeta('wosw_count')) || '0', 10) },
     flaggedPapers: { loadedAt: await getMeta('flag_loaded_at'), count: parseInt((await getMeta('flag_count')) || '0', 10) },
     doajWithdrawn: { loadedAt: await getMeta('doajw_loaded_at'), count: parseInt((await getMeta('doajw_count')) || '0', 10) },
     mirbase: { loadedAt: await getMeta('mirbase_loaded_at'), count: parseInt((await getMeta('mirbase_count')) || '0', 10) }
@@ -1576,6 +1619,7 @@ async function ensureDatasetsNow({ force = false, maxAgeDays = 7, budgetMs = Inf
     ['pubj', 'publisherJournals', 'Major publisher journal lists', () => loadPublisherJournals({ log }), 30],
     ['jabref', 'jabrefAbbrevs', 'JabRef journal abbreviations', () => loadJabrefAbbrevs({ log }), 30],
     ['pmcj', 'pmcJournals', 'PubMed Central journal list', loadPmcJournals, 30],
+    ['wosw', 'wosWikidata', 'Web of Science collections (Wikidata)', loadWosWikidata, 30],
     ['flag', 'flaggedPapers', 'Papers flagged in integrity audits', loadFlaggedPapers, 90],
     ['doajw', 'doajWithdrawn', 'Journals withdrawn from DOAJ', loadDoajWithdrawn, 30],
     ['mirbase', 'mirbase', 'miRBase microRNAs', loadMirbase, 90],
@@ -1618,6 +1662,6 @@ module.exports = {
   coreDatasetsReady, parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
-  loadStopPredatory, loadDoajWithdrawn, loadMirbase, mirbaseSpecies, mirKey, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadFlaggedPapers, flaggedFor,
+  loadStopPredatory, loadDoajWithdrawn, loadMirbase, mirbaseSpecies, mirKey, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadWosWikidata, loadFlaggedPapers, flaggedFor,
   loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
 };

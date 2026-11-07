@@ -747,23 +747,34 @@ async function googleWebSearch(ref) {
     if (!w.ok) return w.error === 'skipped' ? { skipped: true } : { error: w.error };
     const found = (w.results || []).map(o => ({ title: o.title, link: o.url, snippet: o.snippet }));
     const hits = webHits(ref, found);
-    if (hits.length) return { hits };
+    const onRg = o => /researchgate\.net/i.test(o.url || o.link || '');
+    if (hits.length) return { hits, researchgate: hits.some(onRg) ? 'found' : null };
+    // ResearchGate holds the uploaded copies of many regional journals' articles that no database indexes. It has no
+    // public API and refuses automated readers, so its pages are searched for and judged on the result's title and
+    // snippet (author names), never opened. researchgate: found / not-found, shown among the sources searched
+    let researchgate = found.some(onRg) ? 'not-found' : null;
+    if (!researchgate) {
+      const rg = await require('./webSearch').phraseSearch(title, 5, 'site:researchgate.net').catch(() => ({ ok: false }));
+      const rgHits = webHits(ref, (rg.ok ? rg.results || [] : []).filter(onRg).map(o => ({ title: o.title, link: o.url, snippet: o.snippet })));
+      if (rgHits.length) return { hits: rgHits.map(h => ({ ...h, researchgate: true })), researchgate: 'found' };
+      researchgate = rg.ok ? 'not-found' : 'error';
+    }
     const read = await pageConfirm(ref, found.map(o => o.link).filter(Boolean).slice(0, 4));
-    if (read.length) return { hits: read };
+    if (read.length) return { hits: read, researchgate };
     // the full text as a PDF (a journal's or repository's copy, the "[PDF]" link Google Scholar shows): searched for
     // and read for the cited title and first author
     const p = await require('./webSearch').phraseSearch(title, 5, 'filetype:pdf').catch(() => ({ ok: false }));
     const seen = new Set(found.map(f => f.link));
     const pdfs = (p.ok ? p.results || [] : []).map(o => o.url).filter(u => u && !seen.has(u));
     const inPdf = pdfs.length ? await pageConfirm(ref, pdfs.slice(0, 3)) : [];
-    if (inPdf.length) return { hits: inPdf };
+    if (inPdf.length) return { hits: inPdf, researchgate };
     // last: the title's words and the first author without quotes (an exact phrase misses a title the search engine
     // indexed with other punctuation or a longer ending); only a page or PDF holding the whole title counts
     pdfs.forEach(u => seen.add(u));
     const fam = q(ref.authors?.[0]?.family || '');
     const lw = await require('./webSearch').phraseSearch(`${title}${fam ? ` ${fam}` : ''}`, 6, '', { quoted: false }).catch(() => ({ ok: false }));
     const loose = (lw.ok ? lw.results || [] : []).map(o => o.url).filter(u => u && !seen.has(u));
-    return { hits: loose.length ? await pageConfirm(ref, loose.slice(0, 4)) : [] };
+    return { hits: loose.length ? await pageConfirm(ref, loose.slice(0, 4)) : [], researchgate };
   }
   if (Date.now() < scholarBlockedUntil) return { error: 'Google paused (SerpApi searches used up or key rejected)' };
   if (title.length < 15) return { hits: [] };
@@ -890,11 +901,13 @@ const DATABASES = [
   'Crossref', 'DOI Foundation (Handle)', 'DataCite', 'OpenAlex', 'PubMed', 'Europe PMC',
   'Semantic Scholar', 'arXiv', 'DBLP', 'Open Library', 'Google Books', 'ERIC', 'CORE'
 ];
-const databases = () => (scholarEnabled() ? [...DATABASES, 'Google Scholar (SerpApi)', ...(require('./webSearch').provider() === 'SerpApi (Google)' ? ['Google (SerpApi)'] : [])] : DATABASES);
+const webSearchName = () => ({ 'SerpApi (Google)': 'Google', 'Google Programmable Search': 'Google Search' })[require('./webSearch').provider()] || 'Web search';
+// the web search and ResearchGate (searched through it: it has no API) are listed whichever provider runs the web search
+const databases = () => [...DATABASES, ...(scholarEnabled() ? ['Google Scholar (SerpApi)'] : []), ...(webSearchEnabled() ? [webSearchName(), 'ResearchGate'] : [])];
 
 module.exports = {
   crossrefInJournal,
-  DATABASES, databases, scholarEnabled, scholarAvailable, parseScholarHtml, webSearchEnabled, pageConfirm, pubchemConfirm, namesReference, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
+  DATABASES, databases, webSearchName, scholarEnabled, scholarAvailable, parseScholarHtml, webSearchEnabled, pageConfirm, pubchemConfirm, namesReference, googleScholarSearch, googleWebSearch, serpSearch, pubmedCitationMatch, scholarAccount, fromScholar, parseScholarSummary,
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,
   pubmedPmid, pubmedSearch, europepmcSearch, s2Doi, s2Search,

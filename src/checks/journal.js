@@ -184,7 +184,7 @@ function interpretLists(hits) {
     const coll = String(pick(d, [/collection|edition|^index$/i]) || '');
     const names = { SCIE: 'SCIE (Science Citation Index Expanded)', SSCI: 'SSCI (Social Sciences Citation Index)', AHCI: 'AHCI (Arts & Humanities Citation Index)', ESCI: 'ESCI (Emerging Sources Citation Index)' };
     const found = [...new Set((coll.toUpperCase().match(/SCIE|SSCI|AHCI|A&HCI|ESCI/g) || []).map(x => x.replace('A&HCI', 'AHCI')))];
-    for (const c of found.length ? found : ['']) wos.push({ index: names[c] || coll || 'Web of Science Core Collection', categories: pick(d, [/categor/i]), matchedBy: hits.wos_mjl.matchedBy, source: 'Clarivate Master Journal List' });
+    for (const c of found.length ? found : ['']) wos.push({ index: names[c] || coll || 'Web of Science Core Collection', categories: pick(d, [/categor/i]), matchedBy: hits.wos_mjl.matchedBy, source: /^wikidata$/i.test(d?.Source || '') ? 'Wikidata (from the Master Journal List)' : 'Clarivate Master Journal List' });
   }
   if (hits.wos_sjr && !hits.wos_mjl) wos.push({ index: 'Web of Science (index not specified)', categories: pick(hits.wos_sjr.data, [/categor/i]), matchedBy: hits.wos_sjr.matchedBy });
   if (wos.length) out.wos = wos;

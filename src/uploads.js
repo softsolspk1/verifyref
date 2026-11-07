@@ -53,6 +53,14 @@ async function getObject(key) {
   return Buffer.from(await r.arrayBuffer());
 }
 
+/** Bytes start..end (inclusive) of an object, or null when it does not exist */
+async function getObjectRange(key, start, end) {
+  const r = await fetch(presign('GET', key), { headers: { Range: `bytes=${start}-${end}` } });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`storage read failed (${r.status})`);
+  return Buffer.from(await r.arrayBuffer());
+}
+
 async function putObject(key, buffer, contentType = 'application/octet-stream') {
   if (!enabled()) throw new Error('Cloudflare R2 is not configured.');
   const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
@@ -192,4 +200,4 @@ function fileRef(f) {
 const loadFile = ref => (ref.r2Key ? getObject(ref.r2Key) : Promise.resolve(Buffer.from(ref.base64, 'base64')));
 const dropFiles = refs => Promise.all([].concat(refs || []).filter(r => r?.r2Key).map(r => deleteObject(r.r2Key)));
 
-module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, putFileStream, putFileMultipart, getObject, deleteObject };
+module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, putFileStream, putFileMultipart, getObject, getObjectRange, deleteObject };

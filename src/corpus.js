@@ -116,13 +116,18 @@ async function candidatesByHashes(hashes, { excludeCode = null, excludeTitle = n
   await Promise.all(Array.from({ length: Math.min(6, kept.length) }, async () => { while (next < kept.length) { const i = next++; texts[i] = await docText(kept[i].r).catch(() => null); } }));
   const out = [];
   kept.forEach(({ r, meta }, i) => { if (texts[i] && out.length < limit) out.push({ id: r.id, kind: r.kind, sourceKey: r.source_key, title: r.title, meta, shared: r.shared, text: texts[i] }); });
-  return out;
+  // the bulk repository on R2 (PubMed Central open-access full texts, src/corpusBulk.js); a paper kept in both counts once
+  const bulk = await require('./corpusBulk').candidatesByHashes(hashes, { limit, skipKeys: new Set(out.map(d => d.sourceKey)) }).catch(() => []);
+  return bulk.length ? [...out, ...bulk].sort((a, b) => b.shared - a.shared).slice(0, limit) : out;
 }
 
 /** Repository size by kind (Admin > Data) */
 async function stats() {
   const rows = await db.all('SELECT kind, COUNT(*)::int AS docs, COALESCE(SUM(words), 0)::bigint AS words FROM corpus_docs GROUP BY kind').catch(() => []);
-  return Object.fromEntries(rows.map(r => [r.kind, { docs: r.docs, words: Number(r.words) }]));
+  const out = Object.fromEntries(rows.map(r => [r.kind, { docs: r.docs, words: Number(r.words) }]));
+  const bulk = await require('./corpusBulk').stats().catch(() => null);
+  if (bulk?.docs) out.bulkPmc = { docs: bulk.docs, builtAt: bulk.builtAt };
+  return out;
 }
 
 module.exports = { addDoc, docText, candidates, candidatesByHashes, fingerprints, stats, keyOf };

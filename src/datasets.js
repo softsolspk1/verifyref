@@ -1246,7 +1246,13 @@ const DATASET_VIEWS = {
   email_domains: { label: 'E-mail domain lists', cols: ['domain', 'kind'], search: ['domain'], order: 'kind, domain' },
   journal_abbrevs: { label: 'JabRef journal abbreviations', cols: ['title', 'abbrev', 'list'], search: ['title', 'abbrev'], order: 'title_norm' },
   mirbase: { label: 'miRBase microRNAs', cols: ['mir_key', 'species'], search: ['mir_key'], order: 'mir_key' },
-  flagged_papers: { label: 'Papers flagged in integrity audits', cols: ['doi', 'title', 'journal', 'year', 'issue', 'image', 'source'], search: ['doi', 'title', 'issue'], order: 'year DESC NULLS LAST, doi' }
+  flagged_papers: { label: 'Papers flagged in integrity audits', cols: ['doi', 'title', 'journal', 'year', 'issue', 'image', 'source'], search: ['doi', 'title', 'issue'], order: 'year DESC NULLS LAST, doi' },
+  // the PMC journal list is kept with the uploaded lists (journal_list_entries, list_type 'pmc'); its columns are in data
+  pmc_journals: { label: 'PubMed Central journal list', table: 'journal_list_entries', where: "list_type = 'pmc'",
+    cols: ['title', 'issn', 'eissn', 'publisher', 'agreement_status', 'deposit', 'embargo', 'earliest', 'most_recent', 'pmc_url'],
+    expr: { publisher: "data->>'Publisher'", agreement_status: "data->>'Agreement Status'", deposit: "data->>'Agreement to Deposit'", embargo: "data->>'Release Delay (Embargo)'",
+      earliest: "data->>'Earliest'", most_recent: "data->>'Most Recent'", pmc_url: "data->>'PMC URL'" },
+    search: ['title', 'issn', 'eissn', "data->>'Publisher'", "data->>'Agreement Status'"], order: 'title_norm' }
 };
 
 /** One page of a dataset table: { label, cols, rows, total, page, size }; publisher_journals can be narrowed to one publisher */
@@ -1255,13 +1261,15 @@ async function datasetRows(name, { q = '', page = 1, size = 50, publisher = '' }
   if (!v) return null;
   size = Math.min(Math.max(parseInt(size, 10) || 50, 1), 200);
   page = Math.max(parseInt(page, 10) || 1, 1);
-  const args = [], where = [];
+  const args = [], where = v.where ? [v.where] : [];
   if (name === 'publisher_journals' && publisher) { args.push(publisher); where.push(`publisher_key = $${args.length}`); }
   const term = String(q || '').trim().slice(0, 200);
-  if (term) { args.push(`%${term}%`); where.push(`(${v.search.map(c => `${c}::text ILIKE $${args.length}`).join(' OR ')})`); }
+  if (term) { args.push(`%${term}%`); where.push(`(${v.search.map(c => `(${c})::text ILIKE $${args.length}`).join(' OR ')})`); }
   const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const total = (await db.one(`SELECT COUNT(*)::int AS n FROM ${name} ${w}`, args)).n;
-  const rows = await db.all(`SELECT ${v.cols.join(', ')} FROM ${name} ${w} ORDER BY ${v.order} LIMIT ${size} OFFSET ${(page - 1) * size}`, args);
+  const table = v.table || name;
+  const cols = v.cols.map(c => (v.expr?.[c] ? `${v.expr[c]} AS ${c}` : c));
+  const total = (await db.one(`SELECT COUNT(*)::int AS n FROM ${table} ${w}`, args)).n;
+  const rows = await db.all(`SELECT ${cols.join(', ')} FROM ${table} ${w} ORDER BY ${v.order} LIMIT ${size} OFFSET ${(page - 1) * size}`, args);
   const pub = name === 'publisher_journals' && publisher ? PUBLISHERS.find(p => p.key === publisher) : null;
   return { label: pub ? pub.name : v.label, cols: v.cols, rows, total, page, size };
 }
@@ -1635,6 +1643,8 @@ async function listStatus() {
     cellosaurus: { loadedAt: await getMeta('cello_loaded_at'), count: parseInt((await getMeta('cello_count')) || '0', 10) },
     jabrefAbbrevs: { loadedAt: await getMeta('jabref_loaded_at'), count: parseInt((await getMeta('jabref_count')) || '0', 10) },
     pmcJournals: { loadedAt: await getMeta('pmcj_loaded_at'), count: parseInt((await getMeta('pmcj_count')) || '0', 10) },
+    // the bulk text repository on R2 (src/corpusBulk.js; web platform only)
+    pmcFullTexts: await require('./corpusBulk').stats().catch(() => null),
     wosWikidata: { loadedAt: await getMeta('wosw_loaded_at'), count: parseInt((await getMeta('wosw_count')) || '0', 10) },
     flaggedPapers: { loadedAt: await getMeta('flag_loaded_at'), count: parseInt((await getMeta('flag_count')) || '0', 10) },
     doajWithdrawn: { loadedAt: await getMeta('doajw_loaded_at'), count: parseInt((await getMeta('doajw_count')) || '0', 10) },

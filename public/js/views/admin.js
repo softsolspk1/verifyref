@@ -83,7 +83,7 @@ export async function renderAdmin(view) {
             ['Free-mail &amp; disposable e-mail domains', 'Public free-mail providers and throw-away mailbox domains (Module 4: author and suggested-reviewer addresses)', ds.emailDomains, 'email_domains'],
             ['JabRef journal abbreviations', 'Curated title → abbreviation lists of the JabRef project (CC0: life sciences, Index Medicus, ACS, engineering, mathematics …). Module 2: expected abbreviation for journals not in the NLM Catalog, before the word-by-word LTWA form', ds.jabrefAbbrevs, 'journal_abbrevs'],
             ['Stop Predatory Journals', 'Community list of predatory publishers, standalone journals and hijacked journals with the genuine website (archived since 2018; stored with Beall’s list). Modules 1 and 4', ds.stopPredatory, 'predatory'],
-            ['PubMed Central journal list', 'Every journal that deposits its articles in PMC, with agreement status and embargo (NCBI). Module 1: “PMC” in the indexing line; journals that stopped participating are noted', ds.pmcJournals, null],
+            ['PubMed Central journal list', 'Every journal that deposits its articles in PMC, with agreement status and embargo (NCBI). Module 1: “PMC” in the indexing line; journals that stopped participating are noted', ds.pmcJournals, 'pmc_journals'],
             ['Web of Science collections (Wikidata)', 'The Web of Science index (SCIE, SSCI, AHCI, ESCI) of about 15,000 journals, recorded on Wikidata (CC0) from the Clarivate Master Journal List, refreshed monthly. Fills the Clarivate Master Journal List row below until the Clarivate files are uploaded (an upload is never replaced). Modules 1 and 4: the exact WoS index of each cited journal', ds.wosWikidata, null],
             ['Papers flagged in integrity audits', 'Papers with major problems found in published audits and not (yet) retracted — Bioengineered paper-mill audit (Zenodo 15671466): image overlap, incorrect primers, missing ethics approval. Modules 1, 3 and 4; their figures go into the Module 5 retracted / flagged image database', ds.flaggedPapers, 'flagged_papers'],
             ['Journals withdrawn from DOAJ', 'DOAJ change logs (CC BY-SA, 2014 onwards): every withdrawal with its date and reason, downloaded monthly. Module 1 Journal Check: withdrawal for misconduct / not following best practice is a caution; ceasing or a dead website is noted only; a journal back in DOAJ is not flagged', ds.doajWithdrawn, null],
@@ -95,6 +95,13 @@ export async function renderAdmin(view) {
             <td>${d?.loadedAt ? fmtDate(d.loadedAt) : badge('not loaded', 'warn')}</td>
             <td>${d?.count ? badge('active', 'good') : badge('pending', 'warn')}${table ? viewBtn(table, d?.count) : ''}</td>
           </tr>`).join('')}
+          ${(b => `<tr>
+            <td><b>PubMed Central full texts (similarity repository)</b><div class="muted">Open-access full texts from PubMed Central in the PJPS subject areas, loaded in bulk (about 2.25 million papers, newest first) and kept on cloud storage. The Similarity Report compares every manuscript with them. The count grows as each round of 50,000 papers is published.</div></td>
+            <td>Similarity</td>
+            <td class="num">${b?.docs ? `${Number(b.docs).toLocaleString()} papers` : '0'}</td>
+            <td>${b?.builtAt ? fmtDate(b.builtAt) : desk ? badge('web platform', 'neutral') : badge('not loaded', 'warn')}</td>
+            <td>${b?.docs ? badge('active', 'good') : desk ? `${badge('web platform', 'neutral')}<div class="muted">Searched on the web platform</div>` : badge('pending', 'warn')}</td>
+          </tr>`)(ds.pmcFullTexts)}
           ${(o => `<tr>
             <td><b>OpenAlex journal list</b><div class="muted">Every journal in OpenAlex (about 220,000) with all ISSNs, publisher, country, open-access and DOAJ status, APC, output and citation metrics (Journal Check when offline or when OpenAlex does not answer). Refreshed monthly.</div></td>
             <td>Journal index</td>

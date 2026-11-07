@@ -289,7 +289,7 @@ async function checkJournal(input) {
   if (clones.length && !predatory.some(x => x.matchedBy === 'website domain')) flag('medium', `A hijacked clone of this journal exists${cloneSites.length ? ` (${cloneSites.slice(0, 3).join(', ')})` : ''} — make sure the cited article is from the genuine journal${genuineSite ? ` (${genuineSite})` : ''} [${[...new Set(clones.map(p => p.source))].join('; ')}]`);
   for (const p of predatory.filter(x => x.kind !== 'hijacked')) flag('high', `Listed on ${p.source === 'stoppredatoryjournals.com' ? 'the Stop Predatory Journals list (archived 2018)' : "Beall's list"} of potential predatory ${p.kind === 'publisher' ? 'publishers' : 'journals'} (matched by ${p.matchedBy})`);
   if (lists.pmc && /no longer participating/i.test(lists.pmc.status || '')) flag('low', `No longer deposits its articles in PubMed Central${lists.pmc.latest ? ` (last issue in PMC: ${lists.pmc.latest})` : ''} — check why the journal left PMC`);
-  if (lists.hecBlacklist) flag('high', 'Listed on the uploaded HEC / institutional blacklist');
+  if (lists.hecBlacklist) flag('high', `Listed on the HEC / institutional blacklist${lists.hecBlacklist.data?.Reason ? `: ${lists.hecBlacklist.data.Reason}` : ''} (matched by ${lists.hecBlacklist.matchedBy})`);
   // DOAJ withdraws journals for misconduct / not following best practice, but also for ceasing or a dead website;
   // a journal listed in DOAJ again since then is not flagged
   if (lists.doajRemoved && !doaj.inDoaj) {

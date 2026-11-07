@@ -336,6 +336,24 @@ router.post('/admin/lists/:type', webOnly, upload.single('file'), wrap(async (re
   res.json({ success: true, rows: n });
 }));
 
+// one journal added to / removed from a list kept by hand (the HEC / institutional blacklist)
+router.post('/admin/lists/:type/entries', webOnly, wrap(async (req, res) => {
+  const b = req.body || {};
+  const entry = await D.addListEntry(req.params.type, { title: b.title, issn: b.issn, eissn: b.eissn, publisher: b.publisher, website: b.website, reason: b.reason }, { by: req.user.email || req.user.name || '' })
+    .catch(e => ({ error: e.message }));
+  if (entry.error) return res.status(400).json({ success: false, message: entry.error });
+  await auth.audit(req, 'list-entry-added', req.params.type, { journal: entry.Title || entry.ISSN || entry.EISSN });
+  res.json({ success: true, entry });
+}));
+
+router.delete('/admin/lists/:type/entries/:id', webOnly, wrap(async (req, res) => {
+  const n = await D.removeListEntry(req.params.type, req.params.id).catch(e => ({ error: e.message }));
+  if (n?.error) return res.status(400).json({ success: false, message: n.error });
+  if (!n) return res.status(404).json({ success: false, message: 'Journal not found on the list.' });
+  await auth.audit(req, 'list-entry-removed', req.params.type, { id: req.params.id });
+  res.json({ success: true });
+}));
+
 router.delete('/admin/lists/:type', webOnly, wrap(async (req, res) => {
   await db.query('DELETE FROM journal_list_entries WHERE list_type = $1', [req.params.type]);
   await db.query('DELETE FROM journal_lists WHERE list_type = $1', [req.params.type]);

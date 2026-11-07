@@ -389,17 +389,68 @@ async function importJournalList(listType, filename, csv, { raw = null } = {}) {
     data.push([listType, issns[0] || null, eissn, title, normalizeJournal(title), JSON.stringify(row)]);
   }
   if (raw || !Array.isArray(csv)) await store.put(`lists/${listType}${raw ? path.extname(filename).toLowerCase() || '.xlsx' : '.csv'}`, raw || csv, { source: `uploaded: ${filename}` }).catch(e => console.warn(`R2 copy of the ${listType} list failed: ${e.message}`));
+  // journals added one at a time on Admin > Data stay when the list's CSV is uploaded again
+  const keep = MANUAL_LISTS.includes(listType) ? ` AND data->>'Manual' IS DISTINCT FROM 'yes'` : '';
   await transaction(async client => {
-    await client.query('DELETE FROM journal_list_entries WHERE list_type = $1', [listType]);
+    await client.query(`DELETE FROM journal_list_entries WHERE list_type = $1${keep}`, [listType]);
     await bulkInsert(client, 'journal_list_entries', [
       { name: 'list_type', type: 'text' }, { name: 'issn', type: 'text' }, { name: 'eissn', type: 'text' },
       { name: 'title', type: 'text' }, { name: 'title_norm', type: 'text' }, { name: 'data', type: 'jsonb' }
     ], data, 2000);
+    const total = keep ? (await client.query('SELECT COUNT(*)::int AS n FROM journal_list_entries WHERE list_type = $1', [listType])).rows[0].n : data.length;
     await client.query(`INSERT INTO journal_lists(list_type, filename, row_count, uploaded_at) VALUES($1, $2, $3, now())
-      ON CONFLICT(list_type) DO UPDATE SET filename = EXCLUDED.filename, row_count = EXCLUDED.row_count, uploaded_at = EXCLUDED.uploaded_at`, [listType, filename, data.length]);
+      ON CONFLICT(list_type) DO UPDATE SET filename = EXCLUDED.filename, row_count = EXCLUDED.row_count, uploaded_at = EXCLUDED.uploaded_at`, [listType, filename, total]);
   });
   if (listType === 'rw_hijacked') await syncHijackedChecker(rows);
   return data.length;
+}
+
+// ------------------------------------------------------------------ journals added one at a time (Admin > Data)
+// The HEC / institutional blacklist has no published source: the Super Admin adds journals as they are found. These
+// rows carry Manual: "yes" and stay when a CSV of the list is uploaded; each can be removed on its own.
+
+const MANUAL_LISTS = ['hec_blacklist'];
+
+async function refreshListCount(client, listType, filename) {
+  const n = (await client.query('SELECT COUNT(*)::int AS n FROM journal_list_entries WHERE list_type = $1', [listType])).rows[0].n;
+  if (!n) { await client.query('DELETE FROM journal_lists WHERE list_type = $1', [listType]); return 0; }
+  await client.query(`INSERT INTO journal_lists(list_type, filename, row_count, uploaded_at) VALUES($1, $2, $3, now())
+    ON CONFLICT(list_type) DO UPDATE SET row_count = EXCLUDED.row_count, uploaded_at = EXCLUDED.uploaded_at`, [listType, filename, n]);
+  return n;
+}
+
+/** Add one journal to a list kept by hand: { title, issn, eissn, publisher, website, reason }. Returns the stored entry. */
+async function addListEntry(listType, entry, { by = '' } = {}) {
+  if (!MANUAL_LISTS.includes(listType)) throw new Error('Journals can be added one at a time only to the HEC / institutional blacklist.');
+  const s = v => String(v || '').trim().slice(0, 500);
+  const title = s(entry.title);
+  const issns = [entry.issn, entry.eissn].map(v => s(v)).map(v => (v ? cleanIssn(v) || false : null));
+  if (issns.includes(false)) throw new Error('An ISSN must look like 1234-5678.');
+  const [issn, eissn] = issns;
+  if (!title && !issn && !eissn) throw new Error('Give the journal title or its ISSN.');
+  const norm = title ? normalizeJournal(title) : null;
+  const known = [issn, eissn].filter(Boolean);
+  const dup = await db.one(`SELECT title FROM journal_list_entries WHERE list_type = $1 AND (issn = ANY($2::text[]) OR eissn = ANY($2::text[]) OR ($3::text IS NOT NULL AND title_norm = $3)) LIMIT 1`, [listType, known, norm]).catch(() => null);
+  if (dup) throw new Error(`Already on the list${dup.title ? `: ${dup.title}` : ''}.`);
+  const data = { Id: require('crypto').randomBytes(8).toString('hex'), Title: title, ISSN: issn || '', EISSN: eissn || '', Publisher: s(entry.publisher), Website: s(entry.website), Reason: s(entry.reason),
+    'Added by': s(by), 'Added on': new Date().toISOString().slice(0, 10), Manual: 'yes' };
+  await transaction(async client => {
+    await client.query('INSERT INTO journal_list_entries(list_type, issn, eissn, title, title_norm, data) VALUES($1, $2, $3, $4, $5, $6)', [listType, issn, eissn, title, norm, JSON.stringify(data)]);
+    await refreshListCount(client, listType, 'Journals added on Admin > Data');
+  });
+  return data;
+}
+
+/** Remove one journal added by hand (by its Id) */
+async function removeListEntry(listType, id) {
+  if (!MANUAL_LISTS.includes(listType)) throw new Error('Unknown list type');
+  let removed = 0;
+  await transaction(async client => {
+    const r = await client.query(`DELETE FROM journal_list_entries WHERE list_type = $1 AND data->>'Id' = $2`, [listType, String(id)]);
+    removed = r.rowCount ?? r.affectedRows ?? 0;
+    await refreshListCount(client, listType, 'Journals added on Admin > Data');
+  });
+  return removed;
 }
 
 // ------------------------------------------------------------------ journal lists published as .xlsx workbooks
@@ -1663,5 +1714,5 @@ module.exports = {
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
   loadStopPredatory, loadDoajWithdrawn, loadMirbase, mirbaseSpecies, mirKey, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadWosWikidata, loadFlaggedPapers, flaggedFor,
-  loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
+  loadCitejacked, parseCitejacked, isCitejacked, isRiskyMatch, importJournalList, addListEntry, removeListEntry, MANUAL_LISTS, importScopusWorkbook, importHijackedWorkbook, importJournalWorkbook, syncHijackedChecker, listLookupAll, listEntries, listStatus, ensureDatasets, rebuildFromR2, DATASET_TABLES, datasetHealth, LIST_TYPES, domainOf
 };

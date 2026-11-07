@@ -214,7 +214,7 @@ export async function renderAdmin(view) {
             <td><b>${esc(title)}</b>${desc ? `<div class="muted">${esc(desc)}</div>` : ''}</td>
             <td class="num">${l.row_count ? Number(l.row_count).toLocaleString() : '—'}</td>
             <td>${l.uploaded_at ? fmtDate(l.uploaded_at) : badge('not uploaded', 'neutral')}</td>
-            <td class="row" style="flex-wrap:nowrap">${l.row_count ? `<button class="btn btn-sm" data-view="${l.type}">View</button>` : ''}${desk ? '' : `${l.type === 'ebsco' ? `<button class="btn btn-sm" id="dl-ebsco">Download from source</button>` : ''}<label class="btn btn-sm" style="margin:0">${/^(scopus|scopus_discontinued|rw_hijacked)$/.test(l.type) ? 'Upload CSV / XLSX' : 'Upload CSV'}<input type="file" accept="${/^(scopus|scopus_discontinued|rw_hijacked)$/.test(l.type) ? '.csv,.txt,.xlsx' : '.csv,.txt'}" hidden data-list="${l.type}"></label>${l.row_count ? `<button class="btn btn-sm btn-ghost btn-danger" data-rm="${l.type}">✕</button>` : ''}`}</td>
+            <td class="row" style="flex-wrap:nowrap">${l.row_count ? `<button class="btn btn-sm" data-view="${l.type}">View</button>` : ''}${desk ? '' : `${l.type === 'ebsco' ? `<button class="btn btn-sm" id="dl-ebsco">Download from source</button>` : ''}${l.type === 'hec_blacklist' ? `<button class="btn btn-sm btn-primary" data-add="${l.type}">Add journal</button>` : ''}<label class="btn btn-sm" style="margin:0">${/^(scopus|scopus_discontinued|rw_hijacked)$/.test(l.type) ? 'Upload CSV / XLSX' : 'Upload CSV'}<input type="file" accept="${/^(scopus|scopus_discontinued|rw_hijacked)$/.test(l.type) ? '.csv,.txt,.xlsx' : '.csv,.txt'}" hidden data-list="${l.type}"></label>${l.row_count ? `<button class="btn btn-sm btn-ghost btn-danger" data-rm="${l.type}">✕</button>` : ''}`}</td>
           </tr>`;
         }).join('')}
         </tbody>
@@ -280,7 +280,8 @@ export async function renderAdmin(view) {
     await api(`/api/admin/lists/${b.dataset.rm}`, { method: 'DELETE' });
     renderAdmin(view);
   }));
-  $$('[data-view]', view).forEach(b => (b.onclick = () => viewList(ds.lists.find(l => l.type === b.dataset.view))));
+  $$('[data-view]', view).forEach(b => (b.onclick = () => viewList(ds.lists.find(l => l.type === b.dataset.view), { desk, onChange: () => renderAdmin(view) })));
+  $$('[data-add]', view).forEach(b => (b.onclick = () => addJournalForm(ds.lists.find(l => l.type === b.dataset.add), () => renderAdmin(view))));
   $$('[data-dsview]', view).forEach(b => (b.onclick = () => viewDataset(b.dataset.dsview, b.dataset.pub || '')));
   if ($('#pubj-load', view)) $('#pubj-load', view).onclick = async () => {
     try {
@@ -332,8 +333,39 @@ function viewDataset(table, publisher) {
   });
 }
 
-/** Read-only, searchable, paged view of an uploaded journal list */
-function viewList(list) {
+/** Add one journal to the HEC / institutional blacklist (no published source: journals are added as PJPS finds them) */
+function addJournalForm(list, onSaved) {
+  const field = (id, label, attrs = '') => `<div class="field"><label for="${id}">${label}</label><input id="${id}" ${attrs}></div>`;
+  modal(`<div class="card-head"><div><h2 style="margin:0">Add a journal to the blacklist</h2><div class="muted">${esc((list?.label || '').split(' — ')[0])}</div></div><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    <form id="bl-form" style="margin-top:12px">
+      ${field('bl-title', 'Journal title', 'placeholder="e.g. International Journal of Advanced Pharmacy Research" maxlength="500"')}
+      <div class="grid grid-2">${field('bl-issn', 'Print ISSN', 'placeholder="1234-5678" maxlength="9"')}${field('bl-eissn', 'Online ISSN (eISSN)', 'placeholder="1234-5678" maxlength="9"')}</div>
+      <div class="grid grid-2">${field('bl-publisher', 'Publisher', 'maxlength="500"')}${field('bl-website', 'Website', 'placeholder="https://" maxlength="500"')}</div>
+      <div class="field"><label for="bl-reason">Reason</label><textarea id="bl-reason" rows="3" maxlength="500" placeholder="e.g. Predatory: no peer review, fake impact factor (HEC notice of 12 Oct 2026)"></textarea></div>
+      <div class="hint">Give the title or an ISSN (both is best: cited journals are matched by ISSN, then by exact title). Journals added here stay when a CSV of the list is uploaded.</div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn btn-primary" id="bl-save">Add to blacklist</button></div>
+    </form>`, {
+    onMount: (el, close) => {
+      $('#bl-title', el).focus();
+      $('#bl-form', el).onsubmit = async e => {
+        e.preventDefault();
+        const v = id => $(`#${id}`, el).value.trim();
+        const body = { title: v('bl-title'), issn: v('bl-issn'), eissn: v('bl-eissn'), publisher: v('bl-publisher'), website: v('bl-website'), reason: v('bl-reason') };
+        if (!body.title && !body.issn && !body.eissn) return toast('Give the journal title or its ISSN', 'error');
+        $('#bl-save', el).disabled = true;
+        try {
+          await api(`/api/admin/lists/${list.type}/entries`, { body });
+          toast(`${body.title || body.issn || body.eissn} added to the blacklist`);
+          close();
+          onSaved();
+        } catch (err) { toast(err.message, 'error'); $('#bl-save', el).disabled = false; }
+      };
+    }
+  });
+}
+
+/** Read-only, searchable, paged view of an uploaded journal list (journals added by hand can be removed) */
+function viewList(list, { desk = false, onChange = () => {} } = {}) {
   modal(`<div class="card-head"><div><h2 style="margin:0">${esc(list.label)}</h2><div class="muted">${list.filename ? `${esc(list.filename)} · ` : ''}${Number(list.row_count).toLocaleString()} journals</div></div><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
     <div class="row" style="margin:12px 0"><input type="search" id="lv-q" placeholder="Search title or ISSN" style="flex:1"><button class="btn btn-sm" id="lv-go">Search</button></div>
     <div id="lv-body"><div class="progress">Loading…</div></div>`, {
@@ -345,13 +377,20 @@ function viewList(list) {
           const d = await api(`/api/admin/lists/${list.type}/entries?page=${page}&q=${encodeURIComponent(q)}`);
           // columns: the first few that have a value in this page and are short enough to read in a table
           const cols = [];
-          for (const r of d.rows) for (const k of Object.keys(r.data || {})) if (!cols.includes(k) && String(r.data[k] || '').trim() && !/^[\s\S]*\n/.test(k) && cols.length < 8) cols.push(k);
+          for (const r of d.rows) for (const k of Object.keys(r.data || {})) if (!cols.includes(k) && !/^(Id|Manual)$/.test(k) && String(r.data[k] || '').trim() && !/^[\s\S]*\n/.test(k) && cols.length < 8) cols.push(k);
+          const removable = r => !desk && r.data?.Manual === 'yes' && r.data?.Id;
+          const anyRemovable = d.rows.some(removable);
           const pages = Math.max(1, Math.ceil(d.total / d.size));
-          body.innerHTML = d.rows.length ? `<div class="table-wrap"><table class="t"><tr>${cols.map(c => `<th>${esc(c.slice(0, 40))}</th>`).join('')}</tr>
-            ${d.rows.map(r => `<tr>${cols.map(c => `<td>${esc(String((r.data || {})[c] ?? '').slice(0, 120))}</td>`).join('')}</tr>`).join('')}</table></div>
+          body.innerHTML = d.rows.length ? `<div class="table-wrap"><table class="t"><tr>${cols.map(c => `<th>${esc(c.slice(0, 40))}</th>`).join('')}${anyRemovable ? '<th></th>' : ''}</tr>
+            ${d.rows.map(r => `<tr>${cols.map(c => `<td>${esc(String((r.data || {})[c] ?? '').slice(0, 120))}</td>`).join('')}${anyRemovable ? `<td>${removable(r) ? `<button class="btn btn-sm btn-ghost btn-danger" data-entry-rm="${esc(r.data.Id)}" title="Remove from the list">Remove</button>` : ''}</td>` : ''}</tr>`).join('')}</table></div>
             <div class="row" style="justify-content:space-between;margin-top:10px"><span class="muted">${d.total.toLocaleString()} ${q ? 'matching ' : ''}journals · page ${page} of ${pages.toLocaleString()}</span>
             <span class="row"><button class="btn btn-sm" id="lv-prev" ${page <= 1 ? 'disabled' : ''}>Previous</button><button class="btn btn-sm" id="lv-next" ${page >= pages ? 'disabled' : ''}>Next</button></span></div>`
             : '<p class="muted">No journals match.</p>';
+          $$('[data-entry-rm]', el).forEach(b => (b.onclick = async () => {
+            if (!confirm('Remove this journal from the list?')) return;
+            try { await api(`/api/admin/lists/${list.type}/entries/${encodeURIComponent(b.dataset.entryRm)}`, { method: 'DELETE' }); toast('Journal removed'); onChange(); load(); }
+            catch (e) { toast(e.message, 'error'); }
+          }));
           if ($('#lv-prev', el)) $('#lv-prev', el).onclick = () => { page--; load(); };
           if ($('#lv-next', el)) $('#lv-next', el).onclick = () => { page++; load(); };
         } catch (e) { body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }

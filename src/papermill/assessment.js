@@ -32,6 +32,7 @@ const ACTIONS = {
   'flagged-refs': ['Check the references flagged in published integrity audits.', null],
   'mill-journals': ['Review the references to journals with many paper-mill retractions.', null],
   predatory: ['Review the references to predatory journals.', null],
+  blacklisted: ['Review the references to journals on the HEC / institutional blacklist.', 'Please replace or justify the references to the journals listed, which are on the blacklist this journal follows.'],
   'hijacked-clone': ['Check the references to hijacked (cloned) journal websites.', 'Please verify the journals of the references listed: several point to hijacked journal websites.'],
   citejacked: ['Check the references to citejacked journals.', null],
   'scopus-discontinued': ['Review the references to journals discontinued from Scopus.', null],

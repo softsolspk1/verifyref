@@ -697,6 +697,11 @@ async function detectPaperMill(input, update = () => {}) {
   const cjRefs = citejacked.reduce((a, j) => a + j.refs.length, 0);
   if (cjRefs) sig('references', 'citejacked', `${cjRefs} reference(s) to journals on the Problematic Paper Screener "citejacked" list`, cjRefs >= 2 ? 'medium' : 'low', cjRefs >= 2 ? 2 : 1,
     citejacked.map(j => ({ text: `${j.name}${j.papers ? ` (${j.papers.toLocaleString('en')} papers found citing its hijacked version)` : ''} — refs ${refList(j.refs)}` })), 'The hijacked versions of these journals publish mill-type papers that are then cited. Check whether each cited article is from the genuine journal (its DOI resolves to the genuine site).');
+  // the HEC / institutional blacklist kept by PJPS on Admin > Data (no benchmark: it adds little to the score, the editor judges)
+  const blacklisted = cited.map((j, n) => ({ ...j, hit: lookups[n][1].hec_blacklist })).filter(j => j.hit && !risky.some(x => x.name === j.name));
+  const blRefs = blacklisted.reduce((a, j) => a + j.refs.length, 0);
+  if (blRefs) sig('references', 'blacklisted', `${blRefs} reference(s) to journals on the HEC / institutional blacklist`, blRefs >= 3 ? 'medium' : 'low', blRefs >= 3 ? 2 : 1,
+    blacklisted.map(j => ({ text: `${j.name}${j.hit.data?.Reason ? ` (${j.hit.data.Reason})` : ''} — refs ${refList(j.refs)}` })), 'These journals are on the blacklist kept on Admin > Data. Check whether the cited findings are confirmed by work in reputable journals.');
   const cloneRefs = clones.reduce((a, j) => a + j.refs.length, 0);
   if (cloneRefs) sig('references', 'hijacked-clone', `${cloneRefs} reference(s) to journals with a known hijacked clone website`, 'low', 0,
     clones.map(j => ({ text: `${j.name} — clone ${j.clone}${j.genuine ? `, genuine site ${j.genuine}` : ''} — refs ${refList(j.refs)}` })), 'Check that the cited articles come from the genuine journal (its DOI resolves to the genuine site) and not from the clone.');

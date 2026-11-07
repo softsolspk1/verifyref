@@ -137,12 +137,19 @@ async function arxivFullText(record) {
 /** Abstract for a record: OpenAlex first, Europe PMC second, CORE third */
 async function abstractOf(record) {
   if (record.abstract && record.abstract.length > 200) return { text: record.abstract, origin: 'Abstract' };
-  if (record.doi) {
-    const oa = await S.openalexDoi(record.doi);
-    if (oa.record?.abstract?.length > 100) return { text: oa.record.abstract, origin: 'Abstract (OpenAlex)' };
-  }
-  const core = await europePmcCore(record);
+  // free sources first (OpenAlex is paid per request; out of budget it gave no abstract and the claim went unverified)
+  const core = await europePmcCore(record).catch(() => null);
   if (core?.abstractText) return { text: xmlText(core.abstractText), origin: 'Abstract (Europe PMC)' };
+  if (record.doi) {
+    // the abstract many publishers deposit with Crossref (JATS)
+    const cr = await getJson(`https://api.crossref.org/works/${encodeURIComponent(record.doi)}`, { ttl: 30 * 86400, retries: 1 }).catch(() => null);
+    const crAbs = cr?.ok ? xmlText(String(cr.data?.message?.abstract || '')).replace(/^\s*(abstract|summary)[\s:.]+/i, '').trim() : '';
+    if (crAbs.length > 100) return { text: crAbs, origin: 'Abstract (Crossref)' };
+    const oa = await S.openalexDoi(record.doi).catch(() => ({}));
+    if (oa.record?.abstract?.length > 100) return { text: oa.record.abstract, origin: 'Abstract (OpenAlex)' };
+    const s2 = await getJson(`https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(record.doi)}?fields=abstract`, { ttl: 30 * 86400, retries: 1, headers: CFG.S2_API_KEY ? { 'x-api-key': CFG.S2_API_KEY } : {} }).catch(() => null);
+    if (s2?.ok && String(s2.data?.abstract || '').length > 100) return { text: s2.data.abstract, origin: 'Abstract (Semantic Scholar)' };
+  }
   if (record.doi) {
     const c = await S.coreDoi(record.doi, record.title).catch(() => null);
     if (c?.record?.abstract?.length > 100) return { text: c.record.abstract, origin: 'Abstract (CORE)' };

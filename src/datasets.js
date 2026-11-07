@@ -93,9 +93,17 @@ async function retractionsFor(dois) {
  * (Wang, Li, Sun ...) match thousands of rows: the first 200 by surname alone used to cut off the right person's.
  */
 async function retractionsByAuthor(family, given = '') {
-  if (!family || family.length < 3) return [];
   const first = String(given || '').trim().split(/[\s.]+/)[0] || '';
-  if (first.length >= 2) return db.all("SELECT doi, retraction_date, nature, reason, title, journal, authors, institution, country FROM retractions WHERE authors ILIKE $1 AND authors ILIKE $2 AND nature ILIKE '%retraction%' LIMIT 2000", [`%${family}%`, `%${first}%`]);
+  // a two-letter surname (Li, Ma, Yu) is searched only with a full first name, as one author of the list
+  if (!family || family.length < 2 || (family.length < 3 && first.length < 2)) return [];
+  // first name and surname within one author of the list ("Wen Li", "Li Wen"): matched apart, short Chinese names ("Li" and
+  // "Wen" anywhere in the list) filled the row limit with other people's papers before the person's own were reached
+  if (first.length >= 2) {
+    const esc = s => s.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+    const f = esc(family), g = esc(first);
+    return db.all(`SELECT doi, retraction_date, nature, reason, title, journal, authors, institution, country FROM retractions WHERE authors ILIKE $1 AND authors ILIKE $2 AND authors ~* $3 AND nature ILIKE '%retraction%' LIMIT 2000`,
+      [`%${family}%`, `%${first}%`, `(^|;)[^;]*(\\m${g}\\M[^;]*\\m${f}\\M|\\m${f}\\M[^;]*\\m${g}\\M)`]);
+  }
   return db.all("SELECT doi, retraction_date, nature, reason, title, journal, authors, institution, country FROM retractions WHERE authors ILIKE $1 AND nature ILIKE '%retraction%' LIMIT 2000", [`%${family}%`]);
 }
 

@@ -406,6 +406,13 @@ async function verifyReference(ref, opts = {}) {
     const alt = [openalexRecord, ...candidates.map(c => c.rec)].filter(sameDoi);
     const pick = k => record[k] || alt.map(r => r[k]).find(Boolean) || record[k];
     record = { ...record, volume: pick('volume'), issue: pick('issue'), pages: pick('pages') };
+    // a work co-published in several journals (PRISMA 2020) brings back the other journals' copies from the title searches,
+    // and without OpenAlex no record of this DOI carries the volume: Europe PMC is asked for the DOI itself
+    if ((ref.volume && !record.volume) || (ref.pages && !record.pages)) {
+      const ep = await S.europepmcSearch({ doi: record.doi }).catch(() => null);
+      const e = (ep?.records || []).find(r => r.doi && r.doi.toLowerCase() === record.doi.toLowerCase());
+      if (e) record = { ...record, volume: record.volume || e.volume, issue: record.issue || e.issue, pages: record.pages || e.pages };
+    }
   }
   if (record) {
     const s = scoreCandidate(ref, record);

@@ -265,12 +265,17 @@ const AFF_STOP = new Set(['university', 'universit', 'department', 'faculty', 'c
   // subject and generic words shared by thousands of departments: "health" or "pathology" in common is not the same institution
   'health', 'dental', 'dentistry', 'pathology', 'pharmacology', 'pharmaceutics', 'pharmacognosy', 'biochemistry', 'biotechnology', 'biology', 'chemistry', 'physics', 'zoology', 'botany', 'physiology', 'anatomy', 'microbiology', 'medicine', 'clinical', 'engineering', 'technology', 'information', 'studies', 'laboratory', 'state', 'government', 'public', 'international', 'applied', 'natural', 'basic', 'allied', 'veterinary', 'animal', 'animals', 'agriculture', 'agricultural', 'environment', 'environmental', 'teaching', 'campus', 'graduate', 'postgraduate', 'division', 'section', 'unit', 'program', 'programme', 'life', 'molecular', 'cell', 'cellular', 'nursing', 'surgery', 'women', 'children', 'general', 'city', 'province', 'provincial', 'federal', 'china', 'saudi', 'arabia', 'kingdom', 'republic', 'india', 'iran',
   // hospital and university name parts used by hundreds of institutions ("First Affiliated Hospital", "People's Hospital")
-  'affiliated', 'people', 'peoples', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'chinese', 'traditional', 'integrated', 'western', 'municipal', 'central', 'normal', 'region', 'regional', 'autonomous', 'county', 'district', 'king', 'computer', 'technical', 'surgical', 'intensive', 'care', 'emergency', 'oncology', 'cancer', 'cardiology', 'neurology', 'radiology', 'orthopedics', 'orthopaedics', 'pediatrics', 'paediatrics', 'obstetrics', 'gynecology', 'urology', 'nephrology', 'respiratory', 'infectious', 'diseases', 'disease', 'biomedical', 'center', 'centers', 'key', 'joint', 'south', 'north', 'east', 'west', 'southern', 'northern', 'eastern', 'medical']);
+  'affiliated', 'people', 'peoples', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'chinese', 'traditional', 'integrated', 'western', 'municipal', 'central', 'normal', 'region', 'regional', 'autonomous', 'county', 'district', 'king', 'computer', 'technical', 'surgical', 'intensive', 'care', 'emergency', 'oncology', 'cancer', 'cardiology', 'neurology', 'radiology', 'orthopedics', 'orthopaedics', 'pediatrics', 'paediatrics', 'obstetrics', 'gynecology', 'urology', 'nephrology', 'respiratory', 'infectious', 'diseases', 'disease', 'biomedical', 'center', 'centers', 'key', 'joint', 'south', 'north', 'east', 'west', 'southern', 'northern', 'eastern', 'medical',
+  // fields and generic words of other departments and languages ("Ministry of Education", "Facultad de Ciencias de la Salud")
+  'ministry', 'education', 'electronic', 'electronics', 'electrical', 'mechanical', 'mathematics', 'mathematical', 'business', 'economics', 'management', 'computing', 'artificial', 'intelligence', 'development', 'deemed', 'egypt',
+  'universidad', 'universidade', 'universita', 'facultad', 'faculdade', 'ciencias', 'ciencia', 'salud', 'saude', 'instituto', 'departamento', 'escuela', 'nacional']);
 // Cities: a shared city is a weak hint only ("Multan" covers several universities and hospitals)
 const AFF_PLACES = new Set(['karachi', 'lahore', 'islamabad', 'rawalpindi', 'multan', 'faisalabad', 'peshawar', 'quetta', 'hyderabad', 'bahawalpur', 'sialkot', 'gujranwala', 'abbottabad', 'jamshoro', 'sargodha', 'larkana', 'sukkur', 'nawabshah', 'mardan', 'gujrat', 'sahiwal', 'kohat', 'dera', 'ismail', 'punjab', 'sindh', 'khyber', 'pakhtunkhwa', 'balochistan', 'lyari',
   // China (provinces and large cities), the Gulf, India, Iran, Egypt: where most name-matched retractions come from
   'beijing', 'shanghai', 'tianjin', 'chongqing', 'guangzhou', 'shenzhen', 'wuhan', 'chengdu', 'nanjing', 'hangzhou', 'xian', 'shenyang', 'changsha', 'zhengzhou', 'jinan', 'harbin', 'kunming', 'hefei', 'fuzhou', 'nanchang', 'qingdao', 'dalian', 'suzhou', 'xiamen', 'ningbo', 'wenzhou', 'changchun', 'taiyuan', 'shijiazhuang', 'lanzhou', 'nanning', 'guiyang', 'urumqi', 'haikou', 'hohhot', 'yinchuan', 'xining', 'lhasa', 'xuzhou', 'wuxi', 'guangdong', 'jiangsu', 'zhejiang', 'shandong', 'henan', 'hubei', 'hunan', 'sichuan', 'hebei', 'shanxi', 'shaanxi', 'liaoning', 'jilin', 'heilongjiang', 'anhui', 'fujian', 'jiangxi', 'yunnan', 'guizhou', 'guangxi', 'gansu', 'xinjiang', 'mongolia', 'hainan', 'ningxia', 'qinghai', 'tibet',
-  'riyadh', 'jeddah', 'makkah', 'mecca', 'medina', 'madinah', 'dammam', 'abha', 'taif', 'tabuk', 'sakaka', 'qassim', 'dubai', 'sharjah', 'doha', 'kuwait', 'muscat', 'manama', 'cairo', 'giza', 'alexandria', 'mansoura', 'tehran', 'tabriz', 'shiraz', 'isfahan', 'mashhad', 'delhi', 'mumbai', 'chennai', 'kolkata', 'bangalore', 'bengaluru', 'pune', 'dhaka', 'istanbul', 'ankara', 'baghdad', 'riyad']);
+  'riyadh', 'jeddah', 'makkah', 'mecca', 'medina', 'madinah', 'dammam', 'abha', 'taif', 'tabuk', 'sakaka', 'qassim', 'dubai', 'sharjah', 'doha', 'kuwait', 'muscat', 'manama', 'cairo', 'giza', 'alexandria', 'mansoura', 'tehran', 'tabriz', 'shiraz', 'isfahan', 'mashhad', 'delhi', 'mumbai', 'chennai', 'kolkata', 'bangalore', 'bengaluru', 'pune', 'dhaka', 'istanbul', 'ankara', 'baghdad', 'riyad',
+  // Indian states and cities
+  'tamil', 'nadu', 'kerala', 'karnataka', 'odisha', 'orissa', 'maharashtra', 'gujarat', 'telangana', 'andhra', 'pradesh', 'uttar', 'uttarakhand', 'bengal', 'rajasthan', 'haryana', 'bihar', 'assam', 'jharkhand', 'chhattisgarh', 'madhya', 'noida', 'mohali', 'chandigarh', 'lucknow', 'jaipur', 'bhubaneswar', 'kanchipuram', 'vellore', 'coimbatore', 'madurai', 'mysore', 'mysuru', 'mangalore', 'manipal', 'hyderabad', 'ahmedabad', 'nagpur', 'indore', 'bhopal', 'patna', 'varanasi', 'kanpur', 'ghaziabad', 'gurgaon', 'gurugram', 'faridabad', 'ludhiana', 'amritsar', 'jalandhar', 'phagwara', 'dehradun']);
 const affTokens = s => new Set(String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z]+/).filter(t => t.length > 3 && !AFF_STOP.has(t)));
 // A name is treated as common when Retraction Watch holds it on papers from this many different institutions: one
 // person retracted many times is usually at one or two places, a common name ("Muhammad Ali", "Wei Zhang") is everywhere
@@ -304,30 +309,43 @@ async function authorRetractions(authors, affiliations = []) {
   const myAff = affTokens((affiliations || []).join(' '));
   const myPairs = affPairs((affiliations || []).join('; '));
   const myPk = /pakistan|\bpk\b/i.test((affiliations || []).join(' '));
+  const myOffField = NON_BIOMED.test((affiliations || []).join(' '));
+  // the first word of the first name, when it is a name and not an initial ("M. A." gives none)
+  const firstWord = g => { const w = String(g || '').toLowerCase().split(/[\s.]+/).filter(Boolean)[0] || ''; return w.replace(/-/g, '').length > 1 ? w.replace(/-/g, '') : ''; };
   for (const a of authors.slice(0, 15)) {
-    if (!a.family || a.family.length < 3) continue;
+    if (!a.family || a.family.length < 2 || (a.family.length < 3 && String(a.given || '').replace(/[.\s-]/g, '').length < 2)) continue;
     const rows = await D.retractionsByAuthor(a.family, a.given).catch(() => []);
     const hits = [];
     for (const r of rows) {
       const names = String(r.authors || '').split(/\s*;\s*/).map(n => splitName(n.trim())).filter(n => n.family);
       if (!names.some(n => nameMatch(n, a) === 'exact' || (nameMatch(n, a) === 'likely' && n.given && a.given && n.given[0] === a.given[0]))) continue;
       const theirName = names.find(n => nameMatch(n, a) === 'exact' || nameMatch(n, a) === 'likely');
-      const fullFirst = !!(theirName?.given && a.given && theirName.given.replace(/[.\s]/g, '').length > 1 && a.given.replace(/[.\s]/g, '').length > 1 && theirName.given.toLowerCase().split(/\s+/)[0].replace(/\./g, '') === a.given.toLowerCase().split(/\s+/)[0].replace(/\./g, ''));
+      // initials only ("M. A. Khan") are not a first name, even two of them
+      const fullFirst = !!(firstWord(theirName?.given) && firstWord(theirName.given) === firstWord(a.given));
       const theirAff = affTokens(r.institution);
       const shared = [...myAff].filter(t => theirAff.has(t));
       const theirPairs = affPairs(r.institution);
       const pairs = [...myPairs].filter(p => theirPairs.has(p));
-      hits.push({ r, fullFirst, distinctive: [...shared.filter(t => !AFF_PLACES.has(t)), ...pairs], places: shared.filter(t => AFF_PLACES.has(t)) });
+      // co-authors: another author of the manuscript, with the same full name, on the same retracted paper. Two names
+      // together on one paper identify the group far better than an institution word does
+      const coauthors = authors.filter(b => b !== a && b.family && firstWord(b.given) && names.some(n => n !== theirName && nameMatch(n, b) === 'exact' && firstWord(n.given) === firstWord(b.given)))
+        .map(b => `${b.given} ${b.family}`.trim());
+      // a retraction from an engineering, business or mathematics department, for an author of a biomedical manuscript
+      // (every institution of the paper: one co-author from such a department says nothing)
+      const offField = !myOffField && !!r.institution && String(r.institution).split(/\s*;\s*/).filter(Boolean).every(x => NON_BIOMED.test(x));
+      hits.push({ r, fullFirst, coauthors, offField, distinctive: [...shared.filter(t => !AFF_PLACES.has(t)), ...pairs], places: shared.filter(t => AFF_PLACES.has(t)) });
     }
     const common = new Set(hits.filter(h => h.fullFirst && h.r.institution).map(h => instKey(h.r.institution))).size >= COMMON_NAME_PLACES;
-    for (const { r, fullFirst, distinctive, places } of hits) {
+    for (const { r, fullFirst, coauthors, offField, distinctive, places } of hits) {
       const sameCountry = myPk && /pakistan/i.test(r.country || '');
       const confidence = !fullFirst ? 'low'
+        : coauthors.length ? 'high'
+        : offField ? 'low'
         // a common name needs two distinctive words of the institution in common: one ward or hospital name is not enough
         : distinctive.length >= (common ? 2 : 1) ? 'high'
         : common ? 'low'
         : (places.length || (sameCountry && !r.institution)) ? 'high' : 'medium';
-      out.push({ confidence, commonName: common, institutionMatch: [...distinctive, ...places].slice(0, 3), sameCountry, institution: (r.institution || '').slice(0, 160), author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: D.MILL_REASON_RE.test(r.reason || '') });
+      out.push({ confidence, commonName: common, offField, coauthors, institutionMatch: [...distinctive, ...places].slice(0, 3), sameCountry, institution: (r.institution || '').slice(0, 160), author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: D.MILL_REASON_RE.test(r.reason || '') });
     }
   }
   return out;

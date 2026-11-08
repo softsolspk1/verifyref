@@ -50,8 +50,9 @@ function csvToObjects(text) {
 
 const RW_URL = `https://api.labs.crossref.org/data/retractionwatch?mailto=${encodeURIComponent(cfg.CONTACT_EMAIL)}`;
 
-async function loadRetractionWatch() {
-  const rows = csvToObjects(await store.sourceText('retractionwatch.csv', () => getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 })));
+/** since: a refresh job's start - a download it already made (a run stopped while the rows were saved) is read back from R2 */
+async function loadRetractionWatch({ since = null } = {}) {
+  const rows = csvToObjects(await store.sourceText('retractionwatch.csv', () => getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 }), { reuseSince: since }));
   // One row per original DOI; a later notice (e.g. retraction after concern) wins
   const byDoi = new Map();
   for (const row of rows) {
@@ -1720,11 +1721,18 @@ async function coreDatasetsReady({ maxMs = 90000 } = {}) {
   while (ensuring > 0 && Date.now() < until && !(await ready().catch(() => true))) await new Promise(r => setTimeout(r, 2000));
 }
 
-async function ensureDatasetsNow({ force = false, maxAgeDays = 7, budgetMs = Infinity, log = console.log } = {}) {
+// time a list needs in one run (ms): Retraction Watch is a 68 MB download of ~74,000 rows; the others take seconds
+const NEEDS_MS = { rw: 200000, oaj: 60000 };
+
+/**
+ * since: the start of a forced refresh job - lists loaded after it are done and not loaded again in its later runs.
+ * budgetMs: time of this run; a list that does not fit in what is left is returned in results.deferred
+ */
+async function ensureDatasetsNow({ force = false, since = null, maxAgeDays = 7, budgetMs = Infinity, log = console.log } = {}) {
   const started = Date.now();
   const time = async key => { const at = await getMeta(key); return at ? new Date(at).getTime() : 0; };
   const all = [
-    ['rw', 'retractionWatch', 'Retraction Watch', loadRetractionWatch],
+    ['rw', 'retractionWatch', 'Retraction Watch', () => loadRetractionWatch({ since })],
     ['pps', 'screener', 'Problematic Paper Screener', loadProblematicScreener],
     ['beall', 'beall', "Beall's list", loadBeall],
     ['fda_ob', 'fdaOrangeBook', 'FDA Orange Book', () => loadFdaOrangeBook({ log })],
@@ -1753,13 +1761,19 @@ async function ensureDatasetsNow({ force = false, maxAgeDays = 7, budgetMs = Inf
     const inProgress = d[0] === 'oaj' && !!(await getMeta('oaj_harvest'));
     // a forced refresh does not start the OpenAlex journal list again within its 30 days: ~1,100 paid OpenAlex requests
     // for a list that changes little in a month
-    const forced = force && !(d[0] === 'oaj' && loaded && Date.now() - loaded < (d[4] || maxAgeDays) * 86400000);
+    // ... nor a list this refresh job already loaded in an earlier run (each run used to load all of them again and was
+    // stopped on Retraction Watch every time, 7 and 8 Nov)
+    const forced = force && !(d[0] === 'oaj' && loaded && Date.now() - loaded < (d[4] || maxAgeDays) * 86400000) && !(since && loaded >= Date.parse(since));
     if (forced || inProgress || !loaded || Date.now() - loaded > (d[4] || maxAgeDays) * 86400000 || (d[0] === 'rw' && noAuthors)) todo.push({ d, order: Math.max(loaded, await time(`${d[0]}_tried_at`)) });
   }
   todo.sort((a, b) => a.order - b.order);
   const results = {};
+  let ran = 0;
   for (const { d: [key, name, label, fn] } of todo) {
-    if (Date.now() - started > budgetMs) { (results.deferred = results.deferred || []).push(label); continue; }
+    // a list that would not finish in the time left waits for the next run (one that starts it has the whole run)
+    const left = budgetMs - (Date.now() - started);
+    if (left <= 0 || (ran && left < (NEEDS_MS[key] || 30000))) { (results.deferred = results.deferred || []).push(label); continue; }
+    ran++;
     await setMeta(`${key}_tried_at`, new Date().toISOString());
     // never loaded into this database: take the table from its R2 snapshot first (no source download)
     if (!force && !(await time(`${key}_loaded_at`)) && DATASET_TABLES[key]) {

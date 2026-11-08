@@ -7,7 +7,7 @@ const cfg = require('../config');
 const auth = require('../auth');
 const D = require('../datasets');
 const { MODULES, ROLES, ALL, defaultPermissions, storePermissions } = require('../modules');
-const { createJob, defineJob } = require('../jobs');
+const { createJob, defineJob, ResumeLater } = require('../jobs');
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -281,13 +281,16 @@ router.post('/admin/datasets/refresh', wrap(async (req, res) => {
   // OpenAlex requests four times) and kept each other from finishing; a second click follows the running one
   const running = await db.one("SELECT id FROM jobs WHERE kind = 'datasets' AND status IN ('queued', 'running') AND created_at > now() - interval '3 hours' ORDER BY created_at DESC LIMIT 1");
   if (running) return res.json({ success: true, jobId: running.id, alreadyRunning: true });
-  const job = await createJob(req.user.id, 'datasets', {});
+  const job = await createJob(req.user.id, 'datasets', { since: new Date().toISOString() });
   res.json({ success: true, jobId: job.id });
 }));
 
-defineJob('datasets', async (input, { update }) => {
+defineJob('datasets', async (input, { update, deadline }) => {
   update('Refreshing Retraction Watch, Beall\'s list, Problematic Paper Screener, FDA Orange Book, NLM Catalog, DOAJ, Crossref journals, LTWA, e-mail domain lists and the OpenAlex journal list (continued on later runs)', 10);
-  return D.ensureDatasets({ force: true });
+  // lists already loaded by this job are not loaded again; one that does not fit in this run hands over to the next
+  const out = await D.ensureDatasets({ force: true, since: input?.since || null, budgetMs: Number.isFinite(deadline) ? deadline - Date.now() - 15000 : Infinity });
+  if (out.deferred?.length) throw new ResumeLater(`Refreshing datasets: ${out.deferred.join(', ')} - continued in the next run`);
+  return out;
 });
 
 router.post('/admin/orange-book/download', wrap(async (req, res) => {

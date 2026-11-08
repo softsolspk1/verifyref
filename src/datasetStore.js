@@ -54,11 +54,18 @@ async function list() {
 /**
  * Text of a downloadable dataset with an R2 safety copy: download() -> { ok, text } as from http.getText.
  * A good download is saved to raw/<name>; a failed one falls back to the saved copy (and says so in the log).
+ * reuseSince (ISO time): a copy downloaded since then is read back from R2 instead of downloading it again.
  */
-async function sourceText(name, download, { log = console.log } = {}) {
+async function sourceText(name, download, { log = console.log, reuseSince = null } = {}) {
+  if (reuseSince) {
+    const at = await db.getMeta(`raw_${name}_at`).catch(() => null);
+    const saved = at && Date.parse(at) >= Date.parse(reuseSince) ? await get(`raw/${name}`).catch(() => null) : null;
+    if (saved) { log(`${name}: using the copy downloaded at ${at}`); return saved.toString('utf8'); }
+  }
   const r = await download().catch(e => ({ ok: false, error: e.message }));
   if (r.ok && r.text) {
-    await put(`raw/${name}`, r.text, { source: 'download' }).catch(e => log(`R2 copy of ${name} failed: ${e.message}`));
+    const copy = await put(`raw/${name}`, r.text, { source: 'download' }).catch(e => { log(`R2 copy of ${name} failed: ${e.message}`); return null; });
+    if (copy && copy.reason === undefined) await db.setMeta(`raw_${name}_at`, new Date().toISOString()).catch(() => {});
     return r.text;
   }
   const saved = await get(`raw/${name}`).catch(() => null);

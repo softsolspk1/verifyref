@@ -145,6 +145,24 @@ async function deleteObject(key) {
   await fetch(presign('DELETE', key), { method: 'DELETE' }).catch(() => {});
 }
 
+/** Keys and sizes of the objects under a prefix: [{ key, size }] (ListObjectsV2, 1,000 a page) */
+async function listObjects(prefix) {
+  if (!enabled()) return [];
+  const out = [];
+  let token = null;
+  do {
+    const r = await fetch(presign('GET', '', { query: { 'list-type': '2', prefix, ...(token ? { 'continuation-token': token } : {}) } }));
+    if (!r.ok) throw new Error(`storage listing failed (${r.status})`);
+    const xml = await r.text();
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const key = (m[1].match(/<Key>([\s\S]*?)<\/Key>/) || [])[1];
+      if (key) out.push({ key: key.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'), size: Number((m[1].match(/<Size>(\d+)<\/Size>/) || [])[1]) || 0 });
+    }
+    token = /<IsTruncated>true<\/IsTruncated>/.test(xml) ? (xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/) || [])[1] : null;
+  } while (token);
+  return out;
+}
+
 // ------------------------------------------------------------------ middleware
 
 const ownKey = (req, key) => typeof key === 'string' && key.startsWith(`uploads/${req.user?.id}/`) && !key.includes('..');
@@ -200,4 +218,4 @@ function fileRef(f) {
 const loadFile = ref => (ref.r2Key ? getObject(ref.r2Key) : Promise.resolve(Buffer.from(ref.base64, 'base64')));
 const dropFiles = refs => Promise.all([].concat(refs || []).filter(r => r?.r2Key).map(r => deleteObject(r.r2Key)));
 
-module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, putFileStream, putFileMultipart, getObject, getObjectRange, deleteObject };
+module.exports = { upload, createUpload, fileRef, loadFile, dropFiles, enabled, MAX_BYTES, presign, putObject, putFileStream, putFileMultipart, getObject, getObjectRange, deleteObject, listObjects };

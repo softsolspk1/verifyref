@@ -6,6 +6,7 @@
 //   node scripts/corpus-load-pmc.js [--limit 20000] [--dir D:\pjps-tmp\pmc-bulk]    load more papers
 //   node scripts/corpus-load-pmc.js --publish                                        build and upload the index
 //   node scripts/corpus-load-pmc.js --status
+//   node scripts/corpus-load-pmc.js --cleanup                                        remove index versions on R2 the manifest does not use
 // No paid service is used: Europe PMC, the PMC bucket and R2 storage only.
 const fs = require('fs');
 const path = require('path');
@@ -158,34 +159,82 @@ async function packSizes(state) {
   return sizes.slice(0, state.nextPack);
 }
 
+/** The R2 key of one index file of a version */
+const indexKey = (version, f) => `${B.prefix()}/idx/v${version}/f${f.toString(16).padStart(2, '0')}.bin`;
+// waits between the tries of one index file upload (a few minutes in all, so a short network drop does not fail the publish)
+const UPLOAD_WAITS = [5000, 15000, 30000, 60000, 120000];
+
+/**
+ * Remove the index versions on R2 that the manifest does not use (a publish that failed or was stopped half way); keep:
+ * the version being uploaded now. -> bytes removed
+ */
+async function cleanup({ keep = null } = {}) {
+  const m = await B.getManifest().catch(() => null);
+  if (!m?.version) { log('No published manifest; nothing removed'); return 0; }
+  const objects = await U.listObjects(`${B.prefix()}/idx/`);
+  const byVersion = new Map();
+  for (const o of objects) {
+    const v = (o.key.match(/\/idx\/v(\d+)\//) || [])[1];
+    if (!v || Number(v) === Number(m.version) || (keep && Number(v) === Number(keep))) continue;
+    if (!byVersion.has(v)) byVersion.set(v, []);
+    byVersion.get(v).push(o);
+  }
+  let bytes = 0;
+  for (const [v, list] of byVersion) {
+    await pool(list, 8, o => U.deleteObject(o.key));
+    const left = (await U.listObjects(`${B.prefix()}/idx/v${v}/`)).length;
+    const size = list.reduce((a, o) => a + o.size, 0);
+    bytes += size;
+    log(`Removed unused index version ${v}: ${list.length - left} of ${list.length} files, ${(size / 1e9).toFixed(2)} GB${left ? ` (${left} could not be removed; run --cleanup again)` : ''}`);
+  }
+  if (!byVersion.size) log(`No unused index versions on R2 (published version ${m.version})`);
+  return bytes;
+}
+
 async function publish() {
   const state = readState();
   const version = Date.now();
   const old = await B.getManifest().catch(() => null);
   // a run that added nothing (Europe PMC down) does not upload the same index again
   if (old?.docs === state.docs && old?.entries === state.entries && Array.isArray(old.packSizes)) { log(`Nothing new since the published index (${state.docs.toLocaleString('en')} papers); not rebuilt`); return; }
+  // the files of an earlier publish that failed are removed first (R2 storage is paid by the GB)
+  await cleanup().catch(e => log(`Unused index versions not removed: ${e.message}`));
   log(`Building index version ${version} from ${state.entries.toLocaleString('en')} entries`);
   let entries = 0, uploaded = 0;
-  // 6 files built and uploaded at a time (each up to a few tens of MB)
-  await pool(Array.from({ length: B.FILES }, (_, f) => f), 6, async f => {
+  const failed = [];
+  const send = async f => {
     const name = `b${f.toString(16).padStart(2, '0')}.bin`;
     const raw = fs.existsSync(file(`idx/${name}`)) ? fs.readFileSync(file(`idx/${name}`)) : Buffer.alloc(0);
     const pairs = new Uint32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length - (raw.length % 8)));
     const out = B.buildIndexFile(pairs);
-    entries += pairs.length / 2;
     for (let attempt = 0; ; attempt++) {
-      try { await U.putObject(`${B.prefix()}/idx/v${version}/f${f.toString(16).padStart(2, '0')}.bin`, out, 'application/octet-stream'); break; }
-      catch (e) { if (attempt >= 3) throw e; await new Promise(r => setTimeout(r, 5000)); }
+      try { await U.putObject(indexKey(version, f), out, 'application/octet-stream'); break; }
+      catch (e) {
+        if (attempt >= UPLOAD_WAITS.length) { log(`  index file ${f} not uploaded: ${e.message}`); return false; }
+        await new Promise(r => setTimeout(r, UPLOAD_WAITS[attempt]));
+      }
     }
+    entries += pairs.length / 2;
     if (++uploaded % 32 === 0) log(`  ${uploaded} / ${B.FILES} index files uploaded`);
-  });
-  if (uploaded !== B.FILES) throw new Error(`only ${uploaded} of ${B.FILES} index files uploaded - the manifest is not changed; run --publish again`);
+    return true;
+  };
+  // 6 files built and uploaded at a time (each up to a few tens of MB); a file that failed every try is sent again at the end, alone
+  await pool(Array.from({ length: B.FILES }, (_, f) => f), 6, async f => { if (!(await send(f))) failed.push(f); });
+  if (failed.length) {
+    log(`  ${failed.length} index file(s) failed; sending them again one at a time`);
+    for (const f of failed.splice(0)) if (!(await send(f))) failed.push(f);
+  }
+  if (uploaded !== B.FILES) {
+    // the manifest still points at the published version: this version's files are of no use, so they are removed
+    await pool(Array.from({ length: B.FILES }, (_, f) => f), 8, f => U.deleteObject(indexKey(version, f)));
+    throw new Error(`only ${uploaded} of ${B.FILES} index files uploaded - the manifest is not changed and the uploaded files were removed; run --publish again`);
+  }
   const manifest = { version, docs: state.docs, entries, packs: state.nextPack, packSizes: await packSizes(state), builtAt: new Date().toISOString(), source: 'PubMed Central open access (PMC Article Datasets), PJPS subject areas' };
   await U.putObject(`${B.prefix()}/manifest.json`, Buffer.from(JSON.stringify(manifest, null, 1)), 'application/json');
   log(`Published: ${manifest.docs.toLocaleString('en')} papers, ${entries.toLocaleString('en')} index entries`);
   // the previous version's files are removed once the new manifest is in place
   if (old?.version && old.version !== version) {
-    await pool(Array.from({ length: B.FILES }, (_, f) => f), 8, f => U.deleteObject(`${B.prefix()}/idx/v${old.version}/f${f.toString(16).padStart(2, '0')}.bin`));
+    await pool(Array.from({ length: B.FILES }, (_, f) => f), 8, f => U.deleteObject(indexKey(old.version, f)));
     log(`Removed index version ${old.version}`);
   }
 }
@@ -195,6 +244,7 @@ async function publish() {
   fs.mkdirSync(file('idx'), { recursive: true });
   if (arg('status')) { console.log({ local: readState(), published: await B.getManifest() }); }
   else if (arg('publish')) await publish();
+  else if (arg('cleanup')) await cleanup();
   else await load();
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

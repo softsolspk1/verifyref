@@ -46,6 +46,8 @@ const K = 5;                 // words per compared sequence
 const GAP = 2;               // different words allowed inside one match
 const COMMON = 25;           // a passage found in more papers than this is stock wording: credited to the first paper only
 const OPENALEX_RESERVE_USD = 0.3; // OpenAlex budget kept for the reference checks of the day (Module 1)
+// time kept on a search's last run for OpenAlex, Wikipedia, the web and the comparison of the sources found
+const LIT_RESERVE_MS = 60000;
 const WIKI_PHRASES = Math.max(0, parseInt(cfg.WIKI_PHRASES || 120, 10) || 0); // passages no literature index has, searched in Wikipedia per report (free)
 const WIKI = 'https://en.wikipedia.org/w/api.php';
 // what is kept in the cache of a Wikipedia phrase search: the article titles found, nothing of the query
@@ -678,6 +680,11 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     return res;
   };
   update(`Searching ${windows.length} passages of the manuscript in the published literature`);
+  // on the last run a search may have (no next run to hand over to) the literature search stops LIT_RESERVE_MS early, so
+  // a long manuscript is still searched in OpenAlex, Wikipedia and the web and its sources compared, instead of the
+  // literature search taking the whole run
+  const litUntil = Number.isFinite(deadline) && !canResume ? deadline - LIT_RESERVE_MS : deadline;
+  const litLate = () => { if (Date.now() < litUntil) return false; stats.timeLimited = true; return true; };
   const unknown = [];
   let done = 0;
   // most passages are found nowhere: neighbouring passages are first asked together ("a" OR "b" OR "c", a count only);
@@ -686,7 +693,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const groups = [];
   for (let i = 0; i < windows.length; i += PHRASE_GROUP) groups.push(windows.slice(i, i + PHRASE_GROUP));
   await pool(groups, 8, async g => {
-    if (late()) return;
+    if (litLate()) return;
     let any = true;
     if (g.length > 1) {
       stats.queries++;
@@ -695,6 +702,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     }
     for (const w of g) {
       stats.searched++;
+      w.litSearched = true;
       const res = any ? await epmcPhrase(w) : [];
       if (++done % 50 < 1) update(`Searching passages in the published literature (${done}/${windows.length})`);
       if (!res || !res.length) unknown.push(w);
@@ -712,7 +720,9 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     }
   }
   if (edges.length) update(`Following ${edges.length} matches to their full length`);
-  await pool(edges, 8, w => (late() ? null : epmcPhrase(w)));
+  await pool(edges, 8, w => (litLate() ? null : epmcPhrase(w)));
+  // passages the literature search did not reach are searched in the other indexes like those it did not find
+  for (const w of windows) if (!w.litSearched && !w.found) unknown.push(w);
   windows.push(...edges);
 
   // OpenAlex full text (paid per search beyond its free daily allowance): spread over the passages Europe PMC lacked

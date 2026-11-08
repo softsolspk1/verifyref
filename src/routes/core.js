@@ -94,8 +94,8 @@ router.post('/checks', user, wrap(async (req, res) => {
   res.json({ success: true, jobId: job.id, offline: cfg.DESKTOP && !isOnline() });
 }));
 
-async function runAndSaveCheck(b, { userId, update, stage, deadline, jobId }) {
-  const result = await runCheck({ ...b, userId }, update, { stage, deadline, jobId });
+async function runAndSaveCheck(b, { userId, update, stage, deadline, jobId, attempt }) {
+  const result = await runCheck({ ...b, userId }, update, { stage, deadline, jobId, attempt });
   const shingles = result._shingles;
   delete result._shingles;
   // an image report attached by the browser while the screening ran (Module 5 alongside the other modules)

@@ -8,12 +8,20 @@ const db = require('./db');
 
 const STALE_SECONDS = 45;     // no heartbeat for this long = the run was stopped
 const HEARTBEAT_MS = 10000;
-const MAX_ATTEMPTS = 6;
+const MAX_ATTEMPTS = 8;    // runs of one job: the stopped ones and those a long similarity search hands over to the next
 // one run's time on Vercel (its functions stop at 300 s): long stages stop searching in time to save what they found
 const RUN_BUDGET_MS = process.env.VERCEL ? 240000 : Infinity;
 
 const runners = new Map();
 const STOPPED = 'This check was stopped by the server too many times before it could finish. Run it again: the parts already looked up are reused, so the next run is faster.';
+
+/**
+ * Thrown by a job that has more to do than one run allows (the similarity search of a long manuscript): the run ends
+ * without an error, its finished stages kept, and the next poll starts the next run at once
+ */
+class ResumeLater extends Error {
+  constructor(step) { super(step || 'Continuing in the next run'); this.resumeLater = true; }
+}
 
 /** Register a job kind: fn(input, { userId, update }) => result. Input must be JSON-serialisable. */
 function defineJob(kind, fn) {
@@ -79,8 +87,13 @@ async function runJob(id) {
     await db.query(`UPDATE jobs SET status = 'done', progress = 100, step = 'Complete', result = $2, input = '{}', partial = NULL, heartbeat = now() WHERE ${mine}`, [id, JSON.stringify(result ?? null)]);
   } catch (err) {
     clearInterval(timer);
-    console.error(`Job ${job.kind} failed:`, err);
-    await db.query(`UPDATE jobs SET status = 'error', error = $2, input = '{}', partial = NULL, heartbeat = now() WHERE ${mine}`, [id, err.message || String(err)]);
+    if (err?.resumeLater && attempt < MAX_ATTEMPTS) {
+      // the heartbeat is set back so the browser's next poll finds the run stopped and starts the next one
+      await db.query(`UPDATE jobs SET step = $2, heartbeat = now() - make_interval(secs => $3) WHERE ${mine} AND status = 'running'`, [id, err.message, STALE_SECONDS + 1]).catch(() => {});
+      return;
+    }
+    if (!err?.resumeLater) console.error(`Job ${job.kind} failed:`, err);
+    await db.query(`UPDATE jobs SET status = 'error', error = $2, input = '{}', partial = NULL, heartbeat = now() WHERE ${mine}`, [id, err?.resumeLater ? STOPPED : err.message || String(err)]);
   }
 }
 
@@ -118,4 +131,4 @@ function purgeJobs() {
   return db.query("DELETE FROM jobs WHERE created_at < now() - interval '1 day'").catch(() => {});
 }
 
-module.exports = { defineJob, createJob, getJob, purgeJobs, attachToJob, jobInput };
+module.exports = { defineJob, createJob, getJob, purgeJobs, attachToJob, jobInput, ResumeLater, MAX_ATTEMPTS };

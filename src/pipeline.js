@@ -94,7 +94,7 @@ async function runCheck(input, update, ctx = {}) {
     const show = () => update([steps.main, steps.text].filter(Boolean).join(' · '));
     say = (s, p) => { if (s) steps.main = s; update(null, p); show(); };
     const textStep = s => { if (s) { steps.text = s; show(); } };
-    side = textModules({ input, body, refs, meta, update: textStep, stage, deadline });
+    side = textModules({ input, body, refs, meta, update: textStep, stage, deadline, attempt: ctx.attempt || 0 });
     require('./papermill').warm().catch(() => null);   // Module 4's lists, loaded while Module 1 runs
     side.catch(() => null);
   }
@@ -195,8 +195,14 @@ async function screening(result, { input, body, refs, meta, update, side, stage,
 /** The report a re-run repeats and every earlier run of it */
 const recheckIds = input => [...new Set([input.recheckOf, ...(input.recheckChain || [])].map(Number).filter(Boolean))].slice(0, 20);
 
-async function textModules({ input, body, refs, meta, update, stage, deadline }) {
+// runs of a Full Screening job the similarity search may take (each about 4 minutes on Vercel): a search stopped by the
+// time limit goes on in the next run (its searches are cached, so it gets further each time); the last one saves the report
+const SIMILARITY_RUNS = 4;
+
+async function textModules({ input, body, refs, meta, update, stage, deadline, attempt = 0 }) {
   const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');
+  const { ResumeLater, MAX_ATTEMPTS } = require('./jobs');
+  const canResume = Number.isFinite(deadline) && attempt > 0 && attempt < Math.min(SIMILARITY_RUNS, MAX_ATTEMPTS - 1);
   const similarity = stage('similarity', async () => {
     if (!(body && body.trim().length > 1500)) return { kind: 'plagiarism', error: 'Upload the full manuscript text to check for plagiarism (only a reference list was provided).' };
     const PL = require('./checks/plagiarism');
@@ -204,8 +210,11 @@ async function textModules({ input, body, refs, meta, update, stage, deadline })
     // "Submitted works" (opt-in): earlier PJPS submissions sharing text, other versions of this manuscript left out
     const submissions = input.compareSubmissions ? await PL.earlierSubmissions(body, { excludeCode: meta.manuscriptCode || null, excludeCheckIds: recheckIds(input) }).catch(() => []) : null;
     // the similarity search stops in time for the rest of the report to be saved within this run
-    return PL.checkPlagiarism({ body, bibliography: refs.map(r => r.raw).join('\n'), meta, submissions, external: !!input.externalCompare, deadline: deadline - 30000 }, s => update(`Similarity: ${s}`))
+    const out = await PL.checkPlagiarism({ body, bibliography: refs.map(r => r.raw).join('\n'), meta, submissions, external: !!input.externalCompare, deadline: deadline - 30000, canResume }, s => update(`Similarity: ${s}`))
       .catch(e => ({ kind: 'plagiarism', error: `The plagiarism check could not be completed: ${e.message}` }));
+    // not saved as a stage: the next run searches on from here
+    if (out?.unfinished) throw new ResumeLater(out.unfinished);
+    return out;
   });
   const novelty = stage('novelty', () => require('./checks/novelty').checkNovelty({ meta, journal: { name: cfg.HOME_JOURNAL.name, issn: cfg.HOME_JOURNAL.issn[0] } })
     .catch(e => ({ kind: 'novelty', error: `The novelty assessment could not be completed: ${e.message}` })));

@@ -162,7 +162,7 @@ router.post('/sync/images/match', wrap(device), wrap(async (req, res) => {
 /** Similarity report from the desktop: matching documents of the PJPS text repository (texts read from R2) */
 router.post('/sync/corpus/candidates', wrap(device), wrap(async (req, res) => {
   const hashes = (Array.isArray(req.body?.hashes) ? req.body.hashes : []).map(Number).filter(Number.isFinite).slice(0, 4000);
-  const docs = await require('../corpus').candidatesByHashes(hashes, { excludeCode: req.body?.excludeCode || null, limit: Math.min(12, parseInt(req.body?.limit, 10) || 12) });
+  const docs = await require('../corpus').candidatesByHashes(hashes, { excludeCode: req.body?.excludeCode || null, limit: Math.min(30, parseInt(req.body?.limit, 10) || 12) });
   res.json({ success: true, docs: docs.map(d => ({ ...d, text: d.text.slice(0, 400000) })) });
 }));
 

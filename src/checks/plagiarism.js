@@ -38,6 +38,7 @@ const EXT = require('../externalSimilarity');
 const EPMC = 'https://www.ebi.ac.uk/europepmc/webservices/rest';
 const WEB_PHRASES = Math.max(0, parseInt(cfg.WEB_PHRASES || 60, 10) || 0); // passages no literature index has, searched on the web per report
 const MAX_SOURCES = 25;      // sources found by several passages, read in full where open
+const REPO_SOURCES = 30;     // papers of the PJPS text repository (kept by PJPS and the PubMed Central bulk) compared per report; 12 was always reached
 const WINDOW = 8;            // words per searched passage
 const PHRASE_GROUP = 3;      // neighbouring passages asked together first (a group without a hit needs no single searches)
 const OPENALEX_PHRASES = Math.max(0, parseInt(cfg.OPENALEX_PHRASES || 150, 10) || 0); // OpenAlex full-text searches per report ($0.001 each beyond the free allowance)
@@ -519,8 +520,10 @@ function referenceEntries(prep) {
  * for it or the in-house Similarity Index reaches min; the text up to the reference list (matched in-house), so a scan
  * costs fewer credits. -> { text } to scan, or { skipped: why } (null when the service is not set up)
  */
-function externalPlan(text, { requested = false, inHouse = 0, enabled = true, min = cfg.EXTERNAL_SIMILARITY_MIN } = {}) {
+function externalPlan(text, { requested = false, inHouse = 0, enabled = true, min = cfg.EXTERNAL_SIMILARITY_MIN, incomplete = null } = {}) {
   if (!enabled) return { text: null, skipped: null };
+  // an in-house search stopped by the time limit gives too low an index to decide on: the editor is told so
+  if (!requested && incomplete) return { text: null, incomplete: true, skipped: `not decided for this report: the in-house search was stopped by the time limit (${incomplete.searched} of ${incomplete.windows} passages searched), so its Similarity Index (${inHouse}%) is incomplete - run the report again to finish the search, or ask for the external comparison` };
   if (!requested && !(inHouse >= min)) return { text: null, skipped: `not used for this report: the in-house Similarity Index (${inHouse}%) is under ${min}%, and the editor did not ask for it` };
   const bib = bibliographyAt(text);
   return { text: bib ? text.slice(0, bib.at) : text, skipped: null };
@@ -571,10 +574,11 @@ async function citedWork(ref) {
  *   sources: [{ key, no, type, percent, ranges, passages: [{ from, to, words, text, source }], ... }], alsoMatched,
  *   document: [{ t, s }], settings: { excluded, minWords }, filters, selfMatches, checked, privacy, method }
  */
-async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions = null, external = false, deadline = Infinity }, update = () => {}) {
+async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions = null, external = false, deadline = Infinity, canResume = false }, update = () => {}) {
   await shared();
   // past the deadline (a server that stops long runs) the searches still waiting are skipped and the report is made from
-  // what was found; it says so. The searches are cached, so a later run of the same text gets further.
+  // what was found; it says so. The searches are cached, so a later run of the same text gets further. canResume: another
+  // run of the same job follows (src/pipeline.js), so a search stopped by the time limit returns { unfinished } instead of a report.
   const late = () => { if (Date.now() < deadline) return false; stats.timeLimited = true; return true; };
   const prep = prepare(body, bibliography);
   const mine = prep.words;
@@ -593,7 +597,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
 
   // 1. the PJPS text repository: published papers and web pages kept by earlier checks (never unpublished submissions)
   update('Comparing with the PJPS text repository');
-  const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi }));
+  const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null, limit: REPO_SOURCES }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi }));
   const repoKeys = new Set(repo.map(d => d.sourceKey));
   const fromRepo = (await pool(repo, 6, async d => {
     if (late()) return null;
@@ -855,9 +859,13 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   // 4c. the external full-text comparison (paid per scan), only when it matters: the editor asked for it, or the in-house
   // Similarity Index reaches EXTERNAL_SIMILARITY_MIN. It gets the text without the reference list (matched in 4b), so a
   // scan costs fewer credits; its sources join the others, and one the in-house search found too keeps one entry.
+  // a search stopped by the time limit goes on in the next run of the job: the external service is decided on the whole search
+  if (stats.timeLimited && canResume) return { kind: 'plagiarism', unfinished: `Similarity: ${stats.searched} of ${stats.windows} passages searched - the search goes on in the next run` };
   const inHouse = viewOf(primary()).summary.similarity;
-  const plan = externalPlan(prep.text, { requested: external, inHouse, enabled: EXT.enabled() });
+  const plan = externalPlan(prep.text, { requested: external, inHouse, enabled: EXT.enabled(), incomplete: stats.timeLimited ? { searched: stats.searched, windows: stats.windows } : null });
   const ext = plan.text ? await EXT.scanText(plan.text, { update, deadline }) : null;
+  // a scan still running at the time limit is waited for in the next run (found again by its text, not submitted twice)
+  if (ext?.pending && canResume) return { kind: 'plagiarism', unfinished: 'Similarity: waiting for the external full-text comparison - it goes on in the next run' };
   const extSkipped = plan.skipped;
   const extSources = ext && !ext.error ? externalSources(ext, prep) : [];
   const sameAs = (a, b) => (a.url && b.url && String(a.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') === String(b.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''));

@@ -104,6 +104,11 @@ const ok = m => console.log(`  ✓ ${m}`);
   assert.ok(!P.externalPlan(doc, { inHouse: 50, min: 15 }).skipped && P.externalPlan('no list here '.repeat(50), { inHouse: 50, min: 0 }).text.length > 0, 'a text without a reference list is sent whole');
   assert.deepStrictEqual(P.externalPlan(doc, { inHouse: 50, enabled: false }), { text: null, skipped: null }, 'not set up: nothing said');
   ok('external comparison only on request or from the threshold, without the reference list');
+  // an in-house search stopped by the time limit: not decided on its (too low) index, whatever the index
+  const cut = P.externalPlan(doc, { inHouse: 40, min: 15, incomplete: { searched: 210, windows: 629 } });
+  assert.ok(!cut.text && cut.incomplete && /not decided.*210 of 629 passages.*\(40%\) is incomplete/.test(cut.skipped), 'incomplete search: not decided');
+  assert.ok(P.externalPlan(doc, { inHouse: 2, min: 15, requested: true, incomplete: { searched: 1, windows: 9 } }).text, 'incomplete search: still run when the editor asks for it');
+  ok('external comparison not decided on an incomplete in-house search');
   console.log('external similarity test passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

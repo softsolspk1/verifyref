@@ -1,0 +1,169 @@
+PJPS DATA INTEGRITY SYSTEM - SIMILARITY REPORT: HOW IT WORKS NOW, WHAT TODAY'S TWO REPORTS SHOWED,
+AND THE THREE FIXES
+Date: 8 November 2026          Prepared by Softsols Pakistan
+
+
+=====================================================================================
+1. HOW THE SIMILARITY REPORT WORKS NOW
+=====================================================================================
+
+The Similarity Report is made inside the Full Screening Report. It runs side by side with
+Module 1 (the reference checks), so it does not wait for them.
+
+Step 1  Prepare the text
+        The manuscript is split into words. Quotations and the reference list are marked.
+        In-text citations such as [12] or (Smith et al., 2020) are ignored, so a copied
+        sentence whose citation was changed is still one match.
+
+Step 2  The PJPS text repository
+        The text is fingerprinted and compared with:
+          - about 3,700 published papers and web pages kept by earlier checks, and
+          - the PubMed Central bulk repository on R2 (588,300 papers when today's two
+            reports ran; 838,300 since the publish at 1:01 pm today).
+
+Step 3  Papers on the same subject
+        Open-access full texts on the same topic are read and compared with the whole
+        manuscript.
+
+Step 4  Passage search
+        The text is cut into 8-word passages. Every passage not matched yet is searched as
+        an exact phrase, in this order:
+          1. Europe PMC (open-access full texts and all PubMed abstracts)
+          2. OpenAlex (publisher full texts)
+          3. Wikipedia
+          4. The open web (Brave Search)
+
+Step 5  Matching
+        Every source found is compared word by word with the manuscript. Lightly reworded
+        and paraphrased sentences are matched and marked "paraphrased".
+
+Step 6  External similarity service (paid per scan)
+        Runs only when the editor ticks the box, or when the in-house Similarity Index is
+        15% or more.
+
+Step 7  Scoring
+        Every matched word is credited to one source only, so the source percentages add
+        up to the Similarity Index (as in Turnitin).
+
+Time limit: on Vercel one run of a job has 240 seconds, and the similarity search stops 30
+seconds before that so the report can be saved.
+
+
+=====================================================================================
+2. TODAY'S TWO FULL SCREENING REPORTS (8 NOVEMBER 2026)
+=====================================================================================
+
+                              Report #123                     Report #125
+                              Oxadiazole DFT / ADMET          Panax notoginseng saponins
+                              (11:22 am)                      (11:39 am)
+----------------------------  ------------------------------  ------------------------------
+Similarity Index              11.2% (warn)                    7.8% (ok)
+Sources                       31 (largest 2.7%)               43 (largest 1.6%)
+Passages searched             210 of 629 (33%)                213 of 1,051 (20%)
+OpenAlex / Wikipedia / web    0 / 0 / 0                       0 / 0 / 0
+Papers from the repository    12 (the upper limit)            12 (the upper limit)
+External service              Skipped (11.2% < 15%)           Skipped (7.8% < 15%)
+Search errors                 0                               0
+
+What this showed
+  a) The time limit stopped both searches early. Only a fifth to a third of the passages
+     were searched. OpenAlex, Wikipedia and the web come after Europe PMC, so they were
+     never reached.
+  b) Both Similarity Indexes are therefore probably too low. That matters because the
+     index decides whether the external service runs: #123 at 11.2% could pass 15% once
+     fully searched.
+  c) The repository returned exactly 12 papers both times. That was the lookup's upper
+     limit, so other matching papers may have been left out. With 838,300 papers now in
+     the bulk repository this would happen more and more often.
+  d) No search errors, the PMC repository was used, and no paid credits were spent.
+
+
+=====================================================================================
+3. THE THREE FIXES (MADE 8 NOVEMBER 2026, NOT YET DEPLOYED)
+=====================================================================================
+
+FIX 1 - THE SIMILARITY SEARCH CONTINUES OVER SEVERAL RUNS
+
+  Before: when the 240-second limit was reached, the report was saved with whatever had
+  been searched.
+
+  Now: when the time limit stops the search, the job hands over to its next run instead of
+  saving. The next run starts as soon as the browser checks progress again (about one
+  second later). Searches already made are cached, so each run gets further. The parts
+  already finished (Module 1 references, cited journals, novelty, author identity) are
+  kept and not run again.
+
+  - Up to 4 runs for the similarity search (about 16 minutes at most).
+  - If the search is still not finished after the 4th run, the report is saved as before
+    and says so: "Time limit reached: N of M passages were searched".
+  - A job may now have 8 runs in total (was 6), so waiting for Module 5 in the browser
+    and the extra similarity runs fit together.
+  - The progress line shows, for example, "Similarity: 210 of 629 passages searched - the
+    search goes on in the next run", then "Resuming...".
+  - The desktop app and a local server have no time limit, so nothing changes there.
+
+FIX 2 - MORE PAPERS FROM THE PJPS TEXT REPOSITORY
+
+  Before: at most 12 papers from the repository (PJPS-kept papers and the PubMed Central
+  bulk repository together).
+
+  Now: at most 30 papers. The desktop app's request to the web platform for repository
+  papers was raised from 12 to 30 in the same way.
+
+FIX 3 - THE EXTERNAL SERVICE IS DECIDED ONLY ON A COMPLETE IN-HOUSE SEARCH
+
+  Before: the 15% threshold was applied to whatever the in-house search had found, even
+  when the time limit had stopped it.
+
+  Now:
+  - While more runs are left, the external decision waits until the in-house search is
+    complete.
+  - If the external scan is still running when a run ends, the next run waits for it.
+    The same scan is found again by its text, so it is never sent (or paid for) twice.
+  - If the search is still incomplete after the last run, the external service is NOT
+    run on the low, incomplete index. The report says instead:
+      "not decided for this report: the in-house search was stopped by the time limit
+       (N of M passages searched), so its Similarity Index (X%) is incomplete - run the
+       report again to finish the search, or ask for the external comparison"
+  - When the editor ticks the external comparison box, it still runs in every case.
+
+
+=====================================================================================
+4. FILES CHANGED AND TESTS
+=====================================================================================
+
+  src/jobs.js                 A run can hand over to the next one; runs per job 6 -> 8
+  src/pipeline.js             The similarity stage continues in the next run (up to 4 runs)
+  src/routes/core.js          The run number is passed to the Full Screening
+  src/checks/plagiarism.js    Repository limit 12 -> 30; returns "unfinished" while runs are
+                              left; external decision only on a complete search
+  src/routes/sync.js          Desktop repository request limit 12 -> 30
+  test/job-resume.js          New: a job hands over, continues and saves the last result;
+                              a job that never finishes stops after 8 runs
+  test/external-similarity.js New checks: no decision on an incomplete search; still run
+                              when the editor asks
+  package.json                The new test is part of "npm test"
+
+  Tests run on the laptop (no paid service used):
+    job-resume, external-similarity, similarity-engine, similarity-turnitin, smoke-web,
+    desktop-sync, screening-embedded-images - all passed.
+  An offline check of the similarity report with an expired time limit confirmed: it
+  hands over while runs are left; on the last run it saves the report with "not decided"
+  and sends nothing to the external service.
+
+
+=====================================================================================
+5. WHAT TO DO NEXT
+=====================================================================================
+
+  1. Commit and deploy to Vercel (not done yet).
+  2. Run reports #123 and #125 again after the deploy. Their searches are cached, so the
+     re-runs continue from where they stopped and should finish all passages. Compare the
+     new Similarity Indexes with 11.2% and 7.8%.
+  3. Expect a Full Screening to take a few minutes longer on long manuscripts (each extra
+     run is about 4 minutes).
+
+  Known limit: OpenAlex, Wikipedia and the web are searched only after all Europe PMC
+  passages. A very long manuscript that still does not finish in 4 runs will again miss
+  them. If that happens often, the next step is to keep time in each run for those
+  searches.

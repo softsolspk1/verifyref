@@ -29,7 +29,7 @@ async function runCitationsModule(input, files = [], update = () => {}) {
   }
   update('Analysing the citation pattern', 96);
   const results = refResults || refs.map(r => ({ index: r.index, raw: r.raw, parsed: r, record: null }));
-  const pattern = analyzeCitationPattern(meta, results);
+  const pattern = analyzeCitationPattern(meta, results, { body });
   if (consistency.blocks?.length) {
     pattern.flags.push({ severity: consistency.blocks.length >= 3 ? 'high' : 'medium', code: 'citation-blocks', message: `${consistency.blocks.length} citation block(s): many references cited at once with no claim for each`, guidance: 'Large groups such as [1–25] often pad the reference list. Ask the authors to cite each source where its specific finding is used.' });
   }
@@ -75,7 +75,7 @@ function citationProblems(r) {
   const s = r.summary;
   return [
     s.missing && `${s.missing} citation(s) missing from the list`, s.uncited && `${s.uncited} reference(s) never cited`,
-    s.yearMismatch && `${s.yearMismatch} year mismatch(es)`, s.spelling && `${s.spelling} author name spelled differently`, s.spelling && `${s.spelling} author name spelled differently`, s.spelling && `${s.spelling} author name spelled differently`, s.etAl && `${s.etAl} “et al.” problem(s)`,
+    s.yearMismatch && `${s.yearMismatch} year mismatch(es)`, s.spelling && `${s.spelling} author name spelled differently`, s.etAl && `${s.etAl} “et al.” problem(s)`,
     s.unsupported && `${s.unsupported} unsupported claim(s)`, s.retractedEvidence && `${s.retractedEvidence} claim(s) resting on retracted work`, s.flaggedEvidence && `${s.flaggedEvidence} claim(s) resting on work flagged in an integrity audit`,
     s.patternFlags && `${s.patternFlags} citation-pattern flag(s)`
   ].filter(Boolean);

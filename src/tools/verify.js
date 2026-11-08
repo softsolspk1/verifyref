@@ -123,6 +123,18 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
 
   const all = out.flatMap(c => c.citations);
   const count = v => all.filter(c => c.verdict === v).length;
+  // what each cited source was read from: most paywalled sources give only their abstract, and a claim "unsupported by
+  // the abstract" may be in the full text - the references whose PDF would settle a verdict are listed for the editor
+  const levelOf = i => { const s = sources.get(i); return !s ? 'none' : s.uploaded ? 'uploaded' : s.fullText ? 'fullText' : 'abstract'; };
+  const citedLevels = cited.map(i => ({ index: results[i].index, level: levelOf(i) }));
+  const unsettled = new Set(all.filter(c => c.verdict !== 'full' && (!c.evidence || c.evidence.level === 'abstract')).map(c => c.refIndex));
+  const sourceText = {
+    uploaded: citedLevels.filter(c => c.level === 'uploaded').length,
+    fullText: citedLevels.filter(c => c.level === 'fullText').length,
+    abstractOnly: citedLevels.filter(c => c.level === 'abstract').length,
+    none: citedLevels.filter(c => c.level === 'none').length,
+    toUpload: citedLevels.filter(c => unsettled.has(c.index)).map(c => c.index).sort((a, b) => a - b)
+  };
   return {
     kind: 'verify',
     ...(keepResults ? { fullResults: results } : {}),
@@ -130,10 +142,11 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
     system,
     claims: out,
     truncated: claims.length > limited.length,
+    sourceText,
     summary: { claims: out.length, citations: all.length, full: count('full'), partial: count('partial'), unsupported: count('unsupported'), couldNotVerify: count('could-not-verify') },
     references: { summary: refCheck.summary, results: results.map(r => ({ index: r.index, raw: r.raw, status: r.status, statusLabel: r.statusLabel, tone: r.tone, reason: r.reason, retraction: r.retraction, record: r.record ? { title: r.record.title, doi: r.record.doi, year: r.record.year, journal: r.record.journal } : null })) },
     files: { linked: [...linked.entries()].map(([refIndex, f]) => ({ name: f.name, refIndex })), unlinked, errors: uploads.filter(u => u.error).map(u => ({ name: u.name, error: u.error })) },
-    method: 'Automated comparison on this server: claim terms (weighted by rarity), figures, negation and the direction of the effect stated about the shared terms are matched against the source passages, and a small language model running on this server reads the best passages for meaning (does the passage state the claim, state the opposite, or neither). Source text, in this order: an uploaded file, open-access full text (Europe PMC, Unpaywall, OpenAlex, CORE, Semantic Scholar, bioRxiv / medRxiv, arXiv), then the abstract. Measured on SciFact expert-labelled claims (abstracts only, held-out split): 73% of supported claims are found and 27% of contradicted claims flagged as contradicted; 2% of claims without evidence and 1% of contradicted claims pass as Full support, so verdicts are decision support — read the quoted evidence.'
+    method: 'Automated comparison on this server: claim terms (weighted by rarity), figures, negation and the direction of the effect stated about the shared terms are matched against the source passages, and a small language model running on this server reads the best passages for meaning (does the passage state the claim, state the opposite, or neither). Source text, in this order: an uploaded file, open-access full text (Europe PMC, PubMed Central, Unpaywall, OpenAlex, CORE, Semantic Scholar, bioRxiv / medRxiv, arXiv), then the abstract. Measured on SciFact expert-labelled claims (abstracts only, held-out split): 73% of supported claims are found and 27% of contradicted claims flagged as contradicted; 2% of claims without evidence and 1% of contradicted claims pass as Full support, so verdicts are decision support — read the quoted evidence.'
   };
 }
 

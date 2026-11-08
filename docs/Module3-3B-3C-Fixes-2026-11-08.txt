@@ -1,0 +1,119 @@
+PJPS DATA INTEGRITY SYSTEM - MODULE 3B AND 3C: GAPS FIXED ON 8 NOVEMBER 2026
+Prepared by Softsols Pakistan
+
+All numbers below were measured on the 39 Full Screening / Module 3 reports saved on the live system
+(25 different manuscripts), not on made-up examples, unless marked "planted".
+
+
+=====================================================================================
+1. MODULE 3B - CLAIM SUPPORTED BY THE CITED SOURCE
+=====================================================================================
+
+What the saved reports showed
+  52 claim-source checks in the saved reports:
+    12 (23%) were read from a full text
+    40 (77%) were read from the ABSTRACT ONLY
+  Of the 40 abstract-only checks, 26 came out "Unsupported". A claim that is not in the abstract
+  can still be in the paper itself, so most of these are "not shown", not "wrong".
+
+Why the abstract only
+  The cited papers were checked one by one (33 different papers). 31 of them are behind a
+  paywall (Elsevier, ACS, Wiley, Taylor & Francis ...): no legal free full text exists. The
+  system already tries 7 open sources before the abstract (Europe PMC, Unpaywall, OpenAlex,
+  CORE, Semantic Scholar, bioRxiv/medRxiv, arXiv).
+
+Fix 1 - PubMed Central author manuscripts
+  Papers that are free to read in PubMed Central but are not in its open-licence subset (for
+  example author manuscripts of funded research) were skipped. They are now read through the
+  official NCBI E-utilities service. On the 33 papers: 2 more now get a full text (Chem. Rev.
+  2017 "Chalcone: a privileged structure"; Allergy 2025 GLP-1R/GIPR signalling).
+  (PMC's web pages answer automated requests with a CAPTCHA, so they are not used.)
+
+Fix 2 - References without a DOI or PMID
+  Older papers and local journals often have no DOI. Their source text is now looked up in
+  Europe PMC by exact title (accepted only when the titles agree at least 90% both ways).
+
+Fix 3 - The editor is told which PDFs to upload
+  Uploading the cited PDF is the only way to check a claim against a paywalled paper, and the
+  system already reads uploaded PDFs page by page. Each Module 3B result now says where the
+  sources were read from and lists the references to upload, for example:
+    "Cited sources read: 3 from open full texts, 19 from the abstract only. To settle the
+     verdicts read from the abstract or with no source text, upload the PDFs of references
+     [4], [7], [12] ... and run the check again."
+  The same lines are in the Word export.
+
+Honest limit
+  On the SciFact expert benchmark (abstracts only) the measured accuracy is unchanged: 72% of
+  supported claims found, 38% of contradictions flagged, 1% of contradicted claims wrongly
+  passed. Larger language models were tested on 5 November and did not do better. The real
+  gain for PJPS comes from full texts: open ones (now a little more) and uploaded PDFs.
+
+
+=====================================================================================
+2. MODULE 3C - CITATION PATTERNS
+=====================================================================================
+
+What the saved reports showed (25 different manuscripts)
+  "Off-topic references" was raised on 14 of 25 (56%). Almost all were false alarms, for
+  example "Programmed cell death in osteoarthritis" called off-topic in an osteoarthritis
+  paper. Causes:
+    - words were weighted by how rare they are in the reference list itself, so the topic
+      words that most references share weighed almost nothing;
+    - only the title / abstract was compared, so methods sources (SwissADME, Gaussian, the ICH
+      guideline, histology manuals) looked unrelated;
+    - badly split reference entries ("Mol", "(A) Representative fluorescence images", a run of
+      author names, "FOR PEER REVIEW ...") were judged as if they were titles.
+  "Author concentration" was raised 3 times for one research group (once per co-author).
+  In one report the heading "META-ANALYSIS" was taken as a manuscript author.
+
+Fixes
+  1. Relevance is now judged against the WHOLE manuscript text: a reference is weak only when
+     fewer than a quarter of its title words occur anywhere in the paper AND it shares no
+     subject word with the title, abstract or keywords.
+  2. Entries that are not real titles (too short, author lists, captions, publisher details)
+     are "not judged" instead of "off-topic".
+  3. The title of a matched record is used only when the reference was verified as that paper.
+  4. Co-authors of the same papers are one research group and one flag.
+  5. Self-citation:
+     - two different ORCID iDs are two different people, whatever the names;
+     - a very common surname alone (Khan, Ali, Ahmad, Wang, Li, Zhang, Kumar ...) is not
+       enough - a full or initialled name, or the ORCID, is needed;
+     - title words ("META-ANALYSIS", "Systematic Review") are not taken as author names.
+  6. Off-topic flag: with the manuscript text, 2 or more weak references (high when 5 or more
+     and 15% of the list); the flag now lists the references. Without the text the old rule
+     (20% of the list) stays.
+
+Results
+                                               Before        After
+  Real manuscripts flagged "off-topic"         14 of 25      0 of 25
+  Author-concentration flags (same 25)         5             3   (same groups, one flag each)
+  Planted test: 3 unrelated references added
+    to each real manuscript - flagged          0 of 25       23 of 25
+  Planted test: 5 unrelated references added   2 of 25       25 of 25
+  Planted audit (test/audit-m3b.js)            7/7 flags     7/7 flags
+
+New test: test/citation-pattern.js (part of "npm test"): padded references found, clean list
+not flagged, debris not judged, one flag per research group, self-citation not by a common
+surname alone or across different ORCID iDs, "META-ANALYSIS" not an author.
+
+
+=====================================================================================
+3. ALSO FIXED
+=====================================================================================
+
+  - Module 3 problem list (My Activity) showed "author name spelled differently" three times.
+
+
+=====================================================================================
+4. FILES CHANGED
+=====================================================================================
+
+  src/tools/fulltext.js        PubMed Central (NCBI) full texts; Europe PMC lookup by title
+  src/tools/verify.js          source-text summary and the list of PDFs to upload
+  public/js/views/verify.js    the summary shown in the Module 3B results
+  src/docx.js                  the summary in the Word exports
+  src/editor/pattern.js        3C relevance, debris, research groups, self-citation rules
+  src/pipeline.js, src/tools/citationsModule.js, src/integrity/index.js,
+  src/routes/screening.js      the manuscript text passed to the 3C check
+  src/tools/citationsModule.js duplicated problem-list line removed
+  test/citation-pattern.js     new test; package.json runs it in "npm test"

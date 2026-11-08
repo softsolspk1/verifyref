@@ -63,7 +63,7 @@ async function runPaperMill(input, { userId, update }) {
       update(`Checking ${refs.length} references (fabrication, retractions)`, 3);
       const rc = await checkReferences(refs, { checkLinks: false, onProgress: (k, n) => update(`Checking references (${k}/${n})`, 3 + k / n * 50) });
       references = rc.results;
-      pattern = analyzeCitationPattern(input.meta, references);
+      pattern = analyzeCitationPattern(input.meta, references, { body: input.bodyText });
     }
   }
   let images = null;

@@ -64,6 +64,14 @@ export function renderVerify(view) {
   };
 }
 
+/** Where the cited sources were read from, and the references whose PDF would settle a verdict read from the abstract */
+function sourceTextNote(st) {
+  if (!st) return '';
+  const parts = [st.uploaded && `${st.uploaded} from uploaded files`, st.fullText && `${st.fullText} from open full texts`, st.abstractOnly && `${st.abstractOnly} from the abstract only`, st.none && `${st.none} not available`].filter(Boolean);
+  const list = st.toUpload?.length ? ` To settle the verdicts read from the abstract or with no source text, upload the PDFs of references ${st.toUpload.slice(0, 40).map(i => `[${i}]`).join(', ')}${st.toUpload.length > 40 ? ' ...' : ''} and run the check again.` : '';
+  return parts.length ? `<div class="alert ${st.toUpload?.length ? 'alert-warn' : 'alert-info'}">Cited sources read: ${parts.join(', ')}.${esc(list)}</div>` : '';
+}
+
 export function renderVerifyResult(el, r, { again } = {}) {
   const s = r.summary;
   el.innerHTML = `
@@ -78,6 +86,7 @@ export function renderVerifyResult(el, r, { again } = {}) {
     </div>
     ${r.files?.linked?.length || r.files?.unlinked?.length ? `<div class="alert alert-info">${r.files.linked.length} uploaded file(s) linked: ${r.files.linked.map(f => `${esc(f.name)} → [${f.refIndex}]`).join(', ')}${r.files.unlinked.length ? `. Not linked (no matching DOI or title): ${r.files.unlinked.map(esc).join(', ')}` : ''}</div>` : ''}
     ${r.truncated ? '<div class="alert alert-warn">Only the first 400 cited claims were analysed.</div>' : ''}
+    ${sourceTextNote(r.sourceText)}
     <p class="muted">${esc(r.method)}</p>
     <div class="filters">${[['all', 'All'], ['unsupported', 'Unsupported'], ['partial', 'Partial'], ['could-not-verify', 'Could not verify'], ['full', 'Full match']].map(([k, l], i) => `<button class="filter ${i ? '' : 'active'}" data-f="${k}">${l}</button>`).join('')}</div>
     <div id="claims">${r.claims.map(c => `

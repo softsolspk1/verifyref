@@ -210,7 +210,7 @@ function verifyBlocks(r) {
   const s = r.summary;
   return [
     { h1: 'Verify Citations — Claim Support Report' },
-    { kv: [['Manuscript', r.meta?.title || '—'], ['Cited claims', String(s.claims)], ['Citations checked', String(s.citations)], ['Full match', String(s.full)], ['Partial match', String(s.partial)], ['Unsupported', String(s.unsupported)], ['Could not verify', String(s.couldNotVerify)]] },
+    { kv: [['Manuscript', r.meta?.title || '—'], ['Cited claims', String(s.claims)], ['Citations checked', String(s.citations)], ['Full match', String(s.full)], ['Partial match', String(s.partial)], ['Unsupported', String(s.unsupported)], ['Could not verify', String(s.couldNotVerify)], ...(r.sourceText ? [['Sources read from', `${r.sourceText.uploaded} uploaded, ${r.sourceText.fullText} open full text, ${r.sourceText.abstractOnly} abstract only, ${r.sourceText.none} not available`], ...(r.sourceText.toUpload.length ? [['Upload these PDFs to settle the verdicts', r.sourceText.toUpload.map(i => `[${i}]`).join(', ')]] : [])] : [])] },
     { p: r.method, italics: true },
     { table: { headers: ['Claim', 'Ref.', 'Verdict', 'Evidence', 'Notes'], rows: r.claims.flatMap(c => c.citations.map(x => [c.claim, `[${x.refIndex}] ${x.refStatusLabel}`, x.verdictLabel, x.evidence ? `“${x.evidence.quote}” — ${x.evidence.origin}${x.evidence.page ? ', p. ' + x.evidence.page : ''}` : '—', x.notes.join('; ')])) } }
   ];
@@ -318,7 +318,7 @@ function citationsBlocks(r) {
       ...rows(c.orderIssues, o => ['Order', '', o.message]),
       ...rows(c.numberingIssues, n => ['Numbering', '', n])
     ] } },
-    ...(r.claims && !r.claims.error ? [{ h2: 'B. Claim support' }, { p: r.claims.method, italics: true }, { table: { headers: ['Claim', 'Ref.', 'Verdict', 'Evidence'], rows: r.claims.claims.flatMap(cl => cl.citations.filter(x => x.verdict !== 'full').map(x => [cl.claim, `[${x.refIndex}] ${x.refStatusLabel}`, x.verdictLabel, x.evidence ? `“${x.evidence.quote}” — ${x.evidence.origin}${x.evidence.page ? ', p. ' + x.evidence.page : ''}` : x.notes.join('; ')])) } }] : []),
+    ...(r.claims && !r.claims.error ? [{ h2: 'B. Claim support' }, { p: r.claims.method, italics: true }, ...(r.claims.sourceText ? [{ p: `Cited sources read: ${r.claims.sourceText.uploaded} from uploaded files, ${r.claims.sourceText.fullText} from open full texts, ${r.claims.sourceText.abstractOnly} from the abstract only, ${r.claims.sourceText.none} not available.${r.claims.sourceText.toUpload.length ? ` Upload the PDFs of references ${r.claims.sourceText.toUpload.map(i => `[${i}]`).join(', ')} to settle the verdicts read from the abstract.` : ''}` }] : []), { table: { headers: ['Claim', 'Ref.', 'Verdict', 'Evidence'], rows: r.claims.claims.flatMap(cl => cl.citations.filter(x => x.verdict !== 'full').map(x => [cl.claim, `[${x.refIndex}] ${x.refStatusLabel}`, x.verdictLabel, x.evidence ? `“${x.evidence.quote}” — ${x.evidence.origin}${x.evidence.page ? ', p. ' + x.evidence.page : ''}` : x.notes.join('; ')])) } }] : []),
     { h2: 'C. Citation pattern' },
     { bullets: r.pattern.flags.length ? r.pattern.flags.map(f => `${f.message} — ${f.guidance}`) : ['No unusual citation pattern found.'] }
   ];

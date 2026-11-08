@@ -131,7 +131,7 @@ async function runCheck(input, update, ctx = {}) {
 
   if (opts.pattern) {
     say('Analysing the citation pattern', 96);
-    result.pattern = analyzeCitationPattern(meta, result.references.results);
+    result.pattern = analyzeCitationPattern(meta, result.references.results, { body });
   }
   say('Bibliography quality indicators', 96);
   const { bibliographyIndicators } = require('./checks/indicators');

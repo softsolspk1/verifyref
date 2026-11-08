@@ -75,7 +75,7 @@ async function runIntegrity(input, update = () => {}) {
       const rc = await checkReferences(refs, { checkLinks: false, onProgress: (k, n) => update(`Verifying references (${k}/${n})`, 56 + k / n * 28) });
       references = rc.results;
       refSummary = rc.summary;
-      pattern = analyzeCitationPattern(meta, references);
+      pattern = analyzeCitationPattern(meta, references, { body });
     }
   }
   update('Paper-mill signals', 86);

@@ -19,22 +19,44 @@ function xmlText(xml) {
 }
 
 /** Europe PMC core record for a DOI / PMID (abstract, OA status, PMCID) */
-async function europePmcCore({ doi, pmid }) {
-  const q = doi ? `DOI:"${doi}"` : pmid ? `EXT_ID:${pmid} AND SRC:MED` : null;
+async function europePmcCore({ doi, pmid, title }) {
+  // a reference with no DOI or PMID (older papers, local journals) is looked up by its exact title
+  const byTitle = !doi && !pmid && String(title || '').length >= 25;
+  const q = doi ? `DOI:"${doi}"` : pmid ? `EXT_ID:${pmid} AND SRC:MED` : byTitle ? `TITLE:"${String(title).replace(/["]/g, ' ').slice(0, 250)}"` : null;
   if (!q) return null;
   const r = await getJson(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${enc(q)}&resultType=core&format=json&pageSize=1`, { ttl: 30 * 86400 });
-  return (r.ok && r.data.resultList?.result?.[0]) || null;
+  const hit = (r.ok && r.data.resultList?.result?.[0]) || null;
+  // the title search must find that paper, not one with a similar title
+  if (hit && byTitle && Math.min(titleContains(hit.title || '', title), titleContains(title, hit.title || '')) < 0.9) return null;
+  return hit;
 }
 
 /** Open-access full text for a record, or null */
 async function openFullText(record) {
   const core = await europePmcCore(record);
-  if (!core?.pmcid || core.isOpenAccess !== 'Y') return null;
-  const r = await getText(`https://www.ebi.ac.uk/europepmc/webservices/rest/${core.pmcid}/fullTextXML`, { ttl: 30 * 86400, timeout: 30000 });
-  if (!r.ok || !r.text) return null;
-  const body = (r.text.match(/<body>([\s\S]*?)<\/body>/) || [])[1] || r.text;
-  const text = xmlText(body);
-  return text.length > 500 ? { text, origin: 'Open-access full text (Europe PMC)', url: `https://europepmc.org/article/PMC/${core.pmcid}` } : null;
+  if (!core?.pmcid) return null;
+  if (core.isOpenAccess === 'Y') {
+    const r = await getText(`https://www.ebi.ac.uk/europepmc/webservices/rest/${core.pmcid}/fullTextXML`, { ttl: 30 * 86400, timeout: 30000 });
+    const body = r.ok && r.text ? (r.text.match(/<body>([\s\S]*?)<\/body>/) || [])[1] || r.text : '';
+    const text = xmlText(body);
+    if (text.length > 500) return { text, origin: 'Open-access full text (Europe PMC)', url: `https://europepmc.org/article/PMC/${core.pmcid}` };
+  }
+  return pmcFullText(core.pmcid);
+}
+
+/**
+ * Full text of a paper free to read in PubMed Central but outside its open-access licence subset (author manuscripts of
+ * funded research, e.g. Chem. Rev. 2017 "Chalcone: a privileged structure"): Europe PMC gives no text for these, NCBI
+ * gives the article XML of many (publishers that refuse XML get a body-less record -> null).
+ */
+async function pmcFullText(pmcid) {
+  const id = String(pmcid || '').replace(/^PMC/i, '');
+  if (!/^\d+$/.test(id)) return null;
+  const r = await getText(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=${id}&retmode=xml${CFG.NCBI_API_KEY ? `&api_key=${CFG.NCBI_API_KEY}` : ''}`, { ttl: 30 * 86400, timeout: 30000, retries: 1 });
+  const body = r.ok && r.text ? (r.text.match(/<body>([\s\S]*?)<\/body>/) || [])[1] : '';
+  const text = body ? xmlText(body) : '';
+  // (the PMC article pages answer scripted requests with a CAPTCHA: only the E-utilities API is used)
+  return text.length > 1500 ? { text, origin: 'Full text (PubMed Central)', url: `https://pmc.ncbi.nlm.nih.gov/articles/PMC${id}/` } : null;
 }
 
 /** Legal open-access PDF found through Unpaywall (publisher or repository copy) -> [{ page, text }], or null */
@@ -223,4 +245,4 @@ function linkUploads(files, refs, manual = {}) {
   return { map, unlinked };
 }
 
-module.exports = { openFullText, unpaywallFullText, openalexFullText, coreFullText, semanticScholarFullText, preprintFullText, arxivFullText, abstractOf, sourceTextFor, filePages, linkUploads, europePmcCore, xmlText, invertedIndexToText };
+module.exports = { openFullText, pmcFullText, unpaywallFullText, openalexFullText, coreFullText, semanticScholarFullText, preprintFullText, arxivFullText, abstractOf, sourceTextFor, filePages, linkUploads, europePmcCore, xmlText, invertedIndexToText };

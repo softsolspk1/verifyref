@@ -351,6 +351,19 @@ async function authorRetractions(authors, affiliations = []) {
   return out;
 }
 
+/**
+ * The ORCID iD Crossref lists for the author of a retracted paper who has this name (publishers deposit many), or null.
+ * Benchmark (8 Nov 2026, PMC mill and ordinary papers whose XML gives the authors' ORCID iDs): of the HIGH name matches
+ * it could settle, 56 were the same ORCID iD (the same person) and 8 another one (another person with the same name).
+ */
+async function crossrefAuthorOrcid(doi, a) {
+  const r = await getJson(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, { ttl: 30 * 86400, timeout: 15000, retries: 1 });
+  const list = r.ok ? r.data?.message?.author || [] : [];
+  const m = list.find(x => x.family && x.ORCID && ['exact', 'likely'].includes(nameMatch({ given: x.given || '', family: x.family }, a)));
+  return m ? String(m.ORCID).replace(/^https?:\/\/orcid\.org\//i, '') : null;
+}
+const orcidDigits = o => String(o || '').replace(/[^\dX]/gi, '').toUpperCase().slice(-16);
+
 const NON_BIOMED = /\b(?:mechanical|electrical|civil|chemical engineering|computer science|software|business|management sciences|economics|commerce|mathematics|physics|english|law|architecture|mass communication|islamic studies)\b/i;
 
 // ------------------------------------------------------------------ duplicate submissions (text fingerprints)
@@ -759,12 +772,27 @@ async function detectPaperMill(input, update = () => {}) {
   // Name matching in Retraction Watch; a paper already found through an ORCID record is not counted twice
   const orcidRetrDois = new Set(orcidRetr.map(r => r.doi));
   const retr = (await authorRetractions(authors, meta.affiliations)).filter(r => !orcidRetrDois.has(String(r.doi || '').toLowerCase()));
+  // identity by ORCID where both sides have one: the author's iD (given with the author, or an iD in the text whose
+  // registered name is this author's) against the iD Crossref lists for the retracted paper's author of that name
+  const orcidOf = a => a.orcid || orcidResults.find(o => o.exists && o.name && nameMatch(splitName(o.name), a) === 'exact')?.id || null;
+  let orcidLookups = 0;
+  for (const r of retr) {
+    if (r.confidence === 'low' || !r.doi || orcidLookups >= 20) continue;
+    const a = authors.find(x => `${x.given || ''} ${x.family}`.trim() === r.author);
+    const mine = a && orcidOf(a);
+    if (!mine) continue;
+    orcidLookups++;
+    const theirs = await crossrefAuthorOrcid(r.doi, a).catch(() => null);
+    if (!theirs) continue;
+    if (orcidDigits(theirs) === orcidDigits(mine)) { r.confidence = 'high'; r.orcidConfirmed = theirs; }
+    else { r.confidence = 'low'; r.orcidDifferent = theirs; }
+  }
   const sure = r => r.confidence !== 'low';
   // the high signal needs the institution to match as well: a name alone, even a full first name, is shared by many people
   // (benchmark of 6 Nov 2026: name-only hits fired on 4 in 10 ordinary papers with Chinese or Arabic author names)
   const millRetr = retr.filter(r => r.mill && r.confidence === 'high');
   const otherSure = retr.filter(r => sure(r) && !millRetr.includes(r));
-  const confNote = r => `${r.confidence} confidence${r.institutionMatch?.length ? ` (institution matches: ${r.institutionMatch.join(', ')})` : r.confidence === 'low' ? (r.commonName ? ' - common name (retractions at many different institutions), no institution in common: probably a different person' : ' - surname and initial only, may be a different person') : ''}`;
+  const confNote = r => r.orcidConfirmed ? `same person - the retracted paper lists the same ORCID iD (${r.orcidConfirmed})` : r.orcidDifferent ? `probably another person - the retracted paper's author of this name has another ORCID iD (${r.orcidDifferent})` : `${r.confidence} confidence${r.institutionMatch?.length ? ` (institution matches: ${r.institutionMatch.join(', ')})` : r.confidence === 'low' ? (r.commonName ? ' - common name (retractions at many different institutions), no institution in common: probably a different person' : ' - surname and initial only, may be a different person') : ''}`;
   if (millRetr.length) sig('authors', 'author-mill-retraction', `Author(s) with earlier retractions for paper-mill or fake-peer-review reasons (${millRetr.length})`, 'high', 5, millRetr.map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, note: r.reason?.split(';').slice(0, 3).join('; '), link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Matched by name in Retraction Watch — confirm it is the same person (affiliation, ORCID).');
   if (otherSure.length) sig('authors', 'author-retraction', `Author(s) with earlier retractions (${otherSure.length})`, 'medium', 2, otherSure.map(r => ({ text: `${r.author}: “${r.title}” (${r.journal}, retracted ${r.date}) - ${confNote(r)}`, note: r.reason?.split(';').slice(0, 2).join('; '), link: r.doi ? `https://doi.org/${r.doi}` : null })), 'Matched by name in Retraction Watch — confirm it is the same person.');
   const unsure = retr.filter(r => !sure(r));
@@ -892,4 +920,4 @@ function papermillProblems(r) {
   return [`Paper mill risk ${r.risk.level} (score ${r.risk.score})`, ...r.signals.filter(s => s.severity !== 'low').slice(0, 5).map(s => s.title)];
 }
 
-module.exports = { warm, imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, authorRetractions, emailsOf, hiddenText, shingles, fnv };
+module.exports = { warm, imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, authorRetractions, crossrefAuthorOrcid, emailsOf, hiddenText, shingles, fnv };

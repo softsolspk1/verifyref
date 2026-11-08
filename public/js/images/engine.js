@@ -1122,6 +1122,154 @@ function pairContained(A, B) {
     transform: { rotation: 0, flip: mirror, scale: swap ? r : 1 / r } };
 }
 
+// ------------------------------------------------------------------ dense cloned-area search
+// Every 8x8 patch of the panel (at the clone size) gets its nearest look-alike elsewhere in the panel by PatchMatch
+// (random offsets improved by the neighbours' offsets and a shrinking random search), as in dense-field copy-move
+// detection (Cozzolino et al., IEEE TIFS 2015). A cloned area is a connected region whose patches all point the same way;
+// unlike the exact block keys it also finds copies that were recompressed, brightened or slightly blurred. Each region is
+// then measured over its own pixels (DENSE_RULE). BioFors IDD, 8 Nov 2026 (tuned on half of the papers, checked on the
+// other half): with the block filter in selfClone, 31 -> 39 of 78 annotated clones located, clean images reported
+// 35 -> 23 of 233.
+const DP = 8, DD = 16;
+// accepted region: area (patch positions) and both sides (px) at least, picture and flat-pixel noise agreement, real
+// texture in the noise (not a smooth band), and for blots near-identical pixels (neighbouring lanes look alike)
+const DENSE_RULE = { area: 600, side: 20, lp: 0.8, hpFlat: 0.6, hstd: 5, blotExact: 0.4, blotHpFlat: 0.7 };
+
+export function denseClone(img, { minShift = 16, iters = 5, minVar = 25, minArea = 150, budgetMs = 1500 } = {}) {
+  const t0 = Date.now();
+  const { w, h, g } = img;
+  const W = w - DP + 1, H = h - DP + 1;
+  if (W < 24 || H < 24) return [];
+  const N = W * H;
+  // patch feature: the 8x8 patch averaged 2x2 (4x4 values), mean removed; the 2x2 averages are computed once
+  const q = new Float32Array(w * h);
+  for (let y = 0; y + 1 < h; y++) for (let x = 0; x + 1 < w; x++) { const i = y * w + x; q[i] = (g[i] + g[i + 1] + g[i + w] + g[i + w + 1]) / 4; }
+  const F = new Float32Array(N * DD), ok = new Uint8Array(N);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let sm = 0, s2 = 0;
+    const o = (y * W + x) * DD;
+    for (let by = 0; by < 4; by++) for (let bx = 0; bx < 4; bx++) {
+      const v = q[(y + by * 2) * w + x + bx * 2];
+      F[o + by * 4 + bx] = v; sm += v; s2 += v * v;
+    }
+    const m = sm / DD;
+    for (let k = 0; k < DD; k++) F[o + k] -= m;
+    ok[y * W + x] = s2 / DD - m * m >= minVar ? 1 : 0;
+  }
+  const ox = new Int16Array(N), oy = new Int16Array(N), err = new Float32Array(N).fill(Infinity);
+  let seed = 1;
+  const rnd = () => { seed ^= seed << 13; seed >>>= 0; seed ^= seed >>> 17; seed ^= seed << 5; seed >>>= 0; return seed / 4294967296; };
+  const tryOff = (x, y, dx, dy) => {
+    if (dx * dx + dy * dy < minShift * minShift) return;
+    const tx = x + dx, ty = y + dy;
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return;
+    const i = y * W + x, j = ty * W + tx;
+    if (!ok[j]) return;
+    const best = err[i];
+    let d = 0;
+    for (let k = 0, a = i * DD, b = j * DD; k < DD; k++) { const t = F[a + k] - F[b + k]; d += t * t; if (d >= best) return; }
+    err[i] = d; ox[i] = dx; oy[i] = dy;
+  };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (ok[y * W + x]) for (let t = 0; t < 3; t++) tryOff(x, y, Math.floor(rnd() * W) - x, Math.floor(rnd() * H) - y);
+  const R = Math.max(W, H);
+  // a very large, finely textured panel stops after the iteration that passes budgetMs (most panels take 0.1-0.5 s)
+  for (let it = 0; it < iters && (it < 2 || Date.now() - t0 < budgetMs); it++) {
+    const fwd = it % 2 === 0, st = fwd ? -1 : 1;
+    for (let yy = 0; yy < H; yy++) {
+      const y = fwd ? yy : H - 1 - yy;
+      for (let xx = 0; xx < W; xx++) {
+        const x = fwd ? xx : W - 1 - xx, i = y * W + x;
+        if (!ok[i]) continue;
+        const nx = x + st, ny = y + st;
+        if (nx >= 0 && nx < W) { const j = y * W + nx; if (err[j] < Infinity) tryOff(x, y, ox[j], oy[j]); }
+        if (ny >= 0 && ny < H) { const j = ny * W + x; if (err[j] < Infinity) tryOff(x, y, ox[j], oy[j]); }
+        for (let r = R; r >= 1; r = Math.floor(r / 2)) tryOff(x, y, ox[i] + Math.round((rnd() * 2 - 1) * r), oy[i] + Math.round((rnd() * 2 - 1) * r));
+      }
+    }
+  }
+  // consistent offsets: most of the 5x5 neighbours point the same way (+-1 px)
+  const cons = new Uint8Array(N);
+  for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
+    const i = y * W + x;
+    if (!ok[i] || err[i] === Infinity) continue;
+    let n = 0;
+    for (let v = -2; v <= 2; v++) for (let u = -2; u <= 2; u++) { const j = (y + v) * W + x + u; if (Math.abs(ox[j] - ox[i]) <= 1 && Math.abs(oy[j] - oy[i]) <= 1) n++; }
+    if (n >= 15) cons[i] = 1;
+  }
+  const lab = new Int32Array(N).fill(-1), out = [], stack = [];
+  for (let i0 = 0; i0 < N; i0++) {
+    if (!cons[i0] || lab[i0] >= 0) continue;
+    const px = [];
+    lab[i0] = 1; stack.push(i0);
+    while (stack.length) {
+      const i = stack.pop(); px.push(i);
+      const x = i % W, y = (i - x) / W;
+      for (const [u, v] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const xx = x + u, yy = y + v;
+        if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+        const j = yy * W + xx;
+        if (!cons[j] || lab[j] >= 0 || Math.abs(ox[j] - ox[i]) > 1 || Math.abs(oy[j] - oy[i]) > 1) continue;
+        lab[j] = 1; stack.push(j);
+      }
+    }
+    if (px.length < minArea) continue;
+    const med = arr => arr.sort((a, b) => a - b)[arr.length >> 1];
+    const dx = med(px.map(i => ox[i])), dy = med(px.map(i => oy[i]));
+    let x0 = W, y0 = H, x1 = 0, y1 = 0;
+    for (const i of px) { const x = i % W, y = (i - x) / W; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
+    out.push({ dx, dy, area: px.length, px, W, a: { x: x0, y: y0, w: x1 - x0 + DP, h: y1 - y0 + DP }, b: { x: x0 + dx, y: y0 + dy, w: x1 - x0 + DP, h: y1 - y0 + DP } });
+  }
+  // a copy is found from both ends (source -> copy, copy -> source): one of the two is kept
+  const kept = [];
+  for (const c of out.sort((p, q) => q.area - p.area)) {
+    if (kept.some(k => Math.abs(k.dx + c.dx) <= 2 && Math.abs(k.dy + c.dy) <= 2 && Math.abs(k.a.x - c.b.x) < 12 && Math.abs(k.a.y - c.b.y) < 12)) continue;
+    kept.push(c);
+  }
+  return kept;
+}
+
+/**
+ * Agreement of an area and its copy over the area's own pixels: picture (lp), noise residual (hp) and noise residual on
+ * the flatter half of the pixels (hpFlat - band and cell edges left out, so only the fine grain counts), share of
+ * near-identical pixels (exact), and the strength of the noise (hstd: a smooth band has none to compare).
+ * c: { px (patch positions on a grid of width W), W, dx, dy }
+ */
+export function areaAgreement(img, c) {
+  const { w, g } = img;
+  const sm = img._sm || (img._sm = blur(img, 1.5));
+  const A = [], B = [], Ah = [], Bh = [], grad = [];
+  for (const i of c.px) {
+    const x = i % c.W, y = (i - x) / c.W;
+    for (const [u, v] of [[2, 2], [5, 2], [2, 5], [5, 5], [3, 3], [4, 4]]) {
+      const p = (y + v) * w + x + u, q = (y + v + c.dy) * w + x + u + c.dx;
+      if (p - w < 0 || p + w >= g.length || q < 0 || q >= g.length) continue;
+      A.push(g[p]); B.push(g[q]); Ah.push(g[p] - sm.g[p]); Bh.push(g[q] - sm.g[q]);
+      grad.push(Math.abs(sm.g[p + 1] - sm.g[p - 1]) + Math.abs(sm.g[p + w] - sm.g[p - w]));
+    }
+  }
+  if (A.length < 30) return null;
+  const corr = (a, b, keep) => {
+    let n = 0, s1 = 0, s2 = 0, s11 = 0, s22 = 0, s12 = 0;
+    for (let k = 0; k < a.length; k++) { if (keep && !keep[k]) continue; n++; s1 += a[k]; s2 += b[k]; s11 += a[k] * a[k]; s22 += b[k] * b[k]; s12 += a[k] * b[k]; }
+    return n < 30 ? 0 : (n * s12 - s1 * s2) / Math.sqrt(Math.max(1e-9, (n * s11 - s1 * s1) * (n * s22 - s2 * s2)));
+  };
+  const gmed = grad.slice().sort((a, b) => a - b)[grad.length >> 1];
+  const sd = arr => { let m = 0; for (const v of arr) m += v; m /= arr.length; let q = 0; for (const v of arr) q += (v - m) ** 2; return Math.sqrt(q / arr.length); };
+  let exact = 0;
+  for (let k = 0; k < A.length; k++) if (Math.abs(A[k] - B[k]) <= 3) exact++;
+  return { lp: corr(A, B), hp: corr(Ah, Bh), hpFlat: corr(Ah, Bh, grad.map(v => v <= gmed)), exact: exact / A.length, hstd: sd(Ah) };
+}
+
+/** The same measures for two same-size boxes (a block finding), sampled every second pixel */
+function boxAgreement(img, a, b) {
+  const W = img.w - DP + 1, px = [];
+  const ax = Math.round(a.x), ay = Math.round(a.y), dx = Math.round(b.x) - ax, dy = Math.round(b.y) - ay;
+  for (let y = ay; y + DP <= ay + a.h; y += 2) for (let x = ax; x + DP <= ax + a.w; x += 2) {
+    if (x >= 0 && y >= 0 && x + dx >= 0 && y + dy >= 0 && x + DP <= img.w && x + dx + DP <= img.w && y + DP <= img.h && y + dy + DP <= img.h) px.push(y * W + x);
+  }
+  return px.length >= 4 ? areaAgreement(img, { px, W, dx, dy }) : null;
+}
+
 function selfClone(P) {
   const out = [];
   if (P.features && P.features.pts.length >= 20) {
@@ -1147,11 +1295,31 @@ function selfClone(P) {
     // step 2 (blocks every second pixel): at step 1 untouched microscopy textures gave several false cloned areas each (7 Nov tests)
     const found = sizes.flatMap(([g, k]) => copyMoveBlocks(g, { step: 2, quant: 20, neigh: 12, minBlocks: 15, minVar: 15, verify: true })
       .map(c0 => ({ ...c0, a: { x: c0.a.x * k, y: c0.a.y * k, w: c0.a.w * k, h: c0.a.h * k }, b: { x: c0.b.x * k, y: c0.b.y * k, w: c0.b.w * k, h: c0.b.h * k } })));
+    const CG = P.cloneGray || P.workGray, toClone = (P.cloneScale || P.scale) / P.scale;
     for (const c of found) {
       // the copied area must also share its fine noise; repeated textures (membrane, tissue) match only in the picture
       if ((c.pixel?.hp ?? 1) < 0.55 || (c.pixel?.lp ?? 1) < MIN_SIMILARITY) continue;
       if (out.some(o => Math.abs(o.regionA.x - c.a.x) < 20 && Math.abs(o.regionA.y - c.a.y) < 20)) continue;
+      // below the strong level: a finding whose fine grain does not agree on the flat pixels and whose pixels are mostly
+      // not identical is a look-alike (neighbouring blot lanes, tissue texture). BioFors, 8 Nov 2026: 12 of 35 reports on
+      // clean images removed, no annotated clone lost
+      if (!(c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.8)) {
+        const s = r => ({ x: r.x * toClone, y: r.y * toClone, w: r.w * toClone, h: r.h * toClone });
+        const v = boxAgreement(CG, s(c.a), s(c.b));
+        if (v && v.hpFlat < 0.5 && v.exact < 0.6) continue;
+      }
       out.push({ kind: 'clone', method: 'blocks', blocks: c.blocks, pixel: c.pixel, regionA: c.a, regionB: c.b, transform: { rotation: 0, flip: false, scale: 1 } });
+    }
+    // dense search: copies the exact block keys miss (recompressed, brightened, slightly blurred)
+    const k = 1 / toClone;
+    for (const c of denseClone(CG)) {
+      const R = DENSE_RULE;
+      if (c.area < R.area || Math.min(c.a.w, c.a.h) < R.side) continue;
+      const v = areaAgreement(CG, c);
+      if (!v || v.lp < R.lp || v.hpFlat < R.hpFlat || v.hstd < R.hstd || (P.type === 'blot' && (v.exact < R.blotExact || v.hpFlat < R.blotHpFlat))) continue;
+      const a = { x: c.a.x * k, y: c.a.y * k, w: c.a.w * k, h: c.a.h * k }, b = { x: c.b.x * k, y: c.b.y * k, w: c.b.w * k, h: c.b.h * k };
+      if (out.some(o => [o.regionA, o.regionB].some(r => Math.abs(r.x - a.x) < 20 && Math.abs(r.y - a.y) < 20))) continue;
+      out.push({ kind: 'clone', method: 'dense', area: Math.round(c.area * k * k), pixel: { lp: v.lp, hp: v.hpFlat }, regionA: a, regionB: b, transform: { rotation: 0, flip: false, scale: 1 } });
     }
   }
   return out;
@@ -1221,10 +1389,11 @@ export function findIssues(panels, progress = () => {}) {
   }
   usable.forEach(P => {
     for (const c of selfClone(P)) {
-      const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.8;
-      findings.push({ kind: 'clone', level: strong ? 'high' : 'medium', a: { panel: P.id, box: toImage(P, c.regionA) }, b: { panel: P.id, box: toImage(P, c.regionB) }, transform: c.transform, score: c.inliers || c.blocks, code: c.method,
+      // a dense-search finding is always one to check: it is the method that also accepts recompressed copies
+      const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.method === 'dense' ? false : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.8;
+      findings.push({ kind: 'clone', level: strong ? 'high' : 'medium', a: { panel: P.id, box: toImage(P, c.regionA) }, b: { panel: P.id, box: toImage(P, c.regionB) }, transform: c.transform, score: c.inliers || c.blocks || Math.round((c.area || 0) / 10), code: c.method,
         verification: c.pixel ? { picture: Math.round(c.pixel.lp * 100) / 100, noise: Math.round(c.pixel.hp * 100) / 100 } : null,
-        description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)}; ${Math.round(c.pixel.lp * 100)}% similar, noise pattern ${c.pixel.hp.toFixed(2)})` : `Possible cloned area inside one panel (${c.blocks} matching blocks${c.pixel ? `, pixel match ${c.pixel.lp.toFixed(2)}, noise pattern ${c.pixel.hp.toFixed(2)}` : ''})` });
+        description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)}; ${Math.round(c.pixel.lp * 100)}% similar, noise pattern ${c.pixel.hp.toFixed(2)})` : c.method === 'dense' ? `Possible cloned area inside one panel (an area of about ${toImage(P, c.regionA).w} x ${toImage(P, c.regionA).h} px repeated elsewhere in the panel; ${Math.round(c.pixel.lp * 100)}% similar, fine noise ${c.pixel.hp.toFixed(2)}) - found by the dense search, which also finds recompressed or brightened copies` : `Possible cloned area inside one panel (${c.blocks} matching blocks${c.pixel ? `, pixel match ${c.pixel.lp.toFixed(2)}, noise pattern ${c.pixel.hp.toFixed(2)}` : ''})` });
     }
   });
   return findings.sort((a, b) => (a.level === b.level ? b.score - a.score : a.level === 'high' ? -1 : 1));

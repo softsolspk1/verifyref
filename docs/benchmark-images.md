@@ -124,3 +124,33 @@ of a panel kept too few of them. Measured the same day, same settings (`benchmar
 | Time, 30-panel manuscript (prepare + compare) | 10.1 s | 12.9 s |
 
 500 keypoints gave the same generated-set results as 380 at a higher cost.
+
+## 2026-11-08/09: dense cloned-area search and a look-alike filter
+
+A dense search (PatchMatch nearest-neighbour field over every 8x8 patch of the panel at the clone size, as in
+dense-field copy-move detection, Cozzolino et al. 2015) now runs next to the keypoints and the exact block keys
+(public/js/images/engine.js, `denseClone`). A cloned area is a connected region whose patches all point to the same
+offset; it also finds copies that were recompressed, brightened or slightly blurred, which the exact block keys miss.
+Each region must pass, over its own pixels (`areaAgreement`): area 600+ patch positions and both sides 20+ px, picture
+0.8+, fine noise on the flatter half of the pixels 0.6+ (band and cell edges left out), real grain (residual SD 5+), and
+for blots 40%+ near-identical pixels and flat noise 0.7+ (neighbouring lanes look alike). Dense findings are always
+"to check", never Strong.
+
+The same measures filter the existing block findings below the Strong level: flat noise below 0.5 and fewer than 60%
+near-identical pixels is a look-alike (neighbouring blot lanes, tissue texture), not a copy.
+
+Rules fitted on half of the BioFors IDD papers (A) and checked on the other half (B); all 102 annotated images, 300
+clean images of the same papers (`node scripts/benchmark-images.mjs --task idd --neg 300`):
+
+| Cloned area (IDD) | Before | After |
+|---|---|---|
+| Annotated clones located | 31 / 78 (40%) | **39 / 78 (50%)** |
+| ... held-out half B | 10 / 23 | 14 / 23 |
+| Clean images reported | 35 / 233 (15%) | **23 / 233 (10%)** |
+| ... held-out half B | 18 / 87 | 12 / 87 |
+| Generated copy-move (`benchmark-public-images.mjs 60`) | 21 / 25 | 24 / 25 |
+| Generated clean pairs falsely reported | 0 / 30 | 0 / 30 |
+
+Time: about 0.2 s per BioFors panel; a 512 px finely textured panel stops iterating after 1.5 s (about 1.7-2 s in all).
+Inspected false candidates that the rules remove: plot axes and scale bars (thin), smooth faint bands (no grain),
+neighbouring blot lanes (look alike, pixels not identical), dense nuclei texture. Regression test: test/images-dense.mjs.

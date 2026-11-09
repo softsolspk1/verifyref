@@ -11,6 +11,7 @@ const { prepare, normalizeMeta, saveResult, loadCheck, loadShared, screeningSumm
 const { checkReferences } = require('../checks/reference');
 const { analyzeCitationPattern } = require('../editor/pattern');
 const { detectPaperMill, storeFingerprint, papermillProblems } = require('../papermill');
+const { linkedReports, imagesInput } = require('../integrity');
 const IMG = require('../images');
 const { ageRule, setAgeRule } = require('../checks/indicators');
 
@@ -69,7 +70,12 @@ async function runPaperMill(input, { userId, update }) {
   let images = null;
   if (input.imagesCheckId) {
     const c = await loadCheck(userId, input.imagesCheckId);
-    if (c?.result?.summary) images = { findings: c.result.summary.byLevel || {}, categories: c.result.summary.byCategory || {}, level: c.result.summary.level };
+    if (c?.result?.summary) images = imagesInput(c.result.summary);
+  }
+  // no report chosen: the latest Module 5 report saved for this manuscript ID, as the Full Screening does
+  if (!images && input.meta?.manuscriptCode) {
+    const linked = await linkedReports(input.meta.manuscriptCode).catch(() => ({}));
+    if (linked.images) images = imagesInput(linked.images.summary);
   }
   const result = await detectPaperMill({ text: input.text, body: input.bodyText, meta: input.meta, references, pattern, suggestedReviewers: input.suggestedReviewers, coverLetter: input.coverLetter || '', images },
     (s, p) => update(s, 55 + (p || 0) * 0.43));

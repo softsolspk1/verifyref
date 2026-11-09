@@ -19,6 +19,9 @@ const { scoreIntegrity, linkedDimensions } = require('./scoring');
 const DISCLAIMER = 'Screening aid only. Every signal points to something an editor should look at; none is proof of misconduct, and the score never rejects a paper by itself. Confidential — not for authors or reviewers.';
 
 /** Latest saved Module 1 / 4 / 5 results for this manuscript ID (any editor: integrity work is shared within the journal) */
+/** What Module 4 reads from a Module 5 report summary */
+const imagesInput = s => ({ findings: s?.byLevel || {}, categories: s?.byCategory || {}, level: s?.level, referencesRetracted: s?.referencesRetracted || 0, earlier: (s?.earlier || 0) + (s?.earlierCharts || 0), references: (s?.references || 0) + (s?.referenceCharts || 0) });
+
 async function linkedReports(code, { imagesCheckId } = {}) {
   const out = {};
   const RS = require('../reportStore');
@@ -79,7 +82,7 @@ async function runIntegrity(input, update = () => {}) {
     }
   }
   update('Paper-mill signals', 86);
-  const images = linked.images ? { findings: linked.images.summary?.byLevel || {}, categories: linked.images.summary?.byCategory || {}, level: linked.images.summary?.level } : null;
+  const images = linked.images ? imagesInput(linked.images.summary) : null;
   const papermill = await detectPaperMill({ text, body, meta, references, pattern, suggestedReviewers: input.suggestedReviewers, coverLetter: input.coverLetter || '', images, blast: online && input.blast !== false });
   const shingles = papermill._shingles;
   delete papermill._shingles;
@@ -129,4 +132,4 @@ async function saveIntegrity(userId, result, input) {
   return result;
 }
 
-module.exports = { runIntegrity, saveIntegrity, integrityProblems, linkedReports, DISCLAIMER };
+module.exports = { runIntegrity, saveIntegrity, integrityProblems, linkedReports, imagesInput, DISCLAIMER };

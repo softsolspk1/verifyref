@@ -444,14 +444,28 @@ async function storeFingerprint({ checkId, userId, meta, shingles: sh, text }) {
 
 // ------------------------------------------------------------------ scoring
 
-/** The Module 5 signal from the image report summary ({ findings: byLevel, categories }), or null */
+/**
+ * The Module 5 signal from the image report summary ({ findings: byLevel, categories, referencesRetracted, earlier,
+ * references }), or null. Figures reused from papers retracted for image problems or from earlier PJPS submissions are
+ * how many real mill papers were caught (the same figures sold to several clients), so such a match is a signal of its
+ * own even when the image report rates it only "to check". One signal: the image report's strong findings already count
+ * these matches, so they are not added twice.
+ */
 function imagesSignal(images) {
   const f = images?.findings;
   if (!f) return null;
   const cat = images.categories || {};
   const catText = Object.entries({ duplication: 'duplicated', manipulation: 'manipulated', ai: 'AI-generated', chart: 'duplicated-chart' }).filter(([k]) => cat[k]).map(([k, l]) => `${cat[k]} ${l}`).join(', ');
-  const signal = (title, severity, weight) => ({ group: 'data', code: 'images', title, severity, weight, evidence: [], note: '' });
+  const retracted = images.referencesRetracted || 0, earlier = images.earlier || 0, published = Math.max(0, (images.references || 0) - retracted);
+  const evidence = [
+    retracted && { text: `${retracted} figure(s) match figures of papers retracted or corrected for image problems` },
+    earlier && { text: `${earlier} figure(s) match figures of earlier PJPS submissions` },
+    published && { text: `${published} figure(s) match figures of published papers (PJPS / PubMed Central)` }
+  ].filter(Boolean);
+  const note = evidence.length ? 'Open the Module 5 report: each match shows both figures side by side. Paper mills reuse figures across the papers they sell; a figure from a retracted paper or another submission needs an explanation from the authors.' : '';
+  const signal = (title, severity, weight) => ({ group: 'data', code: 'images', title, severity, weight, evidence, note });
   if (f.high) return signal(`Image Integrity (Module 5): ${f.high} strong finding(s)${catText ? ` (${catText})` : ' of duplicated or edited figures'}`, 'high', 5);
+  if (retracted || earlier) return signal(`Image Integrity (Module 5): figure(s) matching ${[retracted && 'retracted papers', earlier && 'earlier PJPS submissions'].filter(Boolean).join(' and ')}`, 'medium', 3);
   if (f.medium) return signal(`Image Integrity (Module 5): ${f.medium} finding(s) to check`, 'medium', 2);
   return null;
 }
@@ -742,7 +756,10 @@ async function detectPaperMill(input, update = () => {}) {
 
   update('Checking authors (retractions, ORCID, e-mail addresses)', 40);
   const authors = (meta.authors || []).filter(a => a.family);
-  const orcids = [...new Set([...text.slice(0, 15000).matchAll(ORCID_RE)].map(m => m[1]))];
+  // iDs written in the manuscript and iDs entered with the authors (submission form / metadata): each record's works are
+  // read, so a retraction on an author's own record is found by DOI, whatever name it was published under
+  const orcids = [...new Set([...authors.map(a => String(a.orcid || '').replace(/^https?:\/\/orcid\.org\//i, '').trim().toUpperCase()).filter(id => /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(id)),
+    ...[...text.slice(0, 15000).matchAll(ORCID_RE)].map(m => m[1].toUpperCase())])];
   const orcidResults = [];
   if (!orcids.length) sig('authors', 'no-orcid', 'No ORCID iD given for any author', 'low', 1);
   for (const id of orcids.slice(0, 10)) {

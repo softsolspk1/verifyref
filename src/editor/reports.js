@@ -129,7 +129,11 @@ const T = {
   }
 };
 
-function correctionLetter(result, lang = 'en') {
+/**
+ * The author letter. opts.askPdfs: also ask for the PDFs of cited works that could be compared only with their abstract
+ * (optional, chosen by the editor; off by default). The letter reports how many such works there are (pdfRequest).
+ */
+function correctionLetter(result, lang = 'en', { askPdfs = false } = {}) {
   const t = T[lang] || T.en;
   const journal = cfg.HOME_JOURNAL.name;
   const refs = result.references?.results || [];
@@ -160,7 +164,7 @@ function correctionLetter(result, lang = 'en') {
     if (e.claims.length < 3) e.claims.push(`“${c.claim.slice(0, 160)}”`);
     pending.set(x.refIndex, e);
   }
-  sec('sourcePdf', [...pending.values()].sort((a, b) => a.ref - b.ref).map(e => ({ ref: e.ref, text: e.text, note: e.claims.join('; ') })));
+  if (askPdfs) sec('sourcePdf', [...pending.values()].sort((a, b) => a.ref - b.ref).map(e => ({ ref: e.ref, text: e.text, note: e.claims.join('; ') })));
   sec('style', (result.compliance?.entries || []).filter(e => !e.compliant).map(e => ({ ref: e.index, text: e.original.slice(0, 200), note: e.deviations.filter(d => d.severity !== 'info').map(d => d.message).join('; '), suggestion: e.expected })));
   sec('doi', refs.filter(r => r.status === 'verified' && !r.parsed?.doi && r.record?.doi).map(r => ({ ref: r.index, text: r.raw.slice(0, 140), suggestion: `https://doi.org/${r.record.doi}` })));
   const weakSelf = (result.pattern?.selfCitation?.refs || []).filter(s => s.relevance?.level === 'weak');
@@ -180,7 +184,7 @@ function correctionLetter(result, lang = 'en') {
     lines.push('');
   });
   lines.push(t.closing, '', t.regards, t.office(journal));
-  return { lang, rtl: lang === 'ur', subject: t.subject(code, title), count, sections, text: lines.join('\n') };
+  return { lang, rtl: lang === 'ur', subject: t.subject(code, title), count, sections, text: lines.join('\n'), pdfRequest: pending.size, askPdfs: !!askPdfs };
 }
 
 // ------------------------------------------------------------------ revision comparison

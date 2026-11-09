@@ -111,12 +111,18 @@ async function letterTab(body, r) {
   if (!r.id) { body.innerHTML = '<div class="alert alert-info">Save the report to prepare the author letter.</div>'; return; }
   if (!hasModule('reports')) { body.innerHTML = '<div class="alert alert-info">Author letters are prepared by editors.</div>'; return; }
   body.innerHTML = `<div class="card"><div class="row"><div class="seg"><button class="active" data-lang="en">English</button><button data-lang="ur">اردو</button></div><span class="spacer"></span><button class="btn btn-sm" id="l-copy">${ICONS.copy} Copy</button><button class="btn btn-sm" id="l-docx">${ICONS.download} Word</button></div>
+    <label class="muted" id="l-pdfs-row" style="display:none;margin-top:8px"><input type="checkbox" id="l-pdfs"> Ask the author for the PDFs of <span id="l-pdfs-n"></span> cited work(s) checked only against their abstract</label>
     <p class="muted">Preview and edit the letter before sending it. Nothing is sent automatically.</p><textarea id="l-text" rows="22" class="mono" style="width:100%"></textarea></div>`;
   let lang = 'en';
-  const load = async () => { const d = await api(`/api/checks/${r.id}/letter?lang=${lang}`); const t = $('#l-text', body); t.value = d.letter.text; t.dir = d.letter.rtl ? 'rtl' : 'ltr'; };
+  const pdfs = () => ($('#l-pdfs', body).checked ? '&pdfs=1' : '');
+  const load = async () => {
+    const d = await api(`/api/checks/${r.id}/letter?lang=${lang}${pdfs()}`); const t = $('#l-text', body); t.value = d.letter.text; t.dir = d.letter.rtl ? 'rtl' : 'ltr';
+    $('#l-pdfs-row', body).style.display = d.letter.pdfRequest ? '' : 'none'; $('#l-pdfs-n', body).textContent = d.letter.pdfRequest;
+  };
+  $('#l-pdfs', body).onchange = () => load().catch(e => toast(e.message, 'error'));
   $$('[data-lang]', body).forEach(b => (b.onclick = () => { lang = b.dataset.lang; $$('[data-lang]', body).forEach(x => x.classList.toggle('active', x === b)); load().catch(e => toast(e.message, 'error')); }));
   $('#l-copy', body).onclick = () => copyText($('#l-text', body).value);
-  $('#l-docx', body).onclick = () => download(`/api/checks/${r.id}/letter?lang=${lang}&format=docx`).catch(e => toast(e.message, 'error'));
+  $('#l-docx', body).onclick = () => download(`/api/checks/${r.id}/letter?lang=${lang}${pdfs()}&format=docx`).catch(e => toast(e.message, 'error'));
   load().catch(e => toast(e.message, 'error'));
 }
 

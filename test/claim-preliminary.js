@@ -14,11 +14,13 @@ const result = {
     { claim: 'Drug B binds receptor C.', citations: [cite(4, 'full'), cite(5, 'not-confirmed', { preliminary: true, refStatus: 'retracted' })] }
   ] }
 };
-const L = correctionLetter(result, 'en');
+assert.ok(!correctionLetter(result, 'en').sections.some(s => s.key === 'sourcePdf'), 'the PDF request is optional: off by default');
+assert.strictEqual(correctionLetter(result, 'en').pdfRequest, 1, 'the letter says how many works could be asked for');
+const L = correctionLetter(result, 'en', { askPdfs: true });
 const sec = k => L.sections.find(s => s.key === k);
 assert.deepStrictEqual(sec('unsupported').items.map(i => i.ref), [2, 3], 'only contradicted / full-text verdicts are told to the author as unsupported');
 assert.deepStrictEqual(sec('sourcePdf').items.map(i => i.ref), [1], 'the abstract-only work is asked for as a PDF, once');
 assert.ok(/lowers blood pressure/.test(sec('sourcePdf').items[0].note) && /safe in humans/.test(sec('sourcePdf').items[0].note), 'both statements citing it are named');
 assert.ok(/upload the PDF/.test(L.text));
-assert.ok(correctionLetter(result, 'ur').sections.some(s => s.key === 'sourcePdf'), 'Urdu letter too');
+assert.ok(correctionLetter(result, 'ur', { askPdfs: true }).sections.some(s => s.key === 'sourcePdf'), 'Urdu letter too');
 console.log('claim preliminary test passed');

@@ -700,9 +700,10 @@ async function summaryView(el, result) {
   $('#ds-docx', el).onclick = () => download(`/api/checks/${result.id}/summary?format=docx`).catch(e => toast(e.message, 'error'));
 }
 
-async function letterView(el, result, lang = 'en') {
+async function letterView(el, result, lang = 'en', askPdfs = false) {
   el.innerHTML = '<div class="empty">Preparing letter…</div>';
-  const { letter } = await api(`/api/checks/${result.id}/letter?lang=${lang}`);
+  const q = askPdfs ? '&pdfs=1' : '';
+  const { letter } = await api(`/api/checks/${result.id}/letter?lang=${lang}${q}`);
   el.innerHTML = `
     <div class="row no-print" style="margin-bottom:12px">
       <div class="filters" style="margin:0"><button class="filter ${lang === 'en' ? 'active' : ''}" data-lang="en">English</button><button class="filter ${lang === 'ur' ? 'active' : ''}" data-lang="ur">اردو Urdu</button></div>
@@ -711,12 +712,14 @@ async function letterView(el, result, lang = 'en') {
       <button class="btn btn-sm" id="l-docx">${ICONS.download} Word</button>
       <button class="btn btn-sm" id="l-txt">${ICONS.download} Text</button>
     </div>
+    ${letter.pdfRequest ? `<label class="muted no-print" style="display:block;margin-bottom:8px"><input type="checkbox" id="l-pdfs" ${askPdfs ? 'checked' : ''}> Ask the author for the PDFs of ${letter.pdfRequest} cited work(s) checked only against their abstract</label>` : ''}
     ${letter.count ? '' : '<div class="alert alert-good">No corrections are needed — all references verified.</div>'}
     <div class="letter ${letter.rtl ? 'urdu' : ''}">${esc(letter.text)}</div>`;
-  $$('[data-lang]', el).forEach(b => (b.onclick = () => letterView(el, result, b.dataset.lang)));
+  $$('[data-lang]', el).forEach(b => (b.onclick = () => letterView(el, result, b.dataset.lang, askPdfs)));
+  if ($('#l-pdfs', el)) $('#l-pdfs', el).onchange = e => letterView(el, result, lang, e.target.checked);
   $('#l-copy', el).onclick = () => copyText(letter.text);
-  $('#l-docx', el).onclick = () => download(`/api/checks/${result.id}/letter?lang=${lang}&format=docx`).catch(e => toast(e.message, 'error'));
-  $('#l-txt', el).onclick = () => download(`/api/checks/${result.id}/letter?lang=${lang}&format=txt`).catch(e => toast(e.message, 'error'));
+  $('#l-docx', el).onclick = () => download(`/api/checks/${result.id}/letter?lang=${lang}${q}&format=docx`).catch(e => toast(e.message, 'error'));
+  $('#l-txt', el).onclick = () => download(`/api/checks/${result.id}/letter?lang=${lang}${q}&format=txt`).catch(e => toast(e.message, 'error'));
 }
 
 async function revisionView(el, result) {

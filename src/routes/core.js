@@ -247,7 +247,7 @@ router.get('/checks/:id/summary', mod('reports'), wrap(async (req, res) => {
 router.get('/checks/:id/letter', mod('reports'), wrap(async (req, res) => {
   const c = await checkOr404(req, res);
   if (!c) return;
-  const letter = R.correctionLetter(c.result, req.query.lang === 'ur' ? 'ur' : 'en');
+  const letter = R.correctionLetter(c.result, req.query.lang === 'ur' ? 'ur' : 'en', { askPdfs: req.query.pdfs === '1' });
   if (req.query.format === 'docx') return sendFile(res, await W.buildDocx(W.letterBlocks(letter), { rtl: letter.rtl }), `correction-letter-${letter.lang}-${c.row.manuscript_code || c.row.id}.docx`, DOCX);
   if (req.query.format === 'txt') return sendFile(res, Buffer.from('﻿' + letter.text, 'utf8'), `correction-letter-${letter.lang}.txt`, 'text/plain; charset=utf-8');
   res.json({ success: true, letter });

@@ -39,6 +39,47 @@ function parseCsv(text, delimiter) {
   return rows.filter(r => r.some(f => f.trim()));
 }
 
+/**
+ * Calls onRow(fields) for each CSV record, cutting fields out of the text (no character-by-character copies) and keeping
+ * no rows itself. Parsing the 68 MB Retraction Watch file with parseCsv + csvToObjects took about 2.5 GB of memory -
+ * more than a server function has, so every refresh run was killed (9 Nov).
+ */
+function eachCsvRow(text, onRow, d = ',') {
+  text = String(text);
+  let i = text.charCodeAt(0) === 0xFEFF ? 1 : 0;
+  const n = text.length;
+  while (i < n) {
+    const row = [];
+    for (;;) {
+      let field;
+      if (text[i] === '"') {
+        let j = i + 1, k;
+        for (;;) {
+          k = text.indexOf('"', j);
+          if (k < 0) { k = n; break; }
+          if (text[k + 1] === '"') { j = k + 2; continue; }
+          break;
+        }
+        field = text.slice(i + 1, k).replace(/""/g, '"');
+        i = k + 1;
+      } else {
+        let e1 = text.indexOf(d, i), e2 = text.indexOf('\n', i);
+        if (e1 < 0) e1 = n;
+        if (e2 < 0) e2 = n;
+        const end = Math.min(e1, e2);
+        field = text.slice(i, end).replace(/\r$/, '');
+        i = end;
+      }
+      row.push(field);
+      if (text[i] === d) { i++; continue; }
+      if (text[i] === '\r') i++;
+      i++; // newline or end of text
+      break;
+    }
+    if (row.some(f => f.trim())) onRow(row);
+  }
+}
+
 function csvToObjects(text) {
   const rows = parseCsv(text);
   if (!rows.length) return [];
@@ -58,17 +99,22 @@ const RW_REUSE_MS = 24 * 3600 * 1000;
 /** Retraction Watch into the retractions table. deadline (ms timestamp): a load that does not finish by then returns
  * { partial: true, done, total } and continues in the next call. */
 async function loadRetractionWatch({ since = null, deadline = Infinity, log = console.log, batch = RW_BATCH } = {}) {
-  const rows = csvToObjects(await store.sourceText('retractionwatch.csv', () => getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 }), { reuseSince: since ? new Date(Date.parse(since) - RW_REUSE_MS).toISOString() : null }));
-  // One row per original DOI; a later notice (e.g. retraction after concern) wins
+  const text = await store.sourceText('retractionwatch.csv', () => getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 }), { reuseSince: since ? new Date(Date.parse(since) - RW_REUSE_MS).toISOString() : null });
+  // One row per original DOI; a later notice (e.g. retraction after concern) wins. Read record by record, keeping only
+  // the columns used (see eachCsvRow)
   const byDoi = new Map();
-  for (const row of rows) {
+  let head = null;
+  const want = ['OriginalPaperDOI', 'RetractionDOI', 'RetractionDate', 'RetractionNature', 'Reason', 'Title', 'Journal', 'Author', 'Institution', 'Country'];
+  eachCsvRow(text, f => {
+    if (!head) { head = want.map(w => f.findIndex(h => h.trim() === w)); return; }
+    const row = Object.fromEntries(want.map((w, k) => [w, head[k] >= 0 ? String(f[head[k]] || '').trim() : '']));
     const doi = cleanDoi(row.OriginalPaperDOI);
-    if (!doi) continue;
+    if (!doi) return;
     const prev = byDoi.get(doi);
-    if (prev && /retraction/i.test(prev[3]) && !/retraction/i.test(row.RetractionNature || '')) continue;
+    if (prev && /retraction/i.test(prev[3]) && !/retraction/i.test(row.RetractionNature || '')) return;
     byDoi.set(doi, [doi, cleanDoi(row.RetractionDOI) || '', (row.RetractionDate || '').split(' ')[0], row.RetractionNature || '',
       (row.Reason || '').replace(/;$/, '').replace(/^\+/, ''), row.Title || '', row.Journal || '', normalizeJournal(row.Journal || ''), (row.Author || '').slice(0, 2000), (row.Institution || '').slice(0, 1200), (row.Country || '').slice(0, 300)]);
-  }
+  });
   const data = [...byDoi.values()];
   // Loaded into a staging table in batches that carry over from run to run, then swapped in. One TRUNCATE + insert of
   // ~64,000 rows (with the author trigram index updated row by row) did not fit in a 4-minute server run: each run was
@@ -1837,7 +1883,7 @@ async function ensureDatasetsNow({ force = false, since = null, maxAgeDays = 7, 
 }
 
 module.exports = {
-  coreDatasetsReady, parseCsv, csvToObjects, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
+  coreDatasetsReady, parseCsv, csvToObjects, eachCsvRow, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
   loadStopPredatory, loadDoajWithdrawn, loadMirbase, mirbaseSpecies, mirKey, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadWosWikidata, loadFlaggedPapers, flaggedFor,

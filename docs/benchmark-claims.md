@@ -122,3 +122,14 @@ most 6.5%), then checked once on the held-out dev split through the live code (`
 Train split: supported found 72% -> 76%, contradicted passed as Full 3 -> 2 of 194, no-evidence passed as Full 1 of 355
 (unchanged), contradictions flagged 85 of 194 (unchanged). Cost: one more model reading per claim when the source is an
 abstract (about 0.3 s on one core). Full texts are read passage by passage as before.
+
+## 2026-11-09: a model trained on many NLI tasks (not adopted)
+
+`onnx-community/deberta-small-long-nli` (tasksource: DeBERTa-v3-small trained on several hundred NLI tasks, including
+scientific and medical ones; reads up to 1,680 tokens; 161 MB at 8 bits) was scored on the held-out dev split. Its
+readings need another rule, so the rule was fitted on the dev split itself - an upper bound, better than a fair test:
+- with the earlier limits only: supported claims found 88%, but no-evidence claims called Partial 40% (the extra-small
+  model: 14.5%), and contradictions flagged 30% (41%)
+- with no-evidence Partial also limited to 15%: supported found 64% (75%), contradictions flagged 31% (41%)
+Even its best case is worse than the extra-small model, which stays. Other scientific NLI models on Hugging Face
+(MedNLI, SciFact, HealthVer) have no ONNX version the server can run.

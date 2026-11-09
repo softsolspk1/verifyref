@@ -154,3 +154,18 @@ clean images of the same papers (`node scripts/benchmark-images.mjs --task idd -
 Time: about 0.2 s per BioFors panel; a 512 px finely textured panel stops iterating after 1.5 s (about 1.7-2 s in all).
 Inspected false candidates that the rules remove: plot axes and scale bars (thin), smooth faint bands (no grain),
 neighbouring blot lanes (look alike, pixels not identical), dense nuclei texture. Regression test: test/images-dense.mjs.
+
+## 2026-11-09: duplicates between panels - the misses examined (no change made)
+
+Each of the 148 annotated duplicate pairs of the 60 benchmark papers compared alone: 94 found (55 Strong); 9 of 994
+non-annotated pairs of the same papers reported (3 Strong). Of the 54 misses, 43 fail at the first fingerprint
+(whole-panel hash 13+ bits apart), 9 at the thumbnail correlation, 2 at the pixel check. Seen on the images: a subset of
+the lanes cropped from a blot strip, the same strip stretched to another aspect ratio, ultrasound frames with other
+printed labels, the same tissue re-stained or recoloured, rotated or mirrored crops.
+
+Tried: aligning the two panels by sliding one over the other at the same pixel scale and the two side ratios, in all 8
+orientations, then measuring the overlap (picture, fine noise on flat pixels, near-identical share). On the missed pairs
+the aligned overlap reached 85% picture agreement with matching fine noise in 0 of 54 (recoloured, rescaled or
+re-exposed copies keep neither), while different blots of the same paper reached 0.90-0.98 picture agreement. A rule
+loose enough to take the missed pairs would report look-alike blots, so the engine was left unchanged. Finding these
+needs a learned image-similarity model or the commercial figure databases (ImageTwin / Proofig), not tighter pixel rules.

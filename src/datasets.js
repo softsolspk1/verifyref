@@ -52,10 +52,13 @@ const RW_URL = `https://api.labs.crossref.org/data/retractionwatch?mailto=${enco
 
 /** since: a refresh job's start - a download it already made (a run stopped while the rows were saved) is read back from R2 */
 const RW_BATCH = 2000;
+// a copy of the 68 MB file downloaded in the last day is used: downloading it again took a whole server run, every run
+// (Retraction Watch publishes once a day)
+const RW_REUSE_MS = 24 * 3600 * 1000;
 /** Retraction Watch into the retractions table. deadline (ms timestamp): a load that does not finish by then returns
  * { partial: true, done, total } and continues in the next call. */
 async function loadRetractionWatch({ since = null, deadline = Infinity, log = console.log, batch = RW_BATCH } = {}) {
-  const rows = csvToObjects(await store.sourceText('retractionwatch.csv', () => getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 }), { reuseSince: since }));
+  const rows = csvToObjects(await store.sourceText('retractionwatch.csv', () => getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 }), { reuseSince: since ? new Date(Date.parse(since) - RW_REUSE_MS).toISOString() : null }));
   // One row per original DOI; a later notice (e.g. retraction after concern) wins
   const byDoi = new Map();
   for (const row of rows) {

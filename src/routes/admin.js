@@ -286,9 +286,14 @@ router.post('/admin/datasets/refresh', wrap(async (req, res) => {
 }));
 
 defineJob('datasets', async (input, { update, deadline }) => {
-  update('Refreshing Retraction Watch, Beall\'s list, Problematic Paper Screener, FDA Orange Book, NLM Catalog, DOAJ, Crossref journals, LTWA, e-mail domain lists and the OpenAlex journal list (continued on later runs)', 10);
+  const step = 'Refreshing Retraction Watch, Beall\'s list, Problematic Paper Screener, FDA Orange Book, NLM Catalog, DOAJ, Crossref journals, LTWA, e-mail domain lists and the OpenAlex journal list (continued on later runs)';
+  update(step, 10);
+  // a heartbeat while a list loads: reading the 68 MB Retraction Watch file reports nothing for over 45 s, so the run was
+  // taken for stopped and replaced by the next poll - eight runs in ten minutes, and the job gave up (9 Nov)
+  const beat = setInterval(() => update(step, 10), 15000);
   // lists already loaded by this job are not loaded again; one that does not fit in this run hands over to the next
-  const out = await D.ensureDatasets({ force: true, since: input?.since || null, budgetMs: Number.isFinite(deadline) ? deadline - Date.now() - 15000 : Infinity });
+  const out = await D.ensureDatasets({ force: true, since: input?.since || null, budgetMs: Number.isFinite(deadline) ? deadline - Date.now() - 15000 : Infinity })
+    .finally(() => clearInterval(beat));
   if (out.deferred?.length) throw new ResumeLater(`Refreshing datasets: ${out.deferred.join(', ')} - continued in the next run`);
   return out;
 });

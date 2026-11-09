@@ -51,7 +51,10 @@ function csvToObjects(text) {
 const RW_URL = `https://api.labs.crossref.org/data/retractionwatch?mailto=${encodeURIComponent(cfg.CONTACT_EMAIL)}`;
 
 /** since: a refresh job's start - a download it already made (a run stopped while the rows were saved) is read back from R2 */
-async function loadRetractionWatch({ since = null } = {}) {
+const RW_BATCH = 2000;
+/** Retraction Watch into the retractions table. deadline (ms timestamp): a load that does not finish by then returns
+ * { partial: true, done, total } and continues in the next call. */
+async function loadRetractionWatch({ since = null, deadline = Infinity, log = console.log, batch = RW_BATCH } = {}) {
   const rows = csvToObjects(await store.sourceText('retractionwatch.csv', () => getText(RW_URL, { ttl: 0, timeout: 600000, retries: 2 }), { reuseSince: since }));
   // One row per original DOI; a later notice (e.g. retraction after concern) wins
   const byDoi = new Map();
@@ -64,10 +67,43 @@ async function loadRetractionWatch({ since = null } = {}) {
       (row.Reason || '').replace(/;$/, '').replace(/^\+/, ''), row.Title || '', row.Journal || '', normalizeJournal(row.Journal || ''), (row.Author || '').slice(0, 2000), (row.Institution || '').slice(0, 1200), (row.Country || '').slice(0, 300)]);
   }
   const data = [...byDoi.values()];
+  // Loaded into a staging table in batches that carry over from run to run, then swapped in. One TRUNCATE + insert of
+  // ~64,000 rows (with the author trigram index updated row by row) did not fit in a 4-minute server run: each run was
+  // stopped, rolled back and started again, and the list stayed at 29 Oct (Admin > Data, 8-9 Nov). The live table is
+  // used until the swap.
+  const STAGE = 'retractions_stage';
+  const cols = ['doi', 'retraction_doi', 'retraction_date', 'nature', 'reason', 'title', 'journal', 'journal_norm', 'authors', 'institution', 'country'];
+  const src = `${(await getMeta('raw_retractionwatch.csv_at').catch(() => null)) || ''}|${data.length}|${data[0]?.[0] || ''}`;
+  let stage = null;
+  try { stage = JSON.parse((await getMeta('rw_stage')) || 'null'); } catch { stage = null; }
+  if (!stage || stage.src !== src) {
+    await db.query(`DROP TABLE IF EXISTS ${STAGE}`);
+    await db.query(`CREATE TABLE ${STAGE} (${cols.map(c => `${c} TEXT`).join(', ')})`);
+    stage = { src, done: 0, total: data.length };
+    await setMeta('rw_stage', JSON.stringify(stage));
+  }
+  const left = () => deadline - Date.now();
+  for (let i = stage.done; i < data.length; i += batch) {
+    if (left() < 15000) { log(`Retraction Watch: ${stage.done} of ${data.length} rows loaded, continued in the next run`); return { partial: true, done: stage.done, total: data.length }; }
+    await db.query(`INSERT INTO ${STAGE}(${cols.join(', ')}) SELECT * FROM unnest(${cols.map((_, ci) => `$${ci + 1}::text[]`).join(', ')})`,
+      cols.map((_, ci) => data.slice(i, i + batch).map(r => (r[ci] === undefined ? null : r[ci]))));
+    stage.done = Math.min(data.length, i + batch);
+    await setMeta('rw_stage', JSON.stringify(stage));
+  }
+  // indexes on the staging table (each its own statement, so a stopped run keeps the ones already built), then the swap
+  if (left() < 60000) { log('Retraction Watch: all rows loaded, indexes built in the next run'); return { partial: true, done: stage.done, total: data.length }; }
+  const hasPk = await db.one("SELECT 1 FROM pg_constraint WHERE conname = 'retractions_stage_pkey'").catch(() => null);
+  if (!hasPk) await db.query(`ALTER TABLE ${STAGE} ADD CONSTRAINT retractions_stage_pkey PRIMARY KEY (doi)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_retractions_stage_journal ON ${STAGE}(journal_norm)`);
+  const trgm = !db.EMBEDDED && await db.query(`CREATE INDEX IF NOT EXISTS idx_retractions_stage_authors_trgm ON ${STAGE} USING gin (authors gin_trgm_ops)`).then(() => true).catch(e => { log(`Retraction Watch: author index not built (${e.message})`); return false; });
   await transaction(async client => {
-    await client.query('TRUNCATE retractions');
-    await bulkInsert(client, 'retractions', ['doi', 'retraction_doi', 'retraction_date', 'nature', 'reason', 'title', 'journal', 'journal_norm', 'authors', 'institution', 'country'].map(name => ({ name, type: 'text' })), data);
+    await client.query('DROP TABLE IF EXISTS retractions');
+    await client.query(`ALTER TABLE ${STAGE} RENAME TO retractions`);
+    await client.query('ALTER TABLE retractions RENAME CONSTRAINT retractions_stage_pkey TO retractions_pkey');
+    await client.query('ALTER INDEX idx_retractions_stage_journal RENAME TO idx_retractions_journal');
+    if (trgm) await client.query('ALTER INDEX idx_retractions_stage_authors_trgm RENAME TO idx_retractions_authors_trgm');
   });
+  await setMeta('rw_stage', '');
   await setMeta('rw_loaded_at', new Date().toISOString());
   millJournalCache = null;
   await setMeta('rw_count', data.length);
@@ -1721,8 +1757,10 @@ async function coreDatasetsReady({ maxMs = 90000 } = {}) {
   while (ensuring > 0 && Date.now() < until && !(await ready().catch(() => true))) await new Promise(r => setTimeout(r, 2000));
 }
 
-// time a list needs in one run (ms): Retraction Watch is a 68 MB download of ~74,000 rows; the others take seconds
-const NEEDS_MS = { rw: 200000, oaj: 60000 };
+// time a list needs to start in a run (ms): Retraction Watch (a 68 MB download, ~64,000 rows) loads in batches over
+// several runs, but a run must have time to read the file and load a few batches; more than the daily cron's 60 s,
+// so the cron leaves it to Admin > Data > Refresh
+const NEEDS_MS = { rw: 90000, oaj: 60000 };
 
 /**
  * since: the start of a forced refresh job - lists loaded after it are done and not loaded again in its later runs.
@@ -1732,7 +1770,7 @@ async function ensureDatasetsNow({ force = false, since = null, maxAgeDays = 7, 
   const started = Date.now();
   const time = async key => { const at = await getMeta(key); return at ? new Date(at).getTime() : 0; };
   const all = [
-    ['rw', 'retractionWatch', 'Retraction Watch', () => loadRetractionWatch({ since })],
+    ['rw', 'retractionWatch', 'Retraction Watch', () => loadRetractionWatch({ since, deadline: started + budgetMs, log })],
     ['pps', 'screener', 'Problematic Paper Screener', loadProblematicScreener],
     ['beall', 'beall', "Beall's list", loadBeall],
     ['fda_ob', 'fdaOrangeBook', 'FDA Orange Book', () => loadFdaOrangeBook({ log })],
@@ -1758,7 +1796,7 @@ async function ensureDatasetsNow({ force = false, since = null, maxAgeDays = 7, 
   const todo = [];
   for (const d of all) {
     const loaded = await time(`${d[0]}_loaded_at`);
-    const inProgress = d[0] === 'oaj' && !!(await getMeta('oaj_harvest'));
+    const inProgress = (d[0] === 'oaj' && !!(await getMeta('oaj_harvest'))) || (d[0] === 'rw' && !!(await getMeta('rw_stage')));
     // a forced refresh does not start the OpenAlex journal list again within its 30 days: ~1,100 paid OpenAlex requests
     // for a list that changes little in a month
     // ... nor a list this refresh job already loaded in an earlier run (each run used to load all of them again and was
@@ -1785,6 +1823,8 @@ async function ensureDatasetsNow({ force = false, since = null, maxAgeDays = 7, 
     }
     try {
       results[name] = await fn();
+      // loaded in part: continued in the next run of the job (no snapshot of a half-loaded table)
+      if (results[name]?.partial) { (results.deferred = results.deferred || []).push(label); log(`${label}: ${results[name].done} of ${results[name].total} rows so far`); continue; }
       log(`${label}: ${results[name]} rows loaded`);
       // the finished table goes to R2, so every other database / server is filled from it
       if (DATASET_TABLES[key] && !(key === 'oaj' && await getMeta('oaj_harvest'))) await store.snapshotTable(DATASET_TABLES[key][0], tableMeta(key)).catch(e => log(`${label}: R2 snapshot failed - ${e.message}`));

@@ -32,6 +32,15 @@ const ok = m => console.log(`  ok - ${m}`);
   assert.strictEqual(await db.getMeta('rw_tried_at'), null, 'a handed-over list is not marked as tried');
   ok('lists that do not fit in the run are handed over to the next run');
 
+  // the daily cron (60 s, not forced) with Retraction Watch stale: not started (it needs a whole run), left for the job
+  for (const k of KEYS) await db.setMeta(`${k}_loaded_at`, now);
+  await db.setMeta('rw_loaded_at', new Date(Date.now() - 10 * 86400000).toISOString());
+  await db.setMeta('rw_tried_at', '');
+  out = await D.ensureDatasets({ budgetMs: 60000, log: () => {} });
+  assert.deepStrictEqual(out.deferred, ['Retraction Watch'], JSON.stringify(out));
+  assert.ok(!(await db.getMeta('rw_tried_at')), 'not started');
+  ok('the daily cron does not start Retraction Watch (it needs a whole run)');
+
   // a refresh without a job start (the desktop app, an old job) still reloads everything when forced: not changed
   for (const k of KEYS) await db.setMeta(`${k}_loaded_at`, now);
   out = await D.ensureDatasets({ force: true, budgetMs: 0, log: () => {} });

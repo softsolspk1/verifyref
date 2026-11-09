@@ -1772,7 +1772,10 @@ async function ensureDatasetsNow({ force = false, since = null, maxAgeDays = 7, 
   for (const { d: [key, name, label, fn] } of todo) {
     // a list that would not finish in the time left waits for the next run (one that starts it has the whole run)
     const left = budgetMs - (Date.now() - started);
-    if (left <= 0 || (ran && left < (NEEDS_MS[key] || 30000))) { (results.deferred = results.deferred || []).push(label); continue; }
+    // ... and a list that needs more than the whole budget is not started at all: the daily cron (60 s) started Retraction
+    // Watch every night as the stalest list and was stopped while saving it (8-9 Nov); Admin > Data > Refresh loads it in a
+    // run of its own
+    if (left <= 0 || (ran && left < (NEEDS_MS[key] || 30000)) || (!force && (NEEDS_MS[key] || 0) > budgetMs)) { (results.deferred = results.deferred || []).push(label); continue; }
     ran++;
     await setMeta(`${key}_tried_at`, new Date().toISOString());
     // never loaded into this database: take the table from its R2 snapshot first (no source download)

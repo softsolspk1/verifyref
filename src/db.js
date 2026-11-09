@@ -516,6 +516,13 @@ CREATE TABLE IF NOT EXISTS image_index_segments (
   charts INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- The panels' display data (paper, figure, panel label, type, thumbnail key, size) also moves to R2 with the segment, in
+-- gzipped JSON chunks <meta_key>-<n>.json.gz whose first panel ids are meta_index; the exported rows are then deleted
+ALTER TABLE image_index_segments ADD COLUMN IF NOT EXISTS meta_key TEXT;
+ALTER TABLE image_index_segments ADD COLUMN IF NOT EXISTS meta_index TEXT;
+-- The panel ids of a paper's current indexing (a re-indexed or removed paper's panels on R2 are recognised by them)
+ALTER TABLE image_ref_docs ADD COLUMN IF NOT EXISTS ref_min INTEGER;
+ALTER TABLE image_ref_docs ADD COLUMN IF NOT EXISTS ref_max INTEGER;
 
 -- Every dataset file kept on Cloudflare R2 (data folder mirror, raw snapshots of downloaded datasets, uploaded lists)
 CREATE TABLE IF NOT EXISTS dataset_files (

@@ -112,9 +112,9 @@ async function storeDoc(source, key, meta, images, { status = null, error = null
       note = EXCLUDED.note, status = EXCLUDED.status, figures = EXCLUDED.figures, panels = EXCLUDED.panels, error = EXCLUDED.error, indexed_at = now() RETURNING *`,
   [source, String(key), meta.doi || null, meta.title ? String(meta.title).slice(0, 600) : null, meta.journal || null, meta.year ? String(meta.year) : null, meta.url || null, meta.pdfUrl || null,
     meta.note ? String(meta.note).slice(0, 1000) : null, st, images.length, panels.length, error]);
-  const old = await db.all('SELECT thumb_key FROM image_refs WHERE doc_id = $1 AND thumb_key IS NOT NULL', [doc.id]);
+  // the earlier indexing: its rows, and its thumbnails on R2 (also those of panels already exported)
   await db.query('DELETE FROM image_refs WHERE doc_id = $1', [doc.id]);
-  for (const o of old) await R2.deleteObject(o.thumb_key);
+  await dropThumbs(source, doc.id);
   if (panels.length) {
     const thumbs = R2.enabled();
     const keys = panels.map((p, i) => (thumbs ? `image-refs/${source}/${doc.id}/${i + 1}-${crypto.randomBytes(4).toString('hex')}.jpg` : null));
@@ -126,6 +126,8 @@ async function storeDoc(source, key, meta, images, { status = null, error = null
       { name: 'doc_id', type: 'int' }, { name: 'source', type: 'text' }, { name: 'figure', type: 'text' }, { name: 'panel', type: 'text' }, { name: 'type', type: 'text' },
       { name: 'hashes', type: 'text' }, { name: 'series', type: 'jsonb' }, { name: 'thumb_key', type: 'text' }, { name: 'w', type: 'int' }, { name: 'h', type: 'int' }], rows, 500));
   }
+  // the paper's current panels (exported panels of an earlier indexing fall outside and are no longer reported)
+  await db.query('UPDATE image_ref_docs d SET ref_min = r.lo, ref_max = r.hi FROM (SELECT min(id) AS lo, max(id) AS hi FROM image_refs WHERE doc_id = $1) r WHERE d.id = $1', [doc.id]);
   await bumpVersion();
   return { ...doc, panels: panels.length };
 }
@@ -136,8 +138,8 @@ async function markDoc(source, key, status, meta = {}, error = null) {
 }
 
 async function deleteDoc(id) {
-  const thumbs = await db.all('SELECT thumb_key FROM image_refs WHERE doc_id = $1 AND thumb_key IS NOT NULL', [id]);
-  for (const t of thumbs) await R2.deleteObject(t.thumb_key);
+  const doc = await db.one('SELECT source FROM image_ref_docs WHERE id = $1', [id]);
+  if (doc) await dropThumbs(doc.source, id);
   await db.query('DELETE FROM image_ref_docs WHERE id = $1', [id]);
   await bumpVersion();
 }
@@ -608,7 +610,7 @@ async function exportIndex({ batch = 100000, minPanels = 1, log = () => {} } = {
   if (!R2.enabled()) return { skipped: 'Cloudflare R2 is not configured' };
   const out = { segments: 0, panels: 0, charts: 0 };
   for (;;) {
-    const rows = await db.all('SELECT id, type, hashes, series FROM image_refs WHERE hashes IS NOT NULL ORDER BY id LIMIT $1', [batch]);
+    const rows = await db.all(`SELECT ${META_COLS}, hashes, series FROM image_refs WHERE hashes IS NOT NULL ORDER BY id LIMIT $1`, [batch]);
     if (!rows.length || rows.length < minPanels) break;
     const { ids, h, n } = hashRows(rows);
     const chartList = rows.filter(r => r.series).map(r => [r.id, r.series]);
@@ -619,9 +621,12 @@ async function exportIndex({ batch = 100000, minPanels = 1, log = () => {} } = {
     // read back before clearing the rows: the database copy is only dropped once R2 holds an identical one
     const check = unpackSegment(await R2.getObject(key));
     if (check.ids.length !== n || (n && (check.ids[n - 1] !== ids[n - 1] || check.h[n * 12 - 1] !== h[n * 12 - 1]))) throw new Error(`image index segment ${key} did not read back correctly`);
+    // the panels' display data goes with them (read back in writeMeta); the rows are then deleted from the database
+    const meta = await writeMeta(tag, rows);
     await db.transaction(async client => {
-      await client.query('INSERT INTO image_index_segments(key, charts_key, min_id, max_id, panels, charts) VALUES($1, $2, $3, $4, $5, $6)', [key, chartsKey, rows[0].id, rows[rows.length - 1].id, n, chartList.length]);
-      await client.query('UPDATE image_refs SET hashes = NULL, series = NULL WHERE id = ANY($1::int[])', [rows.map(r => r.id)]);
+      await setDocRanges(client, [...new Set(rows.map(r => r.doc_id))]);
+      await client.query('INSERT INTO image_index_segments(key, charts_key, min_id, max_id, panels, charts, meta_key, meta_index) VALUES($1, $2, $3, $4, $5, $6, $7, $8)', [key, chartsKey, rows[0].id, rows[rows.length - 1].id, n, chartList.length, meta.key, JSON.stringify(meta.index)]);
+      await client.query('DELETE FROM image_refs WHERE id = ANY($1::int[])', [rows.map(r => r.id)]);
     });
     out.segments++; out.panels += n; out.charts += chartList.length;
     log(`image index: segment ${key} (${n} panels, ${chartList.length} charts) on R2`);
@@ -637,8 +642,10 @@ async function exportIndex({ batch = 100000, minPanels = 1, log = () => {} } = {
  */
 async function compactIndex({ maxSegments = 40, mergeLimit = 300000, log = () => {} } = {}) {
   if (!R2.enabled()) return { merged: 0 };
-  const segs = await db.all('SELECT * FROM image_index_segments ORDER BY panels, id');
-  if (segs.length <= maxSegments) return { merged: 0 };
+  const all = await db.all('SELECT * FROM image_index_segments ORDER BY panels, id');
+  if (all.length <= maxSegments) return { merged: 0 };
+  // segments with their panel data on R2 (all of them once scripts/image-refs-to-r2.js has run)
+  const segs = all.filter(s => s.meta_key);
   const pick = [];
   let size = 0;
   for (const s of segs) { if (pick.length >= 2 && size + s.panels > mergeLimit) break; pick.push(s); size += s.panels; }
@@ -646,7 +653,11 @@ async function compactIndex({ maxSegments = 40, mergeLimit = 300000, log = () =>
   const parts = await Promise.all(pick.map(readSegment));
   const chartParts = (await Promise.all(pick.map(readSegmentCharts))).flat();
   const minId = Math.min(...pick.map(s => s.min_id)), maxId = Math.max(...pick.map(s => s.max_id));
-  const alive = new Set((await db.all('SELECT id FROM image_refs WHERE id BETWEEN $1 AND $2', [minId, maxId])).map(r => r.id));
+  // current panels: their paper still indexed and the id within its ref_min..ref_max
+  const metaRows = new Map();
+  for (const s of pick) for (const n of metaChunksFor(s, -Infinity, Infinity)) for (const [id, r] of await readMetaChunk(s.meta_key, n)) metaRows.set(id, r);
+  const docs = new Map((await db.all('SELECT id, ref_min, ref_max FROM image_ref_docs WHERE id = ANY($1::int[])', [[...new Set([...metaRows.values()].map(r => r.doc_id))]])).map(d => [d.id, d]));
+  const alive = new Set([...metaRows.values()].filter(r => { const d = docs.get(r.doc_id); return d && d.ref_min !== null && r.id >= d.ref_min && r.id <= d.ref_max; }).map(r => r.id));
   const ids = new Int32Array(size), h = new Uint32Array(size * 12);
   let n = 0;
   for (const p of parts) for (let i = 0; i < p.ids.length; i++) {
@@ -659,14 +670,116 @@ async function compactIndex({ maxSegments = 40, mergeLimit = 300000, log = () =>
   await R2.putObject(key, packSegment(ids, h, n));
   if (chartsKey) await R2.putObject(chartsKey, zlib.gzipSync(JSON.stringify(chartList)), 'application/gzip');
   if (unpackSegment(await R2.getObject(key)).ids.length !== n) throw new Error(`merged image index segment ${key} did not read back correctly`);
+  const meta = await writeMeta(tag, [...metaRows.values()].filter(r => alive.has(r.id)).sort((a, b) => a.id - b.id));
   await db.transaction(async client => {
-    await client.query('INSERT INTO image_index_segments(key, charts_key, min_id, max_id, panels, charts) VALUES($1, $2, $3, $4, $5, $6)', [key, chartsKey, minId, maxId, n, chartList.length]);
+    await client.query('INSERT INTO image_index_segments(key, charts_key, min_id, max_id, panels, charts, meta_key, meta_index) VALUES($1, $2, $3, $4, $5, $6, $7, $8)', [key, chartsKey, minId, maxId, n, chartList.length, meta.key, JSON.stringify(meta.index)]);
     await client.query('DELETE FROM image_index_segments WHERE id = ANY($1::int[])', [pick.map(s => s.id)]);
   });
   await bumpVersion();
-  for (const s of pick) { await R2.deleteObject(s.key); if (s.charts_key) await R2.deleteObject(s.charts_key); }
+  for (const s of pick) {
+    await R2.deleteObject(s.key);
+    if (s.charts_key) await R2.deleteObject(s.charts_key);
+    for (let c = 0; c < JSON.parse(s.meta_index || '[]').length; c++) await R2.deleteObject(`${s.meta_key}-${c}.json.gz`).catch(() => null);
+  }
   log(`image index: ${pick.length} segments merged into ${key} (${n} panels)`);
   return { merged: pick.length };
+}
+
+// --- panel display data on R2
+// An exported panel's row (paper, figure, panel label, type, thumbnail key, size) is kept with its segment on R2 in
+// gzipped JSON chunks of META_CHUNK panels, and the row is deleted from the database (7-9 Nov 2026: 617,000 rows, 158 MB of
+// Neon). A paper's current panels are those with ids in its ref_min..ref_max range: panels of a re-indexed or removed
+// paper stay in their segment until it is merged, but are no longer reported.
+const META_CHUNK = 5000;
+const META_COLS = 'id, doc_id, source, figure, panel, type, thumb_key, w, h';
+const metaRow = r => [r.id, r.doc_id, r.source, r.figure, r.panel, r.type, r.thumb_key, r.w, r.h];
+const fromMeta = a => ({ id: a[0], doc_id: a[1], source: a[2], figure: a[3], panel: a[4], type: a[5], thumb_key: a[6], w: a[7], h: a[8] });
+const metaChunkCache = new Map();   // chunk key -> Map(id -> row); chunks never change once written
+
+/** Write rows (sorted by id) as meta chunks for a segment tag; read back before the rows may be deleted -> { key, index } */
+async function writeMeta(tag, rows) {
+  const key = `imgindex/seg-${tag}-meta`, index = [];
+  for (let i = 0, n = 0; i < rows.length; i += META_CHUNK, n++) {
+    const part = rows.slice(i, i + META_CHUNK);
+    await R2.putObject(`${key}-${n}.json.gz`, zlib.gzipSync(JSON.stringify(part.map(metaRow))), 'application/gzip');
+    index.push(part[0].id);
+  }
+  for (let n = 0; n < index.length; n++) {
+    const back = JSON.parse(zlib.gunzipSync(await R2.getObject(`${key}-${n}.json.gz`)).toString('utf8'));
+    const want = rows.slice(n * META_CHUNK, (n + 1) * META_CHUNK);
+    if (back.length !== want.length || back[back.length - 1][0] !== want[want.length - 1].id) throw new Error(`panel data ${key}-${n} did not read back correctly`);
+  }
+  return { key, index };
+}
+
+async function readMetaChunk(key, n) {
+  const k = `${key}-${n}.json.gz`;
+  if (!metaChunkCache.has(k)) {
+    const rows = JSON.parse(zlib.gunzipSync(await R2.getObject(k)).toString('utf8')).map(fromMeta);
+    if (metaChunkCache.size > 80) metaChunkCache.delete(metaChunkCache.keys().next().value);
+    metaChunkCache.set(k, new Map(rows.map(r => [r.id, r])));
+  }
+  return metaChunkCache.get(k);
+}
+
+/** Chunk numbers of a segment that may hold ids lo..hi */
+function metaChunksFor(seg, lo, hi) {
+  const index = JSON.parse(seg.meta_index || '[]'), out = [];
+  for (let n = 0; n < index.length; n++) if (index[n] <= hi && (n + 1 >= index.length || index[n + 1] > lo)) out.push(n);
+  return out;
+}
+
+/**
+ * Current panels by id, with their paper: the rows still in the database, then the segments' panel data on R2.
+ * Returns Map(id -> { id, doc_id, source, figure, panel, type, thumb_key, w, h, doi, title, journal, year, url, note })
+ */
+async function refRows(ids) {
+  ids = [...new Set(ids.map(Number))];
+  const found = new Map();
+  if (!ids.length) return found;
+  for (const r of await db.all(`SELECT ${META_COLS} FROM image_refs WHERE id = ANY($1::int[])`, [ids])) found.set(r.id, r);
+  const rest = ids.filter(i => !found.has(i));
+  if (rest.length && R2.enabled()) {
+    const segs = await db.all('SELECT * FROM image_index_segments WHERE meta_key IS NOT NULL ORDER BY min_id');
+    for (const id of rest) {
+      for (const s of segs) {
+        if (id < s.min_id || id > s.max_id) continue;
+        let r = null;
+        for (const n of metaChunksFor(s, id, id)) { r = (await readMetaChunk(s.meta_key, n)).get(id); if (r) break; }
+        if (r) { found.set(id, { ...r, onR2: true }); break; }
+      }
+    }
+  }
+  const docIds = [...new Set([...found.values()].map(r => r.doc_id))];
+  const docs = new Map((await db.all('SELECT id, doi, title, journal, year, url, note, ref_min, ref_max FROM image_ref_docs WHERE id = ANY($1::int[])', [docIds])).map(d => [d.id, d]));
+  const out = new Map();
+  for (const [id, r] of found) {
+    const d = docs.get(r.doc_id);
+    if (!d) continue;   // paper removed
+    if (r.onR2 && !(d.ref_min !== null && id >= d.ref_min && id <= d.ref_max)) continue;   // an earlier indexing of the paper
+    const { onR2, ...row } = r;
+    out.set(id, { ...row, doi: d.doi, title: d.title, journal: d.journal, year: d.year, url: d.url, note: d.note });
+  }
+  return out;
+}
+
+/**
+ * Keep each paper's ref_min..ref_max on the panels it has in the database now (before exported rows are deleted): a
+ * paper indexed again (its rows above the old range) gets the new range, otherwise the range is widened
+ */
+async function setDocRanges(client, docIds) {
+  if (!docIds.length) return;
+  await client.query(`UPDATE image_ref_docs d SET
+      ref_min = CASE WHEN d.ref_min IS NULL OR d.ref_max IS NULL OR r.lo > d.ref_max THEN r.lo ELSE LEAST(d.ref_min, r.lo) END,
+      ref_max = CASE WHEN d.ref_min IS NULL OR d.ref_max IS NULL OR r.lo > d.ref_max THEN r.hi ELSE GREATEST(d.ref_max, r.hi) END
+    FROM (SELECT doc_id, min(id) AS lo, max(id) AS hi FROM image_refs WHERE doc_id = ANY($1::int[]) GROUP BY doc_id) r WHERE d.id = r.doc_id`, [docIds]);
+}
+
+/** Remove every thumbnail of a paper on R2 (also those of panels already exported) */
+async function dropThumbs(source, docId) {
+  if (!R2.enabled()) return;
+  const list = await R2.listObjects(`image-refs/${source}/${docId}/`).catch(() => []);
+  for (let i = 0; i < list.length; i += 8) await Promise.all(list.slice(i, i + 8).map(o => R2.deleteObject(o.key).catch(() => null)));
 }
 
 // --- multi-index hashing: exact search that does not slow down as the databases grow
@@ -827,9 +940,7 @@ async function matchManuscript(panels, chartList = []) {
   const matches = [];
   if (cands.length) {
     const refIds = [...new Set(cands.map(c => c.ref))].slice(0, 400);
-    const rows = await db.all(`SELECT r.id, r.source, r.figure, r.panel, r.type, r.thumb_key, r.w, r.h, d.id AS doc_id, d.doi, d.title, d.journal, d.year, d.url, d.note
-      FROM image_refs r JOIN image_ref_docs d ON d.id = r.doc_id WHERE r.id = ANY($1::int[])`, [refIds]);
-    const byId = new Map(rows.map(r => [r.id, r]));
+    const byId = await refRows(refIds);
     const panelById = new Map(panels.map(p => [p.id, p]));
     const thumbs = new Map();
     for (const c of cands) {
@@ -864,8 +975,7 @@ async function matchManuscript(panels, chartList = []) {
     const hits = [];
     for (const r of cs.list) for (const s of r.series) for (const m of mine) { const c = sameSeries(m, s); if (c) hits.push({ chart: m.label, refId: r.id, correlation: Math.round(c * 1000) / 1000 }); }
     if (hits.length) {
-      const rows = await db.all(`SELECT r.id, r.source, r.panel, d.doi, d.title, d.journal, d.year, d.url, d.note FROM image_refs r JOIN image_ref_docs d ON d.id = r.doc_id WHERE r.id = ANY($1::int[])`, [[...new Set(hits.map(h => h.refId))]]);
-      const byId = new Map(rows.map(r => [r.id, r]));
+      const byId = await refRows(hits.map(h => h.refId));
       const seen = new Set();
       for (const h of hits.sort((a, b) => b.correlation - a.correlation)) {
         const r = byId.get(h.refId);
@@ -1018,10 +1128,22 @@ async function growImageDatabases({ budgetMs = 240000 } = {}) {
   return { retracted: brief(out.retracted), publisher: brief(out.publisher), pmc: brief(out.pmc), exported: out.exported, seconds: Math.round((Date.now() - started) / 1000) };
 }
 
-const panelsOf = docId => db.all('SELECT id, figure, panel, type, w, h, (thumb_key IS NOT NULL) AS has_thumb FROM image_refs WHERE doc_id = $1 ORDER BY id', [docId]);
-const thumbKey = async id => (await db.one('SELECT thumb_key FROM image_refs WHERE id = $1', [id]))?.thumb_key || null;
+/** A paper's current panels: rows still in the database and its exported panels' data on R2 */
+async function panelsOf(docId) {
+  const shape = r => ({ id: r.id, figure: r.figure, panel: r.panel, type: r.type, w: r.w, h: r.h, has_thumb: !!r.thumb_key });
+  const out = new Map((await db.all(`SELECT ${META_COLS} FROM image_refs WHERE doc_id = $1`, [docId])).map(r => [r.id, shape(r)]));
+  const d = await db.one('SELECT ref_min, ref_max FROM image_ref_docs WHERE id = $1', [docId]);
+  if (d && d.ref_min !== null && R2.enabled()) {
+    const segs = await db.all('SELECT * FROM image_index_segments WHERE meta_key IS NOT NULL AND min_id <= $2 AND max_id >= $1', [d.ref_min, d.ref_max]);
+    for (const s of segs) for (const n of metaChunksFor(s, d.ref_min, d.ref_max)) {
+      for (const r of (await readMetaChunk(s.meta_key, n)).values()) if (r.doc_id === docId && r.id >= d.ref_min && r.id <= d.ref_max && !out.has(r.id)) out.set(r.id, shape(r));
+    }
+  }
+  return [...out.values()].sort((a, b) => a.id - b.id);
+}
+const thumbKey = async id => (await refRows([id])).get(Number(id))?.thumb_key || null;
 
 module.exports = {
   SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, latestPjpsId, indexRetracted, indexPmc, indexPublisherOa, growImageDatabases, indexUpload,
-  matchManuscript, candidates, verifyThumbs, VERIFY, loadIndex, loadCharts, exportIndex, compactIndex, packSegment, unpackSegment, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
+  matchManuscript, candidates, verifyThumbs, VERIFY, loadIndex, loadCharts, exportIndex, compactIndex, packSegment, unpackSegment, refRows, writeMeta, setDocRanges, META_COLS, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
 };

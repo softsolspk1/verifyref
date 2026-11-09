@@ -295,6 +295,7 @@ const eutils = (tool, params) => {
  * Open-access figures of PubMed Central papers in pharmacy, pharmacology and medicinal plants (newest first), the
  * openly available part of the corpus ImageTwin / Proofig compare against. Continues where the last run stopped.
  */
+const RETRY_MS = 10 * 60 * 1000;
 async function indexPmc({ limit = 100, band = null, force = false, budgetMs = Infinity, concurrency = 3, restart = false } = {}, update = () => {}) {
   const started = Date.now();
   // the search bands take turns (pharmacy, biomedical, then the PJPS subject areas); each keeps its own position
@@ -307,12 +308,18 @@ async function indexPmc({ limit = 100, band = null, force = false, budgetMs = In
   const out = { band: b.id, query, papers: 0, figures: 0, panels: 0, skipped: 0, retried: 0, errors: [], stoppedEarly: false, total: null };
   // earlier failures and pre-fallback "no figures" first
   const retries = await retryList('pmc', Math.floor(limit / 4));
-  out.retried = retries.length;
+  out.retried = 0;
+  // retried papers often failed because PMC was throttling: each can take minutes of waits, so the retries are logged
+  // and stop after RETRY_MS (the rest are tried in a later round); a silent half hour looked like a stalled job
+  const retryUntil = started + RETRY_MS;
   for (const r of retries) {
     if (Date.now() - started > budgetMs) { out.stoppedEarly = true; break; }
+    if (Date.now() > retryUntil) break;
     await indexPmcPaper('pmc', r.source_key, r, out);
+    out.retried++;
+    update(`retry ${r.source_key}: ${out.papers} papers, ${out.panels} panels indexed (earlier failure ${out.retried}/${retries.length})`, 5);
   }
-  limit -= retries.length;
+  limit -= out.retried;
   const list = [];
   while (list.length < limit) {
     const r = await download(eutils('esearch', { db: 'pmc', term: query, retstart: offset, retmax: 200, sort: 'pub_date' }), { timeout: 30000 });

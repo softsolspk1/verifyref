@@ -332,7 +332,10 @@ async function judge(claim, passages, { fullText, deadline } = {}) {
   const base = verdictOf(top[0], { fullText });
   if (!top.length) return { best: null, ...base, conflict: false };
   const modelClaim = claimForModel(claim);
-  const d = await require('./nli').decide(modelClaim, withSubject(modelClaim, top, passages), base, { deadline }).catch(() => null);
+  // an abstract (not a full text) is also read whole by the model: a claim often rests on two of its sentences
+  const body = !fullText ? passages.filter(p => !p.pair).map(p => p.text).join(' ') : '';
+  const whole = body && passages[0]?.title ? `${passages[0].title}. ${body}` : body;
+  const d = await require('./nli').decide(modelClaim, withSubject(modelClaim, top, passages), base, { deadline, whole: whole.length <= 4000 ? whole : '' }).catch(() => null);
   if (!d) return { best: top[0], ...base, conflict: base.verdict === 'unsupported' && !!top[0].conflict };
   const v = verdictOf(d.passage, { fullText, decided: d.decision });
   const [reading, prob] = [['states the claim', d.entailment], ['contradicts the claim', d.contradiction], ['neither states nor contradicts the claim', 1 - d.entailment - d.contradiction]].reduce((a, b) => (b[1] > a[1] ? b : a));

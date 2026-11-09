@@ -32,8 +32,8 @@ function load() {
 }
 
 /** { entailment, contradiction, neutral } probabilities that the passage (premise) states the claim (hypothesis) */
-async function infer(m, premise, hypothesis) {
-  const inputs = await m.tok(premise, { text_pair: hypothesis, truncation: true, max_length: 320 });
+async function infer(m, premise, hypothesis, maxLength = 320) {
+  const inputs = await m.tok(premise, { text_pair: hypothesis, truncation: true, max_length: maxLength });
   const { logits } = await m.net(inputs);
   const l = Array.from(logits.data), mx = Math.max(...l), e = l.map(x => Math.exp(x - mx)), s = e.reduce((a, b) => a + b, 0);
   const out = {};
@@ -50,15 +50,23 @@ async function infer(m, premise, hypothesis) {
  *   full           - a passage entails the claim (>= 0.98), or (>= 0.8) when it shares at least half of the claim's terms
  *   partial        - entailment (>= 0.3) where the matcher found nothing
  *   full -> partial when no passage entails the claim (< 0.2)
+ * Refitted 9 Nov 2026: when the source is an abstract, the model also reads it whole (title and abstract, up to 512
+ * tokens), since a SciFact claim often rests on two sentences that no single passage holds:
+ *   contradiction  - also when the whole abstract contradicts the claim (contradiction - entailment >= 0.99)
+ *   full           - also when the whole abstract entails it (>= 0.95); a passage sharing half the terms needs 0.7
+ *   partial        - entailment >= 0.2 in a passage, or >= 0.3 in the whole abstract, where the matcher found nothing
+ * Held-out dev split: supported claims found 72% -> 74%, contradictions flagged 38% -> 41%; contradicted claims passed
+ * as Full and supported claims called contradicted unchanged, no-evidence passed as Full 1 -> 2 of 131 (docs/benchmark-claims.md).
  */
-const RULE = { covC: 0.2, tc: 0.98, keepE: 0.5, te: 0.98, covF: 0.5, te2: 0.8, tp: 0.3, demote: 0.2 };
+const RULE = { covC: 0.2, tc: 0.98, keepE: 0.5, te: 0.98, covF: 0.5, te2: 0.7, tp: 0.2, demote: 0.2, tcw: 0.99, tw: 0.95, tpw: 0.3 };
 
 /**
  * Model-corrected decision for a claim and its top passages (from match.bestPassages(claim, passages, 3)).
- * base: the matcher's verdict for top[0] ({ verdict }). Returns null when the model is not available, otherwise
+ * base: the matcher's verdict for top[0] ({ verdict }). whole: the source's whole text when it is an abstract (read as
+ * one more premise). Returns null when the model is not available, otherwise
  * { decision: 'full'|'partial'|'contradicts'|'unsupported', passage, entailment, contradiction }.
  */
-async function decide(claim, top, base, { deadline } = {}) {
+async function decide(claim, top, base, { deadline, whole } = {}) {
   if (!top?.length || (deadline && Date.now() > deadline)) return null;
   const m = await load();
   if (!m) return null;
@@ -68,12 +76,18 @@ async function decide(claim, top, base, { deadline } = {}) {
   const byC = scored.filter(s => s.p.coverage >= RULE.covC)
     .reduce((a, b) => (!a || b.contradiction - b.entailment > a.contradiction - a.entailment ? b : a), null);
   const E = byE.entailment, C = byC ? byC.contradiction - byC.entailment : 0;
+  // the whole abstract; the passage shown to the editor stays the best-matching one
+  const w = whole ? await infer(m, whole, claim, 512) : { entailment: 0, contradiction: 0 };
+  const W = w.entailment, CW = w.contradiction - w.entailment;
   const wordConflict = base.verdict === 'unsupported' && !!top[0].conflict;
   const out = (decision, s) => ({ decision, passage: s.p, entailment: s.entailment, contradiction: s.contradiction });
+  const outW = (decision, s) => ({ decision, passage: s.p, entailment: Math.max(s.entailment, W), contradiction: Math.max(s.contradiction, w.contradiction) });
   if (C >= RULE.tc) return out('contradicts', byC);
-  if (wordConflict) return E >= RULE.keepE ? out('partial', byE) : out('contradicts', scored[0]);
+  if (CW >= RULE.tcw) return outW('contradicts', byC || scored[0]);
+  if (wordConflict) return E >= RULE.keepE || W >= RULE.keepE ? out('partial', byE) : out('contradicts', scored[0]);
   if (E >= RULE.te || (E >= RULE.te2 && byE.p.coverage >= RULE.covF)) return out('full', byE);
-  if (E >= RULE.tp && base.verdict === 'unsupported') return out('partial', byE);
+  if (W >= RULE.tw) return outW('full', byE);
+  if ((E >= RULE.tp || W >= RULE.tpw) && base.verdict === 'unsupported') return outW('partial', byE);
   if (base.verdict === 'full' && E < RULE.demote) return out('partial', scored[0]);
   // the matcher's verdict stands; the evidence shown is the passage the model reads as stating the claim, if any
   return out(base.verdict, E >= RULE.demote && byE.entailment > scored[0].entailment ? byE : scored[0]);

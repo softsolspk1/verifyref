@@ -97,3 +97,28 @@ supported called contradicted 9%), so the extra-small model stays.
 | Supported claims called contradicted | 7% | 7% |
 
 Real uploaded PDF (test/audit-m3c.js, arXiv 1706.03762): 6 of 6 (the verbatim BLEU claim had been read as Partial).
+
+## 2026-11-09: an abstract is also read whole
+
+Many SciFact claims rest on two sentences of the abstract that no single passage holds. When the source is an abstract
+(not a full text), the model now also reads the title and abstract whole (up to 512 tokens), as one more premise. The
+rule was refitted on the train split under the earlier limits plus one more (no-evidence claims called contradicted at
+most 6.5%), then checked once on the held-out dev split through the live code (`node scripts/benchmark-claims.js`):
+- contradiction also when the whole abstract contradicts the claim (contradiction - entailment >= 0.99)
+- Full also when the whole abstract entails it (>= 0.95); a passage sharing half of the claim's terms needs 0.7 (was 0.8)
+- Partial where the matcher found nothing: passage entailment >= 0.2 (was 0.3), or whole abstract >= 0.3
+- a word-match Full is still lowered to Partial when no passage entails the claim (the whole abstract does not keep it:
+  that let two contradicted claims through as Full in a first try)
+
+| Dev split (held out) | Before | After |
+|---|---|---|
+| Supported claims found (Full or Partial) | 72% (99/138) | **74% (102/138)** |
+| Supported claims judged Full | 22% | 22% |
+| Contradicted claims flagged as contradicted | 38% (27/71) | **41% (29/71)** |
+| Contradicted claims passed as Full | 1.4% (1/71) | 1.4% (1/71) |
+| No-evidence claims passed as Full | 0.8% (1/131) | 1.5% (2/131) |
+| Supported claims called contradicted | 6.5% (9/138) | 6.5% (9/138) |
+
+Train split: supported found 72% -> 76%, contradicted passed as Full 3 -> 2 of 194, no-evidence passed as Full 1 of 355
+(unchanged), contradictions flagged 85 of 194 (unchanged). Cost: one more model reading per claim when the source is an
+abstract (about 0.3 s on one core). Full texts are read passage by passage as before.

@@ -137,7 +137,7 @@ export function renderCitationsResult(el, r, { again } = {}) {
     </div>
     <div class="tabs">
       <button class="tab active" data-tab="a">A. Citations ↔ reference list<span class="count">${s.missing + s.uncited + s.yearMismatch + s.ambiguous + s.etAl}</span></button>
-      <button class="tab" data-tab="b">B. Claim support${r.claims && !r.claims.error ? `<span class="count">${s.unsupported + s.partial}</span>` : ''}</button>
+      <button class="tab" data-tab="b">B. Claim support${r.claims && !r.claims.error ? `<span class="count">${s.unsupported + s.partial + (s.notConfirmed || 0)}</span>` : ''}</button>
       <button class="tab" data-tab="c">C. Citation pattern<span class="count">${s.patternFlags}</span></button>
       <button class="tab" data-tab="d">Author letter</button>
     </div>

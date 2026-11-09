@@ -10,7 +10,7 @@ const M = require('./match');
 const FT = require('./fulltext');
 const { surnameKey, stripDiacritics } = require('../text');
 
-const VERDICTS = { full: 'Full match', partial: 'Partial match', unsupported: 'Unsupported', 'could-not-verify': 'Could not verify' };
+const VERDICTS = { full: 'Full match', partial: 'Partial match', unsupported: 'Unsupported', 'not-confirmed': 'Not confirmed from the abstract', 'could-not-verify': 'Could not verify' };
 const famKey = s => surnameKey(stripDiacritics(s || ''));
 
 function refNumber(raw, fallback) {
@@ -109,12 +109,17 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
       const src = sources.get(i);
       const v = await M.judge(cl.claim, src?.passages, { fullText: !!src?.fullText, deadline });
       const best = v.best;
+      // read from the abstract only: what the abstract does not contain is not settled, so an "unsupported" that is not
+      // a contradiction is reported as not confirmed (full text needed) and a partial match is marked preliminary
+      const fromAbstract = !!best && !src.fullText && !src.uploaded;
+      if (fromAbstract && v.verdict === 'unsupported' && !v.conflict) v.verdict = 'not-confirmed';
       if (r.status === 'suspicious') v.notes.unshift('The reference itself could not be found — it may be fabricated');
       if (r.status === 'retracted') v.notes.unshift('The cited work has been retracted');
       else if (r.flagged) v.notes.unshift(`The cited work was flagged for integrity problems in a published audit (${r.flagged.issue})`);
       return {
         refIndex: r.index, refRaw: r.raw, refStatus: r.status, refStatusLabel: r.statusLabel, refFlagged: !!r.flagged,
-        verdict: v.verdict, verdictLabel: VERDICTS[v.verdict], notes: v.notes,
+        verdict: v.verdict, verdictLabel: fromAbstract && v.verdict === 'partial' ? 'Partial match (abstract only)' : fromAbstract && v.verdict === 'unsupported' ? 'Contradicted by the abstract' : VERDICTS[v.verdict],
+        preliminary: fromAbstract && v.verdict !== 'full', contradicts: !!v.conflict, notes: v.notes,
         score: best ? Math.round(best.score * 100) : null,
         evidence: best ? { quote: best.text, origin: src.origin, page: best.page || null, url: src.url || null, level: src.uploaded ? 'uploaded file' : src.fullText ? 'full text' : 'abstract' } : null
       };
@@ -143,7 +148,7 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
     claims: out,
     truncated: claims.length > limited.length,
     sourceText,
-    summary: { claims: out.length, citations: all.length, full: count('full'), partial: count('partial'), unsupported: count('unsupported'), couldNotVerify: count('could-not-verify') },
+    summary: { claims: out.length, citations: all.length, full: count('full'), partial: count('partial'), unsupported: count('unsupported'), notConfirmed: count('not-confirmed'), couldNotVerify: count('could-not-verify'), preliminary: all.filter(c => c.preliminary).length },
     references: { summary: refCheck.summary, results: results.map(r => ({ index: r.index, raw: r.raw, status: r.status, statusLabel: r.statusLabel, tone: r.tone, reason: r.reason, retraction: r.retraction, record: r.record ? { title: r.record.title, doi: r.record.doi, year: r.record.year, journal: r.record.journal } : null })) },
     files: { linked: [...linked.entries()].map(([refIndex, f]) => ({ name: f.name, refIndex })), unlinked, errors: uploads.filter(u => u.error).map(u => ({ name: u.name, error: u.error })) },
     method: 'Automated comparison on this server: claim terms (weighted by rarity), figures, negation and the direction of the effect stated about the shared terms are matched against the source passages, and a small language model running on this server reads the best passages (and an abstract also as a whole) for meaning (does the source state the claim, state the opposite, or neither). Source text, in this order: an uploaded file, open-access full text (Europe PMC, PubMed Central, Unpaywall, OpenAlex, CORE, Semantic Scholar, bioRxiv / medRxiv, arXiv), then the abstract. Measured on SciFact expert-labelled claims (abstracts only, held-out split): 74% of supported claims are found and 41% of contradicted claims flagged as contradicted; 1.5% of claims without evidence and 1% of contradicted claims pass as Full support, so verdicts are decision support — read the quoted evidence.'

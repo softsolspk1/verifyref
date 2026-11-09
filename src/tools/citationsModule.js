@@ -61,6 +61,7 @@ async function runCitationsModule(input, files = [], update = () => {}) {
       unsupported: ks.unsupported || 0,
       partial: ks.partial || 0,
       full: ks.full || 0,
+      notConfirmed: ks.notConfirmed || 0,
       couldNotVerify: ks.couldNotVerify || 0,
       retractedEvidence: claims ? claims.claims.reduce((a, c) => a + c.citations.filter(x => x.refStatus === 'retracted').length, 0) : 0,
       flaggedEvidence: claims ? claims.claims.reduce((a, c) => a + c.citations.filter(x => x.refFlagged).length, 0) : 0,
@@ -76,7 +77,7 @@ function citationProblems(r) {
   return [
     s.missing && `${s.missing} citation(s) missing from the list`, s.uncited && `${s.uncited} reference(s) never cited`,
     s.yearMismatch && `${s.yearMismatch} year mismatch(es)`, s.spelling && `${s.spelling} author name spelled differently`, s.etAl && `${s.etAl} “et al.” problem(s)`,
-    s.unsupported && `${s.unsupported} unsupported claim(s)`, s.retractedEvidence && `${s.retractedEvidence} claim(s) resting on retracted work`, s.flaggedEvidence && `${s.flaggedEvidence} claim(s) resting on work flagged in an integrity audit`,
+    s.unsupported && `${s.unsupported} unsupported claim(s)`, s.notConfirmed && `${s.notConfirmed} claim(s) not confirmed from the abstract (source PDF needed)`, s.retractedEvidence && `${s.retractedEvidence} claim(s) resting on retracted work`, s.flaggedEvidence && `${s.flaggedEvidence} claim(s) resting on work flagged in an integrity audit`,
     s.patternFlags && `${s.patternFlags} citation-pattern flag(s)`
   ].filter(Boolean);
 }

@@ -92,6 +92,7 @@ const T = {
       yearMismatch: 'Citations whose year differs between the text and the reference list:',
       etal: 'Incorrect use of “et al.” in in-text citations:',
       unsupported: 'Cited sources that do not appear to support the statement they are cited for (please check the citation or the wording):',
+      sourcePdf: 'Cited works we could compare only with their abstract (the full text is not openly available). Please upload the PDF of each with the revised manuscript, so the statements citing them can be checked against the full text:',
       style: 'References not in PJPS style (the expected form is shown):'
     },
     suggested: 'Suggested:',
@@ -117,6 +118,7 @@ const T = {
       yearMismatch: 'وہ حوالے جن کا سال متن اور فہرستِ حوالہ جات میں مختلف ہے:',
       etal: 'متن کے حوالوں میں “et al.” کا غلط استعمال:',
       unsupported: 'وہ ماخذ جو اس بیان کی تائید کرتے نظر نہیں آتے جس کے لیے ان کا حوالہ دیا گیا (براہِ کرم حوالہ یا عبارت کی جانچ کریں):',
+      sourcePdf: 'وہ حوالہ شدہ مقالات جن کا موازنہ صرف ان کے خلاصے (abstract) سے ہو سکا (مکمل متن کھلے عام دستیاب نہیں)۔ براہِ کرم نظرثانی شدہ مسودے کے ساتھ ہر ایک کی PDF اپ لوڈ کریں تاکہ ان کا حوالہ دینے والے بیانات کی مکمل متن سے جانچ ہو سکے:',
       style: 'وہ حوالہ جات جو PJPS اسلوب کے مطابق نہیں (درست صورت ساتھ دی گئی ہے):'
     },
     suggested: 'تجویز:',
@@ -149,6 +151,16 @@ function correctionLetter(result, lang = 'en') {
   sec('yearMismatch', (cit.yearMismatch || []).map(y => ({ text: y.citation, note: y.message })));
   sec('etal', (cit.etAlIssues || []).map(e => ({ text: e.citation, note: e.message })));
   sec('unsupported', (result.claims?.claims || []).flatMap(c => c.citations.filter(x => x.verdict === 'unsupported').map(x => ({ ref: x.refIndex, text: `“${c.claim.slice(0, 220)}”`, note: x.refRaw.slice(0, 160) }))));
+  // statements the abstract could not settle: the author is asked for the cited works' PDFs (not told the source fails them)
+  const pending = new Map();
+  for (const c of result.claims?.claims || []) for (const x of c.citations) {
+    if (!(x.verdict === 'not-confirmed' || (x.preliminary && x.verdict === 'partial'))) continue;
+    if (x.refStatus === 'retracted' || x.refStatus === 'suspicious') continue; // asked about in their own sections
+    const e = pending.get(x.refIndex) || { ref: x.refIndex, text: x.refRaw.slice(0, 220), claims: [] };
+    if (e.claims.length < 3) e.claims.push(`“${c.claim.slice(0, 160)}”`);
+    pending.set(x.refIndex, e);
+  }
+  sec('sourcePdf', [...pending.values()].sort((a, b) => a.ref - b.ref).map(e => ({ ref: e.ref, text: e.text, note: e.claims.join('; ') })));
   sec('style', (result.compliance?.entries || []).filter(e => !e.compliant).map(e => ({ ref: e.index, text: e.original.slice(0, 200), note: e.deviations.filter(d => d.severity !== 'info').map(d => d.message).join('; '), suggestion: e.expected })));
   sec('doi', refs.filter(r => r.status === 'verified' && !r.parsed?.doi && r.record?.doi).map(r => ({ ref: r.index, text: r.raw.slice(0, 140), suggestion: `https://doi.org/${r.record.doi}` })));
   const weakSelf = (result.pattern?.selfCitation?.refs || []).filter(s => s.relevance?.level === 'weak');

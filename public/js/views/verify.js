@@ -2,7 +2,7 @@
 import { esc, $, $$, toast, dropzone, startJob, download, badge, ICONS } from '../core.js';
 import { shareButton, wireShare } from './share.js';
 
-const VTONE = { full: 'good', partial: 'warn', unsupported: 'bad', 'could-not-verify': 'neutral' };
+const VTONE = { full: 'good', partial: 'warn', unsupported: 'bad', 'not-confirmed': 'neutral', 'could-not-verify': 'neutral' };
 
 export function renderVerify(view) {
   let manuscript = null;
@@ -81,6 +81,7 @@ export function renderVerifyResult(el, r, { again } = {}) {
       <div class="kpi good"><div class="n">${s.full}</div><div class="l">Full match</div></div>
       <div class="kpi warn"><div class="n">${s.partial}</div><div class="l">Partial match</div></div>
       <div class="kpi bad"><div class="n">${s.unsupported}</div><div class="l">Unsupported</div></div>
+      ${s.notConfirmed !== undefined ? `<div class="kpi"><div class="n">${s.notConfirmed}</div><div class="l">Not confirmed from the abstract</div></div>` : ''}
       <div class="kpi"><div class="n">${s.couldNotVerify}</div><div class="l">Could not verify</div></div>
       <div class="kpi ${r.references.summary.suspicious ? 'bad' : ''}"><div class="n">${r.references.summary.suspicious}</div><div class="l">Suspicious references</div></div>
     </div>
@@ -88,7 +89,7 @@ export function renderVerifyResult(el, r, { again } = {}) {
     ${r.truncated ? '<div class="alert alert-warn">Only the first 400 cited claims were analysed.</div>' : ''}
     ${sourceTextNote(r.sourceText)}
     <p class="muted">${esc(r.method)}</p>
-    <div class="filters">${[['all', 'All'], ['unsupported', 'Unsupported'], ['partial', 'Partial'], ['could-not-verify', 'Could not verify'], ['full', 'Full match']].map(([k, l], i) => `<button class="filter ${i ? '' : 'active'}" data-f="${k}">${l}</button>`).join('')}</div>
+    <div class="filters">${[['all', 'All'], ['unsupported', 'Unsupported'], ['partial', 'Partial'], ['not-confirmed', 'Not confirmed (abstract)'], ['could-not-verify', 'Could not verify'], ['full', 'Full match']].map(([k, l], i) => `<button class="filter ${i ? '' : 'active'}" data-f="${k}">${l}</button>`).join('')}</div>
     <div id="claims">${r.claims.map(c => `
       <div class="claim" data-v="${c.citations.map(x => x.verdict).join(' ')}">
         <div class="claim-head">${esc(c.sentence)}</div>

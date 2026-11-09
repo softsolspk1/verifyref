@@ -132,8 +132,8 @@ tool('verify', async (input, { userId, update }) => {
     const s = result.summary;
     result.id = await saveResult(userId, 'verify', result, {
       title: input.meta?.title || 'Verify Citations', manuscriptCode: input.meta?.manuscriptCode, refTotal: result.references.summary.total,
-      counts: { verified: s.full, unverified: s.partial + s.couldNotVerify, suspicious: s.unsupported, retracted: result.references.summary.retracted },
-      problems: [s.unsupported ? `${s.unsupported} unsupported citation(s)` : null, s.partial ? `${s.partial} partially supported` : null].filter(Boolean),
+      counts: { verified: s.full, unverified: s.partial + s.couldNotVerify + (s.notConfirmed || 0), suspicious: s.unsupported, retracted: result.references.summary.retracted },
+      problems: [s.unsupported ? `${s.unsupported} unsupported citation(s)` : null, s.partial ? `${s.partial} partially supported` : null, s.notConfirmed ? `${s.notConfirmed} not confirmed from the abstract` : null].filter(Boolean),
       pending: result.references.summary.pending || 0
     });
   }
@@ -175,7 +175,7 @@ tool('citations-module', async (input, { userId, update }) => {
     const s = result.summary;
     result.id = await saveResult(userId, 'citations', result, {
       title: input.meta?.title || 'Citations', manuscriptCode: input.meta?.manuscriptCode, refTotal: s.references,
-      counts: { verified: s.full, suspicious: s.unsupported, unverified: s.partial + s.couldNotVerify, retracted: result.claims?.references?.summary?.retracted || 0 },
+      counts: { verified: s.full, suspicious: s.unsupported, unverified: s.partial + s.couldNotVerify + (s.notConfirmed || 0), retracted: result.claims?.references?.summary?.retracted || 0 },
       problems: citationProblems(result)
     });
   }

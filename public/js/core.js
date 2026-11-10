@@ -60,7 +60,8 @@ export async function api(url, opts = {}) {
   const r = await fetch(url, init);
   if (r.status === 401) { location.href = '/'; throw new Error('Signed out'); }
   if (r.status === 413) throw new Error(`File too large to upload (limit ${MAX_UPLOAD_MB} MB). Paste the text instead, or save the document without images.`);
-  const data = await r.json().catch(() => ({ success: false, message: `Server error (${r.status})` }));
+  // a 200 whose body cannot be read: the connection dropped while the reply was arriving (the server finished)
+  const data = await r.json().catch(() => ({ success: false, message: r.ok ? 'The connection was interrupted while the server\'s reply was arriving (the server may have finished; see Reports).' : `Server error (${r.status})` }));
   if (!r.ok || data.success === false) throw new Error(data.message || `Request failed (${r.status})`);
   return data;
 }

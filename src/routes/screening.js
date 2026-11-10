@@ -121,6 +121,9 @@ router.post('/images', mod('images'), wrap(async (req, res) => {
   const b = req.body || {};
   if (!b.result || !Array.isArray(b.result.findings)) return res.status(400).json({ success: false, message: 'No image analysis received.' });
   const out = await IMG.saveImageCheck(req.user.id, b.result, { save: b.save !== false });
+  // a Full Screening running alongside gets the report here, not only from the browser after this reply (on 9 Nov the
+  // reply to a saved report was lost, and the screening said the analysis could not be completed)
+  if (b.jobId && out.id) await require('../jobs').attachToJob(String(b.jobId), req.user.id, { imagesCheckId: out.id, imagesEmbedded: true }).catch(() => {});
   res.json({ success: true, ...out });
 }));
 

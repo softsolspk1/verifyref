@@ -65,6 +65,14 @@ const { start } = require('../server');
   await api(`/api/jobs/${pending2.jobId}/images`, { method: 'POST', body: { imagesNote: 'The manuscript file contains no figures that could be analysed.' } });
   const r4 = await job(pending2.jobId);
   assert.strictEqual(r4.result.screening.lines.images, 'The manuscript file contains no figures that could be analysed.', 'reason given');
+  // the image report is saved with the job's id: the server attaches it, and the browser's error note (its reply was
+  // lost, 9 Nov report #128) does not replace it
+  const pending3 = await api('/api/checks', { method: 'POST', body: { kind: 'manuscript', text, meta: { title: 'Lost reply', authors: ['A Khan'] }, imagesHandled: true, imagesPending: true } });
+  const img3 = await api('/api/images', { method: 'POST', body: { jobId: pending3.jobId, result: { meta: { title: 'Lost reply' }, panels: [], findings: [], charts: [], images: [], summary: { images: 0 } } } });
+  await api(`/api/jobs/${pending3.jobId}/images`, { method: 'POST', body: { imagesNote: 'The image analysis could not be completed: Server error (200)' } });
+  const r5 = await job(pending3.jobId);
+  assert.strictEqual(r5.result.images?.checkId, img3.id, 'the image report saved with the job id is in the screening');
+  assert.ok(!/could not be completed/.test(r5.result.screening.lines.images || ''), 'no failure note');
   console.log('screening embedded images test passed');
   process.exit(0);
 })().catch(e => { console.error('FAILED:', e); process.exit(1); });

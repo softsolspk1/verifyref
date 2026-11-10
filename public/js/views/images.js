@@ -184,7 +184,7 @@ export function renderImages(view) {
  * Run Module 5 on manuscript / figure files in this browser and save the report: { id, result, images }. Used by the
  * Image Integrity page and by the Full Screening Report (which attaches the saved report to the screening).
  */
-export async function analyseAndSave(files, meta, set = () => {}, { extracted = null, panelBoxes = null } = {}) {
+export async function analyseAndSave(files, meta, set = () => {}, { extracted = null, panelBoxes = null, jobId = null } = {}) {
   const { images, skipped } = extracted || await extractFigures(files, s => set(s, 5));
   if (!images.length) {
     const why = skipped.map(s => `${s.name}: ${s.reason}`).join(' · ');
@@ -199,7 +199,7 @@ export async function analyseAndSave(files, meta, set = () => {}, { extracted = 
   const panelsAdjusted = panelBoxes ? Object.keys(panelBoxes).length : 0;
   const payload = buildPayload(images, analysis, skipped, { ...meta, panelsAdjusted });
   if (external) addExternalFindings(payload, external);
-  const saved = await api('/api/images', { body: { result: payload } });
+  const saved = await api('/api/images', { body: { result: payload, ...(jobId ? { jobId } : {}) } });
   const result = saved.result;
   result.id = saved.id;
   await savePanelViews(result, images);

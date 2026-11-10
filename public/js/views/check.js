@@ -219,7 +219,8 @@ export function renderCheckForm(view, kind) {
           let attach;
           try {
             const { analyseAndSave } = await import('./images.js');
-            const img = await analyseAndSave([doc.file], { title: body.meta.title, manuscriptCode: body.meta.manuscriptCode, filename: doc.file.name }, set);
+            // jobId: the server attaches the saved report to this screening itself, so a lost reply cannot drop it
+            const img = await analyseAndSave([doc.file], { title: body.meta.title, manuscriptCode: body.meta.manuscriptCode, filename: doc.file.name }, set, { jobId });
             attach = { imagesCheckId: img.id, imagesEmbedded: true };
           } catch (e) {
             // no figures in the file, or the analysis failed: the rest of the screening still runs, and the report says why

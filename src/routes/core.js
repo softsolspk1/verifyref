@@ -6,7 +6,7 @@ const cfg = require('../config');
 const db = require('../db');
 const auth = require('../auth');
 const { permissionsOf } = require('../modules');
-const { defineJob, createJob, getJob, attachToJob } = require('../jobs');
+const { defineJob, createJob, getJob, attachToJob, jobInput } = require('../jobs');
 const P = require('../parse');
 const { runCheck, saveCheck, loadCheck, loadShared } = require('../pipeline');
 const { checkJournal } = require('../checks/journal');
@@ -163,6 +163,8 @@ router.post('/jobs/:id/images', user, wrap(async (req, res) => {
   const b = req.body || {};
   const fields = b.imagesCheckId ? { imagesCheckId: parseInt(b.imagesCheckId, 10), imagesEmbedded: !!b.imagesEmbedded } : { imagesNote: String(b.imagesNote || 'The image analysis could not be completed.').slice(0, 300) };
   if (fields.imagesCheckId && !(await db.one("SELECT 1 FROM checks WHERE id = $1 AND user_id = $2 AND kind = 'images'", [fields.imagesCheckId, req.user.id]))) return res.status(404).json({ success: false, message: 'Image report not found.' });
+  // a note never replaces a report the server already attached when it saved it (POST /api/images with jobId)
+  if (fields.imagesNote && (await jobInput(req.params.id).catch(() => null))?.imagesCheckId) return res.json({ success: true });
   const ok = await attachToJob(req.params.id, req.user.id, fields);
   res.json({ success: ok, ...(ok ? {} : { message: 'The screening has already finished.' }) });
 }));

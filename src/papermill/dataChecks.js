@@ -155,11 +155,16 @@ function statTests(text) {
 function percentChecks(text) {
   const t = normalizeStats(text);
   const out = [];
-  const re = /\b(\d{1,6})\s*(?:of|\/|out of)\s*(\d{1,6})\s*\(\s*(\d{1,3}(?:\.\d+)?)\s*%\s*\)/gi;
+  // "18 of 40 (45%)", "18/40 (45%)", "18 out of 40 treated patients (45%)" - up to three words before the bracket -
+  // and "18 (45%) of 40 patients"
+  const re = /\b(\d{1,6})\s*(?:of|\/|out of)\s*(\d{1,6})(?:\s+[A-Za-z][A-Za-z-]*){0,3}\s*\(\s*(\d{1,3}(?:\.\d+)?)\s*%\s*\)|\b(\d{1,6})\s*\(\s*(\d{1,3}(?:\.\d+)?)\s*%\s*\)\s*(?:of|out of)\s+(?:the\s+|all\s+)?(\d{1,6})\b/gi;
   for (const m of t.matchAll(re)) {
-    const a = +m[1], b = +m[2], p = parseFloat(m[3]);
+    const [a, b, pStr] = m[1] !== undefined ? [+m[1], +m[2], m[3]] : [+m[4], +m[6], m[5]];
+    const p = parseFloat(pStr);
+    const year = n => n >= 1900 && n <= 2099;
+    if (year(a) && year(b)) continue;                                        // "2019 of 2020 ...": years, not counts
     if (!b || a > b + 0) { out.push({ kind: 'percentage', gross: true, reported: m[0], recalculated: `${a} of ${b} is impossible (more than the total)`, quote: ctx(t, m.index, m[0].length) }); continue; }
-    const d = decimals(m[3]);
+    const d = decimals(pStr);
     const calc = a / b * 100;
     const tol = 0.5 * Math.pow(10, -d) + 1e-9;
     if (Math.abs(calc - p) > tol) out.push({ kind: 'percentage', gross: Math.abs(calc - p) > 5, reported: m[0], recalculated: `${a}/${b} = ${calc.toFixed(d || 1)}%`, quote: ctx(t, m.index, m[0].length) });

@@ -22,8 +22,8 @@ const dup = (a, b, k = 1, extra = {}) => ({ kind: 'duplicate', category: 'duplic
   const findings = [
     dup('p4i1', 'p20i1', 1), dup('p4i1', 'p20i1', 2), dup('p6i1', 'p21i1', 1), dup('p6i1', 'p21i1', 2), dup('p8i1', 'p22i1', 1),
     dup('p4i1', 'p6i1', 1), dup('p20i1', 'p21i1', 1), // real: Fig. 4 panel 1 re-used in Fig. 6, found again between the copies
-    { kind: 'clone', category: 'manipulation', level: 'medium', a: { panel: 'p8i1-p1', box: { x: 10, y: 10 } }, b: { panel: 'p8i1-p1' }, description: 'clone' },
-    { kind: 'clone', category: 'manipulation', level: 'medium', a: { panel: 'p22i1-p1', box: { x: 10, y: 10 } }, b: { panel: 'p22i1-p1' }, description: 'clone' }
+    { kind: 'clone', category: 'manipulation', level: 'high', score: 150, a: { panel: 'p8i1-p1', box: { x: 10, y: 10 } }, b: { panel: 'p8i1-p1' }, description: 'clone' },
+    { kind: 'clone', category: 'manipulation', level: 'high', score: 150, a: { panel: 'p22i1-p1', box: { x: 10, y: 10 } }, b: { panel: 'p22i1-p1' }, description: 'clone' }
   ];
   let r = await reviewFindings({ images, panels, findings });
   assert.deepStrictEqual(Object.keys(r.copies).sort(), ['p20i1', 'p21i1', 'p22i1'], 'figure section recognised');
@@ -50,11 +50,22 @@ const dup = (a, b, k = 1, extra = {}) => ({ kind: 'duplicate', category: 'duplic
   const b4 = build(d4);
   const f4 = [
     { kind: 'ai', category: 'ai', level: 'medium', score: 78, a: { panel: 'p2i1-p1' }, b: { panel: 'p2i1-p1' }, description: 'AI 78%' },
-    { kind: 'alteration', category: 'manipulation', level: 'medium', a: { panel: 'p2i1-p1', box: { x: 1, y: 1 } }, b: { panel: 'p2i1-p1' }, description: 'noise' },
-    { kind: 'alteration', category: 'manipulation', level: 'medium', a: { panel: 'p4i1-p1', box: { x: 1, y: 1 } }, b: { panel: 'p4i1-p1' }, description: 'noise' }
+    { kind: 'alteration', category: 'manipulation', level: 'high', score: 3, a: { panel: 'p2i1-p1', box: { x: 1, y: 1 } }, b: { panel: 'p2i1-p1' }, description: 'noise' },
+    { kind: 'alteration', category: 'manipulation', level: 'high', score: 3, a: { panel: 'p4i1-p1', box: { x: 1, y: 1 } }, b: { panel: 'p4i1-p1' }, description: 'noise' }
   ];
   r = await reviewFindings({ ...b4, findings: f4 });
   assert.deepStrictEqual(r.findings.map(f => `${f.kind}:${f.a.panel}`), ['ai:p2i1-p1', 'alteration:p4i1-p1']);
+
+  // cloned areas and possible alterations below 75 % confidence are not reported; other kinds keep their findings
+  const weak = [
+    { kind: 'clone', level: 'medium', score: 10, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p1' }, description: 'weak clone' },
+    { kind: 'clone', level: 'high', score: 150, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p1' }, description: 'strong clone' },
+    { kind: 'alteration', level: 'medium', score: 2, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p1' }, description: 'one check' },
+    { kind: 'alteration', level: 'high', score: 3, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p1' }, description: 'two checks' },
+    { kind: 'partial', level: 'medium', score: 12, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p2' }, description: 'overlap' }
+  ];
+  r = await reviewFindings({ images: [], panels: [], findings: weak });
+  assert.deepStrictEqual(r.findings.map(f => f.description), ['strong clone', 'two checks', 'overlap']);
 
   console.log('image review test passed (figure section, real re-use kept, single repeat kept, generated figures)');
 })().catch(e => { console.error(e); process.exit(1); });

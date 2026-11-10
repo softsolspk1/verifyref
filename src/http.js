@@ -30,29 +30,41 @@ const HOST_LIMITS = {
   'serpapi.com': 2
 };
 const DEFAULT_LIMIT = 4;
-const active = new Map();
-const queues = new Map();
 
-function acquire(host) {
-  const limit = HOST_LIMITS[host] || DEFAULT_LIMIT;
-  const n = active.get(host) || 0;
-  if (n < limit) {
-    active.set(host, n + 1);
-    return Promise.resolve();
+// Two lanes per host. The similarity search and the other text modules of a Full Screening send hundreds of requests
+// (inBackground); the reference lookups of Module 1, which the report waits for, used to queue behind them at Europe
+// PMC and PubMed (45 references: 49 s alone, 380 s next to the similarity search). Background requests may hold only
+// part of a host's slots, and a freed slot goes to a waiting reference lookup first.
+const { AsyncLocalStorage } = require('async_hooks');
+const lane = new AsyncLocalStorage();
+/** Run fn with every request it makes (and those of the promises it starts) in the background lane */
+const inBackground = fn => lane.run('background', fn);
+const hosts = new Map();
+const hostState = host => {
+  let s = hosts.get(host);
+  if (!s) {
+    const limit = HOST_LIMITS[host] || DEFAULT_LIMIT;
+    // one slot is kept for the foreground (with 1 slot there is none to keep; the foreground still goes first)
+    s = { limit, lowMax: Math.max(1, limit - 1), active: 0, activeLow: 0, high: [], low: [] };
+    hosts.set(host, s);
   }
-  return new Promise(resolve => {
-    if (!queues.has(host)) queues.set(host, []);
-    queues.get(host).push(resolve);
-  });
+  return s;
+};
+const canRun = (s, low) => s.active < s.limit && (!low || s.activeLow < s.lowMax);
+const start = (s, low) => { s.active++; if (low) s.activeLow++; };
+
+function acquire(host, low = false) {
+  const s = hostState(host);
+  if (canRun(s, low) && !(low ? s.low.length || s.high.length : s.high.length)) { start(s, low); return Promise.resolve(); }
+  return new Promise(resolve => (low ? s.low : s.high).push(resolve));
 }
 
-function release(host) {
-  const q = queues.get(host);
-  if (q && q.length) {
-    q.shift()();
-  } else {
-    active.set(host, Math.max(0, (active.get(host) || 1) - 1));
-  }
+function release(host, low = false) {
+  const s = hostState(host);
+  s.active = Math.max(0, s.active - 1);
+  if (low) s.activeLow = Math.max(0, s.activeLow - 1);
+  while (s.high.length && canRun(s, false)) { start(s, false); s.high.shift()(); }
+  while (s.low.length && canRun(s, true)) { start(s, true); s.low.shift()(); }
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -212,8 +224,9 @@ async function request(url, options = {}) {
   if (cool && cool > Date.now()) return { ok: false, status: 429, error: 'rate-limited (cooling down)' };
   let attempt = 0;
   let result;
+  const low = lane.getStore() === 'background';
   while (true) {
-    await acquire(host);
+    await acquire(host, low);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
@@ -244,7 +257,7 @@ async function request(url, options = {}) {
       }
     } finally {
       clearTimeout(timer);
-      release(host);
+      release(host, low);
     }
 
     // the key's daily budget is spent ("Insufficient budget"): not a rate limit to wait out, so no retries and no cooldown
@@ -299,7 +312,8 @@ const getText = (url, opts) => request(url, { ...opts, json: false });
 async function getBuffer(url, options = {}) {
   const { headers = {}, timeout = 60000 } = options;
   const host = new URL(url).hostname;
-  await acquire(host);
+  const low = lane.getStore() === 'background';
+  await acquire(host, low);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
@@ -317,11 +331,11 @@ async function getBuffer(url, options = {}) {
     return { ok: false, status: 0, error: err.name === 'AbortError' ? 'timeout' : err.message };
   } finally {
     clearTimeout(timer);
-    release(host);
+    release(host, low);
   }
 }
 
 // Purge expired cache rows occasionally
 setInterval(() => { purgeCache().catch(() => {}); }, 6 * 3600 * 1000).unref();
 
-module.exports = { openalexBudget, request, getJson, getText, getBuffer, USER_AGENT, sleep, isOnline, onConnectivity, probe, cacheGet, cacheSet, purgeCache, cacheObjectKey, CACHE_R2_MIN };
+module.exports = { openalexBudget, request, inBackground, getJson, getText, getBuffer, USER_AGENT, sleep, isOnline, onConnectivity, probe, cacheGet, cacheSet, purgeCache, cacheObjectKey, CACHE_R2_MIN };

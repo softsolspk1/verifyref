@@ -94,7 +94,8 @@ async function runCheck(input, update, ctx = {}) {
     const show = () => update([steps.main, steps.text].filter(Boolean).join(' · '));
     say = (s, p) => { if (s) steps.main = s; update(null, p); show(); };
     const textStep = s => { if (s) { steps.text = s; show(); } };
-    side = textModules({ input, body, refs, meta, update: textStep, stage, deadline, attempt: ctx.attempt || 0 });
+    // their hundreds of requests go in the background lane, so the reference lookups the report waits for go first
+    side = require('./http').inBackground(() => textModules({ input, body, refs, meta, update: textStep, stage, deadline, attempt: ctx.attempt || 0 }));
     require('./papermill').warm().catch(() => null);   // Module 4's lists, loaded while Module 1 runs
     side.catch(() => null);
   }

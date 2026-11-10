@@ -100,8 +100,11 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
   update('Comparing claims with their sources', 92);
   // the language model reads the passages for meaning for up to 3 minutes; later claims get the word matcher alone
   const deadline = Date.now() + 180e3;
-  const out = [];
-  for (const cl of limited) out.push({
+  // four claims at a time (each one a model call when the Claude judge is on, tools/claimJudge.js); order is kept
+  const out = new Array(limited.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => { while (next < limited.length) { const n = next++; out[n] = await checkClaim(limited[n]); } }));
+  async function checkClaim(cl) { return {
     sentence: cl.sentence,
     claim: cl.claim,
     citations: await Promise.all(cl.refs.map(async i => {
@@ -124,7 +127,7 @@ async function verifyCitations(input, files = [], update = () => {}, { keepResul
         evidence: best ? { quote: best.text, origin: src.origin, page: best.page || null, url: src.url || null, level: src.uploaded ? 'uploaded file' : src.fullText ? 'full text' : 'abstract' } : null
       };
     }))
-  });
+  }; }
 
   const all = out.flatMap(c => c.citations);
   const count = v => all.filter(c => c.verdict === v).length;

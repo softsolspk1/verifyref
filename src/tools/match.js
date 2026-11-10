@@ -335,6 +335,13 @@ async function judge(claim, passages, { fullText, deadline } = {}) {
   // an abstract (not a full text) is also read whole by the model: a claim often rests on two of its sentences
   const body = !fullText ? passages.filter(p => !p.pair).map(p => p.text).join(' ') : '';
   const whole = body && passages[0]?.title ? `${passages[0].title}. ${body}` : body;
+  // a Claude model reads the claim and the passages first when it is switched on (tools/claimJudge.js)
+  const llm = await require('./claimJudge').decide(modelClaim, withSubject(modelClaim, bestPassages(claim, passages, fullText ? 6 : 3), passages), { deadline, whole: whole.length <= 6000 ? whole : '' });
+  if (llm) {
+    const v = verdictOf(llm.passage, { fullText, decided: llm.decision });
+    if (llm.reason) v.notes.push(`Meaning checked by the language model: ${llm.reason}`);
+    return { best: llm.passage, ...v, conflict: llm.decision === 'contradicts', model: { judge: require('./claimJudge').MODEL, decision: llm.decision } };
+  }
   const d = await require('./nli').decide(modelClaim, withSubject(modelClaim, top, passages), base, { deadline, whole: whole.length <= 4000 ? whole : '' }).catch(() => null);
   if (!d) return { best: top[0], ...base, conflict: base.verdict === 'unsupported' && !!top[0].conflict };
   const v = verdictOf(d.passage, { fullText, decided: d.decision });

@@ -29,6 +29,7 @@
     "storage:to-r2": "node scripts/storage-to-r2.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.7.0",
     "@electric-sql/pglite": "^0.5.10",
     "@huggingface/transformers": "^4.3.2",
     "@vercel/functions": "^3.10.1",

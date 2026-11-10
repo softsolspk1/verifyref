@@ -13,6 +13,7 @@ const single = f => f.a.panel === f.b.panel;
 const TYPE = { blot: 'Blot / gel', fluorescence: 'Fluorescence', histology: 'Histology', chart: 'Chart / graph', grayscale: 'Grayscale', photo: 'Photo / microscopy' };
 // confidence badge with a small bar (ImageTwin: Low 0-32 %, Fair 33-65 %, High 66-100 %)
 const confBadge = x => (x?.confidence === undefined ? '' : `<span class="conf conf-${x.band}" title="Confidence that this is a real integrity concern: Low 0–32 %, Fair 33–65 %, High 66–100 %"><span class="conf-bar"><span style="width:${x.confidence}%"></span></span>${x.confidence}% ${esc(x.bandLabel)}</span>`);
+const MIN_SHOWN = 80;
 const shown = (x, min) => x?.confidence === undefined || x.confidence >= min;
 const levelTone = l => ({ HIGH: 'bad', MEDIUM: 'warn', LOW: 'good', high: 'bad', medium: 'warn' }[l] || 'neutral');
 
@@ -408,13 +409,33 @@ function vendorCard(v) {
   return `<div class="card"><div class="card-head"><h3>${v.external ? 'Where figures are checked' : 'Figures stay inside PJPS'}</h3>${badge(v.inHouseOnly ? 'In-house only' : v.external ? 'Web and AI checks on' : v.connected ? 'Connected' : 'Not checked', v.inHouseOnly || v.connected ? 'good' : 'neutral')}</div><p class="muted" style="margin:0">${esc(v.note)}</p></div>`;
 }
 
+/** Every figure of the document that was checked, with its result (findings and matches of 80 % and above) */
+function imagesChecked(result) {
+  const panels = result.panels || [];
+  const imageOfPanel = new Map(panels.map(p => [p.id, p.imageId]));
+  const count = new Map();
+  const add = (id, n = 1) => id && count.set(id, (count.get(id) || 0) + n);
+  for (const f of result.findings || []) if (shown(f, MIN_SHOWN)) {
+    const ia = imageOfPanel.get(f.a?.panel), ib = imageOfPanel.get(f.b?.panel);
+    add(ia); if (ib && ib !== ia) add(ib);
+  }
+  for (const m of [...(result.earlier || []), ...(result.references || []), ...(result.authorFigures?.matches || [])]) if (shown(m, MIN_SHOWN)) add(imageOfPanel.get(m.panel));
+  const images = result.images || [];
+  if (!images.length && !(result.skipped || []).length) return '';
+  const thumbOf = im => { const p = panels.find(x => x.imageId === im.id && x.thumb && !x.blank) || panels.find(x => x.imageId === im.id && x.thumb); return result.panelViews?.[p?.id]?.src || p?.thumb || null; };
+  const issues = images.filter(im => count.get(im.id)).length;
+  return `<div class="card"><div class="card-head"><h3>Images checked</h3>${badge(`${images.length} image(s) in the document${issues ? ` · ${issues} with findings` : ' · no findings'}`, issues ? 'bad' : 'good')}</div>
+    <div class="panel-grid">${images.map(im => { const n = count.get(im.id) || 0; const t = thumbOf(im); return `<figure class="panel-cell" style="cursor:default">${t ? `<img src="${t}" alt="">` : ''}<figcaption><b>${esc(im.label)}</b><br><span class="muted">${im.width} × ${im.height} px · ${im.panels} panel(s)</span><br>${n ? badge(`${n} finding(s) / match(es)`, 'bad') : badge('No finding of 80 % or more', 'good')}</figcaption></figure>`; }).join('')}
+    ${(result.skipped || []).map(x => `<figure class="panel-cell" style="cursor:default"><figcaption><b>${esc(x.name)}</b><br>${badge('Not readable', 'warn')}<br><span class="muted">${esc(x.reason)}</span></figcaption></figure>`).join('')}</div></div>`;
+}
+
 export function renderImagesResult(el, result, { live = null } = {}) {
   const s = result.summary;
   const marks = new Map((result.findingMarks || []).map(m => [m.id, m.mark]));
   const excluded = new Set(result.reportExclude || []);
-  let minConf = Number.isFinite(result.confidenceThreshold) ? result.confidenceThreshold : 33;
+  // PJPS: only findings and matches of at least 80 % confidence are shown (src/imageScore.js MIN_SHOWN)
+  let minConf = Math.max(MIN_SHOWN, Number.isFinite(result.confidenceThreshold) ? result.confidenceThreshold : 0);
   let catFilter = null;
-  const bc = s.byConfidence;
   // marks, report selection and threshold are saved with the editor's decision record
   const saveReview = () => {
     result.findingMarks = [...marks.entries()].map(([id, mark]) => ({ id, mark }));
@@ -443,8 +464,8 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       <div class="kpi"><div class="n">${s.skipped || 0}</div><div class="l">Not readable</div></div>
     </div>
     <div class="cat-strip">${CATS.map(([k, l, name]) => { const n = (result.findings || []).filter(f => (f.category || 'duplication') === k).length; const st = (result.coverage || {})[k]; return `<button class="cat ${catFilter === k ? 'active' : ''} ${n ? 'has' : ''}" data-cat="${k}"><span class="cat-l">${l})</span><b>${name}</b><span class="cat-n">${n ? n + ' finding' + (n > 1 ? 's' : '') : 'none found'}</span><small>${esc(st?.note || '')}</small></button>`; }).join('')}</div>
-    ${bc ? `<div class="conf-strip"><span><b>Confidence</b></span><span class="conf conf-high">${bc.high} High</span><span class="conf conf-fair">${bc.fair} Fair</span><span class="conf conf-low">${bc.low} Low</span>
-      <label class="muted no-print">Show from <input type="range" id="min-conf" min="0" max="100" step="1" value="${minConf}" style="vertical-align:middle;width:140px"> <b id="min-conf-v">${minConf}%</b></label><span class="muted">Low-confidence results (below 33 %) are hidden by default; the Word / PDF report uses the same threshold.</span></div>` : ''}
+    <div class="conf-strip"><span><b>Confidence</b></span><span class="muted">Only findings and figure matches of ${MIN_SHOWN} % confidence and above are reported; weaker results are left out of this page and the Word / PDF report.</span></div>
+    ${imagesChecked(result)}
     <div class="alert alert-info">${esc(result.disclaimer)}</div>
     ${(result.reviewNotes || []).map(n => `<div class="alert alert-info">${esc(n)}</div>`).join('')}
     ${result.guidance?.available ? `<div class="alert alert-${s.level === 'HIGH' ? 'bad' : s.level === 'MEDIUM' ? 'warn' : 'good'}"><b>Suggested handling — ${esc(result.guidance.decision.action)}.</b> ${esc(result.guidance.decision.desk)}</div>` : ''}

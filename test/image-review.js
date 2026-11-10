@@ -1,4 +1,5 @@
-// test/image-review.js - Module 5 review of findings (src/imageReview.js): a figure section repeating the in-text figures
+// test/image-review.js - Module 5 review of findings (src/imageReview.js; the fixtures are strong findings, as only those
+// of 80 % confidence and above are reported): a figure section repeating the in-text figures
 // is not duplication, real re-use between different figures still is, and photo-only findings on generated figures are
 // folded into the AI finding. node test/image-review.js
 const assert = require('assert');
@@ -11,7 +12,7 @@ const build = defs => {
   const panels = defs.flatMap(d => Array.from({ length: d.panels }, (_, k) => ({ id: `${d.id}-p${k + 1}`, imageId: d.id, type: 'photo', hashes: [H(d.hashBase * 1000 + k)] })));
   return { images, panels };
 };
-const dup = (a, b, k = 1, extra = {}) => ({ kind: 'duplicate', category: 'duplication', level: 'medium', score: 1, transform: { rotation: 0, flip: false, scale: 1 }, a: { panel: `${a}-p${k}`, label: a }, b: { panel: `${b}-p${k}`, label: b }, description: 'same image', ...extra });
+const dup = (a, b, k = 1, extra = {}) => ({ kind: 'duplicate', category: 'duplication', level: 'high', score: 1, verification: { picture: 0.98, noise: 0.9 }, transform: { rotation: 0, flip: false, scale: 1 }, a: { panel: `${a}-p${k}`, label: a }, b: { panel: `${b}-p${k}`, label: b }, description: 'same image', ...extra });
 
 (async () => {
   // 1. three figures in the text, repeated in the same order in a figure section; a real re-use between Fig. 4 and Fig. 6
@@ -49,23 +50,24 @@ const dup = (a, b, k = 1, extra = {}) => ({ kind: 'duplicate', category: 'duplic
   const d4 = [img(2, 1, 1), img(4, 1, 2)];
   const b4 = build(d4);
   const f4 = [
-    { kind: 'ai', category: 'ai', level: 'medium', score: 78, a: { panel: 'p2i1-p1' }, b: { panel: 'p2i1-p1' }, description: 'AI 78%' },
+    { kind: 'ai', category: 'ai', level: 'high', score: 78, a: { panel: 'p2i1-p1' }, b: { panel: 'p2i1-p1' }, description: 'AI 78%' },
     { kind: 'alteration', category: 'manipulation', level: 'high', score: 3, a: { panel: 'p2i1-p1', box: { x: 1, y: 1 } }, b: { panel: 'p2i1-p1' }, description: 'noise' },
     { kind: 'alteration', category: 'manipulation', level: 'high', score: 3, a: { panel: 'p4i1-p1', box: { x: 1, y: 1 } }, b: { panel: 'p4i1-p1' }, description: 'noise' }
   ];
   r = await reviewFindings({ ...b4, findings: f4 });
   assert.deepStrictEqual(r.findings.map(f => `${f.kind}:${f.a.panel}`), ['ai:p2i1-p1', 'alteration:p4i1-p1']);
 
-  // cloned areas and possible alterations below 75 % confidence are not reported; other kinds keep their findings
+  // findings below 80 % confidence are not reported, whatever their kind
   const weak = [
     { kind: 'clone', level: 'medium', score: 10, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p1' }, description: 'weak clone' },
     { kind: 'clone', level: 'high', score: 150, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p1' }, description: 'strong clone' },
     { kind: 'alteration', level: 'medium', score: 2, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p1' }, description: 'one check' },
     { kind: 'alteration', level: 'high', score: 3, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p1' }, description: 'two checks' },
-    { kind: 'partial', level: 'medium', score: 12, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p2' }, description: 'overlap' }
+    { kind: 'partial', level: 'medium', score: 12, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p2' }, description: 'weak overlap' },
+    { kind: 'duplicate', level: 'high', score: 0.99, verification: { picture: 0.98, noise: 0.9 }, a: { panel: 'p1i1-p1' }, b: { panel: 'p1i1-p2' }, description: 'strong copy' }
   ];
   r = await reviewFindings({ images: [], panels: [], findings: weak });
-  assert.deepStrictEqual(r.findings.map(f => f.description), ['strong clone', 'two checks', 'overlap']);
+  assert.deepStrictEqual(r.findings.map(f => f.description), ['strong clone', 'two checks', 'strong copy']);
 
   console.log('image review test passed (figure section, real re-use kept, single repeat kept, generated figures)');
 })().catch(e => { console.error(e); process.exit(1); });

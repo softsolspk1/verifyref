@@ -474,7 +474,9 @@ function imagesBlocks(r, { section = null } = {}) {
   const label = { confirmed: 'Confirmed by editor', false: 'False alarm', ask: 'Ask the authors' };
   // the editor's report selection (Proofig) and the confidence threshold (ImageTwin: Low < 33 % hidden by default)
   const excluded = new Set(r.reportExclude || []);
-  const threshold = Number.isFinite(r.confidenceThreshold) ? r.confidenceThreshold : 33;
+  // PJPS: only findings and matches of at least 80 % confidence are reported (src/imageScore.js MIN_SHOWN)
+  const { MIN_SHOWN } = require('./imageScore');
+  const threshold = Math.max(MIN_SHOWN, Number.isFinite(r.confidenceThreshold) ? r.confidenceThreshold : 0);
   const keep = x => !excluded.has(x.id) && (x.confidence === undefined || x.confidence >= threshold);
   const findings = (r.findings || []).filter(keep);
   const refs = (r.references || []).filter(m => m.confidence === undefined || m.confidence >= threshold);
@@ -494,7 +496,7 @@ function imagesBlocks(r, { section = null } = {}) {
     section ? { h2: `${section}. Image integrity (confidential)` } : { h1: 'CONFIDENTIAL — Module 5 Image Integrity Report' },
     { kv: [['Manuscript', `${r.meta?.manuscriptCode ? r.meta.manuscriptCode + ' — ' : ''}${r.meta?.title || r.meta?.filename || '—'}`], ['File analysed', r.meta?.filename || '—'], ['Date and time of the scan', r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '—'], ['Overall risk assessment', s.level], ...(r.analysisVersion ? [['Analysis version', r.analysisVersion]] : [])] },
     { callout: { level: { HIGH: 'bad', MEDIUM: 'warn', LOW: 'ok' }[s.level] || 'na', title: `Image risk: ${s.level}`, text: s.findings ? `${s.byLevel.high || 0} strong finding(s), ${s.byLevel.medium || 0} to check, in ${s.panels} panels from ${s.images} figure(s).` : `No duplicated, re-used or altered content was found in ${s.panels} panels from ${s.images} figure(s).` } },
-    ...(s.byConfidence ? [{ p: `Confidence of the findings and matches: ${s.byConfidence.high} High (66–100 %), ${s.byConfidence.fair} Fair (33–65 %), ${s.byConfidence.low} Low (0–32 %). This report shows those of ${threshold} % and above${omitted.low ? ` (${omitted.low} below it left out)` : ''}${omitted.selection ? `; ${omitted.selection} finding(s) left out by the editor` : ''}.` }] : []),
+    { p: `Only findings and figure matches of ${threshold} % confidence and above are reported${omitted.selection ? `; ${omitted.selection} finding(s) left out by the editor` : ''}.` },
     { table: { headers: ['Check', 'Result'], rows: [
       ['(a) Duplication & reuse inside the manuscript', String(findings.filter(f => (f.category || 'duplication') === 'duplication').length)],
       ['(b) Alteration & manipulation', String(findings.filter(f => f.category === 'manipulation').length)],
@@ -505,6 +507,16 @@ function imagesBlocks(r, { section = null } = {}) {
       ['Commercial databases of all published figures (ImageTwin, Proofig)', r.vendor?.connected ? 'searched by the vendor' : 'not searched (figures do not leave the PJPS system)']
     ] } }
   ];
+  // every figure of the document that was checked, with its result
+  const imageOfPanel = new Map((r.panels || []).map(p => [p.id, p.imageId]));
+  const perImage = new Map();
+  const addTo = id => id && perImage.set(id, (perImage.get(id) || 0) + 1);
+  for (const f of findings) { const ia = imageOfPanel.get(f.a?.panel), ib = imageOfPanel.get(f.b?.panel); addTo(ia); if (ib && ib !== ia) addTo(ib); }
+  for (const m of [...refs, ...(r.earlier || []), ...(r.authorFigures?.matches || [])].filter(m => m.confidence === undefined || m.confidence >= threshold)) addTo(imageOfPanel.get(m.panel));
+  if ((r.images || []).length || (r.skipped || []).length) blocks.push(h('Images checked'), { table: { headers: ['Image', 'Size', 'Panels', 'Result'], rows: [
+    ...(r.images || []).map(im => [im.label, `${im.width} × ${im.height} px`, String(im.panels), perImage.get(im.id) ? `${perImage.get(im.id)} finding(s) / match(es)` : `No finding of ${threshold} % or more`]),
+    ...(r.skipped || []).map(x => [x.name, '—', '—', `Not readable: ${x.reason}`])
+  ] } });
   // the main points in plain words, strongest first
   const key = [
     ...findings.filter(f => f.level === 'high').map(f => `${IMG_KIND[f.kind] || f.kind}: ${loc(f)} (strong)`),

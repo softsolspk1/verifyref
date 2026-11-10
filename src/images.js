@@ -150,8 +150,10 @@ async function rereviewImageReport(saved) {
   markReviewed(r.images || [], r.panels || [], review);
   // matches with published or earlier figures on a repeated copy or on a bar of a drawn chart are not image matches
   const skip = new Set((r.panels || []).filter(p => p.repeatOf || p.drawnBar).map(p => p.id));
-  r.references = (r.references || []).filter(m => !skip.has(m.panel));
-  r.earlier = (r.earlier || []).filter(m => !skip.has(m.panel));
+  const onSkipped = (r.references || []).filter(m => skip.has(m.panel)).length;
+  r.references = SCORE.reportedMatches((r.references || []).filter(m => !skip.has(m.panel)));
+  r.earlier = SCORE.reportedMatches((r.earlier || []).filter(m => !skip.has(m.panel)));
+  if (r.authorFigures?.matches) r.authorFigures.matches = SCORE.reportedMatches(r.authorFigures.matches);
   const { byLevel, level } = imageLevel(r.findings, r.earlier, r.earlierCharts, r.references, r.referenceCharts);
   r.summary = { ...r.summary, findings: r.findings.length, byLevel, level,
     byKind: r.findings.reduce((a, f) => ({ ...a, [f.kind]: (a[f.kind] || 0) + 1 }), {}), byCategory: r.findings.reduce((a, f) => ({ ...a, [f.category]: (a[f.category] || 0) + 1 }), {}),
@@ -159,7 +161,7 @@ async function rereviewImageReport(saved) {
     referencesPjps: r.references.filter(m => m.source === 'pjps').length + (r.referenceCharts || []).filter(m => m.source === 'pjps').length,
     referencesRetracted: r.references.filter(m => m.source === 'retracted').length + (r.referenceCharts || []).filter(m => m.source === 'retracted').length };
   r.reviewNotes = review.notes;
-  if (skip.size && (saved.references || []).length > r.references.length) r.reviewNotes.push(`${(saved.references || []).length - r.references.length} match(es) with published figures on repeated copies or on bars of drawn charts were removed: a plain drawn bar resembles many published figures.`);
+  if (onSkipped) r.reviewNotes.push(`${onSkipped} match(es) with published figures on repeated copies or on bars of drawn charts were removed: a plain drawn bar resembles many published figures.`);
   r.guidance = KB.guidance(level);
   r.summary.byConfidence = SCORE.scoreResult(r);
   require('./imageExplain').explainReport(r);
@@ -209,6 +211,9 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
       refs = r.refs;
     } else refs = { matches: [], charts: [], searched: null, error: `The PJPS image databases are on the web platform and could not be searched (${r.error}). Only the manuscripts screened on this computer were compared; run the check again when online.` };
   } else refs = await REFS.matchManuscript(usable, charts).catch(e => ({ matches: [], charts: [], searched: null, error: e.message }));
+  // matches below 80 % confidence are not reported (src/imageScore.js MIN_SHOWN)
+  earlier = SCORE.reportedMatches(earlier);
+  refs.matches = SCORE.reportedMatches(refs.matches);
   const { byLevel, level } = imageLevel(findings, earlier, earlierCharts, refs.matches, refs.charts);
   const refCount = refs.matches.length + refs.charts.length;
   const result = {

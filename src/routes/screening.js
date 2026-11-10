@@ -160,7 +160,8 @@ defineJob('author-figures', async (input, { userId, update }) => {
     return { ...splitName(name), orcid };
   });
   const out = await AF.checkAuthorFigures({ authors, panels: input.panels }, update);
-  for (const m of out.matches || []) Object.assign(m, require('../imageScore').matchConfidence(m));
+  out.matches = require('../imageScore').reportedMatches(out.matches);
+  for (const m of out.matches) Object.assign(m, require('../imageScore').matchConfidence(m));
   out.checkedAt = new Date().toISOString();
   if (input.checkId) {
     const c = await loadCheck(userId, input.checkId);

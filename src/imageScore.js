@@ -7,6 +7,9 @@
 // Also: which AI image generator is named by a file marker (attribution only from evidence in the file).
 
 const BANDS = [[66, 'high', 'High'], [33, 'fair', 'Fair'], [0, 'low', 'Low']];
+// PJPS: only findings and figure matches of at least 80 % confidence are reported; weaker ones are left out
+const MIN_SHOWN = 80;
+const reported = x => x?.confidence === undefined || x.confidence >= MIN_SHOWN;
 const band = c => BANDS.find(([min]) => c >= min);
 const clamp01 = v => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
 const norm = (v, lo, hi) => clamp01((v - lo) / (hi - lo));
@@ -90,4 +93,7 @@ function scoreResult(r) {
   return { high: all.filter(x => x.band === 'high').length, fair: all.filter(x => x.band === 'fair').length, low: all.filter(x => x.band === 'low').length };
 }
 
-module.exports = { findingConfidence, matchConfidence, aiAttribution, scoreResult, band, BANDS };
+/** Matches with published or earlier figures of at least MIN_SHOWN confidence (scored here) */
+const reportedMatches = ms => (ms || []).filter(m => matchConfidence(m).confidence >= MIN_SHOWN);
+
+module.exports = { findingConfidence, matchConfidence, aiAttribution, scoreResult, band, BANDS, MIN_SHOWN, reported, reportedMatches };

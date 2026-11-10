@@ -10,7 +10,7 @@
 //  4. Bars of drawn bar charts cut out as panels are charts, not blots: no cloned-area, joined-lane or bar-vs-bar
 //     duplicate findings on them, and none on a drawn chart whose "background step" is the edge of a solid shape.
 const sharp = require('sharp');
-const { findingConfidence } = require('./imageScore');
+const { findingConfidence, MIN_SHOWN } = require('./imageScore');
 
 const pageOf = (id, order) => { const m = String(id).match(/^p(\d+)i(\d+)/); return m ? +m[1] + +m[2] / 100 : 1000 + order; };
 const imageOf = panelId => String(panelId || '').split('-')[0];
@@ -161,8 +161,6 @@ async function isIllustration(thumb) {
 
 const SINGLE = new Set(['clone', 'alteration', 'ai', 'splice', 'manipulation']);
 const PHOTO_ONLY = new Set(['clone', 'alteration']);
-// PJPS: cloned areas inside one panel and possible alterations are reported only from 75 % confidence (src/imageScore.js)
-const MIN_CONFIDENCE = { clone: 75, alteration: 75 };
 
 /**
  * findings, images, panels as sent by the browser (after sanitising). Returns { findings, notes, copies } - findings
@@ -217,7 +215,8 @@ async function reviewFindings({ images = [], panels = [], findings = [] }) {
   const kept = [];
   let onDrawn = 0, onSynthetic = 0, onBars = 0, onShapes = 0;
   for (const f of out) {
-    if (MIN_CONFIDENCE[f.kind] && findingConfidence(f).confidence < MIN_CONFIDENCE[f.kind]) continue;
+    // PJPS: findings below 80 % confidence are not reported (src/imageScore.js MIN_SHOWN)
+    if (findingConfidence(f).confidence < MIN_SHOWN) continue;
     if (PHOTO_ONLY.has(f.kind) && synthetic.has(imageOf(f.a?.panel))) { onSynthetic++; continue; }
     if (PHOTO_ONLY.has(f.kind) && (await bar(f.a?.panel))) { onBars++; continue; }
     if ((f.kind === 'duplicate' || f.kind === 'partial') && (await bar(f.a?.panel)) && (await bar(f.b?.panel))) { onBars++; continue; }

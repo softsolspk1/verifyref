@@ -100,7 +100,8 @@ const ok = m => console.log(`  ✓ ${m}`);
   const v = SIM.recompute(all, text);
   assert.deepStrictEqual(v.sources.map(x => [x.key, x.words]), [['a', 30], ['b', 20]]);
   assert.strictEqual(v.summary.similarity, 50);
-  assert.strictEqual(v.summary.publications + v.summary.internet, v.summary.similarity, 'types add up');
+  // each database counted on its own, overlaps included (as Turnitin): words 20-29 are in a publication and a web page
+  assert.deepStrictEqual([v.summary.publications, v.summary.internet], [30, 30], 'each database on its own');
   assert.strictEqual(v.document.map(d => d.t).join(''), text, 'highlighted text is the whole text');
   assert.ok(v.alsoMatched.some(x => x.key === 'c'), 'a source with every word credited to a larger one is listed as also matched');
   const vx = SIM.recompute(all, text, { excluded: ['a'] });

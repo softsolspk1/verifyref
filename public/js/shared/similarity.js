@@ -278,7 +278,18 @@ export function recompute(all, text, { tokens = null, total = null, excluded = [
   for (let k = 0; k < n; k++) if (owner[k] >= 0 && (k === 0 || owner[k - 1] !== owner[k])) runs[owner[k]]++;
   const sources = ranked.map((x, j) => ({ ...x.s, no: j + 1, percent: pct(x.words, base), similarity: pct(x.words, base), words: x.words, matches: runs[x.i] }));
   const alsoMatched = all.filter((_, i) => !number.has(i)).map(s => ({ ...s, no: null, percent: 0, similarity: 0, words: 0, excluded: ex.has(s.key), ...(small.has(s.key) ? { small: true } : {}) }));
-  const byType = type => pct(sources.filter(x => x.type === type).reduce((a, x) => a + x.words, 0), base);
+  // each database counted on its own, overlaps included (Turnitin's "Internet sources / Publications / Submitted works":
+  // a passage found both on a web page and in a paper counts in both, so the three may add up to more than the index)
+  const byType = type => {
+    const seen = new Uint8Array(n);
+    let c = 0;
+    for (const s of all) {
+      if (s.type !== type || ex.has(s.key) || small.has(s.key)) continue;
+      const ranges = unblocked((s.ranges || []).map(([p, q]) => [p, Math.min(q, n)]).filter(([p, q]) => q > p), unmatched).filter(([p, q]) => q - p >= minWords);
+      for (const [p, q] of ranges) for (let k = p; k < q; k++) if (!seen[k]) { seen[k] = 1; c++; }
+    }
+    return pct(c, base);
+  };
   const similarity = pct(sources.reduce((a, x) => a + x.words, 0), base);
   const largestSource = sources.reduce((m, x) => Math.max(m, x.percent), 0);
   // similarity of each section (an excluded section shows what it would add)

@@ -247,3 +247,24 @@ Module 2   PJPS editor sign-off on the rules; test on 100 accepted PJPS manuscri
 Module 3B  Fetch more full texts; a 100-claim gold set from PJPS manuscripts checked by an editor.
 Module 4   Use PJPS's own case decisions to tune the weights; PubPeer; refresh the mill index.
 Module 5   Better candidate stage for partial copies; dense copy-move detection.
+
+
+
+yes fix it and push to git to trigger vercel
+
+
+As per /PJPS-Honest-Audit-and-Completion-Plan-2026-11-08.txt file, fix the Gap start from 3B and 3C first and then push to git to trigger vecel. After it, proceed to other gaps to be filled and fix to increase accuracy
+
+
+yes start the duplicates between panels and then push to git to trigger vercel. After it move the figure store to R2
+
+
+finish the 3B test and fix the issues and then push to git to trigger vercel
+
+
+Fix the gap 3B and Module 4 now
+
+
+start the Softsols fixes and push to git to trigger vercel
+
+In /app#/admin/data page: The Retraction Watch list not updated since 29th October even I click Refresh Now button. Fix it and update it

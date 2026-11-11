@@ -74,3 +74,127 @@ abstracts, the web, and every reference matched whole. The in-house engine reach
 on a test manuscript without the web, so Steps 1 and 2 should bring reports into the high
 20s or low 30s where Turnitin shows 34%. This is an estimate: re-run report #102's
 manuscript after Steps 1 and 2 and compare it with Turnitin's report to confirm.
+
+
+-----------------------------------
+● The external-service changes and the cost-options file are committed as 
+  155c90d and live on Vercel. The live site already shows the new tick box  on the Full Screening page.
+
+  How the external service behaves now:
+  - When it runs: only if the editor ticks the box, or the in-house       
+    Similarity Index reaches 15%.
+  - What it gets: the text up to the reference list, so each scan costs   
+    fewer credits.
+
+  The threshold works without any new setting. To change it, add
+  EXTERNAL_SIMILARITY_MIN in Vercel (0 = every report, 101 = only when    
+  ticked) and redeploy.
+
+  To close more of the gap with Turnitin, follow steps 1 and 2 in
+  docs/Similarity-Cost-Options-2026-11-05.txt:
+  - OpenAlex: add a few dollars of budget to the key at
+    openalex.org/pricing.
+  - Brave: add a Brave Search API key as BRAVE_API_KEY in Vercel, then    
+    redeploy.
+
+  Then run the Ganoderma manuscript again as a new Full Screening, not by 
+  reopening #102. That run will use today's reference matching. If you    
+  send me Turnitin's PDF for it, I can compare the two reports source by  
+  source.
+
+
+
+
+Fix the system hand during complete screening as i have waited for 20 mins and still report not generated. So, see the issue and optimize it for fast running. Let me know what are issues.
+
+Deployed, now speed up the paper mill step too
+
+
+If the vercel restrict for something then shift it to Cloudflare R2 to make it more speed and stable.
+After speed up all modules, then under search similarity report add internet search sources to make the report more accurate as of Turnitin. I need to make it as accurate as turnitin. 
+After it, i need full audit report of the software for all 5 modules and also fix the existing gaps to make report more accuate
+
+========================
+
+ Your actions, in order of effect
+
+  1. Fund the OpenAlex key (openalex.org/pricing). One Full Screening uses     about 250 OpenAlex searches, so the $1/day budget covers only about  
+     4 screenings a day.
+  2. Add BRAVE_API_KEY in Vercel for open-web sources in the similarity   
+     report.
+  3. Add a free NCBI key as NCBI_API_KEY to make Module 1 faster.
+  4. Optionally, get a free Semantic Scholar API key so that database     
+     answers reliably.
+
+============================
+
+
+Give me all these suggestions in text file and then proceed to improve paper mill and image detection accuracy
+
+
+
+Open Alex new Key: Xp9JsicbYBmIbaSwU7n1wV
+
+continue and commit and push to git to trigger vercel when done
+
+
+Health Hands Pharmacy
+Drug License Number: 1487
+Name: Kashif Fareed
+CNIC: 42101-8854513-1
+NTN: 2887916-3
+
+
+I have updated the OpenAlex Key in Vercel 
+
+
+Brave API
+
+
+Review https://api-dashboard.search.brave.com/documentation/pricing and guide which Brave API should I get
+
+
+Brave Key: BSApWYeQHHz6N5nfCErSdRQTV37uDwh
+
+
+BRAVE_API_KEY: BSApWYeQHHz6N5nfCErSdRQTV37uDwh
+
+I have added BRAVE_API_KEY: BSApWYeQHHz6N5nfCErSdRQTV37uDwh in vercel and redeployed it
+
+
+Don't show Brave and other APIs used in Similarity report and it should work on background
+
+
+The /app#/admin/data page showing 470821 journals downloading so far in OpenAlex so what it means? You can use these resources which are mentioned in /app#/admin/data for complete Data Integrity check for all 5 modules.
+
+
+
+1) NCBI_API_KEY: d1ff1ee221c9f5c929477aa799c350ae8108 i
+2) For Semantic Scholar API: i have signup for the account but unable to find exact API. Can you check at https://www.semanticscholar.org/product/api and get API 
+S2_API_KEY
+
+3) After it, run the SQL and continue improving accuracy
+
+
+I have added NCBI_API_KEY to vercel and redeployed it.
+
+
+Allow All KAMs for Device Installation so every KAM data also fetch in Device Installation Form under Device Installer and fetch
+
+
+
+Also include CGM Coordinators as Installers
+
+When I Click on any Report to Recheck Compleet Report then it gives an Error "Check Not found". See the report /app#/check/117 and it also gives same Error. Fix it
+
+
+
+
+Check Report /app#/check/117 and in Image Integrity it shows image issues with Cloned area inside one panel, Overlapping / re-used part and Duplicate Images. I think the analysis is not correct and re-review to analyze either the said issues are correct or not. Fix this issue for all and for future complete screening and image integrity. Also re-run /app#/check/117 completely. 
+
+
+
+Reply to all pending customer messages and also fix main issues of store to increase sales.
+
+
+SHow me the new report results when done

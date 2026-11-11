@@ -221,6 +221,13 @@ function markPublishedOnPjps(result) {
     const own = e => (doi && String(e.link || '').toLowerCase().includes(doi.toLowerCase())) || (title && titleSimilarity(title, clean(String(e.text || '').replace(/^“|”.*$/g, ''))) >= 0.85);
     pm.signals = pm.signals.map(sg => {
       if (sg.code === 'published') { const ev = (sg.evidence || []).filter(e => !own(e)); return ev.length ? { ...sg, evidence: ev, title: `A paper with the same title is published elsewhere (${ev.length})` } : null; }
+      // earlier screenings of this same manuscript (saved without its ID): named in the published signal, not as duplicates
+      if (sg.code === 'duplicate') {
+        const mineEv = (sg.evidence || []).filter(e => title && titleSimilarity(title, clean((String(e.text || '').match(/“([^”]*)”/) || [])[1])) >= 0.9);
+        if (mineEv.length) evidence.push({ text: `${mineEv.length} earlier screening(s) of this same manuscript in the portal (${mineEv.map(e => `#${e.checkId}`).join(', ')}) - the same article checked before, not a duplicate submission` });
+        const ev = (sg.evidence || []).filter(e => !mineEv.includes(e));
+        return ev.length ? { ...sg, evidence: ev, title: `Matches an earlier PJPS submission (${ev.length})` } : null;
+      }
       if (sg.code === 'images') {
         const im = result.images;
         const otherHigh = (im?.findings || []).filter(f => f.level === 'high').length + (im?.references || []).filter(m => m.level === 'high' && !(pjps(m) && same(m))).length;

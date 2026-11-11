@@ -409,23 +409,61 @@ function vendorCard(v) {
   return `<div class="card"><div class="card-head"><h3>${v.external ? 'Where figures are checked' : 'Figures stay inside PJPS'}</h3>${badge(v.inHouseOnly ? 'In-house only' : v.external ? 'Web and AI checks on' : v.connected ? 'Connected' : 'Not checked', v.inHouseOnly || v.connected ? 'good' : 'neutral')}</div><p class="muted" style="margin:0">${esc(v.note)}</p></div>`;
 }
 
-/** Every figure of the document that was checked, with its result (findings and matches of 80 % and above) */
-function imagesChecked(result) {
+/** Same paper title (markup, case and punctuation ignored; first 60 letters) */
+const sameTitle = (a, b) => { const n = t => String(t || '').replace(/<[^>]+>/g, '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60); return !!n(a) && n(a).length >= 20 && n(a) === n(b); };
+
+/**
+ * What was found for each image of the document (findings and matches of 80 % and above), each with the tab that shows
+ * its evidence side by side. A match with the manuscript's own published PJPS version, or with an earlier screening of
+ * the same manuscript, is information (own: true), not a finding.
+ */
+function itemsByImage(result) {
   const panels = result.panels || [];
   const imageOfPanel = new Map(panels.map(p => [p.id, p.imageId]));
-  const count = new Map();
-  const add = (id, n = 1) => id && count.set(id, (count.get(id) || 0) + n);
+  const labelOf = new Map(panels.map(p => [p.id, p.label]));
+  const title = result.meta?.title || '', code = result.meta?.manuscriptCode || '';
+  const out = new Map();
+  const add = (id, item) => { if (!id) return; if (!out.has(id)) out.set(id, []); out.get(id).push(item); };
+  const pct = x => (Number.isFinite(x.confidence) ? ` (${x.confidence} % confidence)` : '');
   for (const f of result.findings || []) if (shown(f, MIN_SHOWN)) {
     const ia = imageOfPanel.get(f.a?.panel), ib = imageOfPanel.get(f.b?.panel);
-    add(ia); if (ib && ib !== ia) add(ib);
+    const what = `${f.a?.label || labelOf.get(f.a?.panel) || 'panel'}${f.b && f.b.panel !== f.a?.panel ? ` ↔ ${f.b.label || labelOf.get(f.b.panel) || 'panel'}` : ''}: ${f.description || f.kind || 'finding'}${pct(f)}`;
+    add(ia, { text: what, tab: 'findings', own: false });
+    if (ib && ib !== ia) add(ib, { text: what, tab: 'findings', own: false });
   }
-  for (const m of [...(result.earlier || []), ...(result.references || []), ...(result.authorFigures?.matches || [])]) if (shown(m, MIN_SHOWN)) add(imageOfPanel.get(m.panel));
+  for (const m of result.earlier || []) if (shown(m, MIN_SHOWN)) {
+    const own = (code && m.manuscriptCode === code) || sameTitle(m.title, title);
+    add(imageOfPanel.get(m.panel), { text: `${m.panelLabel || labelOf.get(m.panel) || 'Panel'} matches ${own ? 'an earlier screening of this same manuscript' : `earlier PJPS manuscript ${m.manuscriptCode || 'report #' + m.checkId}`}${m.title ? ` (“${String(m.title).slice(0, 80)}”)` : ''}${pct(m)}`, tab: 'earlier', own });
+  }
+  for (const m of result.references || []) if (shown(m, MIN_SHOWN)) {
+    const own = m.source === 'pjps' && sameTitle(m.title, title);
+    add(imageOfPanel.get(m.panel), { text: own
+      ? `${m.panelLabel || 'Panel'} is the same figure as ${m.figure || 'a figure'} of this article's own published version on pjps.pk${m.doi ? ` (doi:${m.doi})` : ''}${pct(m)}`
+      : `${m.panelLabel || 'Panel'} matches ${m.figure || 'a figure'} of “${String(m.title || m.doi || 'a source paper').replace(/<[^>]+>/g, '').slice(0, 90)}” (${m.sourceName || 'reference database'}${m.year ? ', ' + m.year : ''})${pct(m)}`, tab: 'refs', own });
+  }
+  for (const m of result.authorFigures?.matches || []) if (shown(m, MIN_SHOWN)) add(imageOfPanel.get(m.panel), { text: `${m.panelLabel || 'Panel'} matches a figure of the authors' earlier paper${m.title ? ` “${String(m.title).slice(0, 80)}”` : ''}${pct(m)}`, tab: 'authors', own: false });
+  return out;
+}
+
+/** Every figure of the document that was checked, with its result (findings and matches of 80 % and above) and their details */
+function imagesChecked(result) {
+  const panels = result.panels || [];
+  const items = itemsByImage(result);
   const images = result.images || [];
   if (!images.length && !(result.skipped || []).length) return '';
   const thumbOf = im => { const p = panels.find(x => x.imageId === im.id && x.thumb && !x.blank) || panels.find(x => x.imageId === im.id && x.thumb); return result.panelViews?.[p?.id]?.src || p?.thumb || null; };
-  const issues = images.filter(im => count.get(im.id)).length;
+  const real = im => (items.get(im.id) || []).filter(x => !x.own);
+  const issues = images.filter(im => real(im).length).length;
+  const TAB = { findings: 'Findings', earlier: 'Earlier PJPS manuscripts', refs: 'Published & reference figures', authors: "Authors' published figures" };
+  const cell = im => {
+    const list = items.get(im.id) || [], bad = real(im).length, own = list.length - bad, t = thumbOf(im);
+    const status = bad ? badge(`${bad} finding(s) / match(es)`, 'bad') : own ? badge('Same as its published PJPS figure', 'info') : badge('No finding of 80 % or more', 'good');
+    const detail = list.length ? `<ul class="img-items">${list.slice(0, 6).map(x => `<li class="${x.own ? 'muted' : ''}">${esc(x.text)} <a href="#" data-goto="${x.tab}">evidence in “${esc(TAB[x.tab])}” ›</a></li>`).join('')}${list.length > 6 ? `<li class="muted">and ${list.length - 6} more in the tabs below</li>` : ''}</ul>` : '';
+    return `<figure class="panel-cell" style="cursor:default">${t ? `<img src="${t}" alt="">` : ''}<figcaption><b>${esc(im.label)}</b><br><span class="muted">${im.width} × ${im.height} px · ${im.panels} panel(s)</span><br>${status}${detail}</figcaption></figure>`;
+  };
   return `<div class="card"><div class="card-head"><h3>Images checked</h3>${badge(`${images.length} image(s) in the document${issues ? ` · ${issues} with findings` : ' · no findings'}`, issues ? 'bad' : 'good')}</div>
-    <div class="panel-grid">${images.map(im => { const n = count.get(im.id) || 0; const t = thumbOf(im); return `<figure class="panel-cell" style="cursor:default">${t ? `<img src="${t}" alt="">` : ''}<figcaption><b>${esc(im.label)}</b><br><span class="muted">${im.width} × ${im.height} px · ${im.panels} panel(s)</span><br>${n ? badge(`${n} finding(s) / match(es)`, 'bad') : badge('No finding of 80 % or more', 'good')}</figcaption></figure>`; }).join('')}
+    <p class="muted" style="margin:0 0 8px">Under each image: what was found and where its evidence is shown side by side. Grey lines are matches with the article's own published PJPS version or an earlier screening of the same manuscript — expected, not re-use.</p>
+    <div class="panel-grid">${images.map(cell).join('')}
     ${(result.skipped || []).map(x => `<figure class="panel-cell" style="cursor:default"><figcaption><b>${esc(x.name)}</b><br>${badge('Not readable', 'warn')}<br><span class="muted">${esc(x.reason)}</span></figcaption></figure>`).join('')}</div></div>`;
 }
 
@@ -664,6 +702,8 @@ export function renderImagesResult(el, result, { live = null } = {}) {
       <h3>Not covered</h3><p class="muted">${esc(result.vendor?.note || '')}</p></div>`;
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
+  // "evidence in …" under an image of Images checked: opens that tab
+  $$('[data-goto]', el).forEach(a => (a.onclick = e => { e.preventDefault(); show(a.dataset.goto); $('.tabs', el)?.scrollIntoView({ behavior: 'smooth' }); }));
   const mc = $('#min-conf', el);
   if (mc) {
     mc.oninput = () => { minConf = +mc.value; $('#min-conf-v', el).textContent = `${minConf}%`; show($('.tab.active', el)?.dataset.tab || 'findings'); };

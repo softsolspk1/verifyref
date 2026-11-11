@@ -507,14 +507,21 @@ function imagesBlocks(r, { section = null } = {}) {
       ['Commercial databases of all published figures (ImageTwin, Proofig)', r.vendor?.connected ? 'searched by the vendor' : 'not searched (figures do not leave the PJPS system)']
     ] } }
   ];
-  // every figure of the document that was checked, with its result
+  // every figure of the document that was checked, with what was found for it (a match with the article's own published
+  // PJPS version or an earlier screening of the same manuscript is named as such, not counted as a finding)
   const imageOfPanel = new Map((r.panels || []).map(p => [p.id, p.imageId]));
+  const nt = t => String(t || '').replace(/<[^>]+>/g, '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60);
+  const sameT = (a, b) => nt(a).length >= 20 && nt(a) === nt(b);
   const perImage = new Map();
-  const addTo = id => id && perImage.set(id, (perImage.get(id) || 0) + 1);
-  for (const f of findings) { const ia = imageOfPanel.get(f.a?.panel), ib = imageOfPanel.get(f.b?.panel); addTo(ia); if (ib && ib !== ia) addTo(ib); }
-  for (const m of [...refs, ...(r.earlier || []), ...(r.authorFigures?.matches || [])].filter(m => m.confidence === undefined || m.confidence >= threshold)) addTo(imageOfPanel.get(m.panel));
+  const addTo = (id, text, own) => { if (!id) return; if (!perImage.has(id)) perImage.set(id, []); perImage.get(id).push({ text, own }); };
+  const ok = m => m.confidence === undefined || m.confidence >= threshold;
+  for (const f of findings) { const ia = imageOfPanel.get(f.a?.panel), ib = imageOfPanel.get(f.b?.panel); const t = `${f.a?.label || 'panel'}${f.b && f.b.panel !== f.a?.panel ? ` / ${f.b.label || 'panel'}` : ''}: ${f.description || f.kind || 'finding'}`; addTo(ia, t, false); if (ib && ib !== ia) addTo(ib, t, false); }
+  for (const m of (r.earlier || []).filter(ok)) { const own = (r.meta?.manuscriptCode && m.manuscriptCode === r.meta.manuscriptCode) || sameT(m.title, r.meta?.title); addTo(imageOfPanel.get(m.panel), `${m.panelLabel || 'Panel'} matches ${own ? 'an earlier screening of this same manuscript' : `earlier PJPS manuscript ${m.manuscriptCode || '#' + m.checkId}`}`, own); }
+  for (const m of refs.filter(ok)) { const own = m.source === 'pjps' && sameT(m.title, r.meta?.title); addTo(imageOfPanel.get(m.panel), own ? `${m.panelLabel || 'Panel'} = ${m.figure || 'figure'} of this article's own published PJPS version${m.doi ? ` (doi:${m.doi})` : ''}` : `${m.panelLabel || 'Panel'} matches ${m.figure || 'a figure'} of "${String(m.title || m.doi || '').replace(/<[^>]+>/g, '').slice(0, 80)}" (${m.sourceName || 'reference database'})`, own); }
+  for (const m of (r.authorFigures?.matches || []).filter(ok)) addTo(imageOfPanel.get(m.panel), `${m.panelLabel || 'Panel'} matches a figure of the authors' earlier paper`, false);
+  const resultOf = id => { const l = perImage.get(id) || []; const bad = l.filter(x => !x.own).length; if (!l.length) return `No finding of ${threshold} % or more`; return `${bad ? `${bad} finding(s) / match(es)` : 'Same as its published PJPS figure'}: ${l.slice(0, 6).map(x => x.text + (x.own ? ' (expected, not re-use)' : '')).join('; ')}${l.length > 6 ? `; and ${l.length - 6} more` : ''}`; };
   if ((r.images || []).length || (r.skipped || []).length) blocks.push(h('Images checked'), { table: { headers: ['Image', 'Size', 'Panels', 'Result'], rows: [
-    ...(r.images || []).map(im => [im.label, `${im.width} × ${im.height} px`, String(im.panels), perImage.get(im.id) ? `${perImage.get(im.id)} finding(s) / match(es)` : `No finding of ${threshold} % or more`]),
+    ...(r.images || []).map(im => [im.label, `${im.width} × ${im.height} px`, String(im.panels), resultOf(im.id)]),
     ...(r.skipped || []).map(x => [x.name, '—', '—', `Not readable: ${x.reason}`])
   ] } });
   // the main points in plain words, strongest first

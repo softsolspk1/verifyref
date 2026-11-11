@@ -190,6 +190,11 @@ async function latestPjpsId() {
     if (r.ok) for (const m of r.buffer.toString('utf8').matchAll(/single-article\?id=(\d+)/g)) max = Math.max(max, parseInt(m[1], 10));
   }
   if (!max) throw new Error('Could not read the latest article number from pjps.pk');
+  // Article in Press papers are not linked from those pages: the numbers after it are tried until 12 in a row are empty
+  for (let id = max + 1, misses = 0; misses < 12 && id < max + 400; id++) {
+    const a = await pjpsArticle(id).catch(() => null);
+    if (a) { max = id; misses = 0; } else misses++;
+  }
   return max;
 }
 

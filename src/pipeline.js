@@ -207,11 +207,13 @@ function markPublishedOnPjps(result) {
   if (!text && !figs.length) return;
   const any = text || figs[0];
   const doi = any.doi || figs.find(m => m.doi)?.doi || null;
-  const pv = { title: clean(any.title), doi, url: text?.url || (doi ? `https://doi.org/${doi}` : null), percent: text?.percent ?? null,
+  // Article in Press, or the issue it appeared in (from the repository copy's journal line, src/imageRefs.js pjpsText)
+  const where = /Article in Press/i.test(text?.journal || '') ? 'Article in Press' : ((text?.journal || '').match(/Vol\. \d+, No\. \d+[^)]*/) || [])[0] || 'pjps.pk';
+  const pv = { where, title: clean(any.title), doi, url: text?.url || (doi ? `https://doi.org/${doi}` : null), percent: text?.percent ?? null,
     figures: figs.map(m => ({ panel: m.panel, figure: m.figure, level: m.level, description: m.description })) };
   result.publishedOnPjps = pv;
   const evidence = [
-    { text: `Published version: “${pv.title}”, Pakistan Journal of Pharmaceutical Sciences${doi ? `, DOI ${doi}` : ''} (pjps.pk, Article in Press)`, link: pv.url },
+    { text: `Published version: “${pv.title}”, Pakistan Journal of Pharmaceutical Sciences${doi ? `, DOI ${doi}` : ''} (${where})`, link: pv.url },
     ...(pv.percent != null ? [{ text: `Similarity report: ${pv.percent}% of the manuscript's words are in this published version (full text compared word for word)` }] : []),
     ...(figs.length ? [{ text: `Module 5: ${figs.length} figure panel(s) of the manuscript are the same figures as in the published version (${[...new Set(figs.map(m => m.figure).filter(Boolean))].slice(0, 8).join(', ')})` }] : [])
   ];
@@ -235,7 +237,7 @@ function markPublishedOnPjps(result) {
       }
       return sg;
     }).filter(Boolean);
-    pm.signals.unshift({ group: 'data', code: 'published-pjps', severity: 'high', weight: 0, title: 'Already published on the PJPS website (Article in Press)', evidence,
+    pm.signals.unshift({ group: 'data', code: 'published-pjps', severity: 'high', weight: 0, title: `Already published on the PJPS website (${where})`, evidence,
       note: 'The manuscript is the article PJPS has already published. Its high similarity and its figures matching a published PJPS paper are explained by this published version and are not evidence of plagiarism, figure re-use or a paper mill. The other signals below are assessed as for any manuscript.' });
     pm.risk = require('./papermill').riskLevel(pm.signals.filter(sg => sg.code !== 'published-pjps'));
     // the written assessment and the query letter, again on the paper-mill signals proper, after the published version
@@ -243,7 +245,7 @@ function markPublishedOnPjps(result) {
     const rest = { ...pm, signals: pm.signals.filter(sg => sg.code !== 'published-pjps') };
     pm.assessment = A.assess(rest);
     pm.assessment.letter = A.queryLetter(rest, pm.assessment);
-    pm.assessment.statement = `This manuscript is already published on the PJPS website (Article in Press${doi ? `, DOI ${doi}` : ''}); its similarity and its figures matching that published article are explained by it and are not counted as paper-mill evidence. ${pm.assessment.statement || ''}`.trim();
+    pm.assessment.statement = `This manuscript is already published on the PJPS website (${where}${doi ? `, DOI ${doi}` : ''}); its similarity and its figures matching that published article are explained by it and are not counted as paper-mill evidence. ${pm.assessment.statement || ''}`.trim();
   }
 }
 
@@ -342,7 +344,7 @@ function screeningSummary(r) {
   const escalate = (level, why) => { reasons.push(why); if (level === 'investigate' || (level === 'return' && rec === 'proceed')) rec = level; };
   // name the strong signals, or when the level comes from the sum of several, the weightiest ones
   const pv = r.publishedOnPjps;
-  if (pv) escalate('investigate', `Already published on the PJPS website (Article in Press)${pv.doi ? `, DOI ${pv.doi}` : ''}${pv.percent != null ? ` - ${pv.percent}% of the text matches the published version` : ''}${pv.figures?.length ? `; ${pv.figures.length} figure panel(s) are the published figures` : ''}`);
+  if (pv) escalate('investigate', `Already published on the PJPS website (${pv.where || 'Article in Press'})${pv.doi ? `, DOI ${pv.doi}` : ''}${pv.percent != null ? ` - ${pv.percent}% of the text matches the published version` : ''}${pv.figures?.length ? `; ${pv.figures.length} figure panel(s) are the published figures` : ''}`);
   const pmTop = () => { const sig = r.papermill.signals.filter(x => x.code !== 'published-pjps'); const high = sig.filter(x => x.severity === 'high'); return (high.length ? high : [...sig].sort((a, b) => b.weight - a.weight)).slice(0, 2).map(x => x.title).join('; '); };
   if (pm?.level === 'HIGH') escalate('investigate', `Paper mill risk HIGH (${pmTop()})`);
   const ownFigs = pv?.figures?.length || 0;
@@ -375,7 +377,7 @@ function screeningSummary(r) {
         : `${pl.similarity}% overlap with ${pl.sources} published source(s)`) : 'not checked',
       novelty: nv ? `Novelty ${nv.score}/100 (${nv.band}); ${nv.closeRecent} close work(s) in the last 5 years; 5-year citation outlook ${nv.outlook}${Number.isFinite(nv.fiveYearMedian) ? ` (median ${nv.fiveYearMedian})` : ''}` : 'not assessed',
       authors: ai ? `${ai.summary.verified} of ${ai.summary.authors} author(s) identified in ORCID${ai.summary.flags ? `; ${ai.summary.flags} problem(s)` : ''}` : 'not checked',
-      published: pv ? `Already published on the PJPS website (Article in Press): “${pv.title}”${pv.doi ? `, DOI ${pv.doi}` : ''}${pv.percent != null ? `; ${pv.percent}% of the text matches it` : ''}${ownFigs ? `; ${ownFigs} figure panel(s) are its published figures` : ''}` : null,
+      published: pv ? `Already published on the PJPS website (${pv.where || 'Article in Press'}): “${pv.title}”${pv.doi ? `, DOI ${pv.doi}` : ''}${pv.percent != null ? `; ${pv.percent}% of the text matches it` : ''}${ownFigs ? `; ${ownFigs} figure panel(s) are its published figures` : ''}` : null,
       images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${ownFigs ? `; ${ownFigs} panel(s) match the manuscript's own published PJPS version (expected, not re-use)` : ''}${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : r.imagesNote || 'not checked (upload the Word / PDF manuscript to analyse its figures)'
     }
   };

@@ -193,6 +193,16 @@ async function latestPjpsId() {
   return max;
 }
 
+/** Article in Press: no volume / issue yet (pjps.pk shows 0 and N/A) */
+const inPress = a => !Number(a.volume) || !Number(a.issue);
+
+/** A published PJPS article's full text (its PDF) -> the PJPS text repository, as pjps:<article id> */
+async function pjpsText(id, a, pdfBuffer) {
+  const { text } = await require('./parse').extractDocument(pdfBuffer, 'article.pdf', 'application/pdf');
+  return require('./corpus').addDoc({ kind: 'publication', sourceKey: `pjps:${id}`, title: String(a.title || '').replace(/\s+/g, ' ').trim(),
+    meta: { journal: `Pakistan Journal of Pharmaceutical Sciences (pjps.pk, ${inPress(a) ? 'Article in Press' : `Vol. ${a.volume}, No. ${a.issue}${a.pages ? `, pp. ${a.pages}` : ''}`})`, year: a.year || null, doi: a.doi || null, url: a.url, via: 'PJPS website' }, text });
+}
+
 async function indexPjpsArticle(id) {
   const a = await pjpsArticle(id);
   if (!a) { await markDoc('pjps', id, 'missing', { url: `${PJPS}/single-article?id=${id}` }); return { id, status: 'missing' }; }
@@ -200,6 +210,9 @@ async function indexPjpsArticle(id) {
   if (!a.pdfUrl) { await storeDoc('pjps', id, meta, [], { status: 'no-figures', error: 'No PDF on the article page' }); return { id, status: 'no-pdf' }; }
   const pdf = await download(a.pdfUrl, { timeout: 120000 });
   if (!pdf.ok) { await storeDoc('pjps', id, meta, [], { status: 'error', error: `PDF download failed (${pdf.status || pdf.error})` }); return { id, status: 'error' }; }
+  // its full text joins the PJPS text repository: a manuscript PJPS has already published (Article in Press or an issue)
+  // is then found by the similarity report and named as already published (src/pipeline.js markPublishedOnPjps)
+  await pjpsText(id, a, pdf.buffer).catch(() => null);
   const { images } = await figuresOfFile('article.pdf', pdf.buffer);
   const doc = await storeDoc('pjps', id, meta, images);
   return { id, status: doc.status, figures: images.length, panels: doc.panels };
@@ -209,7 +222,7 @@ async function indexPjpsArticle(id) {
  * Index PJPS articles: ids from..to (default: everything newer than the newest indexed id, up to the latest on
  * pjps.pk). Articles already indexed are skipped unless force. Stops after `limit` articles or `budgetMs`.
  */
-async function indexPjps({ from = null, to = null, limit = 200, force = false, budgetMs = Infinity, concurrency = 3 } = {}, update = () => {}) {
+async function indexPjps({ from = null, to = null, limit = 200, force = false, budgetMs = Infinity, concurrency = 3, retryRecent = 0 } = {}, update = () => {}) {
   const started = Date.now();
   const top = to || await latestPjpsId();
   let start = from;
@@ -217,7 +230,10 @@ async function indexPjps({ from = null, to = null, limit = 200, force = false, b
     const r = await db.one("SELECT MAX(source_key::int) AS m FROM image_ref_docs WHERE source = 'pjps' AND source_key ~ '^[0-9]+$'");
     start = r?.m ? r.m + 1 : Math.max(1, top - limit + 1);
   }
-  const done = new Set(force ? [] : (await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'pjps' AND status IN ('done', 'no-figures', 'missing')")).map(r => r.source_key));
+  // retryRecent: the newest ids not online yet when last tried (an article number reserved before publication) are tried again
+  if (retryRecent) start = Math.min(start, top - retryRecent + 1);
+  const done = new Set(force ? [] : (await db.all("SELECT source_key, status FROM image_ref_docs WHERE source = 'pjps' AND status IN ('done', 'no-figures', 'missing')"))
+    .filter(r => !(retryRecent && r.status === 'missing' && Number(r.source_key) > top - retryRecent)).map(r => r.source_key));
   const ids = [];
   for (let id = top; id >= start && ids.length < limit; id--) if (!done.has(String(id))) ids.push(id);   // newest first
   const out = { from: start, to: top, queued: ids.length, articles: 0, missing: 0, figures: 0, panels: 0, errors: [], stoppedEarly: false };
@@ -1126,13 +1142,15 @@ async function growImageDatabases({ budgetMs = 240000 } = {}) {
   const started = Date.now();
   const left = share => Math.max(0, Math.min(share, budgetMs - (Date.now() - started)));
   const out = {};
+  // newly published PJPS papers first (figures and full text), so a manuscript already published is recognised the next day
+  out.pjps = await indexPjps({ limit: 25, budgetMs: left(budgetMs * 0.3), concurrency: 2, retryRecent: 40 }).catch(e => ({ error: e.message }));
   out.retracted = await indexRetracted({ limit: 60, budgetMs: left(budgetMs * 0.4) }).catch(e => ({ error: e.message }));
   out.publisher = await indexPublisherOa({ limit: 50, budgetMs: left(budgetMs * 0.3) }).catch(e => ({ error: e.message }));
   out.pmc = await indexPmc({ limit: 40, budgetMs: left(budgetMs) }).catch(e => ({ error: e.message }));
   // fingerprints move to R2 once a few thousand panels are waiting (a small daily segment would only add files)
   out.exported = await exportIndex({ minPanels: 5000, batch: 50000 }).catch(e => ({ error: e.message }));
   const brief = o => (o && !o.error ? { papers: o.papers, panels: o.panels, errors: (o.errors || []).length } : o);
-  return { retracted: brief(out.retracted), publisher: brief(out.publisher), pmc: brief(out.pmc), exported: out.exported, seconds: Math.round((Date.now() - started) / 1000) };
+  return { pjps: out.pjps && !out.pjps.error ? { articles: out.pjps.articles, panels: out.pjps.panels, errors: (out.pjps.errors || []).length } : out.pjps, retracted: brief(out.retracted), publisher: brief(out.publisher), pmc: brief(out.pmc), exported: out.exported, seconds: Math.round((Date.now() - started) / 1000) };
 }
 
 /** A paper's current panels: rows still in the database and its exported panels' data on R2 */
@@ -1151,6 +1169,6 @@ async function panelsOf(docId) {
 const thumbKey = async id => (await refRows([id])).get(Number(id))?.thumb_key || null;
 
 module.exports = {
-  SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, latestPjpsId, indexRetracted, indexPmc, indexPublisherOa, growImageDatabases, indexUpload,
+  SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, pjpsText, latestPjpsId, indexRetracted, indexPmc, indexPublisherOa, growImageDatabases, indexUpload,
   matchManuscript, candidates, verifyThumbs, VERIFY, loadIndex, loadCharts, exportIndex, compactIndex, packSegment, unpackSegment, refRows, writeMeta, setDocRanges, META_COLS, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
 };

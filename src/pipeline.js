@@ -238,6 +238,12 @@ function markPublishedOnPjps(result) {
     pm.signals.unshift({ group: 'data', code: 'published-pjps', severity: 'high', weight: 0, title: 'Already published on the PJPS website (Article in Press)', evidence,
       note: 'The manuscript is the article PJPS has already published. Its high similarity and its figures matching a published PJPS paper are explained by this published version and are not evidence of plagiarism, figure re-use or a paper mill. The other signals below are assessed as for any manuscript.' });
     pm.risk = require('./papermill').riskLevel(pm.signals.filter(sg => sg.code !== 'published-pjps'));
+    // the written assessment and the query letter, again on the paper-mill signals proper, after the published version
+    const A = require('./papermill/assessment');
+    const rest = { ...pm, signals: pm.signals.filter(sg => sg.code !== 'published-pjps') };
+    pm.assessment = A.assess(rest);
+    pm.assessment.letter = A.queryLetter(rest, pm.assessment);
+    pm.assessment.statement = `This manuscript is already published on the PJPS website (Article in Press${doi ? `, DOI ${doi}` : ''}); its similarity and its figures matching that published article are explained by it and are not counted as paper-mill evidence. ${pm.assessment.statement || ''}`.trim();
   }
 }
 

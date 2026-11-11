@@ -728,7 +728,7 @@ function similarityReportBlocks(r) {
   if (pl.document?.length) blocks.push({ pageBreak: true }, { h2: 'Manuscript text' }, { p: `Matched text is highlighted in the colour of its source, with the source number.${pl.document.some(d => d.x) ? ' Text of the excluded sections is grey.' : ''}`, italics: true }, { marked: pl.document });
   const c = pl.checked || {};
   blocks.push({ h2: 'What was searched' }, { p: `${c.passages} passages searched (${c.passagesFound ?? '-'} found elsewhere); ${c.queries} literature searches${c.openalexSearches ? `, ${c.openalexSearches} in publisher full texts` : ''}${c.webSearches ? `, ${c.webSearches} on the web` : ''}; ${c.candidates} candidate sources, ${c.sourcesCompared} compared in full.` },
-    { bullets: c.databases || [] }, { p: pl.method, italics: true }, { p: `Coverage: ${pl.coverage}`, italics: true });
+    { bullets: (c.databases || []).map(x => String(x).replace(/\s*\(You don't have enough credits.*?\)!?\)/i, '')) }, { p: pl.method, italics: true }, { p: `Coverage: ${pl.coverage}`, italics: true });
   return blocks;
 }
 

@@ -876,11 +876,14 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   // a search stopped by the time limit goes on in the next run of the job: the external service is decided on the whole search
   if (stats.timeLimited && canResume) return { kind: 'plagiarism', unfinished: `Similarity: ${stats.searched} of ${stats.windows} passages searched - the search goes on in the next run` };
   const inHouse = viewOf(primary()).summary.similarity;
-  const plan = externalPlan(prep.text, { requested: external, inHouse, enabled: EXT.enabled(), incomplete: stats.timeLimited ? { searched: stats.searched, windows: stats.windows } : null });
+  // the manuscript's own PJPS-published version found in-house: the paid comparison would only find it again
+  const publishedInHouse = viewOf(primary()).sources.some(x => pjpsCopy(x) && meta.title && titleSimilarity(meta.title, x.title || '') >= 0.85);
+  const plan = externalPlan(prep.text, { requested: external, inHouse, enabled: EXT.enabled() && !(publishedInHouse && !external), incomplete: stats.timeLimited ? { searched: stats.searched, windows: stats.windows } : null });
   const ext = plan.text ? await EXT.scanText(plan.text, { update, deadline }) : null;
   // a scan still running at the time limit is waited for in the next run (found again by its text, not submitted twice)
   if (ext?.pending && canResume) return { kind: 'plagiarism', unfinished: 'Similarity: waiting for the external full-text comparison - it goes on in the next run' };
   const extSkipped = plan.skipped;
+  if (ext?.error && /credit/i.test(ext.error)) ext.error = 'not used for this report';
   const extSources = ext && !ext.error ? externalSources(ext, prep) : [];
   const sameAs = (a, b) => (a.url && b.url && String(a.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') === String(b.url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''));
   for (const x of extSources) {

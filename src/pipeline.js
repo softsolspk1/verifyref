@@ -186,7 +186,52 @@ async function screening(result, { input, body, refs, meta, update, side, stage,
   const aw = pm.details?.aiWriting;
   if (aw && result.plagiarism && !result.plagiarism.error) result.plagiarism.aiWriting = { score: aw.score, parts: aw.parts || [], leftovers: (pm.details.aiLeftovers || []).length };
 
+  markPublishedOnPjps(result);
   result.screening = screeningSummary(result);
+}
+
+/**
+ * The manuscript is already published by PJPS (pjps.pk, Article in Press or an issue): found by the similarity report
+ * (its published full text) or by Module 5 (its own figures in the published PJPS papers). The report says so first; the
+ * figures matching that published version and the same-title hit are evidence of it, not of duplication or a paper mill.
+ */
+function markPublishedOnPjps(result) {
+  const { titleSimilarity } = require('./text');
+  const title = result.meta?.title || '';
+  const num = (String(result.meta?.manuscriptCode || '').match(/\d{4,6}/) || [])[0];
+  const clean = t => String(t || '').replace(/\s+/g, ' ').trim();
+  const same = x => (title && titleSimilarity(title, clean(x.title)) >= 0.85) || (num && new RegExp(`\\.${num}\\.`).test(x.doi || ''));
+  const pjps = x => /pjps\.pk/i.test(x.url || '') || /^10\.36721\/PJPS/i.test(String(x.doi || '')) || /PJPS/.test(x.source || '');
+  const text = (result.plagiarism?.publishedOnPjps || [])[0] || null;
+  const figs = (result.images?.references || []).filter(m => pjps(m) && same(m));
+  if (!text && !figs.length) return;
+  const any = text || figs[0];
+  const doi = any.doi || figs.find(m => m.doi)?.doi || null;
+  const pv = { title: clean(any.title), doi, url: text?.url || (doi ? `https://doi.org/${doi}` : null), percent: text?.percent ?? null,
+    figures: figs.map(m => ({ panel: m.panel, figure: m.figure, level: m.level, description: m.description })) };
+  result.publishedOnPjps = pv;
+  const evidence = [
+    { text: `Published version: “${pv.title}”, Pakistan Journal of Pharmaceutical Sciences${doi ? `, DOI ${doi}` : ''} (pjps.pk, Article in Press)`, link: pv.url },
+    ...(pv.percent != null ? [{ text: `Similarity report: ${pv.percent}% of the manuscript's words are in this published version (full text compared word for word)` }] : []),
+    ...(figs.length ? [{ text: `Module 5: ${figs.length} figure panel(s) of the manuscript are the same figures as in the published version (${[...new Set(figs.map(m => m.figure).filter(Boolean))].slice(0, 8).join(', ')})` }] : [])
+  ];
+  const pm = result.papermill;
+  if (pm?.signals) {
+    // the same-title hit and the figure matches are this published version: replaced by one signal that names it
+    const own = e => (doi && String(e.link || '').toLowerCase().includes(doi.toLowerCase())) || (title && titleSimilarity(title, clean(String(e.text || '').replace(/^“|”.*$/g, ''))) >= 0.85);
+    pm.signals = pm.signals.map(sg => {
+      if (sg.code === 'published') { const ev = (sg.evidence || []).filter(e => !own(e)); return ev.length ? { ...sg, evidence: ev, title: `A paper with the same title is published elsewhere (${ev.length})` } : null; }
+      if (sg.code === 'images') {
+        const im = result.images;
+        const otherHigh = (im?.findings || []).filter(f => f.level === 'high').length + (im?.references || []).filter(m => m.level === 'high' && !(pjps(m) && same(m))).length;
+        return otherHigh ? sg : null;
+      }
+      return sg;
+    }).filter(Boolean);
+    pm.signals.unshift({ group: 'data', code: 'published-pjps', severity: 'high', weight: 0, title: 'Already published on the PJPS website (Article in Press)', evidence,
+      note: 'The manuscript is the article PJPS has already published. Its high similarity and its figures matching a published PJPS paper are explained by this published version and are not evidence of plagiarism, figure re-use or a paper mill. The other signals below are assessed as for any manuscript.' });
+    pm.risk = require('./papermill').riskLevel(pm.signals.filter(sg => sg.code !== 'published-pjps'));
+  }
 }
 
 /**
@@ -265,6 +310,7 @@ function refreshScreeningImages(result, imageReport, checkId) {
     r.papermill.signals = r.papermill.signals.filter(s => s.code !== 'images').concat(sig ? [sig] : []);
     r.papermill.risk = PM.riskLevel(r.papermill.signals);
   }
+  markPublishedOnPjps(r);
   r.screening = screeningSummary(r);
   return r;
 }
@@ -282,9 +328,13 @@ function screeningSummary(r) {
   let rec = 'proceed';
   const escalate = (level, why) => { reasons.push(why); if (level === 'investigate' || (level === 'return' && rec === 'proceed')) rec = level; };
   // name the strong signals, or when the level comes from the sum of several, the weightiest ones
-  const pmTop = () => { const sig = r.papermill.signals; const high = sig.filter(x => x.severity === 'high'); return (high.length ? high : [...sig].sort((a, b) => b.weight - a.weight)).slice(0, 2).map(x => x.title).join('; '); };
+  const pv = r.publishedOnPjps;
+  if (pv) escalate('investigate', `Already published on the PJPS website (Article in Press)${pv.doi ? `, DOI ${pv.doi}` : ''}${pv.percent != null ? ` - ${pv.percent}% of the text matches the published version` : ''}${pv.figures?.length ? `; ${pv.figures.length} figure panel(s) are the published figures` : ''}`);
+  const pmTop = () => { const sig = r.papermill.signals.filter(x => x.code !== 'published-pjps'); const high = sig.filter(x => x.severity === 'high'); return (high.length ? high : [...sig].sort((a, b) => b.weight - a.weight)).slice(0, 2).map(x => x.title).join('; '); };
   if (pm?.level === 'HIGH') escalate('investigate', `Paper mill risk HIGH (${pmTop()})`);
-  if (im?.level === 'HIGH') escalate('investigate', `Image integrity: ${im.byLevel?.high || 0} strong finding(s)`);
+  const ownFigs = pv?.figures?.length || 0;
+  const imOther = r.images ? (r.images.findings || []).filter(f => f.level === 'high').length + (r.images.references || []).filter(m => m.level === 'high').length - (pv?.figures || []).filter(f => f.level === 'high').length : 0;
+  if (im?.level === 'HIGH' && (!ownFigs || imOther > 0)) escalate('investigate', `Image integrity: ${im.byLevel?.high || 0} strong finding(s)`);
   if (s.suspicious >= 3) escalate('investigate', `${s.suspicious} references not found in any database (possibly fabricated)`);
   else if (s.suspicious) escalate('return', `${s.suspicious} reference(s) could not be found`);
   if (s.retracted) escalate('return', `${s.retracted} retracted work(s) cited`);
@@ -293,7 +343,8 @@ function screeningSummary(r) {
   if (c && (c.missing >= 3 || c.uncited >= 5)) escalate('return', `${c.missing} citation(s) missing from the list, ${c.uncited} reference(s) never cited`);
   if (cp && cp.score < 60) escalate('return', `Only ${cp.score}% of references follow PJPS style`);
   if (s.miscited >= 5) escalate('return', `${s.miscited} references with wrong details`);
-  if (pl?.level === 'bad') escalate('investigate', `Text overlap ${pl.similarity}% with published papers (largest single source ${pl.largestSource}%)`);
+  if (pl?.level === 'bad' && pv) { /* named above: the overlap is the published version */ }
+  else if (pl?.level === 'bad') escalate('investigate', `Text overlap ${pl.similarity}% with published papers (largest single source ${pl.largestSource}%)`);
   else if (pl?.level === 'warn') escalate('return', `Text overlap ${pl.similarity}% with published papers — check the matching passages`);
   const aiHigh = ai ? ai.flags.filter(f => f.severity === 'high') : [];
   if (aiHigh.length) escalate('return', `Author identity: ${aiHigh.slice(0, 2).map(f => f.text).join('; ')}`);
@@ -311,7 +362,8 @@ function screeningSummary(r) {
         : `${pl.similarity}% overlap with ${pl.sources} published source(s)`) : 'not checked',
       novelty: nv ? `Novelty ${nv.score}/100 (${nv.band}); ${nv.closeRecent} close work(s) in the last 5 years; 5-year citation outlook ${nv.outlook}${Number.isFinite(nv.fiveYearMedian) ? ` (median ${nv.fiveYearMedian})` : ''}` : 'not assessed',
       authors: ai ? `${ai.summary.verified} of ${ai.summary.authors} author(s) identified in ORCID${ai.summary.flags ? `; ${ai.summary.flags} problem(s)` : ''}` : 'not checked',
-      images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : r.imagesNote || 'not checked (upload the Word / PDF manuscript to analyse its figures)'
+      published: pv ? `Already published on the PJPS website (Article in Press): “${pv.title}”${pv.doi ? `, DOI ${pv.doi}` : ''}${pv.percent != null ? `; ${pv.percent}% of the text matches it` : ''}${ownFigs ? `; ${ownFigs} figure panel(s) are its published figures` : ''}` : null,
+      images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${ownFigs ? `; ${ownFigs} panel(s) match the manuscript's own published PJPS version (expected, not re-use)` : ''}${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : r.imagesNote || 'not checked (upload the Word / PDF manuscript to analyse its figures)'
     }
   };
 }

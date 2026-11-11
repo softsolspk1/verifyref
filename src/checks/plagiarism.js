@@ -587,7 +587,11 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   if (mine.length < 200) return { kind: 'plagiarism', error: 'The manuscript text is too short or not available for a similarity check.' };
   // the manuscript's own published version or preprint is not plagiarism (title or DOI of the manuscript)
   const selfMatches = [];
+  // except its version already published by PJPS itself (pjps.pk, Article in Press or an issue): counted, as Turnitin would,
+  // and named in the report (publishedOnPjps) - the journal must see that the manuscript is already out
+  const pjpsCopy = c => /pjps\.pk/i.test(c.url || '') || /^10\.36721\/PJPS/i.test(String(c.doi || ''));
   const isSelf = c => {
+    if (pjpsCopy(c)) return false;
     const self = (meta.title && c.title && titleSimilarity(meta.title, c.title) >= 0.9) || (meta.doi && c.doi && String(meta.doi).toLowerCase() === String(c.doi).toLowerCase());
     if (self && !selfMatches.some(s => s.title === c.title)) selfMatches.push({ title: c.title, journal: c.journal || null, year: c.year || null, doi: c.doi || null, url: c.url || null });
     return self;
@@ -599,7 +603,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
 
   // 1. the PJPS text repository: published papers and web pages kept by earlier checks (never unpublished submissions)
   update('Comparing with the PJPS text repository');
-  const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null, limit: REPO_SOURCES }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi }));
+  const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null, limit: REPO_SOURCES }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi, url: d.meta?.url }));
   const repoKeys = new Set(repo.map(d => d.sourceKey));
   const fromRepo = (await pool(repo, 6, async d => {
     if (late()) return null;
@@ -920,6 +924,9 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     flags: SIM.textFlags(prep.text),
     filters: { bibliography: prep.bibliographyFound ? 'included (the reference list is compared; exclude it in Filters)' : 'no reference list found', quotes: `included (${prep.quotedWords} quoted words)`, smallMatches: "not excluded (Turnitin's default; the shortest match counted is 5 words)", citations: `ignored inside matches (${prep.citeWords} words of in-text citations)` },
     selfMatches,
+    // the manuscript is already published by PJPS (pjps.pk): its published version, counted in the index above
+    publishedOnPjps: view.sources.filter(x => pjpsCopy(x) && meta.title && titleSimilarity(meta.title, x.title || '') >= 0.85).slice(0, 3)
+      .map(x => ({ title: x.title, doi: x.doi || null, url: x.url || null, year: x.year || null, percent: x.percent })),
     checked: { references: refStats, passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, wikiSearches: stats.wikiSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, timeLimited: stats.timeLimited, passagesSearched: stats.searched, databases },
     coverage: `${extUsed ? 'The text (without the reference list) with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), Wikipedia (${WIKI_PHRASES} passage searches at most), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
     method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are compared (the editor can exclude either), and matches of ${FLOOR} words or more are counted (the editor can exclude small matches). Each entry of the reference list is matched whole to every source listing the same work (title and first author, whatever the citation style), or else to the cited work's own record (Crossref, Open Library, Google Books)${refStats.entries ? ` - ${refStats.inSources + refStats.citedWork} of ${refStats.entries} entries matched` : ''}. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`

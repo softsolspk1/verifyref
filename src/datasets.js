@@ -1332,6 +1332,7 @@ const DATASET_VIEWS = {
   email_domains: { label: 'E-mail domain lists', cols: ['domain', 'kind'], search: ['domain'], order: 'kind, domain' },
   journal_abbrevs: { label: 'JabRef journal abbreviations', cols: ['title', 'abbrev', 'list'], search: ['title', 'abbrev'], order: 'title_norm' },
   mirbase: { label: 'miRBase microRNAs', cols: ['mir_key', 'species'], search: ['mir_key'], order: 'mir_key' },
+  pjps_articles: { label: 'PJPS', cols: ['article_id', 'title', 'authors', 'year', 'volume', 'issue', 'pages', 'doi', 'keywords', 'words', 'url'], search: ['title', 'authors', 'doi', 'keywords', 'article_id'], order: 'article_id DESC' },
   flagged_papers: { label: 'Papers flagged in integrity audits', cols: ['doi', 'title', 'journal', 'year', 'issue', 'image', 'source'], search: ['doi', 'title', 'issue'], order: 'year DESC NULLS LAST, doi' },
   // the PMC journal list is kept with the uploaded lists (journal_list_entries, list_type 'pmc'); its columns are in data
   pmc_journals: { label: 'PubMed Central journal list', table: 'journal_list_entries', where: "list_type = 'pmc'",
@@ -1736,7 +1737,10 @@ async function listStatus() {
     wosWikidata: { loadedAt: await getMeta('wosw_loaded_at'), count: parseInt((await getMeta('wosw_count')) || '0', 10) },
     flaggedPapers: { loadedAt: await getMeta('flag_loaded_at'), count: parseInt((await getMeta('flag_count')) || '0', 10) },
     doajWithdrawn: { loadedAt: await getMeta('doajw_loaded_at'), count: parseInt((await getMeta('doajw_count')) || '0', 10) },
-    mirbase: { loadedAt: await getMeta('mirbase_loaded_at'), count: parseInt((await getMeta('mirbase_count')) || '0', 10) }
+    mirbase: { loadedAt: await getMeta('mirbase_loaded_at'), count: parseInt((await getMeta('mirbase_count')) || '0', 10) },
+    // every article published on pjps.pk (src/imageRefs.js loadPjpsArticles); next: the article id the loading continues from
+    pjpsArticles: { loadedAt: await getMeta('pjpsa_loaded_at'), count: parseInt((await getMeta('pjpsa_count')) || '0', 10), next: parseInt((await getMeta('pjpsa_next')) || '0', 10) || null,
+      fullTexts: await db.one("SELECT COUNT(*) FILTER (WHERE text_from = 'pdf')::int AS n FROM pjps_articles").then(r => r.n).catch(() => 0) }
   };
 }
 

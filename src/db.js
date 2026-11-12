@@ -293,6 +293,28 @@ CREATE TABLE IF NOT EXISTS mirbase (
   species TEXT NOT NULL
 );
 
+-- PJPS dataset: every article published on pjps.pk (issues and Article in Press), one row per article page
+-- (single-article?id=). Its full text (or abstract when there is no PDF) is in the PJPS text repository as pjps:<id>
+CREATE TABLE IF NOT EXISTS pjps_articles (
+  article_id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  authors TEXT,
+  year TEXT,
+  volume TEXT,
+  issue TEXT,
+  pages TEXT,
+  in_press BOOLEAN NOT NULL DEFAULT false,
+  doi TEXT,
+  keywords TEXT,
+  abstract TEXT,
+  url TEXT,
+  pdf_url TEXT,
+  words INTEGER,                         -- words of the text in the repository (NULL: none could be read)
+  text_from TEXT,                        -- pdf | abstract
+  loaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_pjps_articles_doi ON pjps_articles(doi);
+
 CREATE TABLE IF NOT EXISTS journal_lists (
   list_type TEXT PRIMARY KEY,
   filename TEXT,

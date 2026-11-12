@@ -102,6 +102,13 @@ export async function renderAdmin(view) {
             <td>${b?.builtAt ? fmtDate(b.builtAt) : desk ? badge('web platform', 'neutral') : badge('not loaded', 'warn')}</td>
             <td>${b?.docs ? badge('active', 'good') : desk ? `${badge('web platform', 'neutral')}<div class="muted">Searched on the web platform</div>` : badge('pending', 'warn')}${viewBtn('pmc_fulltexts', b?.docs)}</td>
           </tr>`)(ds.pmcFullTexts)}
+          ${(p => `<tr>
+            <td><b>PJPS</b><div class="muted">Every article published on pjps.pk (Pakistan Journal of Pharmaceutical Sciences, 2007 onwards, Article in Press included): title, authors, volume and issue, DOI, keywords and abstract, with its full text in the PJPS text repository. The Similarity Report compares every manuscript with them and names a manuscript PJPS has already published. New articles are added by the daily update.</div></td>
+            <td>Similarity</td>
+            <td class="num">${p.count ? `${Number(p.count).toLocaleString()} articles${p.fullTexts ? `<div class="muted">${Number(p.fullTexts).toLocaleString()} full texts</div>` : ''}` : '0'}</td>
+            <td>${p.loadedAt ? fmtDate(p.loadedAt) : badge('not loaded', 'warn')}</td>
+            <td>${p.count ? badge('active', 'good') : badge('pending', 'warn')}${p.count && p.next && p.next > 1 && !desk ? `<div class="muted">Loading continues from article ${Number(p.next).toLocaleString()}</div>` : ''}${viewBtn('pjps_articles', p.count)}${desk ? '' : ` <button class="btn btn-sm" id="pjps-load">${p.count ? 'Continue loading' : 'Load all articles'}</button>`}</td>
+          </tr>`)(ds.pjpsArticles || {})}
           ${(o => `<tr>
             <td><b>OpenAlex journal list</b><div class="muted">Every journal in OpenAlex (about 220,000) with all ISSNs, publisher, country, open-access and DOAJ status, APC, output and citation metrics (Journal Check when offline or when OpenAlex does not answer). Refreshed monthly.</div></td>
             <td>Journal index</td>
@@ -289,6 +296,15 @@ export async function renderAdmin(view) {
   }));
   $$('[data-view]', view).forEach(b => (b.onclick = () => viewList(ds.lists.find(l => l.type === b.dataset.view), { desk, onChange: () => renderAdmin(view) })));
   $$('[data-add]', view).forEach(b => (b.onclick = () => addJournalForm(ds.lists.find(l => l.type === b.dataset.add), () => renderAdmin(view))));
+  const pjpsLoad = $('#pjps-load', view);
+  if (pjpsLoad) pjpsLoad.onclick = async () => {
+    try {
+      const { jobId } = await api('/api/admin/datasets/pjps/load', { body: {} });
+      await runJob(jobId, $('#refresh-progress', view), 'Loading the PJPS articles from pjps.pk (a few hundred per server run; continues where it stopped)');
+      toast('PJPS articles loaded');
+      renderAdmin(view);
+    } catch (e) { toast(e.message, 'error'); renderAdmin(view); }
+  };
   $$('[data-dsview]', view).forEach(b => (b.onclick = () => viewDataset(b.dataset.dsview, b.dataset.pub || '')));
   if ($('#pubj-load', view)) $('#pubj-load', view).onclick = async () => {
     try {

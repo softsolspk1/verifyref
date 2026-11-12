@@ -60,10 +60,11 @@ const TABLE_ORDER = {
   retractions: 'doi', predatory: 'id', journal_list_entries: 'list_type, title_norm, issn, eissn', pps_fingerprints: 'kind, terms', fda_orange_book: 'id',
   nlm_journals: 'nlm_id', doaj_journals: 'title_norm, issn, eissn', ltwa_words: 'word, prefix, abbrev', crossref_journals: 'title_norm, crossref_id, issn', email_domains: 'domain',
   openalex_journals: 'openalex_id', publisher_journals: 'publisher_key, title_norm, issns', cello_problematic: 'name_key, accession',
-  journal_abbrevs: 'title_norm, list', flagged_papers: 'doi, source', mirbase: 'mir_key'
+  journal_abbrevs: 'title_norm, list', flagged_papers: 'doi, source', mirbase: 'mir_key',
+  pjps_articles: 'article_id'
 };
 // wide rows: smaller pages keep each response under the 4.5 MB Vercel limit (the desktop pages by what it receives)
-const PAGE_MAX = { openalex_journals: 3000 };
+const PAGE_MAX = { openalex_journals: 3000, pjps_articles: 1000 };
 router.get('/sync/table/:name', wrap(device), wrap(async (req, res) => {
   const order = TABLE_ORDER[req.params.name];
   if (!order) return res.status(404).json({ success: false, message: 'Unknown table.' });

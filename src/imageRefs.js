@@ -166,6 +166,17 @@ async function download(url, { timeout = 60000, max = 80e6 } = {}) {
 
 const metaTag = (html, name) => [...html.matchAll(new RegExp(`<meta[^>]+name="${name}"[^>]+content="([^"]*)"`, 'g'))].map(m => m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim());
 
+const unescape = t => t.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ');
+/** The abstract section of an article page (the description meta tag holds only its first 200 characters) */
+function pjpsAbstract(html) {
+  const at = html.indexOf('id="sec-abstract"');
+  const sec = at >= 0 ? html.slice(at, at + 60000) : '';
+  const body = sec.indexOf('prose-serif">');
+  const part = body >= 0 ? sec.slice(body + 13).split('</div>')[0] : '';
+  const text = unescape(part.replace(/<\/p>|<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim().replace(/^Abstract\s*:\s*/i, '');
+  return text || unescape((metaTag(html, 'description')[0] || '').replace(/^Abstract:\s*/i, '')).replace(/\s+/g, ' ').trim() || null;
+}
+
 /** Article page -> { id, title, doi, year, volume, issue, pages, pdfUrl, url } or null when there is no article with this id */
 async function pjpsArticle(id) {
   const url = `${PJPS}/single-article?id=${id}`;
@@ -178,7 +189,9 @@ async function pjpsArticle(id) {
   if (pdfUrl && !/^https?:/.test(pdfUrl)) pdfUrl = `${PJPS}/${pdfUrl.replace(/^\//, '')}`;
   return {
     id, url, title, doi: metaTag(html, 'citation_doi')[0] || null, year: (metaTag(html, 'citation_publication_date')[0] || metaTag(html, 'citation_date')[0] || '').slice(0, 4) || null,
-    volume: metaTag(html, 'citation_volume')[0] || null, issue: metaTag(html, 'citation_issue')[0] || null, pages: [metaTag(html, 'citation_firstpage')[0], metaTag(html, 'citation_lastpage')[0]].filter(Boolean).join('-'), pdfUrl
+    volume: metaTag(html, 'citation_volume')[0] || null, issue: metaTag(html, 'citation_issue')[0] || null, pages: [metaTag(html, 'citation_firstpage')[0], metaTag(html, 'citation_lastpage')[0]].filter(Boolean).join('-'), pdfUrl,
+    authors: metaTag(html, 'citation_author'), keywords: metaTag(html, 'citation_keywords'),
+    abstract: pjpsAbstract(html)
   };
 }
 
@@ -201,11 +214,96 @@ async function latestPjpsId() {
 /** Article in Press: no volume / issue yet (pjps.pk shows 0 and N/A) */
 const inPress = a => !Number(a.volume) || !Number(a.issue);
 
+const pjpsJournal = a => `Pakistan Journal of Pharmaceutical Sciences (pjps.pk, ${inPress(a) ? 'Article in Press' : `Vol. ${a.volume}, No. ${a.issue}${a.pages ? `, pp. ${a.pages}` : ''}`})`;
+
 /** A published PJPS article's full text (its PDF) -> the PJPS text repository, as pjps:<article id> */
 async function pjpsText(id, a, pdfBuffer) {
   const { text } = await require('./parse').extractDocument(pdfBuffer, 'article.pdf', 'application/pdf');
   return require('./corpus').addDoc({ kind: 'publication', sourceKey: `pjps:${id}`, title: String(a.title || '').replace(/\s+/g, ' ').trim(),
-    meta: { journal: `Pakistan Journal of Pharmaceutical Sciences (pjps.pk, ${inPress(a) ? 'Article in Press' : `Vol. ${a.volume}, No. ${a.issue}${a.pages ? `, pp. ${a.pages}` : ''}`})`, year: a.year || null, doi: a.doi || null, url: a.url, via: 'PJPS website' }, text });
+    meta: { journal: pjpsJournal(a), year: a.year || null, doi: a.doi || null, url: a.url, via: 'PJPS website' }, text });
+}
+
+/**
+ * The article in the PJPS dataset (pjps_articles), with its full text in the PJPS text repository: the PDF's text, or
+ * the abstract when there is no PDF or it cannot be read. pdfBuffer: the PDF when the caller has downloaded it already.
+ */
+async function savePjpsArticle(a, pdfBuffer = null) {
+  const words = async docId => (docId ? (await db.one('SELECT words FROM corpus_docs WHERE id = $1', [docId]))?.words || null : null);
+  let n = null, from = null;
+  if (a.pdfUrl && !pdfBuffer) { const pdf = await download(a.pdfUrl, { timeout: 120000 }); if (pdf.ok) pdfBuffer = pdf.buffer; }
+  if (pdfBuffer) { n = await words(await pjpsText(a.id, a, pdfBuffer).catch(() => null)); if (n) from = 'pdf'; }
+  if (!n && a.abstract) {
+    n = await words(await require('./corpus').addDoc({ kind: 'publication', sourceKey: `pjps:${a.id}`, title: String(a.title || '').replace(/\s+/g, ' ').trim(),
+      meta: { journal: pjpsJournal(a), year: a.year || null, doi: a.doi || null, url: a.url, via: 'PJPS website' }, text: a.abstract }).catch(() => null));
+    if (n) from = 'abstract';
+  }
+  await db.query(`INSERT INTO pjps_articles(article_id, title, authors, year, volume, issue, pages, in_press, doi, keywords, abstract, url, pdf_url, words, text_from, loaded_at)
+    VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
+    ON CONFLICT (article_id) DO UPDATE SET title = EXCLUDED.title, authors = EXCLUDED.authors, year = EXCLUDED.year, volume = EXCLUDED.volume, issue = EXCLUDED.issue,
+      pages = EXCLUDED.pages, in_press = EXCLUDED.in_press, doi = EXCLUDED.doi, keywords = EXCLUDED.keywords, abstract = EXCLUDED.abstract, url = EXCLUDED.url,
+      pdf_url = EXCLUDED.pdf_url, words = COALESCE(EXCLUDED.words, pjps_articles.words), text_from = COALESCE(EXCLUDED.text_from, pjps_articles.text_from), loaded_at = now()`,
+  [a.id, String(a.title).replace(/\s+/g, ' ').trim(), (a.authors || []).join('; ') || null, a.year, a.volume, a.issue, a.pages || null, inPress(a), a.doi ? a.doi.toLowerCase() : null,
+    (a.keywords || []).join('; ') || null, a.abstract || null, a.url, a.pdfUrl, n, from]);
+  return { words: n, from };
+}
+
+/** Article count and newest load of the PJPS dataset (meta pjpsa_count / pjpsa_loaded_at: Admin > Datasets, desktop sync) */
+async function pjpsDatasetMeta() {
+  const r = await db.one('SELECT COUNT(*)::int AS n, MAX(loaded_at) AS at FROM pjps_articles');
+  await db.setMeta('pjpsa_count', r.n);
+  if (r.at) await db.setMeta('pjpsa_loaded_at', new Date(r.at).toISOString());
+  return r.n;
+}
+
+/**
+ * Load every pjps.pk article into the PJPS dataset, from article id 1 up to the latest (Article in Press included).
+ * Continues where the last run stopped (meta pjpsa_next); ids the Module 5 indexing found without an article are not
+ * fetched again (except the newest, which may not be online yet). Stops after `limit` articles or `budgetMs`; returns
+ * done: true once every id up to the latest has been tried.
+ */
+async function loadPjpsArticles({ from = null, to = null, limit = Infinity, budgetMs = Infinity, concurrency = 3, force = false } = {}, update = () => {}) {
+  const started = Date.now();
+  const top = to || await latestPjpsId();
+  // only a run that continues from the stored position moves it (a range given by the caller leaves it as it is)
+  const resume = !from;
+  const start = from || parseInt((await db.getMeta('pjpsa_next')) || '1', 10) || 1;
+  const have = new Set(force ? [] : (await db.all('SELECT article_id FROM pjps_articles WHERE words IS NOT NULL')).map(r => r.article_id));
+  const empty = new Set((await db.all("SELECT source_key FROM image_ref_docs WHERE source = 'pjps' AND status = 'missing' AND source_key ~ '^[0-9]+$'"))
+    .map(r => Number(r.source_key)).filter(id => id <= top - 40));
+  const ids = [];
+  for (let id = start; id <= top && ids.length < limit; id++) if (!have.has(id) && !empty.has(id)) ids.push(id);
+  const out = { from: start, to: top, last: ids[ids.length - 1] || null, queued: ids.length, articles: 0, fullTexts: 0, abstracts: 0, missing: 0, errors: [], stoppedEarly: false, done: false };
+  // the next run starts at the lowest id not finished, so a stopped run repeats nothing and skips nothing
+  const finished = new Set();
+  let next = 0, low = 0;
+  const advance = async () => {
+    const k = low;
+    while (low < ids.length && finished.has(ids[low])) low++;
+    if (resume && low !== k) await db.setMeta('pjpsa_next', low < ids.length ? ids[low] : ids[ids.length - 1] + 1);
+  };
+  const worker = async () => {
+    while (next < ids.length) {
+      if (Date.now() - started > budgetMs) { out.stoppedEarly = true; return; }
+      const id = ids[next++];
+      try {
+        const a = await pjpsArticle(id);
+        if (!a) out.missing++;
+        else {
+          const r = await savePjpsArticle(a);
+          out.articles++;
+          if (r.from === 'pdf') out.fullTexts++; else if (r.from === 'abstract') out.abstracts++;
+        }
+      } catch (e) { out.errors.push(`${id}: ${e.message}`); }
+      finished.add(id);
+      await advance();
+      update(`PJPS article ${id}: ${out.articles} articles loaded (${out.fullTexts} full texts, ${out.abstracts} abstracts only), ${next} of ${ids.length}`, 5 + next / Math.max(1, ids.length) * 93);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, ids.length || 1) }, worker));
+  if (!out.stoppedEarly && ids.length < limit) { out.done = true; if (resume) await db.setMeta('pjpsa_next', top + 1); }
+  out.total = await pjpsDatasetMeta();
+  out.errors = out.errors.slice(0, 30);
+  return out;
 }
 
 async function indexPjpsArticle(id) {
@@ -217,7 +315,8 @@ async function indexPjpsArticle(id) {
   if (!pdf.ok) { await storeDoc('pjps', id, meta, [], { status: 'error', error: `PDF download failed (${pdf.status || pdf.error})` }); return { id, status: 'error' }; }
   // its full text joins the PJPS text repository: a manuscript PJPS has already published (Article in Press or an issue)
   // is then found by the similarity report and named as already published (src/pipeline.js markPublishedOnPjps)
-  await pjpsText(id, a, pdf.buffer).catch(() => null);
+  // ... and the PJPS dataset (pjps_articles)
+  await savePjpsArticle(a, pdf.buffer).then(pjpsDatasetMeta).catch(() => null);
   const { images } = await figuresOfFile('article.pdf', pdf.buffer);
   const doc = await storeDoc('pjps', id, meta, images);
   return { id, status: doc.status, figures: images.length, panels: doc.panels };
@@ -1174,6 +1273,6 @@ async function panelsOf(docId) {
 const thumbKey = async id => (await refRows([id])).get(Number(id))?.thumb_key || null;
 
 module.exports = {
-  SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, pjpsText, latestPjpsId, indexRetracted, indexPmc, indexPublisherOa, growImageDatabases, indexUpload,
+  SOURCES, indexRsiid, indexBiofors, indexBinder, fingerprintFigures, storeDoc, deleteDoc, indexPjps, indexPjpsArticle, pjpsArticle, pjpsText, savePjpsArticle, loadPjpsArticles, pjpsDatasetMeta, latestPjpsId, indexRetracted, indexPmc, indexPublisherOa, growImageDatabases, indexUpload,
   matchManuscript, candidates, verifyThumbs, VERIFY, loadIndex, loadCharts, exportIndex, compactIndex, packSegment, unpackSegment, refRows, writeMeta, setDocRanges, META_COLS, status, sourceCounts, listDocs, panelsOf, thumbKey, refThumb, pearson, sameSeries, cleanSeries
 };

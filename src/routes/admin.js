@@ -264,6 +264,25 @@ router.get('/admin/datasets/:name/rows', wrap(async (req, res) => {
   res.json({ success: true, ...out });
 }));
 
+/** PJPS dataset: every article published on pjps.pk with its full text (continues where the last load stopped) */
+router.post('/admin/datasets/pjps/load', webOnly, wrap(async (req, res) => {
+  const running = await db.one("SELECT id FROM jobs WHERE kind = 'pjps-articles' AND status IN ('queued', 'running') AND created_at > now() - interval '3 hours' ORDER BY created_at DESC LIMIT 1");
+  if (running) return res.json({ success: true, jobId: running.id, alreadyRunning: true });
+  const job = await createJob(req.user.id, 'pjps-articles', { restart: !!req.body?.restart });
+  await auth.audit(req, 'dataset-load', 'PJPS articles');
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('pjps-articles', async (input, { update, deadline, attempt }) => {
+  if (input.restart && attempt === 1) await db.setMeta('pjpsa_next', '1');
+  const out = await REFS.loadPjpsArticles({ budgetMs: Number.isFinite(deadline) ? deadline - Date.now() - 90000 : Infinity, concurrency: 4 }, update);
+  // the texts' fingerprints of the earlier runs move to the index on R2, so they do not pile up in the database
+  update('Adding the PJPS texts to the similarity index', 99);
+  await require('../corpus').compactIndex().catch(() => null);
+  // one server run loads a few hundred articles: the next run continues (a later click continues after the job's runs end)
+  if (!out.done) throw new ResumeLater(`PJPS: ${out.total} articles in the dataset, continuing from article ${(await db.getMeta('pjpsa_next')) || '?'}`);
+  return out;
+});
+
 /** Download the major publisher journal lists now (about 2 minutes) instead of waiting for the monthly refresh */
 router.post('/admin/datasets/publishers/load', webOnly, wrap(async (req, res) => {
   const job = await createJob(req.user.id, 'publisher-journals', {});

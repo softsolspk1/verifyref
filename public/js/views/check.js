@@ -224,7 +224,7 @@ export function renderCheckForm(view, kind) {
             attach = { imagesCheckId: img.id, imagesEmbedded: true };
           } catch (e) {
             // no figures in the file, or the analysis failed: the rest of the screening still runs, and the report says why
-            attach = { imagesNote: e.noFigures ? 'The manuscript file contains no figures that could be analysed.' : `The image analysis could not be completed: ${e.message}` };
+            attach = { imagesNote: e.noFigures ? `The manuscript file contains no figures that could be analysed. ${e.message.replace(/^No figures could be read\.\s*/, '')}`.trim() : `The image analysis could not be completed: ${e.message}` };
           }
           prog.remove();
           await api(`/api/jobs/${jobId}/images`, { body: attach }).catch(() => {});

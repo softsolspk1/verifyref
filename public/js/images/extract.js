@@ -3,6 +3,7 @@
 // at most MAX px on the longest side, plus a list of what could not be read.
 import { scanProvenance } from './forensics.js';
 import { decodeTiff } from './tiff.js';
+import { figureBoxes, itemsInViewport } from './vectorFigures.js';
 const MAX = 1600;
 const MIN = 80; // smaller images are icons, logos or equation bitmaps
 
@@ -182,6 +183,28 @@ function pdfImageToCanvas(obj) {
   return toCanvas(c, w, h);
 }
 
+const VECTOR_PATHS = 20;   // drawing operations on a page before its captioned figures are looked for
+const RENDER_SCALE = 2.5;  // a 595 pt page -> about 1490 px wide: chart lines and labels stay sharp
+
+/** The captioned figures drawn on a PDF page: [{ caption, canvas, scale, width, height }] */
+async function vectorFigures(page, text) {
+  const viewport = page.getViewport({ scale: RENDER_SCALE });
+  const c = document.createElement('canvas');
+  c.width = Math.round(viewport.width);
+  c.height = Math.round(viewport.height);
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  const boxes = figureBoxes(ctx.getImageData(0, 0, c.width, c.height), itemsInViewport(text.items, viewport));
+  return boxes.map(b => {
+    const crop = document.createElement('canvas');
+    crop.width = b.w; crop.height = b.h;
+    crop.getContext('2d').drawImage(c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+    return { caption: b.caption, width: b.w, height: b.h, ...toCanvas(crop, b.w, b.h) };
+  });
+}
+
 async function fromPdf(file, onStep) {
   const lib = await loadPdfjs();
   const pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
@@ -191,27 +214,38 @@ async function fromPdf(file, onStep) {
     onStep(`Reading page ${p} of ${pdf.numPages}`);
     const page = await pdf.getPage(p);
     const ops = await page.getOperatorList();
-    const names = [];
+    const names = [], inline = [];
+    let paths = 0;
     for (let i = 0; i < ops.fnArray.length; i++) {
       const fn = ops.fnArray[i];
       if (fn === OPS.paintImageXObject || fn === OPS.paintImageXObjectRepeat) { const nm = ops.argsArray[i][0]; if (!names.includes(nm)) names.push(nm); }
+      else if (fn === OPS.paintInlineImageXObject && ops.argsArray[i][0]) inline.push(ops.argsArray[i][0]); // a picture written into the page itself
+      else if (fn === OPS.constructPath) paths++;
     }
-    if (!names.length) continue;
+    if (!names.length && !inline.length && paths < VECTOR_PATHS) { page.cleanup(); continue; }
     const text = await page.getTextContent();
     const captions = text.items.map(t => t.str).filter(s => FIG_RE.test(s)).map(s => s.match(FIG_RE)[1].replace(/^fig(?:ure)?\.?\s*/i, 'Fig. '));
     let k = 0;
-    for (const nm of names) {
-      const obj = await objGet(page, nm);
+    const all = names.length + inline.length;
+    for (const nm of [...names, ...inline]) {
+      const obj = typeof nm === 'string' ? await objGet(page, nm) : nm;
       if (!obj || (obj.width || obj.bitmap?.width || 0) < MIN || (obj.height || obj.bitmap?.height || 0) < MIN) continue;
       const cv = pdfImageToCanvas(obj);
       if (!cv) { skipped.push({ name: `Page ${p} image`, reason: 'Unsupported image encoding' }); continue; }
       k++;
-      const cap = captions.length === names.length ? captions[k - 1] : captions.length === 1 ? captions[0] : '';
-      images.push({ id: `p${p}i${k}`, label: `${cap ? cap + ' — ' : ''}page ${p}${names.length > 1 ? `, image ${k}` : ''}`, source: 'pdf', width: obj.width || obj.bitmap.width, height: obj.height || obj.bitmap.height, canvas: cv.canvas, scale: cv.scale });
+      const cap = captions.length === all ? captions[k - 1] : captions.length === 1 ? captions[0] : '';
+      images.push({ id: `p${p}i${k}`, label: `${cap ? cap + ' — ' : ''}page ${p}${all > 1 ? `, image ${k}` : ''}`, source: 'pdf', width: obj.width || obj.bitmap.width, height: obj.height || obj.bitmap.height, canvas: cv.canvas, scale: cv.scale });
+    }
+    // no picture on the page but a figure caption and a drawing: charts printed to PDF as vector graphics (published
+    // articles). The page is rendered and each captioned figure cut out of it (images/vectorFigures.js)
+    if (!k && captions.length && paths >= VECTOR_PATHS) {
+      onStep(`Reading the drawn figures on page ${p} of ${pdf.numPages}`);
+      const got = await vectorFigures(page, text).catch(() => []);
+      got.forEach((f, i) => images.push({ id: `p${p}v${i + 1}`, label: `${f.caption} — page ${p} (drawn figure)`, source: 'pdf', vector: true, width: f.width, height: f.height, canvas: f.canvas, scale: f.scale }));
     }
     page.cleanup();
   }
-  if (!images.length) skipped.push({ name: file.name, reason: 'No embedded images found. Figures drawn as vector graphics, or a scanned PDF, cannot be split into figures — upload the Word file or the figure files.' });
+  if (!images.length) skipped.push({ name: file.name, reason: 'No figures found: no embedded pictures, and no drawing with a "Fig." caption. A scanned PDF or figures without captions cannot be split into figures — upload the Word file or the figure files.' });
   return { images, skipped };
 }
 

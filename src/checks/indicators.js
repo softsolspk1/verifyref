@@ -22,6 +22,7 @@ async function setAgeRule(rule) {
 }
 
 const isHomeJournal = (r, home = cfg.HOME_JOURNAL) => {
+  if (r.pjps && home.name === cfg.HOME_JOURNAL.name) return true; // found in the PJPS dataset (src/checks/pjpsCitations.js)
   const ok = !!r.record && (['verified', 'retracted'].includes(r.status) || (r.status === 'miscited' && (r.confidence || 0) >= 85));
   const name = (ok && r.record?.journal) || r.parsed?.journal || r.record?.journal || '';
   const issns = (ok ? r.record?.issn || [] : []).map(cleanIssn);
@@ -69,9 +70,12 @@ async function bibliographyIndicators(meta, results, journals) {
   for (const r of results) { const y = r.record?.year || r.parsed?.year; if (y) byYear[y] = (byYear[y] || 0) + 1; }
 
   const hasAuthors = (meta?.authors || []).length > 0;
-  const pattern = hasAuthors ? analyzeCitationPattern(meta, results) : null;
-  const self = pattern ? pattern.selfCitation.refs.map(s => ({ index: s.index, authors: s.authors, title: s.title })) : [];
-  const home = results.filter(r => isHomeJournal(r)).map(r => r.index);
+  // the PJPS citations are listed with or without the authors; self-citation needs them
+  const pattern = analyzeCitationPattern(meta || {}, results);
+  const self = hasAuthors ? pattern.selfCitation.refs.map(s => ({ index: s.index, authors: s.authors, title: s.title, year: s.year || null })) : [];
+  const homeRows = pattern.homeJournal.refs;
+  const home = homeRows.map(h => h.index);
+  const thisYear = new Date().getFullYear();
 
   const risky = [], clones = [], citejacked = [], discontinued = [];
   const yearOf = new Map(results.map(r => [r.index, parseInt(r.record?.year || r.parsed?.year, 10) || null]));
@@ -109,7 +113,7 @@ async function bibliographyIndicators(meta, results, journals) {
   const dups = duplicates(results);
   const flags = [];
   if (recentShare !== null && rule.minShare && recentShare < rule.minShare) flags.push({ severity: 'medium', code: 'few-recent', message: `Only ${recentShare}% of references are from the last ${rule.years} years (PJPS minimum: ${rule.minShare}%)` });
-  if (pattern && pattern.summary.selfCitationRate >= 15) flags.push({ severity: pattern.summary.selfCitationRate >= 25 ? 'high' : 'medium', code: 'self-citation', message: `Self-citation ${pattern.summary.selfCitationRate}% (${self.length} of ${results.length} references)` });
+  if (hasAuthors && pattern.summary.selfCitationRate >= 15) flags.push({ severity: pattern.summary.selfCitationRate >= 25 ? 'high' : 'medium', code: 'self-citation', message: `Self-citation ${pattern.summary.selfCitationRate}% (${self.length} of ${results.length} references)` });
   if (risky.length) flags.push({ severity: 'high', code: 'predatory', message: `${risky.reduce((a, r) => a + r.refs.length, 0)} reference(s) to predatory or hijacked journals` });
   const nDisc = discontinued.reduce((a, r) => a + r.refs.length, 0);
   if (nDisc) flags.push({ severity: 'low', code: 'scopus-discontinued', message: `${nDisc} reference(s) to journals discontinued by Scopus, published after the last content Scopus covers` });
@@ -120,8 +124,11 @@ async function bibliographyIndicators(meta, results, journals) {
 
   return {
     age: { rule, recent, recentShare, within10, within10Share: aged.length ? Math.round(within10 / aged.length * 100) : null, aged: aged.length, olderThan10: aged.filter(r => r.age > 10).map(r => r.index), byYear },
-    selfCitation: { measured: hasAuthors, count: self.length, rate: pattern ? pattern.summary.selfCitationRate : null, refs: self },
-    homeJournal: { name: cfg.HOME_JOURNAL.name, count: home.length, refs: home },
+    selfCitation: { measured: hasAuthors, count: self.length, rate: hasAuthors ? pattern.summary.selfCitationRate : null, refs: self },
+    // citations of earlier PJPS articles: recent = the impact-factor window (last 2 years), older = before it
+    homeJournal: { name: cfg.HOME_JOURNAL.name, count: home.length, refs: home, articles: homeRows,
+      recent: homeRows.filter(h => h.year && h.year >= thisYear - 2).length, older: homeRows.filter(h => !(h.year && h.year >= thisYear - 2)).length,
+      self: hasAuthors ? homeRows.filter(h => h.self).length : null },
     riskyJournals: risky,
     hijackedClones: clones,
     citejacked,

@@ -715,6 +715,8 @@ async function checkReferences(refs, opts = {}) {
     }));
   }
 
+  // references to articles published by PJPS (the PJPS dataset): their full author list and pjps.pk page
+  await require('./pjpsCitations').markPjpsArticles(out);
   return { results: out, summary: summarize(out), style };
 }
 

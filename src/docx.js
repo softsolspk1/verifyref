@@ -614,6 +614,27 @@ function imagesBlocks(r, { section = null } = {}) {
  * the authors must fix), for sending after the editor's approval.
  */
 /** One row per module of the Full Screening Report with its verdict (ok | warn | bad | na) */
+function selfPjpsLevel(p) {
+  const s = p?.summary;
+  if (!s) return 'na';
+  if (s.selfCitationRate >= 25 || s.homeJournalSelf >= 4 || s.homeJournalWeak >= 4) return 'bad';
+  if (s.selfCitationRate >= 15 || s.irrelevantSelfCitations || s.homeJournalSelf >= 2 || s.homeJournalWeak >= 2 || (p.flags || []).some(f => f.code === 'citation-stacking' || f.code === 'jif-window')) return 'warn';
+  return p.manuscriptAuthors?.length ? 'ok' : 'na';
+}
+
+/** Self-citations and citations of earlier PJPS articles, as tables (Full Screening, editor version) */
+function selfPjpsBlocks(p) {
+  if (!p) return [];
+  const blocks = [];
+  const self = p.selfCitation?.refs || [];
+  if (self.length) blocks.push({ p: `Self-citations (${self.length}, ${p.summary.selfCitationRate}% of the references)`, bold: true },
+    { table: { headers: ['#', 'Reference', 'Manuscript author(s)', 'Relevance'], rows: self.map(x => [String(x.index), `${x.title || ''}${x.year ? ` (${x.year})` : ''}`, x.authors.join(', '), x.relevance?.level || 'unknown']) } });
+  const home = (p.homeJournal?.refs || []).filter(h => 'title' in h);
+  if (home.length) blocks.push({ p: `Citations of earlier ${p.homeJournal.name} articles (${home.length}: ${p.summary.homeJournalRecent} from the last 2 years, ${p.summary.homeJournalOlder} older)`, bold: true },
+    { table: { headers: ['#', 'PJPS article', 'Year', 'Issue', 'Self-citation', 'Relevance'], rows: home.map(h => [String(h.index), `${h.title}${h.doi ? ` (DOI ${h.doi})` : ''}${h.inDataset ? '' : ' [by journal name; not in the PJPS dataset]'}`, h.year ? String(h.year) : '—', h.where || '—', h.self ? h.self.join(', ') : '—', h.relevance || 'unknown']) } });
+  return blocks;
+}
+
 function screeningScorecard(r) {
   const sc = r.screening || { lines: {} };
   const s = r.references.summary;
@@ -626,6 +647,7 @@ function screeningScorecard(r) {
     { module: '1. Bibliography (references)', result: sc.lines.bibliography || `${s.verified} verified of ${s.total}`, level: s.suspicious >= 3 || s.retracted ? 'bad' : s.suspicious || s.miscited >= 5 || s.unverified >= Math.max(5, s.total * 0.2) ? 'warn' : 'ok' },
     { module: '2. Reference style (PJPS)', result: sc.lines.style || 'not checked', level: !cp ? 'na' : cp.score >= 80 ? 'ok' : cp.score >= 60 ? 'warn' : 'bad' },
     { module: '3. In-text citations', result: sc.lines.citations || 'not checked', level: !c ? 'na' : c.missing >= 3 || c.uncited >= 5 ? 'bad' : c.missing || c.uncited || c.yearMismatch ? 'warn' : 'ok' },
+    ...(sc.lines.selfPjps ? [{ module: '3. Self-citation & PJPS citations', result: sc.lines.selfPjps, level: selfPjpsLevel(r.pattern) }] : []),
     { module: '4. Paper mill signals', result: sc.lines.papermill || 'not checked', level: lvl(pm?.level) },
     { module: '5. Image integrity', result: sc.lines.images || 'not checked', level: lvl(im?.level) }
   ];
@@ -815,7 +837,7 @@ function screeningBlocks(r, version = 'editor') {
     blocks.push(rows.length ? { table: { headers: ['Problem', 'Citation', 'Detail'], rows } } : { p: 'No problems found.' });
   } else blocks.push({ p: 'Not checked (manuscript text not available).' });
   if (version === 'editor') {
-    if (r.pattern?.flags?.length) blocks.push({ h2: 'Citation pattern' }, { bullets: r.pattern.flags.map(f => f.message) });
+    if (r.pattern?.flags?.length || r.pattern?.selfCitation?.refs?.length || r.pattern?.homeJournal?.refs?.length) blocks.push({ h2: 'Citation pattern' }, ...(r.pattern.flags.length ? [{ bullets: r.pattern.flags.map(f => f.message) }] : []), ...selfPjpsBlocks(r.pattern));
     if (r.papermill) blocks.push(...papermillBlocks(r.papermill, { section: 4 }));
     // the complete Module 5 report (loaded by the export route as r.images.report), else its summary
     if (r.images?.report) blocks.push(...imagesBlocks(r.images.report, { section: 5 }));

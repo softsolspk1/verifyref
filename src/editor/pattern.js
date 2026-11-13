@@ -1,6 +1,7 @@
 // editor/pattern.js - Citation pattern: self-citation, author/journal concentration, citation stacking, off-topic sources
 const { nameMatch, relevanceScores, normalizeJournal, cleanIssn, splitName, surnameKey, initials, tokens } = require('../text');
 const cfg = require('../config');
+const { pjpsAuthors, pjpsWhere } = require('../checks/pjpsCitations');
 
 // surnames shared by very many authors: a reference author written with the surname alone ("Khan", "Wang") is not taken
 // as a manuscript author by surname - a full or initialled name, or the ORCID, is needed
@@ -23,8 +24,11 @@ const trusted = r => !!r.record && (['verified', 'retracted'].includes(r.status)
 
 function refAuthors(r) {
   const written = r.parsed?.authors || [];
+  if (trusted(r) && r.openalex?.authors?.length) return r.openalex.authors.map(a => ({ ...splitName(a.name), orcid: a.orcid, id: a.id }));
+  // a PJPS article found in the PJPS dataset: its full author list (a reference written "Khan MA et al." hides the others)
+  const pjps = pjpsAuthors(r);
+  if (pjps.length) return pjps;
   if (!trusted(r)) return written;
-  if (r.openalex?.authors?.length) return r.openalex.authors.map(a => ({ ...splitName(a.name), orcid: a.orcid, id: a.id }));
   if (r.record?.authors?.length) return r.record.authors;
   return written;
 }
@@ -165,15 +169,24 @@ function analyzeCitationPattern(meta, results, opts = {}) {
   const homeNorm = normalizeJournal(home.name);
   const thisYear = new Date().getFullYear();
   const homeRefs = [];
+  // a reference found in the PJPS dataset is a PJPS article whatever journal name it gives (or none)
+  const pjpsHome = home.name === cfg.HOME_JOURNAL.name;
   for (const r of results) {
-    const name = (trusted(r) && r.record?.journal) || r.parsed?.journal || r.record?.journal;
+    const found = pjpsHome && r.pjps;
+    const name = found ? home.name : (trusted(r) && r.record?.journal) || r.parsed?.journal || r.record?.journal;
     if (!name) continue;
     const issns = (trusted(r) ? r.record?.issn || [] : []).map(cleanIssn);
-    const isHome = issns.some(i => homeIssns.includes(i)) || normalizeJournal(name) === homeNorm || /pak(istan)?\.?\s*j(ournal)?\.?\s*(of\s*)?pharm(aceutical)?\.?\s*sci/i.test(name);
+    const isHome = !!found || issns.some(i => homeIssns.includes(i)) || normalizeJournal(name) === homeNorm || /pak(istan)?\.?\s*j(ournal)?\.?\s*(of\s*)?pharm(aceutical)?\.?\s*sci/i.test(name);
     const k = isHome ? 'HOME' : issns[0] || normalizeJournal(name);
     if (!journalCounts.has(k)) journalCounts.set(k, { journal: isHome ? home.name : name, isHome, refs: [] });
     journalCounts.get(k).refs.push(r.index);
-    if (isHome) homeRefs.push({ index: r.index, year: r.record?.year || r.parsed?.year });
+    if (isHome) {
+      const year = parseInt(found?.year || r.record?.year || r.parsed?.year, 10) || null;
+      const self = selfRefs.find(s => s.index === r.index);
+      homeRefs.push({ index: r.index, year, age: year ? thisYear - year : null, title: found?.title || (trusted(r) && r.record?.title) || r.parsed?.title || r.raw.slice(0, 160),
+        where: found ? pjpsWhere(found) : null, url: found?.url || null, doi: found?.doi || (trusted(r) ? r.record?.doi : null) || r.parsed?.doi || null,
+        inDataset: !!found, matchedBy: found ? found.by : 'journal name', self: self ? self.authors : null, relevance: relOf(r.index)?.level || 'unknown' });
+    }
   }
   const journalThreshold = Math.max(4, Math.ceil(total * 0.15));
   const journalConcentration = [...journalCounts.values()]
@@ -182,6 +195,8 @@ function analyzeCitationPattern(meta, results, opts = {}) {
     .map(j => ({ ...j, share: j.refs.length / total, weakRelevance: j.refs.filter(i => relOf(i)?.level === 'weak').length }));
   // Impact-factor window: citations to the previous two years count toward the JIF
   const homeRecent = homeRefs.filter(h => h.year && h.year >= thisYear - 2);
+  const homeSelf = homeRefs.filter(h => h.self);
+  const homeWeak = homeRefs.filter(h => h.relevance === 'weak');
 
   const offTopic = relevance.filter(x => x.level === 'weak').map(x => {
     const r = results.find(y => y.index === x.index);
@@ -203,6 +218,8 @@ function analyzeCitationPattern(meta, results, opts = {}) {
     flags.push({ severity: share >= 0.2 ? 'high' : 'medium', code: 'author-concentration', message: `${g.refs.length} references (${Math.round(share * 100)}%) are by ${who}`, guidance: 'Legitimate when this author or group is the main contributor to a niche topic. If one of them is a reviewer or editor of this manuscript, treat it as possible coercive citation.' });
   }
   for (const j of journalConcentration) flags.push({ severity: j.share >= 0.3 ? 'high' : 'medium', code: j.isHome ? 'citation-stacking' : 'journal-concentration', message: `${j.refs.length} references (${Math.round(j.share * 100)}%) are from ${j.journal}`, guidance: j.isHome ? 'Citations to the journal the paper is submitted to inflate its impact factor; legitimate only when those papers are directly relevant.' : 'Legitimate for specialist journals in a narrow field; otherwise it can indicate a citation cartel or stacking.' });
+  if (homeSelf.length >= 2) flags.push({ severity: homeSelf.length >= 4 ? 'high' : 'medium', code: 'pjps-self-citation', message: `${homeSelf.length} references are the authors' own earlier ${home.name} articles: ${homeSelf.slice(0, 6).map(h => `[${h.index}]`).join(', ')}${homeSelf.length > 6 ? ' ...' : ''}`, guidance: "Citing their own papers in the journal they submit to raises both their citation counts and the journal's. Legitimate when each one is the basis of this work; ask the authors to justify any that support no specific statement." });
+  if (homeWeak.length >= 2) flags.push({ severity: homeWeak.length >= 4 ? 'high' : 'medium', code: 'pjps-weak', message: `${homeWeak.length} citations of earlier ${home.name} articles look unrelated to the manuscript topic: ${homeWeak.slice(0, 6).map(h => `[${h.index}]`).join(', ')}${homeWeak.length > 6 ? ' ...' : ''}`, guidance: 'Unrelated citations to the journal the paper is submitted to are a sign of citation stacking (or of a reviewer asking for them): ask what each one supports.' });
   if (homeRecent.length >= 3 && !journalConcentration.some(j => j.isHome)) flags.push({ severity: 'medium', code: 'jif-window', message: `${homeRecent.length} citations to ${home.name} from the last two years (the impact-factor window)`, guidance: 'Check whether these recent home-journal citations are relevant to the manuscript.' });
   // with the manuscript text: 2 or more (no real PJPS manuscript of 25 had more than 1; 3 sources on other subjects
   // added to them were flagged in 23 of 25, 5 in 25 of 25 - 8 Nov 2026). From the title / abstract alone: 20% as before
@@ -222,6 +239,10 @@ function analyzeCitationPattern(meta, results, opts = {}) {
       journalConcentration: journalConcentration.length,
       homeJournalCitations: homeRefs.length,
       homeJournalRecent: homeRecent.length,
+      homeJournalOlder: homeRefs.length - homeRecent.length,
+      homeJournalSelf: homeSelf.length,
+      homeJournalWeak: homeWeak.length,
+      homeJournalInDataset: homeRefs.filter(h => h.inDataset).length,
       offTopic: offTopic.length,
       flags: flags.length
     },

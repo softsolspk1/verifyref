@@ -601,11 +601,19 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const markCovered = hit => hit.forEach((h, k) => { if (h) covered[k] = 1; });
   const stats = { queries: 0, searchErrors: 0, webSearches: 0, wikiSearches: 0, openalexSearches: 0, windows: 0, windowsFound: 0, neighbours: 0, common: 0, searched: 0, timeLimited: false };
 
+  // the external comparison the editor asked for needs only the text: started now, it runs while the in-house search does
+  // (it used to start after it, adding its whole wait to the report). The same scan (found again by its text) is used below.
+  let extStop = false;
+  const early = external && EXT.enabled() ? externalPlan(prep.text, { requested: true }) : null;
+  const extEarly = early?.text ? EXT.scanText(early.text, { deadline, stop: () => extStop }) : null;
+
   // 1. the PJPS text repository: published papers and web pages kept by earlier checks (never unpublished submissions)
-  update('Comparing with the PJPS text repository');
+  // and 2. papers on the same subject, side by side (2 leaves out what 1 compares; both only mark the words they match)
+  update('Comparing with the PJPS text repository and papers on the same subject');
+  const neighboursFound = topicNeighbours(prep.text, meta).catch(() => []);
   const repo = (await corpus.candidates(prep.text, { excludeCode: meta.manuscriptCode || null, limit: REPO_SOURCES }).catch(() => [])).filter(d => d.kind !== 'submission' && !isSelf({ title: d.title, doi: d.meta?.doi, url: d.meta?.url }));
   const repoKeys = new Set(repo.map(d => d.sourceKey));
-  const fromRepo = (await pool(repo, 6, async d => {
+  const repoDone = pool(repo, 6, async d => {
     if (late()) return null;
     // open-access full texts kept before reference lists were compared (no meta.withRefs) are read again with them
     if (/^pmc:/.test(d.sourceKey) && !d.meta?.withRefs) {
@@ -623,21 +631,19 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     markCovered(o.hit);
     return { key: d.sourceKey, type: d.kind, title: d.title, journal: m.journal || null, year: m.year || null, doi: m.doi || null, url: m.url || null,
       via: `${m.via || 'Repository'} (PJPS repository)`, compared: `${m.scope || 'text'} (PJPS repository)`, hit: o.hit, passages: o.passages };
-  })).filter(Boolean);
+  });
 
   // 1b. earlier PJPS submissions, only when the editor turned it on (submissions = [] when on and none share text)
-  const fromSubs = (await pool(submissions || [], 2, async d => {
+  const subsDone = pool(submissions || [], 2, async d => {
     const o = await match(prep, d.text);
     if (!o.passages.length) return null;
     texts.set(`check:${d.checkId}`, d.text);
     markCovered(o.hit);
     return { key: `check:${d.checkId}`, type: 'submission', title: `${d.manuscriptCode ? `${d.manuscriptCode} - ` : ''}${d.title || 'Earlier PJPS submission'}`, journal: 'Earlier PJPS submission',
       year: d.date ? new Date(d.date).getFullYear() : null, checkId: d.checkId, via: 'Earlier PJPS submissions (opt-in)', compared: 'full text (confidential PJPS report)', hit: o.hit, passages: o.passages };
-  })).filter(Boolean);
+  });
 
   // 2. papers on the same subject: their open-access full texts compared with the whole manuscript
-  update('Finding papers on the same subject');
-  const neighbours = await topicNeighbours(prep.text, meta).catch(() => []);
   const compared = [];
   const compare = async c => {
     const key = sourceKeyOf(c);
@@ -654,8 +660,10 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     compared.push(out);
     return out;
   };
-  update(`Comparing with ${neighbours.length} paper(s) on the same subject`);
-  await pool(neighbours, 6, async c => { if (late()) return; stats.neighbours++; await compare(c); });
+  const neighbours = await neighboursFound;
+  update(`Comparing with ${repo.length} repository paper(s) and ${neighbours.length} paper(s) on the same subject`);
+  const [fromRepoAll, fromSubsAll] = await Promise.all([repoDone, subsDone, pool(neighbours, 6, async c => { if (late()) return; stats.neighbours++; await compare(c); })]);
+  const fromRepo = fromRepoAll.filter(Boolean), fromSubs = fromSubsAll.filter(Boolean);
 
   // 3. every stretch not matched yet is searched as an exact phrase - as Turnitin compares every sentence. Europe PMC
   // (open-access full texts and all PubMed abstracts) first; what it does not know goes to OpenAlex's full-text index
@@ -874,12 +882,14 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   // Similarity Index reaches EXTERNAL_SIMILARITY_MIN. It gets the text without the reference list (matched in 4b), so a
   // scan costs fewer credits; its sources join the others, and one the in-house search found too keeps one entry.
   // a search stopped by the time limit goes on in the next run of the job: the external service is decided on the whole search
-  if (stats.timeLimited && canResume) return { kind: 'plagiarism', unfinished: `Similarity: ${stats.searched} of ${stats.windows} passages searched - the search goes on in the next run` };
+  if (stats.timeLimited && canResume) { extStop = true; return { kind: 'plagiarism', unfinished: `Similarity: ${stats.searched} of ${stats.windows} passages searched - the search goes on in the next run` }; }
   const inHouse = viewOf(primary()).summary.similarity;
   // the manuscript's own PJPS-published version found in-house: the paid comparison would only find it again
   const publishedInHouse = viewOf(primary()).sources.some(x => pjpsCopy(x) && meta.title && titleSimilarity(meta.title, x.title || '') >= 0.85);
   const plan = externalPlan(prep.text, { requested: external, inHouse, enabled: EXT.enabled() && !(publishedInHouse && !external), incomplete: stats.timeLimited ? { searched: stats.searched, windows: stats.windows } : null });
-  const ext = plan.text ? await EXT.scanText(plan.text, { update, deadline }) : null;
+  if (plan.text && extEarly) update('Full-text comparison: waiting for the external similarity service');
+  const ext = plan.text ? await (extEarly && plan.text === early.text ? extEarly : EXT.scanText(plan.text, { update, deadline })) : null;
+  extStop = true;
   // a scan still running at the time limit is waited for in the next run (found again by its text, not submitted twice)
   if (ext?.pending && canResume) return { kind: 'plagiarism', unfinished: 'Similarity: waiting for the external full-text comparison - it goes on in the next run' };
   const extSkipped = plan.skipped;

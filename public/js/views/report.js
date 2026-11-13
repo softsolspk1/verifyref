@@ -165,6 +165,14 @@ function changesBanner(c) {
 }
 
 
+const selfPjpsTone = p => {
+  const s = p?.summary;
+  if (!s) return '';
+  if (s.selfCitationRate >= 25 || s.homeJournalSelf >= 4 || s.homeJournalWeak >= 4) return 'bad';
+  if (s.selfCitationRate >= 15 || s.irrelevantSelfCitations || s.homeJournalSelf >= 2 || s.homeJournalWeak >= 2 || (p.flags || []).some(f => f.code === 'citation-stacking' || f.code === 'jif-window')) return 'warn';
+  return p.manuscriptAuthors?.length ? 'good' : '';
+};
+
 function summaryTab(body, r) {
   const sc = r.screening;
   const row = (n, label, line, tone) => `<tr><td class="num">${n}</td><td><b>${label}</b></td><td>${badge(tone === 'good' ? 'OK' : tone === 'bad' ? 'Problem' : tone === 'warn' ? 'Check' : '—', tone || 'neutral')}</td><td>${esc(line)}</td></tr>`;
@@ -177,6 +185,7 @@ function summaryTab(body, r) {
       ${row(1, 'Check Bibliography', sc.lines.bibliography, s.suspicious || s.retracted ? 'bad' : s.miscited ? 'warn' : 'good')}
       ${row(2, 'PJPS style', sc.lines.style, !cp ? '' : cp.score >= 90 ? 'good' : cp.score >= 60 ? 'warn' : 'bad')}
       ${row(3, 'Citations', sc.lines.citations, !c ? '' : c.missing || c.uncited > 3 ? 'warn' : 'good')}
+      ${sc.lines.selfPjps ? row(3, 'Self-citation &amp; PJPS citations', sc.lines.selfPjps, selfPjpsTone(r.pattern)) : ''}
       ${hasModule('papermill') ? row(4, 'Paper mill risk', sc.lines.papermill, !pm ? '' : pm.level === 'HIGH' ? 'bad' : pm.level === 'MEDIUM' ? 'warn' : 'good') : ''}
       ${hasModule('images') ? row(5, 'Image integrity', sc.lines.images, !im ? '' : im.level === 'HIGH' ? 'bad' : im.level === 'MEDIUM' ? 'warn' : 'good') : ''}
       ${r.plagiarism ? row(6, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
@@ -358,8 +367,10 @@ function indicatorsCard(ind) {
       ${a.rule.minShare && a.recentShare !== null && a.recentShare < a.rule.minShare ? `<div class="alert alert-warn" style="margin:8px 0 0">Below the PJPS minimum of ${a.rule.minShare}% recent references.</div>` : ''}
     </div>
     <div class="card"><h3>Quality indicators</h3>
-      <div class="stat-line"><span>Self-citation</span><b>${ind.selfCitation.measured ? `${ind.selfCitation.count} (${ind.selfCitation.rate}%)` : 'enter the authors to measure'}</b></div>
-      <div class="stat-line"><span>${esc(ind.homeJournal.name)} citations</span><b>${ind.homeJournal.count}</b></div>
+      <div class="stat-line"><span>Self-citation (manuscript authors' own papers)</span><b class="${ind.selfCitation.rate >= 25 ? 'txt-bad' : ''}">${ind.selfCitation.measured ? `${ind.selfCitation.count} (${ind.selfCitation.rate}%)` : 'enter the authors to measure'}</b></div>
+      ${ind.selfCitation.refs.length ? `<ul class="issue-list">${ind.selfCitation.refs.map(x => `<li><a href="#" data-goto="${x.index}">[${x.index}]</a> ${esc(x.authors.join(', '))}${x.year ? ` (${esc(x.year)})` : ''}</li>`).join('')}</ul>` : ''}
+      <div class="stat-line"><span>Citations of earlier ${esc(ind.homeJournal.name)} articles</span><b>${ind.homeJournal.count}${ind.homeJournal.articles ? ` (${ind.homeJournal.recent} from the last 2 years, ${ind.homeJournal.older} older${ind.homeJournal.self ? `; ${ind.homeJournal.self} by the authors` : ''})` : ''}</b></div>
+      ${(ind.homeJournal.articles || []).length ? `<ul class="issue-list">${ind.homeJournal.articles.map(h => `<li><a href="#" data-goto="${h.index}">[${h.index}]</a> ${h.url ? `<a href="${esc(h.url)}" target="_blank" rel="noopener">${esc(h.title)}</a>` : esc(h.title)}${h.year ? ` (${h.year})` : ''}${h.where ? ` <span class="muted">${esc(h.where)}</span>` : ''}${h.self ? ' ' + badge('self-citation', 'warn') : ''}${h.relevance === 'weak' ? ' ' + badge('weakly related', 'bad') : ''}</li>`).join('')}</ul>` : ''}
       <div class="stat-line"><span>Predatory / hijacked journals</span><b class="${ind.riskyJournals.length ? 'txt-bad' : ''}">${ind.riskyJournals.reduce((n, j) => n + j.refs.length, 0)}</b></div>
       <div class="stat-line"><span>Duplicate references</span><b>${ind.duplicates.length}</b></div>
       ${ind.riskyJournals.length ? `<ul class="issue-list">${ind.riskyJournals.map(j => `<li>${badge(j.kind, 'bad')} ${esc(j.journal)} — ${j.refs.map(i => `<a href="#" data-goto="${i}">[${i}]</a>`).join(' ')}</li>`).join('')}</ul>` : ''}
@@ -623,6 +634,21 @@ export function journalRow(x) {
 
 // ------------------------------------------------------------------ Citation pattern tab
 
+/** Citations of earlier PJPS articles (Module 3 and the Full Screening): found in the PJPS dataset or by the journal name */
+export function pjpsCitationsCard(p) {
+  const rows = p?.homeJournal?.refs || [];
+  if (!rows.length || !('title' in rows[0])) return '';
+  const s = p.summary;
+  const rel = l => badge(l || 'unknown', l === 'weak' ? 'bad' : l === 'moderate' ? 'warn' : l === 'strong' ? 'good' : 'neutral');
+  return `<div class="card"><h3>Citations of earlier ${esc(p.homeJournal.name)} articles (${rows.length})</h3>
+    <p class="muted">${s.homeJournalRecent} from the last 2 years (the impact-factor window), ${s.homeJournalOlder} older${p.manuscriptAuthors.length ? `; ${s.homeJournalSelf} by the manuscript's authors` : ''}. ${s.homeJournalInDataset} found in the PJPS dataset of articles published on pjps.pk${rows.length > s.homeJournalInDataset ? `, ${rows.length - s.homeJournalInDataset} by the journal name only` : ''}.</p>
+    <div class="table-wrap"><table class="t"><tr><th>#</th><th>PJPS article</th><th class="num">Year</th><th>Issue</th><th>Self-citation</th><th>Relevance</th></tr>
+    ${rows.map(h => `<tr><td class="num">${h.index}</td><td>${h.url ? `<a href="${esc(h.url)}" target="_blank" rel="noopener">${esc(h.title)}</a>` : esc(h.title)}${h.doi ? `<div class="muted">DOI ${esc(h.doi)}</div>` : ''}${h.inDataset ? '' : `<div class="muted">not found in the PJPS dataset (by journal name)</div>`}</td>
+      <td class="num">${h.year || '—'}${h.age !== null && h.age !== undefined ? `<div class="muted">${h.age <= 2 ? 'recent' : `${h.age} years old`}</div>` : ''}</td><td>${esc(h.where || '—')}</td>
+      <td>${h.self ? `${badge('self', 'warn')} ${esc(h.self.join(', '))}` : '—'}</td><td>${rel(h.relevance)}</td></tr>`).join('')}
+    </table></div></div>`;
+}
+
 function patternTab(body, p, refs) {
   if (!p) { body.innerHTML = '<div class="empty">Citation pattern was not analysed.</div>'; return; }
   const s = p.summary;
@@ -634,7 +660,7 @@ function patternTab(body, p, refs) {
       <div class="kpi ${s.irrelevantSelfCitations ? 'bad' : ''}"><div class="n">${s.irrelevantSelfCitations}</div><div class="l">Irrelevant self-citations</div></div>
       <div class="kpi ${s.authorConcentration ? 'warn' : ''}"><div class="n">${s.authorConcentration}</div><div class="l">Author piles</div></div>
       <div class="kpi ${s.journalConcentration ? 'warn' : ''}"><div class="n">${s.journalConcentration}</div><div class="l">Journal piles</div></div>
-      <div class="kpi"><div class="n">${s.homeJournalCitations}</div><div class="l">${esc(p.homeJournal.name.split(' ').filter(w => w.length > 2).map(w => w[0]).join(''))} citations (${s.homeJournalRecent} recent)</div></div>
+      <div class="kpi"><div class="n">${s.homeJournalCitations}</div><div class="l">${esc(p.homeJournal.name.split(' ').filter(w => w.length > 2).map(w => w[0]).join(''))} articles cited (${s.homeJournalRecent} recent${s.homeJournalSelf ? `, ${s.homeJournalSelf} self` : ''})</div></div>
       <div class="kpi ${s.offTopic ? 'warn' : ''}"><div class="n">${s.offTopic}</div><div class="l">Weakly related</div></div>
     </div>
     <div class="card"><h3>What to look at</h3>
@@ -643,6 +669,7 @@ function patternTab(body, p, refs) {
     ${p.selfCitation.refs.length ? `<div class="card"><h3>Self-citations</h3><div class="table-wrap"><table class="t"><tr><th>#</th><th>Reference</th><th>Manuscript author(s)</th><th>Relevance</th></tr>
       ${p.selfCitation.refs.map(x => `<tr><td class="num">${x.index}</td><td>${esc(x.title || '')}${x.year ? ` (${x.year})` : ''}</td><td>${esc(x.authors.join(', '))}<div class="muted">matched by ${esc([...new Set(x.matchedBy)].join(', '))}</div></td><td>${badge(x.relevance?.level || 'unknown', x.relevance?.level === 'weak' ? 'bad' : x.relevance?.level === 'moderate' ? 'warn' : 'good')}</td></tr>`).join('')}
     </table></div></div>` : ''}
+    ${pjpsCitationsCard(p)}
     ${p.authorConcentration.length ? `<div class="card"><h3>References piled on one author</h3><table class="t"><tr><th>Author</th><th class="num">Refs</th><th class="num">Share</th><th>Weakly related</th><th>References</th></tr>
       ${p.authorConcentration.map(a => `<tr><td><b>${esc(a.name)}</b>${a.orcid ? `<div class="muted">ORCID ${esc(a.orcid)}</div>` : ''}</td><td class="num">${a.refs.length}</td><td class="num">${Math.round(a.share * 100)}%</td><td>${a.weakRelevance}</td><td class="muted">${a.refs.map(i => `[${i}]`).join(' ')}</td></tr>`).join('')}
     </table></div>` : ''}

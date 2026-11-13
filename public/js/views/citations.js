@@ -3,6 +3,7 @@
 import { api, esc, $, $$, toast, startJob, download, badge, ICONS, copyText, hasModule, fmtDate, datasetBanner } from '../core.js';
 import { renderVerifyResult } from './verify.js';
 import { shareButton, wireShare } from './share.js';
+import { pjpsCitationsCard } from './report.js';
 
 export function renderCitations(view) {
   let manuscript = null, sources = [];
@@ -101,10 +102,11 @@ function patternTab(body, p) {
       <div class="kpi ${s.selfCitationRate >= 25 ? 'bad' : s.selfCitationRate >= 15 ? 'warn' : 'good'}"><div class="n">${s.selfCitationRate}%</div><div class="l">Self-citation (${s.selfCitations})</div></div>
       <div class="kpi ${s.authorConcentration ? 'warn' : ''}"><div class="n">${s.authorConcentration}</div><div class="l">Author piles</div></div>
       <div class="kpi ${s.journalConcentration ? 'warn' : ''}"><div class="n">${s.journalConcentration}</div><div class="l">Journal piles</div></div>
-      <div class="kpi"><div class="n">${s.homeJournalCitations}</div><div class="l">PJPS citations (${s.homeJournalRecent} recent)</div></div>
+      <div class="kpi"><div class="n">${s.homeJournalCitations}</div><div class="l">Earlier PJPS articles cited (${s.homeJournalRecent} recent${s.homeJournalSelf ? `, ${s.homeJournalSelf} self` : ''})</div></div>
     </div>
     <div class="card"><h3>What to look at</h3>${p.flags.length ? p.flags.map(f => `<div class="flag ${f.severity}"><div><div class="msg">${esc(f.message)}</div><div class="guide">${esc(f.guidance)}</div></div></div>`).join('') : '<div class="alert alert-good">No unusual citation pattern found.</div>'}</div>
-    ${p.selfCitation.refs.length ? `<div class="card"><h3>Self-citations</h3><table class="t"><tr><th>#</th><th>Reference</th><th>Manuscript author(s)</th></tr>${p.selfCitation.refs.map(x => `<tr><td class="num">${x.index}</td><td>${esc(x.title || '')}${x.year ? ` (${x.year})` : ''}</td><td>${esc(x.authors.join(', '))}</td></tr>`).join('')}</table></div>` : ''}`;
+    ${p.selfCitation.refs.length ? `<div class="card"><h3>Self-citations</h3><table class="t"><tr><th>#</th><th>Reference</th><th>Manuscript author(s)</th></tr>${p.selfCitation.refs.map(x => `<tr><td class="num">${x.index}</td><td>${esc(x.title || '')}${x.year ? ` (${x.year})` : ''}</td><td>${esc(x.authors.join(', '))}</td></tr>`).join('')}</table></div>` : ''}
+    ${pjpsCitationsCard(p)}`;
 }
 
 async function letterTab(body, r) {

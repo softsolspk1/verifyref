@@ -370,6 +370,7 @@ function screeningSummary(r) {
     lines: {
       bibliography: r.noReferenceList ? 'No reference list found in the document - not checked' : `${s.verified} verified, ${s.miscited} miscited, ${s.suspicious} suspicious, ${s.retracted} retracted (of ${s.total})`,
       style: r.noReferenceList ? 'not checked (no reference list)' : cp ? `${cp.score}% PJPS compliant (${cp.nonCompliant} reference(s) to fix${cp.inTextIssues ? `, ${cp.inTextIssues} in-text problem(s)` : ''})` : 'not checked',
+      selfPjps: selfPjpsLine(r),
       citations: c ? `${c.missing} missing, ${c.uncited} uncited, ${(c.yearMismatch || 0) + (c.etAlIssues || 0)} year / “et al.” problem(s)` : 'manuscript text not available',
       papermill: pm ? `${pm.level} (score ${pm.score})` : 'not checked',
       plagiarism: pl ? (pl.internet !== undefined
@@ -381,6 +382,16 @@ function screeningSummary(r) {
       images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${ownFigs ? `; ${ownFigs} panel(s) match the manuscript's own published PJPS version (expected, not re-use)` : ''}${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : r.imagesNote || 'not checked (upload the Word / PDF manuscript to analyse its figures)'
     }
   };
+}
+
+/** Front-page line: self-citation and citations of earlier PJPS articles (Module 1 / 3) */
+function selfPjpsLine(r) {
+  const p = r.pattern?.summary;
+  if (!p || r.noReferenceList) return null;
+  const home = r.pattern.homeJournal?.name || cfg.HOME_JOURNAL.name;
+  const self = r.pattern.manuscriptAuthors?.length ? `Self-citation ${p.selfCitationRate}% (${p.selfCitations} of ${p.total}${p.irrelevantSelfCitations ? `, ${p.irrelevantSelfCitations} weakly related` : ''})` : 'Self-citation not measured (no authors given)';
+  const pj = p.homeJournalCitations ? `${p.homeJournalCitations} earlier ${home} article(s) cited (${p.homeJournalRecent || 0} from the last 2 years, ${p.homeJournalOlder ?? p.homeJournalCitations - (p.homeJournalRecent || 0)} older${p.homeJournalSelf ? `; ${p.homeJournalSelf} by the authors` : ''}${p.homeJournalWeak ? `; ${p.homeJournalWeak} weakly related` : ''})` : `no earlier ${home} article cited`;
+  return `${self}; ${pj}`;
 }
 
 /** Persist a check; saveMode 'counts' keeps only the numbers (no manuscript content) */

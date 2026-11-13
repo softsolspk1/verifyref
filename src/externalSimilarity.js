@@ -110,11 +110,11 @@ function slimResult(b) {
 
 // ------------------------------------------------------------------ the scan
 
-async function waitFor(scanId, done, ms, tick) {
+async function waitFor(scanId, done, ms, tick, stop = () => false) {
   const end = Date.now() + ms;
   for (let i = 0; ; i++) {
     const row = await db.one('SELECT * FROM ext_scans WHERE scan_id = $1', [scanId]);
-    if (!row || done(row)) return row;
+    if (!row || done(row) || stop()) return row;
     if (Date.now() > end) return row;
     if (i % 8 === 0) tick();
     await sleep(POLL_MS);
@@ -125,7 +125,7 @@ async function waitFor(scanId, done, ms, tick) {
  * Compare a text with the service: -> { scanId, completed, results: { id: exported result }, items (the sources
  * exported, largest first) } or { error, pending? }. Never throws.
  */
-async function scanText(text, { update = () => {}, deadline = Infinity } = {}) {
+async function scanText(text, { update = () => {}, deadline = Infinity, stop = () => false } = {}) {
   // never wait past the run's deadline: a scan still running is picked up by the next report of the same text (3 hours)
   const waitAtMost = ms => Math.max(0, Math.min(ms, deadline - Date.now() - 15000));
   try {
@@ -164,7 +164,7 @@ async function scanText(text, { update = () => {}, deadline = Infinity } = {}) {
     }
     const scanId = row.scan_id;
     update('Full-text comparison: waiting for the external similarity service');
-    row = await waitFor(scanId, x => x.status !== 'submitted', waitAtMost(WAIT_SCAN_MS), () => update('Full-text comparison: still waiting for the external similarity service'));
+    row = await waitFor(scanId, x => x.status !== 'submitted', waitAtMost(WAIT_SCAN_MS), () => update('Full-text comparison: still waiting for the external similarity service'), stop);
     if (!row || row.status === 'submitted') return { scanId, error: 'the external comparison did not finish in time', pending: true };
     if (row.status === 'error') return { scanId, error: row.error || 'the external comparison failed' };
     const completed = row.completed || {};
@@ -180,7 +180,7 @@ async function scanText(text, { update = () => {}, deadline = Infinity } = {}) {
     }
     if (items.length) {
       update(`Full-text comparison: reading ${items.length} matched source(s)`);
-      row = await waitFor(scanId, x => x.status === 'exported' || items.every(i => x.results?.[i.id]), waitAtMost(WAIT_EXPORT_MS), () => {});
+      row = await waitFor(scanId, x => x.status === 'exported' || items.every(i => x.results?.[i.id]), waitAtMost(WAIT_EXPORT_MS), () => {}, stop);
     }
     return { scanId, completed, items, results: row?.results || {} };
   } catch (e) {

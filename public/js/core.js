@@ -107,14 +107,23 @@ export function copyText(text) {
 }
 
 /** Poll a background job until it finishes; renders progress into `el` */
-export async function runJob(jobId, el, title = 'Working…') {
+/**
+ * Wait for a job, showing its progress in el. onPreview(result): called with each new provisional result the job
+ * publishes while it runs (the Full Screening before its similarity report is finished)
+ */
+export async function runJob(jobId, el, title = 'Working…', { onPreview = null } = {}) {
   el.innerHTML = `<div class="progress"><h3>${esc(title)}</h3><div class="progress-bar"><span style="width:2%"></span></div><div class="muted step">Starting…</div></div>`;
   const bar = $('.progress-bar span', el), step = $('.step', el);
+  let seen = '';
   while (true) {
     await new Promise(r => setTimeout(r, 1200));
-    const j = await api(`/api/jobs/${jobId}`);
+    const j = await api(`/api/jobs/${jobId}${onPreview ? `?preview=${encodeURIComponent(seen)}` : ''}`);
     bar.style.width = `${Math.max(2, j.progress)}%`;
     step.textContent = j.step || '';
+    if (j.preview?.result && j.status === 'running') {
+      seen = j.preview.at;
+      try { onPreview(j.preview.result); } catch (e) { console.error('Provisional report:', e); }
+    }
     if (j.status === 'done') { el.innerHTML = ''; return j.result; }
     if (j.status === 'error') { el.innerHTML = ''; throw new Error(j.error || 'The job failed'); }
   }

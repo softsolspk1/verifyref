@@ -79,9 +79,13 @@ async function runJob(id) {
     return out;
   };
   const deadline = Date.now() + RUN_BUDGET_MS;
+  // preview(result): a provisional result the browser shows while the job goes on (the Full Screening before its
+  // similarity report); kept in jobs.partial, dropped with it when the job ends
+  const preview = result => db.query(`UPDATE jobs SET partial = COALESCE(partial, '{}'::jsonb) || jsonb_build_object('_preview', $2::jsonb) WHERE ${mine} AND status = 'running'`,
+    [id, JSON.stringify({ at: String(Date.now()), result })]).catch(() => {});
 
   try {
-    const result = await runners.get(job.kind)(job.input, { userId: job.user_id, update, stage, deadline, attempt, jobId: id });
+    const result = await runners.get(job.kind)(job.input, { userId: job.user_id, update, stage, deadline, attempt, jobId: id, preview });
     clearInterval(timer);
     // the input (manuscript text) is dropped as soon as the job ends: the job table never keeps an unpublished manuscript
     await db.query(`UPDATE jobs SET status = 'done', progress = 100, step = 'Complete', result = $2, input = '{}', partial = NULL, heartbeat = now() WHERE ${mine}`, [id, JSON.stringify(result ?? null)]);
@@ -99,7 +103,7 @@ async function runJob(id) {
 
 /** Read a job for its owner; resumes it when its run was stopped */
 async function getJob(id, userId) {
-  const j = await db.one(`SELECT id, user_id, kind, status, progress, step, result, error, attempts,
+  const j = await db.one(`SELECT id, user_id, kind, status, progress, step, result, error, attempts, partial->'_preview'->>'at' AS preview_at,
       (heartbeat IS NULL OR heartbeat < now() - make_interval(secs => $2)) AS stale
     FROM jobs WHERE id = $1`, [id, STALE_SECONDS]);
   if (!j || j.user_id !== userId) return null;
@@ -113,6 +117,11 @@ async function getJob(id, userId) {
     j.step = 'Resuming…';
   }
   return j;
+}
+
+/** The provisional result of a running job (see preview in runJob) -> { at, result } or null */
+async function jobPreview(id) {
+  return (await db.one("SELECT partial->'_preview' AS p FROM jobs WHERE id = $1 AND status = 'running'", [id]))?.p || null;
 }
 
 /** Add fields to the input of the owner's job while it runs (read by the job with jobInput) */
@@ -131,4 +140,4 @@ function purgeJobs() {
   return db.query("DELETE FROM jobs WHERE created_at < now() - interval '1 day'").catch(() => {});
 }
 
-module.exports = { defineJob, createJob, getJob, purgeJobs, attachToJob, jobInput, ResumeLater, MAX_ATTEMPTS };
+module.exports = { defineJob, createJob, getJob, purgeJobs, attachToJob, jobInput, jobPreview, ResumeLater, MAX_ATTEMPTS };

@@ -89,13 +89,14 @@ async function runCheck(input, update, ctx = {}) {
   // Full Screening: the similarity report, novelty and author identity need only the text, so they run while Module 1
   // checks the references (they used to wait for it, then for each other); the progress line shows both
   let side = null, say = update;
+  const sideDone = {}; // the text modules finished so far (for the provisional report)
   if (kind === 'manuscript') {
     const steps = { main: '', text: '' };
     const show = () => update([steps.main, steps.text].filter(Boolean).join(' · '));
     say = (s, p) => { if (s) steps.main = s; update(null, p); show(); };
     const textStep = s => { if (s) { steps.text = s; show(); } };
     // their hundreds of requests go in the background lane, so the reference lookups the report waits for go first
-    side = require('./http').inBackground(() => textModules({ input, body, refs, meta, update: textStep, stage, deadline, attempt: ctx.attempt || 0 }));
+    side = require('./http').inBackground(() => textModules({ input, body, refs, meta, update: textStep, stage, deadline, attempt: ctx.attempt || 0, onPart: (k, v) => { sideDone[k] = v; sideDone.changed?.(); } }));
     require('./papermill').warm().catch(() => null);   // Module 4's lists, loaded while Module 1 runs
     side.catch(() => null);
   }
@@ -143,12 +144,12 @@ async function runCheck(input, update, ctx = {}) {
   if (rq?.paratexts?.length) result.indicators.flags.push({ severity: 'low', code: 'paratext', message: `${rq.paratexts.length} reference(s) point to an erratum, editorial, letter, notice or abstract rather than a research paper` });
   if (result.citations?.error && kind === 'manuscript') delete result.citations.summary;
 
-  if (kind === 'manuscript') await screening(result, { input, body, refs, meta, update: say, side, stage, jobId });
+  if (kind === 'manuscript') await screening(result, { input, body, refs, meta, update: say, side, sideDone, stage, jobId, preview: ctx.preview });
   return result;
 }
 
 /** Full Screening Report: add Module 2 compliance and Module 4 (+5) to a manuscript check, then the front page */
-async function screening(result, { input, body, refs, meta, update, side, stage, jobId }) {
+async function screening(result, { input, body, refs, meta, update, side, sideDone = {}, stage, jobId, preview = null }) {
   const { checkCompliance, nlmForRefs } = require('./checks/compliance');
   update('Module 2: PJPS style compliance', 97);
   const recById = new Map(result.references.results.map(r => [r.index, r.record && r.status !== 'suspicious' ? r.record : null]));
@@ -176,9 +177,17 @@ async function screening(result, { input, body, refs, meta, update, side, stage,
   if (images && input.imagesEmbedded) result._imagesEmbedded = true;
   else if (input.imagesNote) result.imagesNote = String(input.imagesNote).slice(0, 300);
 
+  // Modules 1-5 are ready: while the similarity report goes on, the browser shows them (a copy, marked provisional; the
+  // report saved below is made exactly as before) and the copy is refreshed when novelty or author identity finishes
+  if (preview && sideDone.plagiarism === undefined) {
+    const publish = () => preview(provisional(result, sideDone));
+    await publish();
+    sideDone.changed = () => { if (sideDone.plagiarism === undefined) publish(); };
+  }
   // the similarity report, novelty and author identity (started with Module 1)
   update('Finishing the similarity report, novelty and author identity', 98);
   Object.assign(result, await side);
+  sideDone.changed = null;
   // an earlier PJPS submission with the same text (Module 4 fingerprints) belongs in the overlap report too
   const dup = (pm.signals || []).find(x => x.code === 'duplicate');
   if (dup && result.plagiarism && !result.plagiarism.error) result.plagiarism.earlierSubmissions = (dup.evidence || []).map(e => e.text);
@@ -260,7 +269,7 @@ const recheckIds = input => [...new Set([input.recheckOf, ...(input.recheckChain
 // time limit goes on in the next run (its searches are cached, so it gets further each time); the last one saves the report
 const SIMILARITY_RUNS = 4;
 
-async function textModules({ input, body, refs, meta, update, stage, deadline, attempt = 0 }) {
+async function textModules({ input, body, refs, meta, update, stage, deadline, attempt = 0, onPart = () => {} }) {
   const text = input.text || [input.bodyText || '', input.referencesText || ''].join('\n');
   const { ResumeLater, MAX_ATTEMPTS } = require('./jobs');
   const canResume = Number.isFinite(deadline) && attempt > 0 && attempt < Math.min(SIMILARITY_RUNS, MAX_ATTEMPTS - 1);
@@ -281,7 +290,8 @@ async function textModules({ input, body, refs, meta, update, stage, deadline, a
     .catch(e => ({ kind: 'novelty', error: `The novelty assessment could not be completed: ${e.message}` })));
   const authors = stage('authors', () => require('./checks/authorIdentity').checkAuthorIdentity({ text, meta })
     .catch(e => ({ kind: 'authors', error: `The author identity check could not be completed: ${e.message}` })));
-  const [plagiarism, novelty_, authorIdentity] = await Promise.all([similarity, novelty, authors]);
+  const done = key => v => { onPart(key, v); return v; };
+  const [plagiarism, novelty_, authorIdentity] = await Promise.all([similarity.then(done('plagiarism')), novelty.then(done('novelty')), authors.then(done('authorIdentity'))]);
   return { plagiarism, novelty: novelty_, authorIdentity };
 }
 
@@ -336,9 +346,9 @@ function screeningSummary(r) {
   const cp = r.compliance?.summary;
   const pm = r.papermill?.risk;
   const im = r.images?.summary;
-  const pl = r.plagiarism && !r.plagiarism.error ? r.plagiarism.summary : null;
-  const nv = r.novelty && !r.novelty.error ? r.novelty.summary : null;
-  const ai = r.authorIdentity && !r.authorIdentity.error ? r.authorIdentity : null;
+  const pl = r.plagiarism && !r.plagiarism.error && !r.plagiarism.pending ? r.plagiarism.summary : null;
+  const nv = r.novelty && !r.novelty.error && !r.novelty.pending ? r.novelty.summary : null;
+  const ai = r.authorIdentity && !r.authorIdentity.error && !r.authorIdentity.pending ? r.authorIdentity : null;
   const reasons = [];
   let rec = 'proceed';
   const escalate = (level, why) => { reasons.push(why); if (level === 'investigate' || (level === 'return' && rec === 'proceed')) rec = level; };
@@ -382,6 +392,30 @@ function screeningSummary(r) {
       images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${ownFigs ? `; ${ownFigs} panel(s) match the manuscript's own published PJPS version (expected, not re-use)` : ''}${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : r.imagesNote || 'not checked (upload the Word / PDF manuscript to analyse its figures)'
     }
   };
+}
+
+const PENDING = { plagiarism: 'Similarity report', novelty: 'Novelty & citation outlook', authorIdentity: 'Author identity (ORCID)' };
+
+/**
+ * The Full Screening as the browser shows it before the similarity report is finished: a copy of the result (Modules
+ * 1-5, and novelty / author identity once done) with the sections still running marked pending and the recommendation
+ * marked provisional. Never saved; the final report is made from the result itself.
+ */
+function provisional(result, done) {
+  const { _shingles, ...rest } = result;
+  const r = JSON.parse(JSON.stringify(rest));
+  const pending = [];
+  for (const k of Object.keys(PENDING)) {
+    if (done[k] !== undefined) r[k] = JSON.parse(JSON.stringify(done[k]));
+    else { r[k] = { pending: true }; pending.push(k); }
+  }
+  markPublishedOnPjps(r);
+  r.screening = screeningSummary(r);
+  for (const k of pending) r.screening.lines[{ plagiarism: 'plagiarism', novelty: 'novelty', authorIdentity: 'authors' }[k]] = 'Still running — fills in automatically';
+  r.screening.provisional = true;
+  r.screening.recommendationLabel = `Provisional: ${r.screening.recommendationLabel}`;
+  r.preview = { pending: pending.map(k => PENDING[k]) };
+  return r;
 }
 
 /** Front-page line: self-citation and citations of earlier PJPS articles (Module 1 / 3) */

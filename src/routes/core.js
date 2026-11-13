@@ -6,7 +6,7 @@ const cfg = require('../config');
 const db = require('../db');
 const auth = require('../auth');
 const { permissionsOf } = require('../modules');
-const { defineJob, createJob, getJob, attachToJob, jobInput } = require('../jobs');
+const { defineJob, createJob, getJob, attachToJob, jobInput, jobPreview } = require('../jobs');
 const P = require('../parse');
 const { runCheck, saveCheck, loadCheck, loadShared } = require('../pipeline');
 const { checkJournal } = require('../checks/journal');
@@ -94,8 +94,8 @@ router.post('/checks', user, wrap(async (req, res) => {
   res.json({ success: true, jobId: job.id, offline: cfg.DESKTOP && !isOnline() });
 }));
 
-async function runAndSaveCheck(b, { userId, update, stage, deadline, jobId, attempt }) {
-  const result = await runCheck({ ...b, userId }, update, { stage, deadline, jobId, attempt });
+async function runAndSaveCheck(b, { userId, update, stage, deadline, jobId, attempt, preview }) {
+  const result = await runCheck({ ...b, userId }, update, { stage, deadline, jobId, attempt, preview });
   const shingles = result._shingles;
   delete result._shingles;
   // an image report attached by the browser while the screening ran (Module 5 alongside the other modules)
@@ -178,7 +178,10 @@ router.get('/jobs/:id', user, wrap(async (req, res) => {
     // Converted files are downloaded separately (GET /api/jobs/:id/file)
     if (result?.file) result = { ...result, file: { name: result.file.name, available: true } };
   }
-  res.json({ success: true, status: j.status, progress: j.progress, step: j.step, error: j.error, result });
+  // a provisional result (the Full Screening before its similarity report), sent once per version: ?preview=<last at>
+  let preview;
+  if (j.status === 'running' && j.preview_at && req.query.preview !== undefined && req.query.preview !== j.preview_at) preview = await jobPreview(j.id).catch(() => null) || undefined;
+  res.json({ success: true, status: j.status, progress: j.progress, step: j.step, error: j.error, result, ...(preview ? { preview } : {}) });
 }));
 
 router.get('/checks', user, wrap(async (req, res) => {

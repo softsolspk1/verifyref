@@ -230,8 +230,16 @@ export function renderCheckForm(view, kind) {
           await api(`/api/jobs/${jobId}/images`, { body: attach }).catch(() => {});
         })();
       }
-      const result = await runJob(jobId, $('#progress', view), `Running ${m.title}`);
-      renderReport($('#result', view), result, { kind });
+      // Full Screening: Modules 1-5 are shown as soon as they are ready (provisional), the similarity report, novelty and
+      // author identity fill in when they finish; the final report keeps the tab and place the editor is reading
+      const out = $('#result', view);
+      let shown = false;
+      const keep = () => (shown ? { tab: $('.tab.active', out)?.dataset.tab, y: window.scrollY } : {});
+      const onPreview = m.screening ? r => { const k = keep(); renderReport(out, r, { kind, tab: k.tab }); if (k.y !== undefined) window.scrollTo(0, k.y); shown = true; } : null;
+      const result = await runJob(jobId, $('#progress', view), `Running ${m.title}`, { onPreview });
+      const k = keep();
+      renderReport(out, result, { kind, tab: k.tab });
+      if (k.y !== undefined) window.scrollTo(0, k.y);
       toast(result.queuedForOnline ? `Check complete — ${result.queuedForOnline} reference(s) will be verified automatically when you are back online` : 'Check complete');
     } catch (e) {
       toast(e.message, 'error');

@@ -44,7 +44,7 @@ const KIND_VIEWS = {
 const STATUS_ORDER = ['suspicious', 'retracted', 'miscited', 'pending', 'unverified', 'verified'];
 const statusTone = s => ({ verified: 'good', miscited: 'warn', retracted: 'bad', suspicious: 'bad', unverified: 'neutral', pending: 'info' }[s] || 'neutral');
 
-export function renderReport(el, result, { kind } = {}) {
+export function renderReport(el, result, { kind, tab = null } = {}) {
   const refs = result.references?.results || [];
   const s = result.references?.summary || {};
   const meta = result.meta || {};
@@ -58,9 +58,11 @@ export function renderReport(el, result, { kind } = {}) {
   if (result.pattern) tabs.push(['pattern', 'Citation pattern', result.pattern.flags?.length]);
   if (result.papermill && hasModule('papermill')) tabs.push(['papermill', 'Paper mill', result.papermill.signals.length]);
   if (result.images && hasModule('images')) tabs.push(['images', 'Images', result.images.summary.findings]);
-  if (result.plagiarism) tabs.push(['plagiarism', 'Similarity report', result.plagiarism.error ? null : `${Math.round(result.plagiarism.summary.similarity)}%`]);
-  if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', result.novelty.error ? null : result.novelty.summary.score]);
-  if (result.authorIdentity) tabs.push(['authors', 'Authors (ORCID)', result.authorIdentity.error ? null : `${result.authorIdentity.summary.verified}/${result.authorIdentity.summary.authors}`]);
+  // a section still running (provisional report) is counted '…'
+  const pend = x => x?.pending;
+  if (result.plagiarism) tabs.push(['plagiarism', 'Similarity report', pend(result.plagiarism) ? '…' : result.plagiarism.error ? null : `${Math.round(result.plagiarism.summary.similarity)}%`]);
+  if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', pend(result.novelty) ? '…' : result.novelty.error ? null : result.novelty.summary.score]);
+  if (result.authorIdentity) tabs.push(['authors', 'Authors (ORCID)', pend(result.authorIdentity) ? '…' : result.authorIdentity.error ? null : `${result.authorIdentity.summary.verified}/${result.authorIdentity.summary.authors}`]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
 
   el.innerHTML = `
@@ -85,6 +87,7 @@ export function renderReport(el, result, { kind } = {}) {
         <button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>
       </div>
     </div>
+    ${result.preview ? `<div class="alert alert-info no-print"><b>Provisional report — still running: ${esc(result.preview.pending.join(', '))}.</b> Modules 1 to 5 are complete and can be read now. The remaining section(s) and the final recommendation fill in automatically in a few minutes — keep this page open. Export, the editor letters and the decision are available when the report is complete.</div>` : ''}
     ${datasetBanner(result)}
     ${result.noReferenceList ? `<div class="alert alert-warn">${esc(result.noReferenceList)}</div>` : ''}
     ${result.changes ? changesBanner(result.changes) : ''}
@@ -113,13 +116,14 @@ export function renderReport(el, result, { kind } = {}) {
     else if (k === 'journals') journalsTab(body, result.journals);
     else if (k === 'pattern') patternTab(body, result.pattern, refs);
     else if (k === 'editor') editorTab(body, result);
+    else if (['plagiarism', 'novelty', 'authors'].includes(k) && pend({ plagiarism: result.plagiarism, novelty: result.novelty, authors: result.authorIdentity }[k])) body.innerHTML = `<div class="card"><h3>${esc(tabs.find(t => t[0] === k)[1])}</h3><p class="muted">Still running. This section fills in automatically when it is finished — keep this page open.</p></div>`;
     else if (k === 'plagiarism') plagiarismTab(body, result.plagiarism, id);
     else if (k === 'novelty') noveltyTab(body, result.novelty);
     else if (k === 'authors') authorsTab(body, result.authorIdentity);
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
   $$('.kpi.clickable', el).forEach(k => (k.onclick = () => { show('references'); const f = $(`.filter[data-f="${k.dataset.f}"]`, el); if (f) f.click(); }));
-  show(tabs[0][0]);
+  show(tab && tabs.some(t => t[0] === tab) ? tab : tabs[0][0]);
 
   const eb = $('#export-btn', el);
   if (eb) {
@@ -178,7 +182,7 @@ function summaryTab(body, r) {
   const row = (n, label, line, tone) => `<tr><td class="num">${n}</td><td><b>${label}</b></td><td>${badge(tone === 'good' ? 'OK' : tone === 'bad' ? 'Problem' : tone === 'warn' ? 'Check' : '—', tone || 'neutral')}</td><td>${esc(line)}</td></tr>`;
   const s = r.references.summary, c = r.citations?.summary, cp = r.compliance?.summary, pm = r.papermill?.risk, im = r.images?.summary;
   body.innerHTML = `
-    <div class="risk-banner risk-${sc.recommendation === 'proceed' ? 'low' : sc.recommendation === 'return' ? 'medium' : 'high'}"><div class="risk-level">${sc.recommendation === 'proceed' ? '✓' : sc.recommendation === 'return' ? '↩' : '!'}</div><div><b>Desk-review recommendation: ${esc(sc.recommendationLabel)}</b><div class="muted">${sc.reasons.length ? sc.reasons.map(esc).join(' · ') : 'No blocking problems were found.'} The editor decides.</div></div></div>
+    <div class="risk-banner risk-${sc.recommendation === 'proceed' ? 'low' : sc.recommendation === 'return' ? 'medium' : 'high'}"><div class="risk-level">${sc.recommendation === 'proceed' ? '✓' : sc.recommendation === 'return' ? '↩' : '!'}</div><div><b>Desk-review recommendation: ${esc(sc.recommendationLabel)}</b><div class="muted">${sc.reasons.length ? sc.reasons.map(esc).join(' · ') : 'No blocking problems were found.'}${sc.provisional ? ' Provisional: the similarity report can still change it.' : ''} The editor decides.</div></div></div>
     ${r.publishedOnPjps ? `<div class="alert alert-bad"><b>Already published on the PJPS website (${esc(r.publishedOnPjps.where || 'Article in Press')}).</b> ${r.publishedOnPjps.url ? `<a href="${esc(r.publishedOnPjps.url)}" target="_blank" rel="noopener">${esc(r.publishedOnPjps.title)}</a>` : esc(r.publishedOnPjps.title)}${r.publishedOnPjps.doi ? ` · DOI ${esc(r.publishedOnPjps.doi)}` : ''}${r.publishedOnPjps.percent != null ? ` · ${esc(r.publishedOnPjps.percent)}% of the manuscript's text matches the published version` : ''}${r.publishedOnPjps.figures?.length ? ` · ${r.publishedOnPjps.figures.length} figure panel(s) are the published figures` : ''}. The high similarity and the figure matches come from this published version.</div>` : ''}
     <div class="card"><table class="t"><tr><th>#</th><th>Module</th><th>Status</th><th>Summary</th></tr>
       ${sc.lines.published ? row('★', 'Published version', sc.lines.published, 'bad') : ''}
@@ -188,14 +192,14 @@ function summaryTab(body, r) {
       ${sc.lines.selfPjps ? row(3, 'Self-citation &amp; PJPS citations', sc.lines.selfPjps, selfPjpsTone(r.pattern)) : ''}
       ${hasModule('papermill') ? row(4, 'Paper mill risk', sc.lines.papermill, !pm ? '' : pm.level === 'HIGH' ? 'bad' : pm.level === 'MEDIUM' ? 'warn' : 'good') : ''}
       ${hasModule('images') ? row(5, 'Image integrity', sc.lines.images, !im ? '' : im.level === 'HIGH' ? 'bad' : im.level === 'MEDIUM' ? 'warn' : 'good') : ''}
-      ${r.plagiarism ? row(6, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
-      ${r.novelty ? row(7, 'Novelty &amp; citation outlook', r.novelty.error || sc.lines.novelty || '', r.novelty.error ? '' : r.novelty.summary.band === 'low' ? 'warn' : 'good') : ''}
-      ${r.authorIdentity ? row(8, 'Author identity (ORCID)', r.authorIdentity.error || sc.lines.authors || '', r.authorIdentity.error ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.authorIdentity.summary.level]) : ''}
+      ${r.plagiarism ? row(6, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error || r.plagiarism.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
+      ${r.novelty ? row(7, 'Novelty &amp; citation outlook', r.novelty.error || sc.lines.novelty || '', r.novelty.error || r.novelty.pending ? '' : r.novelty.summary.band === 'low' ? 'warn' : 'good') : ''}
+      ${r.authorIdentity ? row(8, 'Author identity (ORCID)', r.authorIdentity.error || sc.lines.authors || '', r.authorIdentity.error || r.authorIdentity.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.authorIdentity.summary.level]) : ''}
     </table>
     <p class="muted" style="margin:10px 0 0">Author version: Modules 1–3 only, after your approval. Editor version: all modules. Claim support (does each source support its claim?) is checked in Module 3.</p></div>
     ${r.indicators?.flags?.length ? `<div class="card"><h3>Bibliography indicators</h3>${r.indicators.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.message)}</div></div>`).join('')}</div>` : ''}
     <div id="scr-decision"></div>`;
-  decisionCard($('#scr-decision', body), r, 'manuscript');
+  if (!r.preview) decisionCard($('#scr-decision', body), r, 'manuscript');
 }
 
 // Turnitin-style similarity report colours: one per primary source (cycled), readable on light and dark backgrounds

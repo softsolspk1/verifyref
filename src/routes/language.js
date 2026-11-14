@@ -1,4 +1,4 @@
-// routes/language.js - Module 6 Language Editing: checking as the writer types (paragraphs that changed), whole-document
+// routes/language.js - Module 6 PJPS Scribe: checking as the writer types (paragraphs that changed), whole-document
 // checks, AI rewrites / writing / tone / reviewer feedback, source suggestions for claims without a citation, the AI-writing
 // indicator, the writer's documents and personal dictionary, file import and Word downloads. On the desktop the in-house
 // checks run locally and the AI features are asked of the web platform with the device token.
@@ -234,7 +234,7 @@ router.post('/language/export', mod, wrap(async (req, res) => {
   const title = String(b.title || 'Document').slice(0, 120);
   const text = String(b.text || '').slice(0, MAX_TEXT);
   if (b.format === 'txt') return send(res, Buffer.from(text, 'utf8'), `${title}.txt`, 'text/plain; charset=utf-8');
-  if (b.format === 'tracked') return send(res, await E.trackedDocx(title, String(b.original || ''), text, `${req.user.name || 'Editor'} (Language Editing)`), `${title}-tracked-changes.docx`, DOCX);
+  if (b.format === 'tracked') return send(res, await E.trackedDocx(title, String(b.original || ''), text, `${req.user.name || 'Editor'} (PJPS Scribe)`), `${title}-tracked-changes.docx`, DOCX);
   if (b.format === 'report') return send(res, await E.reportDocx({ title, score: b.score, stats: b.stats, tone: b.tone, issues: Array.isArray(b.issues) ? b.issues.slice(0, 2000) : [], structure: b.structure }), `${title}-language-report.docx`, DOCX);
   send(res, await E.cleanDocx(title, text), `${title}.docx`, DOCX);
 }));

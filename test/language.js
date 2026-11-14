@@ -1,4 +1,4 @@
-// test/language.js - Module 6 Language Editing: the in-house rules, research-manuscript checks, scoring, the API
+// test/language.js - Module 6 PJPS Scribe: the in-house rules, research-manuscript checks, scoring, the API
 // (checking, documents, dictionary, Word downloads with tracked changes) and access for users whose permissions predate
 // the module. No paid service is called: the AI key and the grammar server are removed for the run.
 // Run: node test/language.js
@@ -31,6 +31,22 @@ const has = (list, rule, text) => list.some(i => i.rule === rule && (text === un
   const sci = 'Pharmacokinetic parameters of paracetamol and nanoformulated curcumin were assessed in Wistar rats using HPLC-UV, and IL-6 and TNF-α were measured by ELISA.';
   const { paragraphs: [p2] } = await L.checkParagraphs([sci], { goals: { domain: 'academic' } });
   assert.deepStrictEqual(p2.filter(i => i.rule === 'spelling').map(i => i.text), [], 'no false spelling alarms on scientific text');
+  // medical and pharmaceutical terms learned from published papers, names in statistics, abbreviations and prefixes joined
+  // by hyphens, web addresses and file names (PJPS Scribe, report of 14 Nov 2026)
+  const med = 'Ectopic stromal and myometrial lesions with adnexal fibroids were seen on sagittal scans of the uterine fundus by sonographers; ' +
+    'hysteroscopy, gravidity and amenorrhea were recorded, and tolerability, IUC-related and LNG-IUS-containing devices, non-absorbable and pre-specified ' +
+    'outcomes, Kaplan-Meier curves and Bonferroni-adjusted tests follow the guide at pjps.pk and the file report.pdf.';
+  const { paragraphs: [pm] } = await L.checkParagraphs([med], { goals: { domain: 'academic' } });
+  assert.deepStrictEqual(pm.filter(i => i.spelling).map(i => i.text), [], 'no false spelling alarms on medical text');
+  // a slip in a medical word is still found
+  const { paragraphs: [pt] } = await L.checkParagraphs(['The myometrail thickness was measured.'], { goals: { domain: 'academic' } });
+  assert.ok(has(pt, 'spelling', 'myometrail'), 'misspelled medical term still reported');
+  // P values: written as PJPS articles write them ("P<0.05" or "P < 0.05"); only a missing leading zero is reported
+  const { paragraphs: [pv] } = await L.checkParagraphs(['Groups differed (P<0.001), and scores did not (P > 0.05); the trend was P<.05.'], { goals: { domain: 'academic' } });
+  assert.deepStrictEqual(pv.filter(i => i.rule === 'p-value').map(i => i.text), ['P<.05'], 'P values in PJPS style accepted');
+  // the vocabulary of research is not "overused"
+  const { paragraphs: [po] } = await L.checkParagraphs(['Levels fell significantly in all groups. Levels rose significantly in two groups. Levels were significantly lower in both groups compared with baseline levels.'], { goals: { domain: 'academic' } });
+  assert.ok(!po.some(i => i.rule === 'overused' && /^(?:levels|significantly|groups)$/i.test(i.text)), 'research vocabulary is not overused');
   // personal dictionary and UK spelling
   const { paragraphs: [p3] } = await L.checkParagraphs(['The colour of the zorbaxin solution changed.'], { variant: 'en-US', personal: ['zorbaxin'] });
   assert.ok(has(p3, 'variant-spelling', 'colour') && !has(p3, 'spelling', 'zorbaxin'), 'variant spelling and personal dictionary');

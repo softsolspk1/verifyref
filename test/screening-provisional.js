@@ -16,9 +16,14 @@ const PL = require('../src/checks/plagiarism');
 const NV = require('../src/checks/novelty');
 const AU = require('../src/checks/authorIdentity');
 const SIM = { kind: 'plagiarism', version: 5, summary: { similarity: 12, internet: 3, publications: 9, submissions: 0, sources: 2, largestSource: 7, level: 'ok' }, sources: [], publishedOnPjps: [] };
-PL.checkPlagiarism = async () => { await sleep(6000); return JSON.parse(JSON.stringify(SIM)); };
+// author identity finishes once the test has seen a provisional copy, and the similarity report once it has seen the copy
+// refreshed with author identity (each at most 2 minutes): on a slow or busy computer Modules 1-4 can take longer than a
+// fixed wait, and the screening then rightly goes straight to a later step
+let releaseSimilarity = () => {};
+PL.checkPlagiarism = async () => { await new Promise(r => { releaseSimilarity = r; setTimeout(r, 120000); }); return JSON.parse(JSON.stringify(SIM)); };
 NV.checkNovelty = async () => ({ kind: 'novelty', summary: { score: 64, band: 'moderate', level: 'ok', closeRecent: 1, outlook: 'average', fiveYearMedian: 10 } });
-AU.checkAuthorIdentity = async () => { await sleep(2500); return { kind: 'authors', summary: { authors: 1, verified: 1, flags: 0, level: 'ok', fromManuscript: 0, idsInManuscript: 0 }, authors: [], flags: [] }; };
+let releaseAuthors = () => {};
+AU.checkAuthorIdentity = async () => { await new Promise(r => { releaseAuthors = r; setTimeout(r, 120000); }); return { kind: 'authors', summary: { authors: 1, verified: 1, flags: 0, level: 'ok', fromManuscript: 0, idsInManuscript: 0 }, authors: [], flags: [] }; };
 const { start } = require('../server');
 const ok = m => console.log(`  ok - ${m}`);
 
@@ -47,6 +52,8 @@ const ok = m => console.log(`  ok - ${m}`);
       assert.notStrictEqual(j.preview.at, seen, 'a preview is sent once per version');
       seen = j.preview.at;
       previews.push(j.preview.result);
+      if (previews.length === 1) setTimeout(() => releaseAuthors(), 1000);
+      if (j.preview.result.authorIdentity && !j.preview.result.authorIdentity.pending) setTimeout(() => releaseSimilarity(), 1000);
     }
     if (j.status === 'done') final = j.result;
     else if (j.status === 'error') throw new Error(j.error);

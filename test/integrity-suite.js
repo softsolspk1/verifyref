@@ -51,7 +51,7 @@ References
 
   let r = await call('admin', 'POST', '/api/auth/login', { email: 'admin@test.local', password: 'admin-pass-123' });
   assert.ok(r.data.success, 'admin login');
-  assert.deepStrictEqual(r.data.user.permissions.filter(k => !['manuscript', 'reports', 'verify'].includes(k)).sort(), ['citations', 'images', 'papermill', 'references', 'restyle'], 'exactly the five modules');
+  assert.deepStrictEqual(r.data.user.permissions.filter(k => !['manuscript', 'reports', 'verify'].includes(k)).sort(), ['citations', 'images', 'language', 'papermill', 'references', 'restyle'], 'exactly the six modules');
   r = await call('admin', 'GET', '/api/app');
   assert.ok(r.data.name === 'PJPS Data Integrity System', 'portal renamed');
 

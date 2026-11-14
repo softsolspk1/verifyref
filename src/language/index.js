@@ -1,4 +1,4 @@
-// language/index.js - Module 6 Language Editing: checks paragraphs with the in-house rules, LanguageTool when configured and
+// language/index.js - Module 6 PJPS Scribe: checks paragraphs with the in-house rules, LanguageTool when configured and
 // Claude when switched on, merges what they find (one suggestion per place), and adds the whole-document checks, the
 // statistics, the tone and the overall score.
 const R = require('./rules');

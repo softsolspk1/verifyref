@@ -28,7 +28,7 @@ async function device(req, res, next) {
 /** Module 6 AI writing features for the desktop (rewrite, generate, tone, review, suggest), counted against the user's daily limit */
 router.post('/sync/language/:op', wrap(device), wrap(async (req, res) => {
   const { permissionsOf } = require('../modules');
-  if (!permissionsOf(req.user).includes('language')) return res.status(403).json({ success: false, message: 'Your account does not have access to Language Editing.' });
+  if (!permissionsOf(req.user).includes('language')) return res.status(403).json({ success: false, message: 'Your account does not have access to PJPS Scribe.' });
   if (!require('../language/ai').enabled()) return res.status(503).json({ success: false, message: 'AI writing features are not switched on for the web platform.' });
   if (!['rewrite', 'generate', 'tone', 'review', 'suggest'].includes(req.params.op)) return res.status(404).json({ success: false, message: 'Not found.' });
   res.json({ success: true, result: await require('./language').aiRun(req.user.id, req.params.op, req.body || {}) });

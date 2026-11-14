@@ -1,6 +1,7 @@
-// language/spell.js - Module 6 spelling: Hunspell dictionaries for US and UK English (SCOWL, vendored in ./dict) read with
-// nspell, plus what a scientific manuscript needs so it is not drowned in false alarms: drug, chemical and Latin terms built
-// from known prefixes, units, acronyms, gene/compound codes and words the writer uses repeatedly. Suggestions come from
+// language/spell.js - PJPS Scribe (Module 6) spelling: Hunspell dictionaries for US and UK English (SCOWL, vendored in ./dict)
+// read with nspell, the research vocabulary learned from published PJPS and PubMed Central papers (./dict/research.txt, made
+// by scripts/build-research-lexicon.js: medical, pharmaceutical and statistical terms and names), plus what a manuscript
+// needs so it is not drowned in false alarms: drug, chemical and Latin terms built from known prefixes, units, acronyms, gene/compound codes and words the writer uses repeatedly. Suggestions come from
 // single edits checked against the dictionary (fast); nspell's own search is the slow fallback for a few words per call.
 const fs = require('fs');
 const path = require('path');
@@ -10,6 +11,9 @@ const FILES = {
   'en-US': [path.join(__dirname, 'dict', 'en-US.aff'), path.join(__dirname, 'dict', 'en-US.dic')],
   'en-GB': [path.join(__dirname, 'dict', 'en-GB.aff'), path.join(__dirname, 'dict', 'en-GB.dic')]
 };
+const RESEARCH = path.join(__dirname, 'dict', 'research.txt');
+const RESEARCH_COMMON_FILE = path.join(__dirname, 'dict', 'research-common.txt');
+const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(w => w && !w.startsWith('#')); } catch { return []; } };
 const cache = {};
 
 function load(variant) {
@@ -18,6 +22,7 @@ function load(variant) {
     const nspell = require('nspell');
     cache[v] = nspell(fs.readFileSync(FILES[v][0]), fs.readFileSync(FILES[v][1]));
     for (const w of SCIENCE) cache[v].add(w);
+    for (const w of lines(RESEARCH)) cache[v].add(w);
   }
   return cache[v];
 }
@@ -58,16 +63,19 @@ function exempt(word, ctx = {}) {
   if (/^[A-Z][a-z]+$/.test(word) && ctx.midSentence) return true;  // proper nouns mid-sentence (names, places, genera)
   if (/[^ -~]/.test(word.replace(/’/g, "'"))) return true; // Greek letters, accented names
   if (/^(?:https?|www)\b/i.test(word) || word.includes('@')) return true;
+  if (ctx.address) return true;                                    // part of a web address, e-mail or file name (pjps.pk, report.pdf)
   if (ctx.repeated && word.length > 6) return true;                // a term the writer uses again and again is their vocabulary
   return false;
 }
+
+const cap = w => w[0].toUpperCase() + w.slice(1).toLowerCase();
 
 function correctAny(sp, w) {
   if (sp.correct(w)) return true;
   const lower = w.toLowerCase();
   if (lower !== w && sp.correct(lower)) return true;
-  // hyphenated words: each part valid
-  if (w.includes('-')) return w.split('-').every(p => !p || /\d/.test(p) || p.length < 3 || sp.correct(p) || sp.correct(p.toLowerCase()));
+  // hyphenated words: each part valid (an abbreviation, a prefix, a term or name: "LNG-IUS-containing", "non-absorbable", "Kaplan-Meier")
+  if (w.includes('-')) return w.split('-').every(p => !p || /\d/.test(p) || p.length < 3 || /^[A-Z]+s?$/.test(p) || PREFIXES.includes(p.toLowerCase()) || sp.correct(p) || sp.correct(p.toLowerCase()) || sp.correct(cap(p)));
   // prefixed technical words and drug/chemical name endings
   for (const p of PREFIXES) {
     if (lower.startsWith(p) && lower.length - p.length >= (p.length <= 3 ? 5 : 4)) {
@@ -84,6 +92,8 @@ function check(word, { variant = 'en-US', personal = null, ctx = {} } = {}) {
   if (exempt(word, ctx)) return true;
   const sp = load(variant);
   if (sp.correct(word) || sp.correct(word.toLowerCase())) return true;
+  // a name learned from published papers written here in lower case ("kaplan-meier" curves)
+  if (/^[a-z]+$/.test(word) && sp.correct(cap(word))) return true;
   // the other variety's spelling ("colour" in a US document) is reported as such, not built from prefixes
   if (otherVariant(word, variant)) return false;
   if (correctAny(sp, word)) return true;
@@ -153,4 +163,7 @@ function suggest(word, variant = 'en-US') {
   return [...new Set(out)].slice(0, 4).map(s => matchCase(word, s));
 }
 
-module.exports = { load, check, suggest, otherVariant, resetBudget, exempt };
+// words used by at least a fifth of published research articles (same script): not "overused" when a paragraph repeats them
+const RESEARCH_COMMON = new Set(lines(RESEARCH_COMMON_FILE));
+
+module.exports = { load, check, suggest, otherVariant, resetBudget, exempt, TYPOS, RESEARCH_COMMON };

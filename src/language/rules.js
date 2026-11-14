@@ -267,6 +267,9 @@ const THESAURUS = {
 };
 const STOP = new Set('the a an and or of to in on at for with by from as is are was were be been being this that these those it its which who whom whose what when where why how than then there their they them we our us you your he she his her i me my not no nor but if so such can could may might will would shall should must do does did done have has had having into onto over under about after before between during through above below up down out off again further once here both each few more most other some own same too very s t only also all any per vs et al fig figs table'.split(' '));
 
+// words used by at least a fifth of published research articles (src/language/spell.js)
+const RESEARCH_COMMON = S.RESEARCH_COMMON;
+
 function engagementDoc(p, g) {
   const out = [];
   // overused word in one paragraph
@@ -275,7 +278,8 @@ function engagementDoc(p, g) {
   for (const x of w) { const k = x.w.toLowerCase(); if (k.length > 3 && !STOP.has(k) && !/^[A-Z]{2,}/.test(x.w)) counts.set(k, [...(counts.get(k) || []), x]); }
   for (const [k, list] of counts) {
     const syn = THESAURUS[k];
-    if (!syn || list.length < 3) continue;
+    // words most research articles repeat ("significantly", "levels", "groups", "patients") are the vocabulary of the field
+    if (!syn || list.length < 3 || (g.domain === 'academic' && RESEARCH_COMMON.has(k))) continue;
     for (const x of list.slice(2)) out.push(issue('overused', 'engagement', 'Repetitive word', x.start, x.end, p, `"${x.w}" appears ${list.length} times in this paragraph. A synonym would keep the reader engaged.`, syn.map(s => keepCase(x.w, s))));
   }
   // three or more sentences in a row with the same first word
@@ -374,10 +378,11 @@ const style = [
     const fix = { is: 'are', was: 'were', has: 'have', shows: 'show', suggests: 'suggest', indicates: 'indicate', demonstrates: 'demonstrate', reveals: 'reveal', supports: 'support', confirms: 'confirm' }[m[2].toLowerCase()];
     return { start: m.index + m[1].length + 1, end: m.index + m[0].length, message: 'In scientific writing "data" is plural ("the data show", "the data were").', replacements: [fix] };
   }, { when: g => g.domain === 'academic' }),
-  regexRule('p-value', 'style', 'Statistics', /\b([Pp])\s*([<>=≤≥])\s*(0?\.\d+)/g, (m) => {
-    const want = `${m[1]} ${m[2]} ${m[3].startsWith('.') ? '0' + m[3] : m[3]}`;
-    return m[0] === want ? null : { message: 'Write P values with spaces around the sign and a leading zero, e.g. "P < 0.05".', replacements: [want] };
-  }, { when: g => g.domain === 'academic' })
+  // PJPS practice (1,500 published articles counted, Nov 2026): P values are written "P<0.05" in 86 % of articles and
+  // "P < 0.05" in the rest, nearly always with the leading zero; only a missing leading zero is reported, spacing kept as written
+  regexRule('p-value', 'style', 'Statistics', /\b([Pp])(\s*)([<>=≤≥])(\s*)(\.\d+)/g, (m) => ({
+    message: 'Write P values with a leading zero, e.g. "P<0.05".', replacements: [`${m[1]}${m[2]}${m[3]}${m[4]}0${m[5]}`]
+  }), { when: g => g.domain === 'academic' })
 ];
 
 const ALL = [...correctness, ...clarity, ...engagement, ...delivery, ...style];
@@ -397,7 +402,9 @@ function spelling(p, opts) {
     while (i >= 0 && /["“'‘([\s]/.test(p[i]) && !startOf.has(i + 1)) i--;
     const midSentence = !startOf.has(x.start) && i >= 0 && !/[.!?:]/.test(p[i]);
     const repeated = (opts.docWords?.get(x.w.toLowerCase()) || 0) >= 3;
-    if (S.check(x.w, { variant: opts.variant, personal: opts.personal, ctx: { midSentence, repeated } })) continue;
+    // joined to a dot, slash or @ without a space: a web address, e-mail or file name ("pjps.pk", "report.pdf")
+    const address = /[./@]\w/.test(p.slice(x.end, x.end + 2)) || /\w[./@]/.test(p.slice(Math.max(0, x.start - 2), x.start));
+    if (S.check(x.w, { variant: opts.variant, personal: opts.personal, ctx: { midSentence, repeated, address } })) continue;
     const variantWord = S.otherVariant(x.w, opts.variant);
     const reps = S.suggest(x.w, opts.variant);
     if (variantWord) {

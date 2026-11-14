@@ -36,11 +36,11 @@ const isHeading = p => p.trim().length > 0 && p.trim().length < 60 && !/[.:;,]$/
 /** Clean Word document of the text */
 async function cleanDocx(title, text) {
   const children = text.split('\n').map(p => (isHeading(p) ? new D.Paragraph({ children: [new D.TextRun({ text: p, bold: true })] }) : new D.Paragraph({ children: [new D.TextRun(p)] })));
-  return D.Packer.toBuffer(new D.Document({ creator: 'Softsols Language Editing', title, sections: [{ children }] }));
+  return D.Packer.toBuffer(new D.Document({ creator: 'Softsols PJPS Scribe', title, sections: [{ children }] }));
 }
 
 /** Word document with the changes from original to text as tracked revisions */
-async function trackedDocx(title, original, text, author = 'Language Editing') {
+async function trackedDocx(title, original, text, author = 'PJPS Scribe') {
   const date = new Date().toISOString();
   let id = 1;
   const runs = ops => ops.map(o => {
@@ -67,7 +67,7 @@ async function trackedDocx(title, original, text, author = 'Language Editing') {
     }
     children.push(new D.Paragraph({ children: runs([o]) }));
   }
-  return D.Packer.toBuffer(new D.Document({ creator: 'Softsols Language Editing', title, features: { trackRevisions: true }, sections: [{ children }] }));
+  return D.Packer.toBuffer(new D.Document({ creator: 'Softsols PJPS Scribe', title, features: { trackRevisions: true }, sections: [{ children }] }));
 }
 
 /** Language report: score, statistics, open suggestions grouped by area */
@@ -76,7 +76,7 @@ async function reportDocx({ title, score, stats, tone, issues = [], structure })
   const cell = (t, bold = false) => new D.TableCell({ children: [new D.Paragraph({ children: [new D.TextRun({ text: String(t ?? ''), bold })] })] });
   const table = rows => new D.Table({ width: { size: 100, type: D.WidthType.PERCENTAGE }, rows: rows.map((r, i) => new D.TableRow({ children: r.map(c => cell(c, i === 0)) })) });
   const children = [
-    heading('Language Editing report', D.HeadingLevel.TITLE),
+    heading('PJPS Scribe report', D.HeadingLevel.TITLE),
     new D.Paragraph({ children: [new D.TextRun({ text: title || 'Untitled document', bold: true })] }),
     new D.Paragraph(`Generated ${new Date().toLocaleString('en-GB')}`),
     heading('Overall'),
@@ -95,7 +95,7 @@ async function reportDocx({ title, score, stats, tone, issues = [], structure })
     if (!list.length) continue;
     children.push(heading(l, D.HeadingLevel.HEADING_2), table([['Text', 'Issue', 'Suggestion'], ...list.map(i => [String(i.text).slice(0, 160), `${i.title}: ${i.message}`, (i.replacements || []).filter(Boolean).slice(0, 2).join(' / ') || (i.replacements?.[0] === '' ? '(remove)' : '')])]));
   }
-  return D.Packer.toBuffer(new D.Document({ creator: 'Softsols Language Editing', title: 'Language Editing report', sections: [{ children }] }));
+  return D.Packer.toBuffer(new D.Document({ creator: 'Softsols PJPS Scribe', title: 'PJPS Scribe report', sections: [{ children }] }));
 }
 
 module.exports = { cleanDocx, trackedDocx, reportDocx, diff };

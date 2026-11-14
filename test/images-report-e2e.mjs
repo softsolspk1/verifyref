@@ -33,9 +33,16 @@ const crop = (img, b) => {
 };
 const dataUrl = img => `data:image/jpeg;base64,${Buffer.from(jpeg.encode({ width: img.width, height: img.height, data: Buffer.from(img.data) }, 80).data).toString('base64')}`;
 
+const PHOTO = ['blot', 'photo', 'histology', 'fluorescence', 'grayscale'];
 async function refImage(source) {
-  const rows = await db.all(`SELECT r.id, r.thumb_key, r.w, r.h, d.title FROM image_refs r JOIN image_ref_docs d ON d.id = r.doc_id
+  let rows = await db.all(`SELECT r.id, r.thumb_key, r.w, r.h, d.title FROM image_refs r JOIN image_ref_docs d ON d.id = r.doc_id
     WHERE r.source = $1 AND r.thumb_key IS NOT NULL AND r.type IN ('blot', 'photo', 'histology', 'fluorescence', 'grayscale') AND r.w >= 120 AND r.h >= 120 ORDER BY r.id LIMIT 40`, [source]);
+  // most reference panels now live in the index segments on R2 (only the newest are still database rows)
+  if (!rows.length) {
+    const docs = await db.all('SELECT ref_min, ref_max FROM image_ref_docs WHERE source = $1 AND ref_min IS NOT NULL ORDER BY id LIMIT 30', [source]);
+    const ids = docs.flatMap(d => Array.from({ length: Math.min(12, d.ref_max - d.ref_min + 1) }, (_, k) => d.ref_min + k));
+    rows = [...(await REFS.refRows(ids)).values()].filter(r => r.thumb_key && PHOTO.includes(r.type) && r.w >= 120 && r.h >= 120).slice(0, 40);
+  }
   for (const r of rows) {
     const buf = await REFS.refThumb(r.thumb_key).catch(() => null);
     if (!buf) continue;

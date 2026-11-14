@@ -47,7 +47,7 @@ const NAV = [
   { path: '/citations', label: '3 · Citations', icon: 'cite', module: 'citations' },
   { path: '/papermill', label: '4 · Paper Mill Detection', icon: 'papermill', module: 'papermill' },
   { path: '/images', label: '5 · Image Integrity', icon: 'image', module: 'images' },
-  { path: '/language', label: '6 · Language Editing', icon: 'assistant', module: 'language' },
+  { path: '/language', label: '6 · PJPS Scribe', icon: 'assistant', module: 'language' },
   { path: '/demo', label: 'Demo data', icon: 'manuscript', hidden: true },
   { group: 'Earlier tools' },
   { path: '/verify', label: 'Verify Citations', icon: 'verify', module: 'verify', hidden: true },

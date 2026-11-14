@@ -1,4 +1,4 @@
-// views/language.js - Module 6 Language Editing: the writer's documents and the editor. The text is checked as it is
+// views/language.js - Module 6 PJPS Scribe: the writer's documents and the editor. The text is checked as it is
 // typed (only paragraphs that changed are sent), suggestions are underlined in the text and listed as cards by area
 // (correctness, clarity, engagement, delivery, academic style), with the overall score, tone, statistics, research tools
 // (manuscript structure, claims without citations, reviewer feedback, AI-writing indicator) and AI rewriting.
@@ -44,8 +44,8 @@ const loadConfig = async () => (cfgCache = await api('/api/language/config'));
 
 export async function renderLanguage(view) {
   view.innerHTML = `
-    <div class="page-head"><div><h1>Language Editing</h1>
-      <p>A writing assistant for research manuscripts: spelling, grammar and punctuation; clarity and conciseness; word choice and tone;
+    <div class="page-head"><div><h1>PJPS Scribe</h1>
+      <p>A writing assistant for medical and pharmaceutical research manuscripts: spelling, grammar and punctuation; clarity and conciseness; word choice and tone;
       academic and journal conventions (Methods tense, abbreviations, figure order, P values, units, claims that need a citation);
       AI rewriting, reviewer-style feedback and an overall writing score. Everything runs inside the portal — no browser extension.</p></div>
       <div class="row" style="gap:8px"><button class="btn" id="le-upload">Upload a file</button><button class="btn btn-primary" id="le-new">New document</button></div></div>
@@ -191,19 +191,21 @@ export async function renderLanguageEditor(view, id) {
     return out;
   };
   const refStart = text => { const m = text.match(/(^|\n)\s*(?:\d+\.?\s*)?(?:references?|bibliography|literature cited|works cited)\s*:?\s*(?=\n|$)/i); return m ? m.index + m[1].length : Infinity; };
+  // the title block above the abstract: author names, departments, hospitals and cities are not spelling mistakes
+  const frontEnd = text => { const m = text.slice(0, 4000).match(/(^|\n)\s*abstract\b/i); return m ? m.index + m[1].length : 0; };
   const keyOf = (i, text) => `${i.rule}|${text.slice(Math.max(0, i.offset - 20), i.offset + i.length + 20)}`;
 
   /** Rebuild the positioned suggestion list from the paragraph caches and the last whole-document check */
   function compute() {
     const text = ta.value;
-    const refs = refStart(text);
+    const refs = refStart(text), front = frontEnd(text);
     const out = [];
     for (const p of paragraphs(text)) {
       if (!p.text.trim()) continue;
       for (const src of [paraCache.get(p.text), aiCache.get(p.text)]) {
         for (const i of src || []) {
           const off = p.start + i.offset;
-          if (off >= refs) continue;
+          if (off >= refs || (off < front && i.spelling && /^[A-Z]/.test(i.text) && p.start > 0)) continue;
           out.push({ ...i, offset: off });
         }
       }

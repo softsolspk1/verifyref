@@ -715,7 +715,7 @@ g[data-tip]:hover .dv-bar { fill: var(--brand-2, var(--brand)); opacity: .85; }
 .dv-tip { position: fixed; z-index: 1000; pointer-events: none; background: var(--text); color: var(--surface); font-size: 12px; padding: 5px 8px; border-radius: 6px; box-shadow: var(--shadow-lg); white-space: nowrap; }
 @media (max-width: 720px) { .dv-row { grid-template-columns: 1fr 2fr 48px; } }
 
-/* ---------------------------------------------------------------- Module 6 Language Editing */
+/* ---------------------------------------------------------------- Module 6 PJPS Scribe */
 :root { --le-correctness: #d0342c; --le-clarity: #2563eb; --le-engagement: #0a8f5a; --le-delivery: #7c3aed; --le-style: #c26a00; }
 :root[data-theme="dark"] { --le-correctness: #f87171; --le-clarity: #7aa2ff; --le-engagement: #4ade80; --le-delivery: #c4a5ff; --le-style: #fbbf24; }
 .le-doclist { display: grid; gap: 10px; }

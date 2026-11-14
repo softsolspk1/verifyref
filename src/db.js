@@ -681,7 +681,7 @@ CREATE TABLE IF NOT EXISTS corpus_hashes (
 CREATE INDEX IF NOT EXISTS idx_corpus_hashes_h ON corpus_hashes(h);
 CREATE INDEX IF NOT EXISTS idx_corpus_hashes_doc ON corpus_hashes(doc_id);
 
--- Module 6 Language Editing: the writer's documents, personal dictionary, AI usage per day and the AI answer cache
+-- Module 6 PJPS Scribe: the writer's documents, personal dictionary, AI usage per day and the AI answer cache
 CREATE TABLE IF NOT EXISTS language_docs (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

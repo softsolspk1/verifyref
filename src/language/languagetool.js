@@ -3,6 +3,8 @@
 // answer, the in-house rules work alone. Paragraphs are sent together in requests of at most ~18 KB.
 const URL_ = () => (process.env.LANGUAGETOOL_URL || '').replace(/\/+$/, '');
 const enabled = () => !!URL_();
+// LanguageTool rules that are wrong in medical and pharmaceutical writing: "knot" is a surgical term (anchoring knot), not "not"
+const OFF = ['CONFUSION_KNOT_NOT'];
 
 const CATEGORY = {
   TYPOS: 'correctness', GRAMMAR: 'correctness', PUNCTUATION: 'correctness', CASING: 'correctness', CONFUSED_WORDS: 'correctness', TYPOGRAPHY: 'correctness',
@@ -12,7 +14,7 @@ const CATEGORY = {
 };
 
 async function request(text, variant) {
-  const body = new URLSearchParams({ text, language: variant === 'en-GB' ? 'en-GB' : 'en-US', level: 'picky' });
+  const body = new URLSearchParams({ text, language: variant === 'en-GB' ? 'en-GB' : 'en-US', level: 'picky', disabledRules: OFF.join(',') });
   if (process.env.LANGUAGETOOL_USER) body.set('username', process.env.LANGUAGETOOL_USER);
   if (process.env.LANGUAGETOOL_KEY) body.set('apiKey', process.env.LANGUAGETOOL_KEY);
   const ctl = new AbortController();

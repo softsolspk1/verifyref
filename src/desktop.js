@@ -398,4 +398,4 @@ async function status(userId) {
   };
 }
 
-module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases, serpViaPlatform, remoteSerp, remoteCorpus };
+module.exports = { login, changePassword, syncAll, syncInBackground, startSyncTimer, status, remote, remoteUrl, deviceToken, RemoteError, TABLES, CHECK_COLS, remoteImageMatch, remoteRefThumb, remoteImageDatabases, serpViaPlatform, remoteSerp, remoteCorpus };

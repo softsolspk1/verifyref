@@ -63,6 +63,7 @@ app.use('/api', require('./src/routes/admin'));
 app.use('/api', require('./src/routes/screening'));
 app.use('/api', require('./src/routes/integrity'));
 app.use('/api', require('./src/routes/apiV1'));
+app.use('/api', require('./src/routes/language'));
 
 if (cfg.DESKTOP) {
   // ---------------------------------------------------------------- desktop edition (local only)

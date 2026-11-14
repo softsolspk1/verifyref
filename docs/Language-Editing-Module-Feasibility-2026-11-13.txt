@@ -1,0 +1,215 @@
+LANGUAGE EDITING MODULE (GRAMMARLY-STYLE) - FEASIBILITY
+Date: 13 November 2026
+Scope: a module inside our own software only (web portal + desktop app).
+       No browser extension, no MS Word add-in, no mobile keyboard.
+
+-----------------------------------------------------------------------
+1. SHORT ANSWER
+-----------------------------------------------------------------------
+Yes, it is possible. Without extensions, the biggest gap with Grammarly
+is gone. Inside our software we can realistically reach about 90% of
+Grammarly's checking quality. For academic manuscripts specifically it
+can match or beat Grammarly, because Grammarly is not built for
+scientific writing.
+
+"100% identical to Grammarly" is not a realistic target:
+ - Grammarly's own models are trained on 15+ years of user data, so our
+   suggestions will be comparable but never identical.
+ - We cannot copy Grammarly's name, look or UI (legal point). The module
+   must have its own name and design.
+
+-----------------------------------------------------------------------
+2. FEATURES WE CAN BUILD
+-----------------------------------------------------------------------
+Grammarly feature                        Can we build it?   How
+---------------------------------------  -----------------  ---------------------------------
+Spelling, grammar, punctuation           Yes                LanguageTool (open source, ~5,000
+                                                            English rules) + AI pass
+Clarity, conciseness, wordiness          Yes                AI suggestions, accept / reject
+Tone detection, formality                Yes                AI classifier
+Sentence / paragraph rewrites            Yes                AI (Claude)
+Readability and overall writing score    Yes                Flesch etc. + our own scoring
+Underlines in text with suggestion       Yes                Editor in web portal and desktop
+cards                                                       app
+Personal dictionary, style rules         Yes                Stored per user / per journal
+(US/UK English, house style)
+Plagiarism check                         Already built      Similarity Report / Module 5
+AI-content detection                     Partly built       Integrity modules
+Citation checks                          Already built      Reference checker
+
+-----------------------------------------------------------------------
+3. TWO WAYS TO BUILD IT
+-----------------------------------------------------------------------
+OPTION A - Our module built on LanguageTool + Claude  (RECOMMENDED)
+ - Grammar, spelling, punctuation: LanguageTool. It is open source, so
+   we host it on our own server. Free and our own copy, not a paid
+   service.
+ - Rewrites, clarity, tone, "improve this paragraph": Claude, which the
+   product already uses.
+ - Everything else is ours: editor, underlines, suggestion cards,
+   scores, house style rules, dictionary, Word export.
+ - Result: about 90% of Grammarly.
+ - Running cost: a small server (about $5-10/month, 2-4 GB RAM) plus
+   Claude usage per check.
+
+OPTION B - 100% in-house, no outside AI at all
+ - LanguageTool plus our own rules only.
+ - Spelling and grammar still good, but rewrites, tone and clarity
+   suggestions would be weak or missing.
+ - Result: about 65-75% of Grammarly.
+ - Going higher would mean running our own AI model on GPU servers,
+   which is expensive (hundreds of dollars a month) and not worth it at
+   this stage.
+
+-----------------------------------------------------------------------
+4. WHAT WOULD PUT US AHEAD OF GRAMMARLY FOR JOURNALS
+-----------------------------------------------------------------------
+ - PJPS / journal house style, US vs UK English, scientific terms,
+   units and abbreviations.
+ - Consistency checks: abbreviations defined once, figure and table
+   numbering, units written the same way throughout.
+ - Integration with the reference checker, similarity check and Full
+   Screening, so one report covers everything.
+ - A tracked-changes Word file the author can accept or reject.
+
+-----------------------------------------------------------------------
+5. PRACTICAL POINTS
+-----------------------------------------------------------------------
+ - Hosting: LanguageTool is a Java server and cannot run on Vercel. It
+   needs a small separate server.
+ - Cost control: every AI check spends Anthropic credits, so the module
+   needs per-user limits or should sit in a paid plan.
+ - Testing: no paid API credits are spent from the laptop. AI parts are
+   tested on Vercel only, as with the other modules.
+ - Both platforms: built for the web portal and the Electron desktop app.
+
+-----------------------------------------------------------------------
+6. TRAINING AND RUNNING COSTS
+-----------------------------------------------------------------------
+Training: NOT needed.
+ - LanguageTool comes with its grammar rules already built in (about
+   5,000 for English). Ready on day one.
+ - Claude is already trained. We only write instructions for it
+   (journal style, US/UK English, scientific terms), not train it.
+ - Training our own model would only be needed for the fully in-house
+   option with our own AI, which is not recommended.
+
+Subscription: no fixed monthly subscription for the AI part. Claude is
+pay per use. We only pay for what is used.
+
+Monthly costs
+Item                         Type                  Approximate cost
+---------------------------  --------------------  ------------------------------
+Server for LanguageTool      Fixed monthly         $5-10/month (up to about $20
+                                                   with its extra n-gram data for
+                                                   better "their/there"-type
+                                                   detection)
+Claude (AI suggestions)      Pay per use, no       See table below
+                             subscription
+Vercel, database, R2         Already paid for      $0 extra
+LanguageTool software        Free, open source     $0
+
+Claude cost per manuscript (6,000 words), at current Anthropic API prices
+Model                                      Cost per full manuscript check
+-----------------------------------------  ------------------------------
+Haiku 4.5 (cheapest, good for grammar /    about $0.04-0.08
+clarity)
+Sonnet 5.5 (better rewrites, recommended)  about $0.10-0.20
+Opus 5.5 (highest quality)                 about $0.20-0.40
+
+A single "improve this paragraph" click costs less than 1 cent.
+
+Example: 300 manuscripts a month on Sonnet 5.5
+ - Claude usage: about $30-60
+ - Server:       about $10
+ - Total:        roughly $40-70/month
+
+These are estimates. The real figure will be measured on Vercel once a
+first version exists, without spending credits from the laptop.
+
+-----------------------------------------------------------------------
+7. PHASED PLAN WITH TIME ESTIMATES (OPTION A)
+-----------------------------------------------------------------------
+Times are working days and include your review and testing between
+phases. Each phase is built for both the web portal and the desktop
+app, and is usable on its own before the next one starts.
+
+PHASE 0 - SETUP                                          2-3 days
+ - Rent a small server and install LanguageTool on it, with a private
+   access key so only our software can use it.
+ - Add the "Language Editing" module to the menu and the Admin
+   settings: on/off per plan, monthly limits per user.
+ - Usage log, so every check and its cost is recorded from day one.
+ Result: the base is ready, nothing visible to editors yet.
+
+PHASE 1 - CORE CHECKING (spelling, grammar, punctuation)  8-10 days
+ - Upload a Word / PDF file or paste text (reuses the existing file
+   reading from Modules 1-5).
+ - Text checked paragraph by paragraph with LanguageTool.
+ - Editor screen: the manuscript with coloured underlines (spelling,
+   grammar, punctuation); click an underline to see the suggestion
+   card with Accept / Ignore.
+ - US or UK English choice and a personal dictionary ("Add word").
+ - Counts per category and a simple score.
+ Result: a working spelling and grammar checker,
+         about 60% of Grammarly.
+
+PHASE 2 - AI SUGGESTIONS (clarity, conciseness, tone, rewrites)  8-10 days
+ - Claude pass over each paragraph for unclear, wordy or awkward
+   sentences, shown as the same accept / reject cards.
+ - "Improve this paragraph" and "Rewrite this sentence" buttons, with
+   options such as more formal / shorter / simpler.
+ - Tone and formality detection for the whole manuscript.
+ - Duplicate suggestions merged (LanguageTool and Claude flagging the
+   same thing are shown once).
+ - Cost control: limits per user and plan, results kept so the same
+   text is never paid for twice.
+ Result: about 85% of Grammarly.
+
+PHASE 3 - JOURNAL / ACADEMIC FEATURES                     8-10 days
+ - Scientific dictionary: drug names, chemical names, units, Latin
+   species names, so they are not flagged as spelling errors.
+ - Journal house style rules (PJPS first), editable in Admin.
+ - Consistency checks: abbreviations defined once at first use,
+   figure and table numbering in order, units and number formats the
+   same throughout, US/UK spelling not mixed.
+ - Readability scores (Flesch etc.) and an overall language score.
+ Result: about 90% of Grammarly, and ahead of it for manuscripts.
+
+PHASE 4 - OUTPUT AND INTEGRATION                          5-7 days
+ - Download the corrected manuscript as a tracked-changes Word file
+   the author can accept or reject in Word.
+ - Language report (Word / PDF) with the score and main issues.
+ - A "Language quality" row in the Full Screening and its Word report.
+ - Optional paragraph for letters to authors ("language editing
+   required" with examples).
+
+PHASE 5 - TESTING AND TUNING                              5-10 days
+ - Run 30-50 real PJPS manuscripts through the module.
+ - Remove rules that give too many false alarms on scientific text.
+ - Compare a sample against Grammarly by hand.
+ - Measure the real Claude cost per manuscript on Vercel and set the
+   plan limits from it.
+ - Desktop app build and check.
+
+TOTAL: about 36-50 working days, roughly 8-11 weeks.
+
+Milestones
+ - End of Phase 1 (about week 3):  spelling and grammar checker usable.
+ - End of Phase 2 (about week 5):  AI suggestions, ~85% of Grammarly.
+ - End of Phase 3 (about week 7):  journal features, ~90%.
+ - End of Phase 5 (about week 9-11): tested, costed, ready to sell.
+
+What could change the timeline
+ - Waiting time for review and testing between phases.
+ - D: drive disconnections during development.
+ - Paid AI features can only be tested on Vercel (no credits spent
+   from the laptop), which adds a deploy step to each AI test.
+
+-----------------------------------------------------------------------
+8. RECOMMENDATION
+-----------------------------------------------------------------------
+Option A: about 90% of Grammarly, low cost, and it fits naturally next
+to Modules 1-5 as a "Language Editing" module. Start with Phase 0 and
+Phase 1 once approved. No development has started.
+

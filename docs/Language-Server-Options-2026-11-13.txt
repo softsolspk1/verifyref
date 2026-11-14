@@ -1,0 +1,123 @@
+LANGUAGE EDITING (MODULE 6) - GRAMMAR SERVER OPTIONS
+Date: 13 November 2026
+
+-----------------------------------------------------------------------
+1. WHAT THE GRAMMAR SERVER IS FOR
+-----------------------------------------------------------------------
+Module 6 already works without any server: its own writing rules run
+inside the portal on Vercel (and offline in the desktop app).
+
+A grammar server adds LanguageTool: a free, open-source program with
+about 5,000 English grammar rules. It must run on a separate server,
+because it is a Java program that cannot run on Vercel.
+
+When the server is ready, two settings are added on Vercel:
+  LANGUAGETOOL_URL    the server's address
+  LANGUAGETOOL_TOKEN  a secret key, so that only our portal can use it
+                      (to be added to Module 6 before going live)
+
+Why our own server and not LanguageTool's paid online service:
+ - Unpublished manuscripts stay on a server we control.
+ - A server is a fixed monthly fee; the paid service is charged per
+   user and per request.
+
+-----------------------------------------------------------------------
+2. SERVER REQUIREMENTS
+-----------------------------------------------------------------------
+Memory (RAM)   4 GB minimum (2 GB is too little for Java)
+Processor      2 vCPU
+Disk           40 GB SSD (the optional extra data for "their/there"-
+               type errors needs about 15 GB)
+System         Ubuntu 24.04
+Location       Europe is fine. Checks run in the background while the
+               author types, so the extra distance does not matter.
+
+-----------------------------------------------------------------------
+3. OPTION A - FREE ORACLE CLOUD SERVER ($0/month)   RECOMMENDED
+-----------------------------------------------------------------------
+Oracle Cloud "Always Free" includes an ARM server with up to 4 CPU
+cores and 24 GB RAM, free permanently. That is six times the memory of
+the Hetzner CX23: enough for LanguageTool and its extra data.
+
+Result: the full ~5,000 LanguageTool grammar rules, the same engine as
+LanguageTool's paid service.
+
+Points to know:
+ - Oracle asks for a card to verify identity; it is not charged on the
+   free plan.
+ - Free ARM servers are sometimes "out of capacity" in busy regions.
+   Try another region, or try again later.
+ - Oracle can take back free servers that sit idle. To prevent this,
+   switch the account to "Pay As You Go". Nothing is charged while
+   usage stays within the free limits.
+
+Steps:
+ 1. Create an Oracle Cloud account (cloud.oracle.com).
+ 2. Create a compute instance: shape "VM.Standard.A1.Flex" (Ampere
+    ARM), 2-4 OCPU, 8-24 GB RAM, image Ubuntu 24.04.
+ 3. Keep the login key / password yourself. Do not share it.
+ 4. Send the server's IP address. The install script (Java,
+    LanguageTool, a gatekeeper that accepts only our portal, automatic
+    restart) will be provided.
+ 5. Run the script on the server.
+ 6. Add LANGUAGETOOL_URL and LANGUAGETOOL_TOKEN on Vercel.
+
+-----------------------------------------------------------------------
+4. OPTION B - NO SEPARATE SERVER ($0)
+-----------------------------------------------------------------------
+More grammar rules are added to Module 6's own checker, which runs
+inside Vercel with the portal.
+
+ - Nothing to rent, install or maintain; also works offline on the
+   desktop app.
+ - About 100-200 targeted rules can be added in a few days, aimed at
+   the mistakes common in non-native scientific English: articles,
+   prepositions, singular/plural, verb tenses, comma rules.
+ - Limit: this narrows the gap but will not match LanguageTool, whose
+   rules took about 20 years to build. The AI sentence suggestions
+   (paid per use) catch most of what the rules miss.
+
+-----------------------------------------------------------------------
+5. PAID FALLBACK - IF ORACLE HAS NO CAPACITY
+-----------------------------------------------------------------------
+Provider / plan                   Specs                   Approx. price
+--------------------------------  ----------------------  -------------
+Hetzner Cloud CX23 (Intel/AMD)    2 vCPU, 4 GB, 40 GB     from $7.09/month
+                                  NVMe                    (where in stock)
+Hetzner Cloud CAX11 (ARM)         2 vCPU, 4 GB            check order page;
+                                                          usually in stock
+DigitalOcean / Vultr              2 vCPU, 4 GB, 80 GB     about $20-24/month
+Contabo VPS S                     4 vCPU, 8 GB            about $7/month,
+                                                          NOT recommended
+                                                          (weaker reliability)
+
+Notes:
+ - Choose Hetzner's European locations (Nuremberg, Falkenstein,
+   Helsinki). Its US locations (Ashburn, Hillsboro) now cost several
+   times more after the June 2026 price rise.
+ - The CX23 is sometimes "not available" in a location. Try the other
+   European locations, or order the CAX11 (ARM). LanguageTool runs on
+   ARM without problems.
+ - Billing is hourly; the server can be deleted at any time.
+ - Hetzner, DigitalOcean, Vultr and OVH all held 99.97%+ uptime in
+   independent 30-day tests.
+
+-----------------------------------------------------------------------
+6. RECOMMENDATION
+-----------------------------------------------------------------------
+Do both:
+ 1. Option B now: Module 6 improves straight away at no cost.
+ 2. Option A when there is half an hour to create the Oracle account.
+    If Oracle has no capacity, use the Hetzner CX23 ($7.09/month) in a
+    location where it is in stock, or the CAX11.
+
+Prices are estimates from published sources (November 2026) and may
+change. Check the provider's order page before ordering.
+
+Sources:
+ - https://www.bitdoze.com/hetzner-cloud-cost-optimized-plans/
+ - https://findstack.com/resources/hetzner-price-increase-2026
+ - https://findstack.com/resources/vps-price-tracker
+ - https://betterstack.com/community/guides/web-servers/hetzner-cloud-review/
+ - https://bestusavps.pages.dev/best-for/4gb-ram
+ - Hetzner order page (CX23 price as seen by Softsols, 13 Nov 2026)

@@ -32,8 +32,9 @@ import { renderCases, renderCase } from './views/cases.js';
 import { renderApiKeys } from './views/apiKeys.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderReports } from './views/reports.js';
+import { renderLanguage, renderLanguageEditor } from './views/language.js';
 
-// PJPS v4: the five modules and the Full Screening Report. The earlier tools stay in the code (routes below) but are
+// PJPS v4: the six modules and the Full Screening Report. The earlier tools stay in the code (routes below) but are
 // switched off in src/modules.js, so they are not shown and their routes refuse access.
 const NAV = [
   { path: '/home', label: 'Home', icon: 'home' },
@@ -46,6 +47,7 @@ const NAV = [
   { path: '/citations', label: '3 · Citations', icon: 'cite', module: 'citations' },
   { path: '/papermill', label: '4 · Paper Mill Detection', icon: 'papermill', module: 'papermill' },
   { path: '/images', label: '5 · Image Integrity', icon: 'image', module: 'images' },
+  { path: '/language', label: '6 · Language Editing', icon: 'assistant', module: 'language' },
   { path: '/demo', label: 'Demo data', icon: 'manuscript', hidden: true },
   { group: 'Earlier tools' },
   { path: '/verify', label: 'Verify Citations', icon: 'verify', module: 'verify', hidden: true },
@@ -88,6 +90,8 @@ const ROUTES = [
   [/^\/papermill\/cases\/(\d+)$/, guard('papermill', (v, m) => renderCase(v, m[1]))],
   [/^\/references\/monitoring$/, guard('references', (v, m) => (state.user.role === 'researcher' ? (v.innerHTML = '<div class="card empty">Published-article monitoring is for editors.</div>') : renderMonitoring(v, m)))],
   [/^\/images$/, guard('images', renderImages)],
+  [/^\/language$/, guard('language', renderLanguage)],
+  [/^\/language\/(\d+)$/, guard('language', (v, m) => renderLanguageEditor(v, m[1]))],
   [/^\/restyle$/, guard('restyle', renderRestyle)],
   [/^\/verify$/, guard('verify', renderVerify)],
   [/^\/evidence$/, guard('evidence', renderEvidence)],

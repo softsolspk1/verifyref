@@ -7,7 +7,8 @@ const CARDS = [
   { path: '/restyle', module: 'restyle', icon: 'style', title: '2 · Reference Style & PJPS', text: 'Rule-by-rule PJPS style compliance, then conversion of citations and the reference list — in Word as Track Changes.' },
   { path: '/citations', module: 'citations', icon: 'cite', title: '3 · Citations', text: 'In-text citations against the reference list, claim support from the cited sources, citation pattern flags and the author letter.' },
   { path: '/papermill', module: 'papermill', icon: 'papermill', title: '4 · Paper Mill Detection', text: 'Paper-mill signals plus plagiarism and text similarity, AI-written text, research data, pharmaceutical validation, ethics, authors, submission networks and one explained risk score; peer-review integrity; cases and dashboard.' },
-  { path: '/images', module: 'images', icon: 'image', title: '5 · Image Integrity', text: 'Duplicated, rotated, mirrored, cropped, cloned, manipulated or AI-generated figures, chart reuse and re-use of earlier PJPS figures, with a forensic viewer.' }
+  { path: '/images', module: 'images', icon: 'image', title: '5 · Image Integrity', text: 'Duplicated, rotated, mirrored, cropped, cloned, manipulated or AI-generated figures, chart reuse and re-use of earlier PJPS figures, with a forensic viewer.' },
+  { path: '/language', module: 'language', icon: 'assistant', title: '6 · Language Editing', text: 'A writing assistant for research manuscripts: spelling, grammar, clarity, tone and academic style as you type, an overall writing score, AI rewrites and reviewer-style feedback, claims without citations, and Word downloads with tracked changes.' }
 ];
 
 const KIND_LABEL = { manuscript: 'Full Screening', references: 'Bibliography', restyle: 'Style', citations: 'Citations', papermill: 'Paper mill', images: 'Images', verify: 'Claim support', integrity: 'Paper mill', 'peer-review': 'Peer review' };

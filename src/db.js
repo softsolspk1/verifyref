@@ -680,6 +680,40 @@ CREATE TABLE IF NOT EXISTS corpus_hashes (
 );
 CREATE INDEX IF NOT EXISTS idx_corpus_hashes_h ON corpus_hashes(h);
 CREATE INDEX IF NOT EXISTS idx_corpus_hashes_doc ON corpus_hashes(doc_id);
+
+-- Module 6 Language Editing: the writer's documents, personal dictionary, AI usage per day and the AI answer cache
+CREATE TABLE IF NOT EXISTS language_docs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT 'Untitled document',
+  body TEXT NOT NULL DEFAULT '',
+  original TEXT NOT NULL DEFAULT '',     -- the text as uploaded / first written, for the tracked-changes Word file
+  settings JSONB,                        -- { variant, goals, dismissed: [keys], disabled: [rule ids] }
+  words INTEGER NOT NULL DEFAULT 0,
+  score INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_language_docs_user ON language_docs(user_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS language_dictionary (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  word TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, word)
+);
+CREATE TABLE IF NOT EXISTS language_usage (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day DATE NOT NULL,
+  calls INTEGER NOT NULL DEFAULT 0,
+  input_tokens BIGINT NOT NULL DEFAULT 0,
+  output_tokens BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+);
+CREATE TABLE IF NOT EXISTS language_ai_cache (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;
 
 // One-off data migrations from the editor-approval model (v2) to Super Admin management (v3)

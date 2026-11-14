@@ -1,5 +1,5 @@
 // modules.js - the tools a user can be given access to, grouped as in the navigation, with role defaults.
-// PJPS scope: five modules (the integrity features live inside them) plus the Full Screening Report that runs them all. The earlier tools stay in the code base but are
+// PJPS scope: six modules (the integrity features live inside them) plus the Full Screening Report that runs them all. The earlier tools stay in the code base but are
 // switched off (LEGACY): they are not shown, not granted and their API routes refuse access.
 
 const MODULES = [
@@ -8,6 +8,7 @@ const MODULES = [
   { key: 'citations', label: 'Module 3 — Citations (list matching, claim support, patterns)', group: 'PJPS modules' },
   { key: 'papermill', label: 'Module 4 — Paper Mill Detection (integrity screening, risk score, peer review, cases)', group: 'PJPS modules', editor: true },
   { key: 'images', label: 'Module 5 — Image Integrity Detection', group: 'PJPS modules', editor: true },
+  { key: 'language', label: 'Module 6 — Language Editing (grammar, clarity, tone, AI rewrites, research writing checks)', group: 'PJPS modules' },
   { key: 'manuscript', label: 'Screen a submission with all 5 modules at once (Full Screening Report)', group: 'Across the 5 modules', editor: true },
   { key: 'reports', label: 'Editor letters & decision summary (Modules 1-3 author version, revisions)', group: 'Across the 5 modules', editor: true }
 ];
@@ -33,6 +34,8 @@ const IMPLIES = { citations: ['verify'] };
 
 // Modules added in v4: granted to editors whose permissions were customised before these existed
 const ADDED_V4 = ['papermill', 'images'];
+// Module 6 (v6): granted to editors and reviewers whose permissions were customised before it existed
+const ADDED_V6 = ['language'];
 
 const ROLES = {
   super_admin: { label: 'Super Admin' },
@@ -60,12 +63,13 @@ function permissionsOf(u) {
   const p = Array.isArray(u.permissions) ? u.permissions : null;
   let list = (p || defaultPermissions(u.role)).filter(k => ALL.includes(k));
   if (p && u.role === 'editor' && !p.includes('_v4')) list = [...new Set([...list, ...ADDED_V4])];
+  if (p && !p.includes('_v6')) list = [...new Set([...list, ...ADDED_V6])];
   return expand(list);
 }
 
-/** Permissions as stored: the v4 marker records that the new modules were offered to this user */
+/** Permissions as stored: the v4 / v6 markers record that the new modules were offered to this user */
 function storePermissions(list) {
-  return [...new Set([...(list || []).filter(k => ALL.includes(k)), '_v4'])];
+  return [...new Set([...(list || []).filter(k => ALL.includes(k)), '_v4', '_v6'])];
 }
 
 module.exports = { MODULES, LEGACY, ROLES, ALL, defaultPermissions, permissionsOf, storePermissions };

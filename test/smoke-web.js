@@ -129,7 +129,7 @@ const assert = require('assert');
   // Module 5: save a browser analysis, then a second manuscript sharing a figure is matched
   const panel = (id, h) => ({ id, label: id, imageId: 'img1', type: 'photo', box: { x: 0, y: 0, w: 120, h: 90 }, hashes: Array(8).fill(h), thumb: 'data:image/jpeg;base64,/9j/4AAQ' });
   const tiny = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-  r = await call('admin', 'POST', '/api/images', { result: { meta: { manuscriptCode: 'PJPS-IMG-1', title: 'First' }, summary: { images: 1 }, panels: [panel('p1', '0f0f0f0f12345678'), panel('p2', 'ffff0000aaaa5555')], findings: [{ id: 'f1', kind: 'duplicate', level: 'high', description: 'test', a: { panel: 'p1', label: 'Fig. 1A' }, b: { panel: 'p2', label: 'Fig. 2B' }, thumbA: tiny, thumbAW: 1, thumbAH: 1, thumbB: tiny, thumbBW: 1, thumbBH: 1 }] } });
+  r = await call('admin', 'POST', '/api/images', { result: { meta: { manuscriptCode: 'PJPS-IMG-1', title: 'First' }, summary: { images: 1 }, panels: [panel('p1', '0f0f0f0f12345678'), panel('p2', 'ffff0000aaaa5555')], findings: [{ id: 'f1', kind: 'duplicate', level: 'high', description: 'test', score: 0.99, verification: { picture: 0.99, noise: 0.95 }, a: { panel: 'p1', label: 'Fig. 1A' }, b: { panel: 'p2', label: 'Fig. 2B' }, thumbA: tiny, thumbAW: 1, thumbAH: 1, thumbB: tiny, thumbBW: 1, thumbBH: 1 }] } });
   assert.ok(r.data.success && r.data.result.summary.level === 'HIGH', 'Module 5 saved');
   assert.deepStrictEqual(r.data.result.panels[0].box, { x: 0, y: 0, w: 120, h: 90 }, 'panel position kept (forensic viewer crops to it)');
   assert.ok(Array.isArray(r.data.result.references) && r.data.result.referencesSearched, 'compared with the image reference databases');
@@ -159,8 +159,8 @@ const assert = require('assert');
   // Module 5 (b)-(d): alteration, AI-image and chart findings; chart data compared with earlier manuscripts
   const bars = (code, label, v) => ({ label, kind: 'bars', v, spread: 0.7 });
   const mk = (code, charts, findings) => ({ result: { meta: { manuscriptCode: code }, summary: { images: 1 }, panels: [panel(code + 'p', 'aaaa5555aaaa5555')], charts, provenance: 1, findings } });
-  const aiFinding = { id: 'f1', kind: 'ai', category: 'ai', level: 'high', description: 'marker', details: ['IPTC digital source type: AI-generated'], a: { panel: 'x', label: 'Fig. 4' }, b: { panel: 'x', label: 'Fig. 4' } };
-  const altFinding = { id: 'f2', kind: 'alteration', category: 'manipulation', level: 'medium', description: 'smooth patch', details: [], a: { panel: 'x', label: 'Fig. 5', box: { x: 1, y: 1, w: 5, h: 5 } }, b: { panel: 'x', label: 'Fig. 5', box: { x: 1, y: 1, w: 5, h: 5 } } };
+  const aiFinding = { id: 'f1', kind: 'ai', category: 'ai', level: 'high', code: 'provenance', description: 'marker', details: ['IPTC digital source type: AI-generated'], a: { panel: 'x', label: 'Fig. 4' }, b: { panel: 'x', label: 'Fig. 4' } };
+  const altFinding = { id: 'f2', kind: 'alteration', category: 'manipulation', level: 'high', score: 3, description: 'smooth patch', details: [], a: { panel: 'x', label: 'Fig. 5', box: { x: 1, y: 1, w: 5, h: 5 } }, b: { panel: 'x', label: 'Fig. 5', box: { x: 1, y: 1, w: 5, h: 5 } } };
   r = await call('admin', 'POST', '/api/images', mk('PJPS-CH-1', [bars(0, 'Fig. 3 left', [62, 118, 87, 154, 121, 176])], [aiFinding, altFinding]));
   assert.ok(r.data.result.summary.byCategory.ai === 1 && r.data.result.summary.byCategory.manipulation === 1 && r.data.result.coverage.chart.done, 'categories counted');
   r = await call('admin', 'POST', '/api/images', mk('PJPS-CH-2', [bars(0, 'Fig. 2 right', [70, 133, 97, 172, 136, 197])], []));

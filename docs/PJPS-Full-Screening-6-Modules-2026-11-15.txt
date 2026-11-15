@@ -1,0 +1,110 @@
+PJPS INTEGRITY PORTAL - FULL SCREENING WITH ALL 6 MODULES
+Date: 15 November 2026 (demo with the PJPS Editor in Chief: Monday 16 November, morning)
+Portal: https://verifyref.vercel.app/app
+Release: commit f58427a (pushed and live on Vercel)
+
+
+1. MODULE 6 (PJPS SCRIBE) IS NOW PART OF THE FULL SCREENING
+-----------------------------------------------------------
+
+- The home page card now reads "Screen a new submission - all 6 modules at once".
+- PJPS Scribe appears in the Full Screening Report:
+    * its own tab ("PJPS Scribe") in the report
+    * row 6 on the front-page summary
+    * section 6 in the Word / PDF report (Similarity, Novelty and Author
+      identity are now sections 7, 8 and 9)
+- The PJPS Scribe section shows:
+    * the language score (0-100)
+    * the suggestions per area (correctness, clarity, engagement, delivery,
+      academic style)
+    * each misspelt word in its sentence, with the suggested spelling
+    * examples to correct
+- Each screening saves a copy of the manuscript that the editor can open in
+  PJPS Scribe with one click, to correct it there.
+- A language score under 70 adds "return to the authors for language editing"
+  to the desk-review recommendation. Language alone never triggers
+  "investigate".
+
+
+2. SPEED
+--------
+
+- PJPS Scribe runs at the same time as the similarity search and takes about
+  10 seconds, so it does not make the report later.
+- The grammar server now answers three requests at once: a 9,000-word
+  manuscript takes 10 seconds instead of 20.
+- Live Full Screenings take 5-12 minutes. Almost all of that time is the
+  similarity search, which already runs alongside the other modules. It was
+  not shortened, because searching less would lower accuracy.
+
+
+3. ACCURACY FIXES (PJPS SCRIBE)
+-------------------------------
+
+Tested on four real PJPS manuscripts (scores 94-97, real typos still caught:
+"fourty", "apotosis", "byseparation").
+
+- American or British spelling is detected from the manuscript itself.
+- Line breaks and line numbers from PDF files no longer produce false errors.
+- Table cells, headings, spacing, quotes and dashes from the file are no
+  longer reported as mistakes.
+- No longer flagged:
+    * author names in citations ("Kamel et al.", "Azim, 2019")
+    * units and laboratory names (MPa, mmol, KBr, TRIzol)
+    * cell lines and gene codes (A549, PD-1)
+    * hyphenated given names (Yu-Jie, Dong-Mei)
+    * "cool" used as a temperature ("store in a cool, dry place")
+- American documents are no longer offered the British "favourable".
+
+
+4. DATASETS ADDED (NO PAID SERVICES)
+------------------------------------
+
+PJPS Scribe
+- Added the official NLM medical vocabulary (MeSH 2026: medical headings,
+  drug and chemical names), free from the National Library of Medicine.
+- The vocabulary now holds 368,744 terms.
+- 1,666 typos left over from old PDFs were removed (for example
+  "hypertention", "absense", "consistant", "softwere"), so they are caught
+  again. Common medical misspellings are always reported.
+
+Image Integrity (Module 5)
+- The figure-indexing job is running overnight in its own minimised window.
+- It adds about 250 papers an hour (roughly 5,000 more by Monday morning).
+- New figures go live automatically.
+- Please leave the laptop on and that window open.
+
+Similarity (in-house)
+- The in-house corpus already holds all 2.22 million open-access PubMed
+  Central papers in the PJPS subject areas, plus all PJPS articles.
+- Going further means crawling journals outside PubMed Central, which is too
+  risky to start before the demo.
+
+Paper Mill
+- Nothing added; the data is already broad (Retraction Watch, Problematic
+  Paper Screener, Beall's list, hijacked-journal lists, 13,417 known
+  paper-mill abstracts).
+- The only gap (a small share of paper-mill abstracts not yet on file) can
+  only be filled with OpenAlex, which is paid and is not used from the laptop.
+
+
+5. TESTS
+--------
+
+All 7 test files that touch Full Screening pass, plus the extended Module 6
+test:
+- web smoke test
+- integrity suite
+- provisional Full Screening
+- Full Screening with embedded images
+- pharma integrity
+- reports dashboard
+- desktop sync
+
+
+6. BEFORE THE DEMO
+------------------
+
+- Press Ctrl+Shift+R once on the portal so the browser loads the new version.
+- Run one Full Screening beforehand, so you have seen the new PJPS Scribe tab.
+- Keep the laptop on with the figure-indexing window open overnight.

@@ -8,6 +8,10 @@ const LT = require('./languagetool');
 const AI = require('./ai');
 
 const PRIORITY = { 'ai-suggestion': 0 };
+// LanguageTool notes that do not fit a research article in PJPS style: hyphenated ranges (PJPS writes 48-81, 83-88),
+// passive voice in Methods and Results, noun strings that are medical terms (sodium chloride injection solution), and
+// "use a synonym" for a repeated word ("significant" for "important" changes the meaning in a statistical paper)
+const ACADEMIC_OFF = /^lt:(?:HYPHEN_TO_EN|DASH_RULE|REP_PASSIVE_VOICE|PASSIVE_VOICE|FOUR_NN|EN_REPEATEDWORDS_\w+|ENGLISH_WORD_REPEAT_BEGINNING_RULE)$/;
 const overlaps = (a, b) => a.offset < b.offset + b.length && b.offset < a.offset + a.length;
 
 /** One suggestion per place: the first found wins (LanguageTool, then in-house rules); whole-sentence notes never block */
@@ -37,7 +41,8 @@ async function checkParagraphs(paragraphs, opts = {}) {
   // LanguageTool's spelling knows no pharmacology: keep its spelling notes only where ours agrees, or its word is not exempt
   const ours = w => S.check(w, { variant, personal, ctx: { midSentence: true, repeated: (docWords.get(w.toLowerCase()) || 0) >= 3 } });
   // a phrase ("Kamel et" before "al.") is kept only when one of its words is wrong for us too
-  const ltKept = lt ? lt.map(list => list.filter(i => !i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w)))) : null;
+  const academic = opts.goals?.domain === 'academic';
+  const ltKept = lt ? lt.map(list => list.filter(i => (!i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w))) && !(academic && ACADEMIC_OFF.test(i.rule || '')))) : null;
   let ai = paragraphs.map(() => []), aiError = null;
   if (opts.ai && AI.enabled()) {
     try {

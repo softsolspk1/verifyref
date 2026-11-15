@@ -146,6 +146,34 @@ References
   assert.ok(sc.summary.score > 0 && sc.summary.score <= 100 && sc.method, 'score and method');
   assert.ok(SC.reflow('a sentence that\ncontinues here.') === 'a sentence that continues here.', 'PDF lines joined');
 
+  // a cover letter before the manuscript and a reference list whose heading was lost in the text extraction (PJPS
+  // report 199): the letter's "you" and its abbreviations, the cited authors' names and the journal abbreviations of the
+  // references are not the manuscript's language; "Overall response rate" and "In addition to" need no comma
+  const ms199 = ['Cover letter', 'Dear editor,', 'We submit our study of NIHSS scores. Thank you for considering our manuscript. We look forward to your response.', 'Sincerely,', 'Xianfeng Zhang',
+    'Ginkgo terpene trilactones in hypertensive intracerebral hemorrhage', 'Abstract',
+    'Background: Hypertensive intracerebral hemorrhage (HICH) is a major cause of disability. Methods: The National Institutes of Health Stroke Scale (NIHSS) was used.',
+    'INTRODUCTION', 'Hypertensive intracerebral hemorrhage (HICH) is common and its outcome is poor (Xia and Fang, 2007; Mlinac and Feng, 2016; Liu et al., 2022).',
+    'In addition to inflammatory injury, oxidative stress is another mechanism of brain injury after HICH (Gui et al., 2022).', 'Outcomes were scored with the National Institutes of Health Stroke Scale (NIHSS).', 'Overall response rate (%)',
+    ...Array(30).fill('The treated group showed a lower NIHSS score than the control group, and the data were analysed with the t test.'),
+    'Liu J, Sun C, Wang Y, Nie G, Dong Q, You J, Li Q, Li M (2022). Efficacy of nimodipine in subarachnoid hemorrhage: a meta-analysis. Arq Neuropsiquiatr 80: 663-670.',
+    'Gui T, Luo L, Chhay B, Zhong L (2022). Superoxide dismutase-loaded porous particles. Pak J Pharm Sci 38: 83-88.',
+    'Leasure AC, Kuohn LR, Vanent KN (2021). Neuroinflammation in intracerebral haemorrhage. Cerebrovasc Dis 42: 155-169.',
+    'Mlinac ME, Feng MC (2016). Assessment of activities of daily living. Arch Clin Neuropsychol 31: 506-516.'].join('\n');
+  const s199 = await SC.screenLanguage(ms199, { save: false });
+  const m199 = s199.spelling.map(w => w.word);
+  assert.deepStrictEqual(m199, [], `no names or journal abbreviations reported as misspelt (${m199.join(', ')})`);
+  const a199 = Object.values(s199.examples).flat();
+  assert.ok(!a199.some(e => e.rule === 'second-person'), 'the cover letter is not checked');
+  assert.ok(!a199.some(e => e.rule === 'intro-comma'), '"Overall response rate" and "In addition to" need no comma');
+  assert.ok(!a199.some(e => e.rule === 'abbr-redefined' || e.rule === 'abbr-late'), 'abbreviations defined in the abstract are defined again in the text');
+  assert.ok(!a199.some(e => /Dis|Pak|Neuropsiquiatr/.test(e.text)), 'nothing from the reference list');
+  assert.ok(SC.refListStart(ms199) < ms199.indexOf('Liu J, Sun C') + 1, 'reference list found without its heading');
+  // a British spelling in an American manuscript is correct English: a note to use one spelling, with the American form
+  const usMs = ['Gentamicin in wound healing', 'Abstract', ...Array(40).fill('The wound area was analyzed and the tumor size was characterized in all groups of rats.'), 'Gentamicin sulphate cream was applied to the wound.'].join('\n');
+  const us = await SC.screenLanguage(usMs, { save: false });
+  const mix = Object.values(us.examples).flat().find(e => e.rule === 'variant-mix');
+  assert.ok(!us.spelling.some(w => w.word === 'sulphate') && mix && mix.text === 'sulphate' && mix.replacement === 'sulfate', 'sulphate: a spelling-mix note offering "sulfate", not a misspelling');
+
   console.log('language: all checks passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

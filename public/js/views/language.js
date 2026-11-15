@@ -190,18 +190,55 @@ export async function renderLanguageEditor(view, id) {
     for (const p of text.split('\n')) { out.push({ text: p, start: pos }); pos += p.length + 1; }
     return out;
   };
-  const refStart = text => { const m = text.match(/(^|\n)\s*(?:\d+\.?\s*)?(?:references?|bibliography|literature cited|works cited)\s*:?\s*(?=\n|$)/i); return m ? m.index + m[1].length : Infinity; };
+  // the reference list: from its heading, or (heading lost in the Word / PDF text) from three entries in a row in the
+  // second half ("Liu J, Sun C, Wang Y (2022)"), as the Full Screening reads it (src/language/screen.js)
+  const REF_LINE = /^\s*(?:\[?\d{1,3}[.\])]\s*)?(?:[A-Z][A-Za-z'’-]+(?:\s[A-Z][a-z'’-]+)?,?\s+(?:[A-Z]{1,3}\.?\s?){1,3}(?:[,;(&]|\s+and\b)|[A-Z][A-Za-z'’-]+,\s+(?:[A-Z]\.\s?){1,3})/;
+  const isRef = p => REF_LINE.test(p) && /\b(?:19|20)\d{2}[a-z]?\b/.test(p);
+  const refEntry = p => isRef(p) && (p.match(/[A-Z][a-z'’-]+,?\s+[A-Z]{1,3}\.?[,;&]/g) || []).length >= 2;
+  const refStart = text => {
+    const m = text.match(/(^|\n)\s*(?:\d+\.?\s*)?(?:references?|bibliography|literature cited|works cited)\s*:?\s*(?=\n|$)/i);
+    if (m) return m.index + m[1].length;
+    const lines = text.split('\n');
+    let pos = 0;
+    for (let k = 0; k < lines.length; k++) {
+      if (pos > text.length * 0.4 && isRef(lines[k])) {
+        const next = lines.slice(k + 1).filter(l => l.trim()).slice(0, 2);
+        if (next.length === 2 && next.every(isRef)) return pos;
+      }
+      pos += lines[k].length + 1;
+    }
+    return Infinity;
+  };
+  // a cover letter before the manuscript ("Dear Editor, ... Sincerely, name") is a letter, not the article
+  const coverEnd = text => {
+    if (!/(?:^|\n)\s*(?:cover(?:ing)?\s+letter|dear\s+(?:editors?|sirs?|madam|prof(?:essor)?|dr|reviewers?)\b)/i.test(text.slice(0, 600))) return 0;
+    const m = text.slice(0, 15000).match(/(?:^|\n)\s*(?:(?:yours\s+)?(?:sincerely|faithfully|truly)(?:\s+yours)?|(?:with\s+)?(?:best|kind|warm(?:est)?)?\s*regards|respectfully(?:\s+yours)?)\s*[,.]?\s*(?=\n)/i);
+    if (!m) return 0;
+    let end = m.index + m[0].length + 1;
+    const nl = text.indexOf('\n', end);
+    const sig = text.slice(end, nl < 0 ? text.length : nl);
+    if (sig.trim() && sig.trim().split(/\s+/).length <= 5 && !/[.:]\s*$/.test(sig)) end = nl < 0 ? text.length : nl + 1;
+    return end;
+  };
+  // the surnames the document cites and its authors' names (Liu J; Xia and Fang, 2007): names, not misspellings
+  const namesIn = text => {
+    const out = new Set();
+    for (const m of text.matchAll(/(?:^|[,;&]\s*|\n\s*(?:\d+\.?\s*)?|\band\s+)([A-Z][a-z'’]+(?:-[A-Z][a-z'’]+)?)(?:\s+[A-Z]{1,3}(?=[,.;(\s])|,\s+(?:[A-Z]\.\s?){1,3}|(?=\s+et\s+al\b|,?\s+(?:19|20)\d\d))/gm)) {
+      for (const p of m[1].split('-')) if (p.length >= 2) out.add(p.toLowerCase().replace(/’/g, "'"));
+    }
+    return [...out].slice(0, 3000);
+  };
   // the title block above the abstract: author names, departments, hospitals and cities are not spelling mistakes
-  const frontEnd = text => { const m = text.slice(0, 4000).match(/(^|\n)\s*abstract\b/i); return m ? m.index + m[1].length : 0; };
+  const frontEnd = text => { const from = coverEnd(text); const m = text.slice(from, from + 4000).match(/(^|\n)\s*abstract\b/i); return m ? from + m.index + m[1].length : from; };
   const keyOf = (i, text) => `${i.rule}|${text.slice(Math.max(0, i.offset - 20), i.offset + i.length + 20)}`;
 
   /** Rebuild the positioned suggestion list from the paragraph caches and the last whole-document check */
   function compute() {
     const text = ta.value;
-    const refs = refStart(text), front = frontEnd(text);
+    const refs = refStart(text), front = frontEnd(text), cover = coverEnd(text);
     const out = [];
     for (const p of paragraphs(text)) {
-      if (!p.text.trim()) continue;
+      if (!p.text.trim() || p.start < cover || refEntry(p.text)) continue;
       for (const src of [paraCache.get(p.text), aiCache.get(p.text)]) {
         for (const i of src || []) {
           const off = p.start + i.offset;
@@ -212,9 +249,10 @@ export async function renderLanguageEditor(view, id) {
     }
     for (const i of docResult?.issues || []) {
       // still at the same place? otherwise find the text again nearby, or drop it until the next check
+      if (i.offset < cover || i.offset >= refs) continue;
       if (text.substr(i.offset, i.length) === i.text) { out.push({ ...i, doc: true }); continue; }
       const at = text.indexOf(i.text, Math.max(0, i.offset - 200));
-      if (at >= 0 && Math.abs(at - i.offset) < 400) out.push({ ...i, offset: at, doc: true });
+      if (at >= 0 && Math.abs(at - i.offset) < 400 && at >= cover && at < refs) out.push({ ...i, offset: at, doc: true });
     }
     issues = out.filter(i => !dismissed.has(keyOf(i, text)) && !(i.spelling && personal.has(i.text.toLowerCase())) && !(S.disabled || []).includes(i.rule))
       .sort((a, b) => a.offset - b.offset);
@@ -397,7 +435,7 @@ export async function renderLanguageEditor(view, id) {
       const missing = [...new Set(paragraphs(text).map(p => p.text).filter(p => p.trim() && !paraCache.has(p)))];
       for (let k = 0; k < missing.length; k += 120) {
         const chunk = missing.slice(k, k + 120);
-        const r = await api('/api/language/check', { body: body({ paragraphs: chunk }) });
+        const r = await api('/api/language/check', { body: body({ paragraphs: chunk, names: namesIn(ta.value) }) });
         chunk.forEach((p, j) => paraCache.set(p, r.paragraphs[j]));
         engines = r.engines;
         if (missing.length > 120) { compute(); $('#le-count', view).textContent = `Checking… ${Math.min(100, Math.round((k + 120) / missing.length * 100))}%`; }
@@ -719,7 +757,8 @@ export async function renderLanguageEditor(view, id) {
     if (aiOff()) return;
     const paras = [...new Set(paragraphs(ta.value).map(p => p.text).filter(p => p.trim().split(/\s+/).length >= 6 && !aiCache.has(p)))];
     const refs = refStart(ta.value);
-    const prose = paras.filter(p => ta.value.indexOf(p) < refs);
+    const cover = coverEnd(ta.value);
+    const prose = paras.filter(p => { const at = ta.value.indexOf(p); return at < refs && at >= cover && !refEntry(p); });
     if (!prose.length) return toast('AI suggestions are already shown for every paragraph.');
     const btn = $('#le-ai-run', view);
     btn.disabled = true;

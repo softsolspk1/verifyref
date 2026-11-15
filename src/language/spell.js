@@ -13,7 +13,11 @@ const FILES = {
 };
 const RESEARCH = path.join(__dirname, 'dict', 'research.txt');
 const RESEARCH_COMMON_FILE = path.join(__dirname, 'dict', 'research-common.txt');
-const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(w => w && !w.startsWith('#')); } catch { return []; } };
+const NAMES_FILE = path.join(__dirname, 'dict', 'names.txt');
+const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').map(w => w.trim()).filter(w => w && !w.startsWith('#')); } catch { return []; } };
+// author surnames learned from published papers (scripts/build-names-lexicon.js): Liu, Gao, Mlinac, Leasure, Arayne
+let NAMES = null;
+const isName = w => /^[A-Z][a-z']+$/.test(w) && (NAMES || (NAMES = new Set(lines(NAMES_FILE)))).has(w);
 const cache = {};
 
 function load(variant) {
@@ -49,7 +53,7 @@ preprint preprints dataset datasets workflow workflows curcumin quercetin rutin 
 anthocyanin anthocyanins carotenoid carotenoids lycopene berberine silymarin thymoquinone eugenol carvacrol thymol menthol limonene`.split(/\s+/).filter(Boolean);
 
 // Prefixes that build valid technical words from a dictionary word ("nanoformulated", "immunomodulatory")
-const PREFIXES = ['anti', 'bio', 'cyto', 'hepato', 'nephro', 'neuro', 'cardio', 'immuno', 'hydro', 'hyper', 'hypo', 'micro', 'nano', 'macro', 'multi', 'poly',
+const PREFIXES = ['syn', 'hetero', 'anti', 'bio', 'cyto', 'hepato', 'nephro', 'neuro', 'cardio', 'immuno', 'hydro', 'hyper', 'hypo', 'micro', 'nano', 'macro', 'multi', 'poly',
   'pharmaco', 'phyto', 'photo', 'radio', 'electro', 'thermo', 'chemo', 'pre', 'post', 'non', 'co', 're', 'sub', 'inter', 'intra', 'trans', 'pseudo', 'semi',
   'over', 'under', 'up', 'down', 'gastro', 'endo', 'exo', 'peri', 'para', 'meta', 'iso', 'di', 'tri', 'tetra', 'mono', 'methyl', 'ethyl', 'oxy', 'de', 'un', 'self'];
 const CHEM_SUFFIX = /(?:ine|ide|ate|ite|ase|ose|ol|one|ene|yne|ane|yl|oid|in|an|mab|nib|vir|pril|sartan|olol|statin|azole|mycin|cillin|cycline|floxacin|dipine|tidine|prazole|gliptin|gliflozin|parin|xaban|lukast|setron|triptan|afil)s?$/i;
@@ -99,6 +103,7 @@ function check(word, { variant = 'en-US', personal = null, ctx = {} } = {}) {
   const t = TYPOS[word.toLowerCase()];
   if (t && t !== word.toLowerCase() && word.length >= 3 && !/\d/.test(word)) return false;
   if (exempt(word, ctx)) return true;
+  if (isName(word)) return true;
   const sp = load(variant);
   if (sp.correct(word) || sp.correct(word.toLowerCase())) return true;
   // a name learned from published papers written here in lower case ("kaplan-meier" curves)
@@ -130,7 +135,12 @@ const TYPOS = {
   wierd: 'weird', analyis: 'analysis', anaylsis: 'analysis', significnat: 'significant', signficant: 'significant', resutls: 'results',
   reuslts: 'results', studys: 'studies', concious: 'conscious', dependant: 'dependent', embarass: 'embarrass', foriegn: 'foreign', freind: 'friend',
   guage: 'gauge', happend: 'happened', judgement: 'judgment', knowlege: 'knowledge', liason: 'liaison', millenium: 'millennium', noticable: 'noticeable',
-  posession: 'possession', prefered: 'preferred', priviledge: 'privilege', recurrance: 'recurrence', tommorow: 'tomorrow', tounge: 'tongue', wether: 'whether'
+  posession: 'possession', prefered: 'preferred', priviledge: 'privilege', recurrance: 'recurrence', tommorow: 'tomorrow', tounge: 'tongue', wether: 'whether',
+  // slips seen in manuscripts that read as a prefix plus a word, or that published scans repeat
+  resluts: 'results', apotosis: 'apoptosis', apoptotis: 'apoptosis', fourty: 'forty', azometine: 'azomethine', patinets: 'patients', pateints: 'patients',
+  paitents: 'patients', sigificant: 'significant', statisical: 'statistical', staistically: 'statistically', theraphy: 'therapy', inflamation: 'inflammation',
+  inflammtory: 'inflammatory', hemorrage: 'hemorrhage', haemorrage: 'haemorrhage', protien: 'protein', protiens: 'proteins', efficasy: 'efficacy',
+  efficiacy: 'efficacy', toxicty: 'toxicity', cytotoxicty: 'cytotoxicity', antibiotc: 'antibiotic', asthama: 'asthma', diarhea: 'diarrhea'
 };
 
 const ALPHA = 'abcdefghijklmnopqrstuvwxyz';
@@ -178,4 +188,4 @@ function suggest(word, variant = 'en-US') {
 // words used by at least a fifth of published research articles (same script): not "overused" when a paragraph repeats them
 const RESEARCH_COMMON = new Set(lines(RESEARCH_COMMON_FILE));
 
-module.exports = { load, check, suggest, otherVariant, resetBudget, exempt, TYPOS, RESEARCH_COMMON };
+module.exports = { load, check, suggest, otherVariant, resetBudget, exempt, isName, TYPOS, RESEARCH_COMMON };

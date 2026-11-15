@@ -60,6 +60,7 @@ const A_EXCEPT = /^(?:one\b|once\b|eu|ewe|uni(?!n)|unanim|usu|use|user|usa|uti|u
 const correctness = [
   regexRule('repeated-word', 'correctness', 'Repeated word', /\b([A-Za-z]+)(\s+)\1\b/gi, (m) => {
     if (/^(?:that|had|is|can|do|bye|very|really|so|no|ha|well)$/i.test(m[1])) return null;
+    if (/^[A-Z]/.test(m[1]) && /^[A-Z]/.test(m[0].slice(m[1].length + m[2].length))) return null; // a name: Chu Chu, Li Li
     return { start: m.index + m[1].length, message: `"${m[1]}" is repeated.`, replacements: [''] };
   }),
   regexRule('a-an', 'correctness', 'Article', /\b(a|an|A|An)\s+([A-Za-z][\w-]*)/g, (m) => {
@@ -131,12 +132,21 @@ const INTRO = /^(However|Therefore|Moreover|Furthermore|Additionally|Consequentl
 function sentenceRules(p, s, g) {
   const out = [];
   const first = s.text.match(/^["“'‘(]*([a-z])/);
-  if (first && !/^(?:e\.g|i\.e|et al|pH|mRNA|vs|cf|n\b|p\b|iPhone|eBay)/.test(s.text.slice(first[0].length - 1)) && /[.!?]["”’)]*$/.test(s.text)) {
+  // not a new sentence after an abbreviation with a full stop (s.c.) for 3 days, etc.) were, Cat. No.), nor the
+  // "where ..." that explains the symbols of an equation
+  const before = p.slice(Math.max(0, s.start - 12), s.start);
+  if (first && !/^(?:e\.g|i\.e|et al|pH|mRNA|vs|cf|n\b|p\b|iPhone|eBay|where\b|wherein\b)/.test(s.text.slice(first[0].length - 1)) && /[.!?]["”’)]*$/.test(s.text) &&
+      !/\b(?:s\.c|i\.p|i\.v|i\.m|p\.o|b\.i\.d|t\.i\.d|q\.d|etc|approx|ca|cat|no|nos|vs|fig|figs|ref|vol|eq|sp|spp|var|ed|eds|al|e\.g|i\.e)\.\)?,?\s*$/i.test(before)) {
     const at = s.start + first[0].length - 1;
     out.push(issue('sentence-capital', 'correctness', 'Capitalization', at, at + 1, p, 'Start a sentence with a capital letter.', [first[1].toUpperCase()]));
   }
   const intro = s.text.match(INTRO);
-  if (intro) {
+  // "In addition to X, ..." and "Instead of" are prepositions, and "Overall response rate" / "Overall survival" use
+  // "overall" as an adjective: a comma only where the word opens a clause ("Overall, the results ...")
+  const after = intro ? s.text.slice(intro[0].length) : '';
+  if (intro && !(/^(?:In addition|Instead)$/.test(intro[1]) && /^(?:to|of)\b/.test(after)) && !/^(?:aimed|aims|was|were|is|are|has|have|had|showed|shows|found|investigated|evaluated|examined)\b/.test(after) &&
+      !(intro[1] === 'Overall' && !/^(?:the|this|these|those|our|we|it|there|they|all|both|most|such|a|an)\b/i.test(after)) &&
+      /[.!?]["”’)]*$/.test(s.text)) {
     const at = s.start + intro[1].length;
     out.push(issue('intro-comma', 'correctness', 'Missing comma', s.start, at, p, `Add a comma after the introductory "${intro[1]}".`, [`${intro[1]},`]));
   }
@@ -204,7 +214,7 @@ const COMPLEX = {
   necessitate: ['require'], optimum: ['best'], parameters: ['limits'], preponderance: ['most'], promulgate: ['announce'], remuneration: ['pay'], sufficient: ['enough']
 };
 // words that are normal and expected in a manuscript: not offered as "simpler" there
-const ACADEMIC_OK = new Set(['subsequently', 'implement', 'modification', 'parameters', 'sufficient', 'optimum', 'facilitate', 'whereby', 'utilization', 'utilisation']);
+const ACADEMIC_OK = new Set(['ameliorate', 'ascertain', 'subsequently', 'implement', 'modification', 'parameters', 'sufficient', 'optimum', 'facilitate', 'whereby', 'utilization', 'utilisation']);
 
 const IRREGULAR = 'been|born|built|bought|brought|caught|chosen|done|drawn|driven|eaten|fallen|felt|found|given|gone|grown|held|hidden|kept|known|laid|led|left|lent|lost|made|meant|met|paid|put|read|run|said|seen|sent|set|shown|shut|sold|spent|split|spoken|spread|stolen|taken|taught|thought|told|undertaken|understood|written|won|withdrawn';
 const PASSIVE = new RegExp(`\\b(am|is|are|was|were|be|been|being)\\s+(?:(?:not|also|then|further|significantly|subsequently|previously|already|often|usually|commonly|widely|generally)\\s+)?((?:[a-z]+ed)|(?:${IRREGULAR}))\\b(\\s+by\\b)?`, 'gi');

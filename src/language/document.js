@@ -4,18 +4,37 @@ const { sentences, words, stats } = require('./text');
 
 const KNOWN_ABBR = new Set(['DNA', 'RNA', 'mRNA', 'HIV', 'AIDS', 'USA', 'UK', 'EU', 'UN', 'WHO', 'FDA', 'NIH', 'ANOVA', 'SD', 'SEM', 'SE', 'CI', 'OR', 'HR', 'RR', 'ID', 'PhD',
   'MSc', 'BSc', 'MD', 'IV', 'II', 'III', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII', 'UV', 'IR', 'NMR', 'PCR', 'ATP', 'ADP', 'AM', 'PM', 'BC', 'AD', 'CEO', 'IT', 'TV', 'GPS', 'pH',
-  'COVID', 'SARS', 'ICU', 'BMI', 'ISBN', 'ISSN', 'DOI', 'URL', 'PDF', 'NA', 'NS', 'ND', 'OK', 'IQ', 'GDP', 'NGO', 'UNICEF', 'UNESCO', 'NASA', 'USD', 'PKR', 'IUPAC', 'SI', 'PJPS']);
+  'COVID', 'SARS', 'ICU', 'BMI', 'ISBN', 'ISSN', 'DOI', 'URL', 'PDF', 'NA', 'NS', 'ND', 'OK', 'IQ', 'GDP', 'NGO', 'UNICEF', 'UNESCO', 'NASA', 'USD', 'PKR', 'IUPAC', 'SI', 'PJPS',
+  // medical and laboratory abbreviations readers of a pharmacy and medicine journal know without the full term
+  'CT', 'MRI', 'ECG', 'EEG', 'TNF', 'IL', 'ELISA', 'HPLC', 'LC', 'GC', 'MS', 'TLC', 'FTIR', 'NF', 'IgG', 'IgM', 'IgE', 'IgA', 'cDNA', 'qPCR', 'RT', 'SPSS', 'USP', 'BP', 'EP', 'ICH', 'GMP',
+  'ER', 'PR', 'IBM', 'CONSORT', 'STROBE', 'PRISMA', 'CARE', 'ARRIVE', 'TREND', 'GraphPad', 'RPMI', 'DMEM', 'MTT', 'DAPI', 'CO', 'NH', 'OH', 'CH', 'COOH', 'SH', 'CN']);
 
 function abbreviations(text) {
   const out = [];
   const defined = new Map(); // abbr -> offset of its definition
-  for (const m of text.matchAll(/\(([A-Z][A-Za-z0-9-]*[A-Z0-9]s?)\)/g)) {
+  // the abstract stands alone: an abbreviation defined there is defined again at its first use in the main text
+  const intro = text.search(/(?:^|\n)\s*(?:\d+\.?\s*)?introduction\s*:?\s*(?=\n)/i);
+  const again = new Set();
+  // the back matter (funding, acknowledgements, authors' contributions) stands alone too
+  const backRe = /\n\s*(?:\d+\.?\s*)?(?:acknowledge?ments?|funding|financial support|authors?['’]?\s*contributions?|conflicts? of interest|competing interests?|declarations?|data availability|ethics? (?:approval|statement)|abbreviations?)\b/i;
+  const back = intro > 0 ? text.slice(intro).search(backRe) : -1;
+  const backAt = back > 0 ? intro + back : Infinity;
+  // "(tumor-infiltrating lymphocytes (TILs)" and "(2,3,5,6-tetramethylpyrazine, TMP)" both define the abbreviation
+  for (const m of text.matchAll(/(?:\(|,\s)([A-Z][A-Za-z0-9-]*[A-Z0-9]s?)\)/g)) {
     const a = m[1].replace(/s$/, '');
     if (!/[A-Z].*[A-Z0-9]/.test(a) || a.length > 10) continue;
+    const at = m.index + m[0].indexOf(m[1]);
+    // the comma form after a term in lower case only, not an address (Olympus Corporation, Tokyo, USA)
+    if (m[0][0] === ',' && (KNOWN_ABBR.has(a) || !/(?:^|[\s(])[a-z0-9][\w,'-]*[a-z]{3,}$/.test(text.slice(Math.max(0, m.index - 60), m.index)))) continue;
+    // table titles, figure legends and their footnotes stand alone: they define their abbreviations again
+    const line = text.slice(text.lastIndexOf('\n', at) + 1, (text.indexOf('\n', at) + 1 || text.length + 1) - 1);
+    if (defined.has(a) && (/^\s*(?:Table|Fig(?:ure)?s?\.?|Supplementary|Notes?\b|Abbreviations?|\(?[A-Za-z]\)\s)/i.test(line) || /\*\s*[pP]\s*[<≤]/.test(line))) continue;
+    if (defined.has(a) && at > backAt) continue;
+    if (defined.has(a) && intro > 0 && defined.get(a) < intro && at > intro && !again.has(a)) { again.add(a); continue; }
     if (defined.has(a)) {
-      out.push({ rule: 'abbr-redefined', category: 'style', title: 'Abbreviation defined twice', offset: m.index + 1, length: m[1].length, text: m[1],
+      out.push({ rule: 'abbr-redefined', category: 'style', title: 'Abbreviation defined twice', offset: at, length: m[1].length, text: m[1],
         message: `"${a}" was already defined earlier. Define an abbreviation once, at first use, and use the short form after that.`, replacements: [] });
-    } else defined.set(a, m.index);
+    } else defined.set(a, at);
   }
   const seen = new Set();
   for (const m of text.matchAll(/\b([A-Z][A-Z0-9-]*[A-Z0-9])s?\b/g)) {
@@ -25,6 +44,10 @@ function abbreviations(text) {
     if (text[m.index - 1] === '(' && text[m.index + m[0].length] === ')') { seen.add(a); continue; }
     const line = text.slice(text.lastIndexOf('\n', m.index) + 1, (text.indexOf('\n', m.index) + 1 || text.length + 1) - 1);
     if (line === line.toUpperCase() && line.length < 120) continue;
+    // part of a code with a number in front: 5-FU, 6-MP (the code is defined, not its letters)
+    if (/\d-$/.test(text.slice(Math.max(0, m.index - 2), m.index))) continue;
+    // a list of abbreviations ("TNBC: Triple-negative breast cancer; MRM: Modified radical mastectomy") defines them
+    if ((line.match(/\b[A-Z][A-Za-z0-9-]*[A-Z0-9]s?\s*[:=]\s*[A-Za-z]/g) || []).length >= 2) { seen.add(a); continue; }
     seen.add(a);
     const def = defined.get(a);
     if (def === undefined) {
@@ -123,7 +146,10 @@ function research(text, goals = {}) {
   const methods = sec('methods');
   if (methods) {
     const part = text.slice(methods.start, methods.end);
-    for (const m of part.matchAll(new RegExp(`\\b(is|are)\\s+((?:then|first|subsequently|carefully|gently|accurately)\\s+)?(${PROC_VERBS})\\b`, 'g'))) {
+    for (const m of part.matchAll(new RegExp(`\\b(is|are)\\s+((?:then|first|subsequently|carefully|gently|accurately)\\s+)?(${PROC_VERBS})\\b(?!\\s+as\\b)`, 'g'))) {
+      // how data are reported and how a measure is defined are in the present tense: "data are expressed as mean ± SD",
+      // "the incidence is calculated as"
+      if (/^(?:data|values|results)$/i.test(part.slice(Math.max(0, m.index - 25), m.index).trim().split(/\s+/).pop() || '')) continue;
       const at = methods.start + m.index;
       out.push({ rule: 'methods-tense', category: 'style', title: 'Tense in Methods', offset: at, length: m[1].length, text: m[1],
         message: 'Methods describe what was done, in the past tense ("was added", "were incubated").', replacements: [m[1] === 'is' ? 'was' : 'were'] });
@@ -169,8 +195,10 @@ function research(text, goals = {}) {
   }
 
   // Numbered and author-year citations mixed in one text
-  const body = text.slice(0, proseEnd);
-  const numbered = (body.match(/\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\]/g) || []).length;
+  // from the abstract on: the [1] [2] of the authors' affiliations are not citations
+  const absAt = text.slice(0, 8000).search(/(?:^|\n)\s*abstract\b/i);
+  const body = text.slice(Math.max(0, absAt), proseEnd);
+  const numbered = (body.match(/(?<=[ \t])\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\]/g) || []).length;
   const ay = [...body.matchAll(/\(\s*[A-Z][A-Za-z'’-]+(?:\s+et al\.?|\s+(?:and|&)\s+[A-Z][A-Za-z'’-]+)?,?\s*(?:19|20)\d{2}[a-z]?\)/g)];
   if (numbered >= 3 && ay.length >= 3) {
     const m = ay[0];

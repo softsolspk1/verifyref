@@ -86,7 +86,9 @@ router.post('/language/check', mod, wrap(async (req, res) => {
   const paragraphs = (Array.isArray(b.paragraphs) ? b.paragraphs : []).slice(0, 2000).map(p => String(p).slice(0, 20000));
   const text = b.text !== undefined ? String(b.text).slice(0, MAX_TEXT) : null;
   const goals = goalsOf(b.goals), variant = variantOf(b.variant), disabled = Array.isArray(b.disabled) ? b.disabled.map(String) : [];
-  const personal = await personalWords(req.user.id);
+  // the writer's dictionary, and the surnames the document cites and its authors' names (Liu J; Xia and Fang, 2007)
+  const names = Array.isArray(b.names) ? b.names.slice(0, 3000).map(w => String(w).toLowerCase().slice(0, 40)) : [];
+  const personal = [...await personalWords(req.user.id), ...names, ...(text ? require('../language/screen').namesIn(text) : [])];
   const r = await L.checkParagraphs(paragraphs, { variant, goals, personal, disabled, docText: text || undefined, userId: req.user.id, ai: false });
   // AI sentence suggestions: on request only (they cost per paragraph), on the desktop through the platform
   if (b.ai && paragraphs.length) {

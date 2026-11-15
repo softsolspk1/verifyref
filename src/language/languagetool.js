@@ -18,7 +18,7 @@ async function request(text, variant) {
   if (process.env.LANGUAGETOOL_USER) body.set('username', process.env.LANGUAGETOOL_USER);
   if (process.env.LANGUAGETOOL_KEY) body.set('apiKey', process.env.LANGUAGETOOL_KEY);
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 20000);
+  const t = setTimeout(() => ctl.abort(), parseInt(process.env.LANGUAGETOOL_TIMEOUT_MS || '20000', 10));
   try {
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' };
     // our own server sits behind a gatekeeper (scripts/setup-languagetool-server.sh) that only lets this token through

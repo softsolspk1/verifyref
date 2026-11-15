@@ -168,6 +168,9 @@ References
   assert.ok(!a199.some(e => e.rule === 'abbr-redefined' || e.rule === 'abbr-late'), 'abbreviations defined in the abstract are defined again in the text');
   assert.ok(!a199.some(e => /Dis|Pak|Neuropsiquiatr/.test(e.text)), 'nothing from the reference list');
   assert.ok(SC.refListStart(ms199) < ms199.indexOf('Liu J, Sun C') + 1, 'reference list found without its heading');
+  // a typo after a capitalised word is not a Latin species name ("After exclsuion", "No formla"); real species are accepted
+  const sp = await SC.screenLanguage(['Wound healing study', 'Abstract', ...Array(30).fill('Extracts of Moringa oleifera and Withania somnifera were tested against E. coli and Staphylococcus aureus in all groups.'), 'After exclsuion, 184 patients were included. No formla power calculation was made.'].join('\n'), { save: false });
+  assert.deepStrictEqual(sp.spelling.map(w => w.word).sort(), ['exclsuion', 'formla'], `typos after a capital found, species accepted (${sp.spelling.map(w => w.word)})`);
   // a British spelling in an American manuscript is correct English: a note to use one spelling, with the American form
   const usMs = ['Gentamicin in wound healing', 'Abstract', ...Array(40).fill('The wound area was analyzed and the tumor size was characterized in all groups of rats.'), 'Gentamicin sulphate cream was applied to the wound.'].join('\n');
   const us = await SC.screenLanguage(usMs, { save: false });

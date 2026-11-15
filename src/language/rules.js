@@ -406,7 +406,8 @@ function spelling(p, opts) {
   for (const [k, x] of list.entries()) {
     // the species name of a Latin binomial after its genus ("Moringa oleifera", "E. coli"): not English
     const prev = list[k - 1];
-    if (prev && /^[a-z]+$/.test(x.w) && /^[A-Z][a-z]*$/.test(prev.w) && /^\s*\.?\s+$/.test(p.slice(prev.end, x.start)) && /(?:a|ae|um|us|is|ii|i|ensis|oides|ata|ica|ina|ans|ens|ix|ex|on)$/.test(x.w)) continue;
+    // (the genus is a name, not an English word starting a sentence: "After exclsuion" is a typo, not a species)
+    if (prev && /^[a-z]+$/.test(x.w) && /^[A-Z][a-z]*$/.test(prev.w) && (prev.w.length === 1 || !S.load(opts.variant).correct(prev.w.toLowerCase())) && /^\s*\.?\s+$/.test(p.slice(prev.end, x.start)) && /(?:a|ae|um|us|is|ii|i|ensis|oides|ata|ica|ina|ans|ens|ix|ex|on)$/.test(x.w)) continue;
     // after an opening bracket or quote the word still starts the sentence
     let i = x.start - 1;
     while (i >= 0 && /["“'‘([\s]/.test(p[i]) && !startOf.has(i + 1)) i--;

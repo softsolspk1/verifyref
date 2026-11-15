@@ -75,6 +75,19 @@ const MS = [
   assert.strictEqual(lab.items.ethics.value, 'na', 'ethics not applicable');
   assert.strictEqual(lab.items.figures.value, 'na', 'no figures');
 
+  // in the Full Screening: Modules 1-3's reference results, the novelty assessment and the published PJPS version
+  const scr = { meta: { title: 'Effect of metformin plus lifestyle advice on glycaemic control: a randomized controlled trial', manuscriptCode: 'PJPS-16692', fileName: 'ms.docx' },
+    compliance: { summary: { score: 95, nonCompliant: 0, total: 1, inTextIssues: 0 } }, citations: { summary: { missing: 0, uncited: 0 } }, references: { summary: { total: 1, suspicious: 4, retracted: 0 } },
+    novelty: { summary: { score: 30, band: 'low', closeRecent: 4 } }, images: { summary: { images: 3, panels: 5 } } };
+  let fs1 = await R.fromScreening(scr, { text: MS, save: false });
+  const item = k => fs1.items.find(i => i.key === k);
+  assert.strictEqual(fs1.msNo, '16692', 'MS No from the manuscript code');
+  assert.ok(item('references').value === 'no' && /not found in any database/.test(item('references').evidence), 'references not found in any database (Module 1) fail the reference item');
+  assert.ok(fs1.novelty === 'no', 'low novelty from the Full Screening assessment');
+  assert.ok(item('figures').value === 'no' && /3 picture/.test(item('figures').evidence), 'Module 5 found pictures in the manuscript');
+  fs1 = await R.fromScreening({ ...scr, references: { summary: { total: 1, suspicious: 0, retracted: 0 } }, novelty: null, publishedOnPjps: { where: 'Vol. 38, No. 2', title: 'The published article', percent: 97 } }, { text: MS, save: false });
+  assert.ok(fs1.novelty === 'no' && fs1.items.find(i => i.key === 'references').value === 'yes', 'already published on PJPS: no novelty; references fine');
+
   // ---------------------------------------------------------------- the API and the Word form
   const app = require('../server');
   const port = await app.start({ port: 0 });

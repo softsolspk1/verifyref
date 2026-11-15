@@ -84,6 +84,15 @@ const ok = m => console.log(`  ok - ${m}`);
   assert.ok(saved.success && !saved.result.preview && saved.result.plagiarism.summary.similarity === 12, 'the saved report is the final one');
   ok('the final report is made and saved as before, with nothing of the provisional copy');
 
+  // the Preliminary Review Sheet is filled by the Full Screening and saved for the editor
+  const rs = final.reviewSheet;
+  assert.ok(rs && !rs.error && rs.id && ['peer-review', 'resubmit', 'reject'].includes(rs.outcome), `review sheet filled (${rs?.error || rs?.outcome})`);
+  assert.strictEqual(rs.items.find(i => i.key === 'results').value, 'no', 'the test manuscript has no Results heading');
+  assert.ok(final.screening.lines.reviewSheet, 'review sheet line on the front page');
+  const sheet = await api(`/api/review-sheet/${rs.id}`);
+  assert.ok(sheet.success && sheet.sheet.outcome === rs.outcome, 'the sheet opens on its own page');
+  ok('the Preliminary Review Sheet is filled with the Full Screening');
+
   // the job ended: no preview is left
   assert.ok(!(await api(`/api/jobs/${jobId}?preview=`)).preview, 'no preview after the end');
   console.log('screening provisional test passed');

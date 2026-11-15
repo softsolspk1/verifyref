@@ -197,6 +197,20 @@ async function screening(result, { input, body, refs, meta, update, side, sideDo
 
   markPublishedOnPjps(result);
   result.screening = screeningSummary(result);
+
+  // the Preliminary Review Sheet, filled from the text and from what the screening found (saved for the editor to correct)
+  update('Filling the Preliminary Review Sheet', 99);
+  result.reviewSheet = await stage('reviewSheet', () => require('./review/sheet').fromScreening(result, { text, userId: input.userId || null, save: input.saveMode !== 'counts' }))
+    .catch(e => ({ error: `The Preliminary Review Sheet could not be filled: ${e.message}` }));
+  result.screening.lines.reviewSheet = reviewSheetLine(result.reviewSheet);
+}
+
+/** Front-page line: the Preliminary Review Sheet's outcome and what to correct */
+function reviewSheetLine(rs) {
+  if (!rs || rs.error) return rs?.error || 'not filled';
+  const no = (rs.items || []).filter(i => i.value === 'no').map(i => i.label);
+  const head = { 'peer-review': 'Can be processed for peer review', resubmit: 'Within the scope; resubmission after correction', reject: 'Outside the scope / not suitable' }[rs.outcome] || rs.outcome;
+  return `${head}${rs.type?.label ? ` · ${rs.type.label}${rs.type.guideline ? ` (${rs.type.guideline}${rs.type.followed === 'yes' ? ' followed' : ' not named'})` : ''}` : ''}${no.length ? ` · to correct: ${no.join(', ')}` : ''}`;
 }
 
 /**

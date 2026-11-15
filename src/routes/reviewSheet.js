@@ -14,15 +14,6 @@ const mod = auth.requireModule('review-sheet');
 const upload = uploader({ files: 31 });
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-// the published PJPS titles (same-title check for novelty), read once an hour
-let titles = { at: 0, list: [] };
-async function pjpsTitles() {
-  if (Date.now() - titles.at < 3600000) return titles.list;
-  const rows = await db.all("SELECT title FROM corpus_docs WHERE source_key LIKE 'pjps:%' AND title IS NOT NULL").catch(() => []);
-  titles = { at: Date.now(), list: rows.map(r => r.title) };
-  return titles.list;
-}
-
 const out = r => r && { id: r.id, msNo: r.ms_no, title: r.title, filename: r.filename, outcome: r.outcome, createdAt: r.created_at, updatedAt: r.updated_at, sheet: typeof r.data === 'string' ? JSON.parse(r.data) : r.data };
 
 router.post('/review-sheet', mod, upload.fields([{ name: 'file', maxCount: 1 }, { name: 'figures', maxCount: 30 }]), wrap(async (req, res) => {
@@ -31,7 +22,7 @@ router.post('/review-sheet', mod, upload.fields([{ name: 'file', maxCount: 1 }, 
   const text = (await P.extractDocument(f.buffer, f.originalname, f.mimetype)).text || '';
   if (text.trim().length < 500) return res.status(400).json({ success: false, message: 'No text could be read from this file. Upload the manuscript as a Word file or a PDF with text.' });
   const figures = (req.files?.figures || []).map(x => ({ name: x.originalname, buffer: x.buffer }));
-  const sheet = await R.analyse(text, { filename: f.originalname, buffer: f.buffer, figures, manuscriptNo: String(req.body?.msNo || '').trim(), pjpsTitles: await pjpsTitles() });
+  const sheet = await R.analyse(text, { filename: f.originalname, buffer: f.buffer, figures, manuscriptNo: String(req.body?.msNo || '').trim(), pjpsTitles: await R.pjpsTitles() });
   const row = await db.one('INSERT INTO review_sheets(user_id, ms_no, title, filename, outcome, data) VALUES($1, $2, $3, $4, $5, $6) RETURNING *',
     [req.user.id, sheet.msNo, sheet.title, f.originalname, sheet.outcome, JSON.stringify(sheet)]);
   await auth.audit(req, 'review-sheet', String(row.id), { msNo: sheet.msNo, outcome: sheet.outcome }).catch(() => null);

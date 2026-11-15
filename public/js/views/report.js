@@ -64,6 +64,7 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
   if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', pend(result.novelty) ? '…' : result.novelty.error ? null : result.novelty.summary.score]);
   if (result.authorIdentity) tabs.push(['authors', 'Authors (ORCID)', pend(result.authorIdentity) ? '…' : result.authorIdentity.error ? null : `${result.authorIdentity.summary.verified}/${result.authorIdentity.summary.authors}`]);
   if (result.language) tabs.push(['language', 'PJPS Scribe', pend(result.language) ? '…' : result.language.error ? null : result.language.summary.score]);
+  if (result.reviewSheet) tabs.push(['review-sheet', 'Review sheet', result.reviewSheet.error ? null : { 'peer-review': 'peer review', resubmit: 'resubmit', reject: 'not suitable' }[result.reviewSheet.outcome] || null]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
 
   el.innerHTML = `
@@ -122,6 +123,7 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
     else if (k === 'novelty') noveltyTab(body, result.novelty);
     else if (k === 'authors') authorsTab(body, result.authorIdentity);
     else if (k === 'language') languageTab(body, result.language);
+    else if (k === 'review-sheet') reviewSheetTab(body, result.reviewSheet);
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
   $$('.kpi.clickable', el).forEach(k => (k.onclick = () => { show('references'); const f = $(`.filter[data-f="${k.dataset.f}"]`, el); if (f) f.click(); }));
@@ -198,6 +200,7 @@ function summaryTab(body, r) {
       ${r.plagiarism ? row(7, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error || r.plagiarism.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
       ${r.novelty ? row(8, 'Novelty &amp; citation outlook', r.novelty.error || sc.lines.novelty || '', r.novelty.error || r.novelty.pending ? '' : r.novelty.summary.band === 'low' ? 'warn' : 'good') : ''}
       ${r.authorIdentity ? row(9, 'Author identity (ORCID)', r.authorIdentity.error || sc.lines.authors || '', r.authorIdentity.error || r.authorIdentity.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.authorIdentity.summary.level]) : ''}
+      ${r.reviewSheet ? row(10, 'Preliminary Review Sheet', sc.lines.reviewSheet || r.reviewSheet.error || '', r.reviewSheet.error ? '' : { 'peer-review': 'good', resubmit: 'warn', reject: 'bad' }[r.reviewSheet.outcome]) : ''}
     </table>
     <p class="muted" style="margin:10px 0 0">Author version: Modules 1–3 only, after your approval. Editor version: all modules. Claim support (does each source support its claim?) is checked in Module 3.</p></div>
     ${r.indicators?.flags?.length ? `<div class="card"><h3>Bibliography indicators</h3>${r.indicators.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.message)}</div></div>`).join('')}</div>` : ''}
@@ -354,6 +357,26 @@ function languageTab(body, lg) {
         <td class="muted">${esc(e.message)}</td></tr>`).join('')}</table></div>`).join('')}
     ${lg.structure?.missing?.length ? `<div class="card"><h3>Manuscript structure</h3><p>Sections not found: ${esc(lg.structure.missing.join(', '))}</p></div>` : ''}
     <div class="card"><h3>Method</h3><p class="muted" style="margin:0">${esc(lg.method)}</p></div>`;
+}
+
+// the Preliminary Review Sheet filled by the Full Screening: the outcome, each answer with its evidence, and the sheet to
+// open, correct and download as the journal's Word form
+function reviewSheetTab(body, rs) {
+  if (rs.error) { body.innerHTML = `<div class="card"><h3>Preliminary Review Sheet</h3><p class="muted">${esc(rs.error)}</p></div>`; return; }
+  const yn = v => (v === 'yes' ? badge('Yes', 'good') : v === 'no' ? badge('No', 'bad') : v === 'na' ? badge('N/A', 'neutral') : badge('—', 'neutral'));
+  const head = { 'peer-review': ['The article can be processed for Peer Review', 'low', '✓'], resubmit: ['Lies in the Scope but requires resubmission after correction as per PJPS Author’s Guidelines', 'medium', '↩'], reject: ['Outside the scope / not suitable for PJPS', 'high', '!'] }[rs.outcome] || ['—', 'medium', '?'];
+  const canOpen = rs.id && hasModule('review-sheet');
+  const t = rs.type || {};
+  body.innerHTML = `
+    <div class="risk-banner risk-${head[1]}"><div class="risk-level">${head[2]}</div><div><b>${esc(head[0])}</b><div class="muted">${esc(rs.outcomeNote || '')} Filled from the manuscript and the Full Screening; the editor decides.</div></div></div>
+    ${canOpen ? `<div class="row no-print" style="gap:8px;margin:8px 0 12px"><a class="btn btn-primary btn-sm" href="#/review-sheet/${rs.id}">Open and edit the review sheet</a><button class="btn btn-sm" id="rs-dl">Download the Word form</button></div>` : ''}
+    <div class="card"><h3>Scope</h3><table class="t"><tr><th>Within the scope</th><th>Possesses Novelty</th><th>Suitable</th></tr><tr><td>${yn(rs.scope)}</td><td>${yn(rs.novelty)}</td><td>${yn(rs.suitable)}</td></tr></table></div>
+    <div class="card"><h3>Article type</h3><p><b>${esc(t.label || '—')}</b>${t.specify ? ` — ${esc(t.specify)}` : ''}</p>
+      ${t.guideline ? `<table class="t"><tr><th>Guideline</th><th>Followed</th><th>Checklist included</th><th>Flow diagram included</th></tr><tr><td>${esc(t.guideline)}</td><td>${yn(t.followed)}</td><td>${yn(t.checklist)}</td><td>${yn(t.flow)}</td></tr></table>` : '<p class="muted">No reporting guideline applies to this article type.</p>'}</div>
+    <div class="card"><h3>Author’s Instructions for PJPS</h3><table class="t"><tr><th>Item</th><th>Yes / No</th><th>Found in the manuscript</th></tr>
+      ${(rs.items || []).map(i => `<tr><td><b>${esc(i.label)}</b></td><td>${yn(i.value)}</td><td class="muted">${esc(i.evidence)}</td></tr>`).join('')}</table></div>`;
+  const dl = $('#rs-dl', body);
+  if (dl) dl.onclick = () => download(`/api/review-sheet/${rs.id}/docx`).catch(e => toast(e.message, 'error'));
 }
 
 function styleTab(body, cp) {

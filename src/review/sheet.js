@@ -208,13 +208,49 @@ async function embeddedPictures(buffer, filename) {
 
 // ------------------------------------------------------------------ the sheet
 
+// the published PJPS titles (the same-title check for novelty), read once an hour
+let titles = { at: 0, list: [] };
+async function pjpsTitles() {
+  if (Date.now() - titles.at < 3600000) return titles.list;
+  const db = require('../db');
+  const rows = await db.all("SELECT title FROM corpus_docs WHERE source_key LIKE 'pjps:%' AND title IS NOT NULL").catch(() => []);
+  titles = { at: Date.now(), list: rows.map(r => r.title) };
+  return titles.list;
+}
+
+/**
+ * The sheet of a Full Screening: filled from its text and from what the screening found (Modules 1-5, novelty, the
+ * published PJPS version), saved for the editor to correct. -> { id, outcome, outcomeNote, failed, sheet summary }
+ */
+async function fromScreening(result, { text, userId = null, save = true } = {}) {
+  const meta = result.meta || {};
+  const sheet = await analyse(text, { filename: meta.fileName || '', manuscriptNo: (String(meta.manuscriptCode || '').match(/\d{4,6}/) || [])[0] || '', pjpsTitles: await pjpsTitles(), screening: result });
+  if (meta.title && meta.title.length > 10) sheet.title = clip(meta.title, 400);
+  let id = null;
+  if (save && userId) {
+    const db = require('../db');
+    const row = await db.one('INSERT INTO review_sheets(user_id, ms_no, title, filename, outcome, data) VALUES($1, $2, $3, $4, $5, $6) RETURNING id',
+      [userId, sheet.msNo, sheet.title, meta.fileName || null, sheet.outcome, JSON.stringify({ ...sheet, screeningId: result.id || null })]).catch(() => null);
+    id = row?.id || null;
+  }
+  const yes = a => a?.value;
+  return {
+    id, outcome: sheet.outcome, outcomeNote: sheet.outcomeNote, msNo: sheet.msNo,
+    scope: yes(sheet.scope), novelty: yes(sheet.novelty), suitable: yes(sheet.suitable),
+    type: { key: sheet.type.key, label: (TYPES.find(t => t.key === sheet.type.key) || {}).label, specify: sheet.type.specify, guideline: (TYPES.find(t => t.key === sheet.type.key) || {}).guideline,
+      followed: yes(sheet.type.guideline.followed), checklist: yes(sheet.type.guideline.checklist), flow: yes(sheet.type.guideline.flow) },
+    items: ITEMS.map(i => ({ key: i.key, label: i.short, value: yes(sheet.items[i.key]), evidence: sheet.items[i.key]?.evidence || '' })),
+    sheet: id ? null : sheet
+  };
+}
+
 const ans = (value, evidence, extra = {}) => ({ value, auto: value, evidence: evidence || null, ...extra });
 
 /**
  * text: the manuscript text; opts: { filename, buffer (the uploaded file, for its pictures), figures: [{ name, buffer }],
  * manuscriptNo, pjpsTitles: [title] (published PJPS articles, for the same-title check) } -> sheet
  */
-async function analyse(text, { filename = '', buffer = null, figures = [], manuscriptNo = '', pjpsTitles = [] } = {}) {
+async function analyse(text, { filename = '', buffer = null, figures = [], manuscriptNo = '', pjpsTitles = [], screening = null } = {}) {
   text = String(text || '').replace(/\r\n?/g, '\n');
   const sec = P.findReferenceSection(text);
   const body = sec.found ? sec.body : text;
@@ -303,10 +339,20 @@ async function analyse(text, { filename = '', buffer = null, figures = [], manus
       refNote = `${refs.length} references: ${refScore}% in PJPS format (${cp.summary.nonCompliant} to fix); in the text ${miss} citation(s) missing from the list, ${unc} reference(s) never cited`;
     }
   }
+  // in the Full Screening: Module 2's compliance with every reference looked up in the databases, Module 3's citation
+  // matching and Module 1's verdicts (references not found or retracted) are more accurate than the rules alone
+  const S = screening || {};
+  if (S.compliance?.summary) {
+    const cp = S.compliance.summary, ct = S.citations?.summary || null, rf = S.references?.summary || {};
+    const miss = ct?.missing || 0, unc = ct?.uncited || 0;
+    refScore = cp.score;
+    refOk = cp.score >= 80 && miss <= 2 && unc <= 3 && !(rf.suspicious >= 3) && !rf.retracted;
+    refNote = `${cp.total ?? rf.total ?? '?'} references: ${cp.score}% in PJPS format (${cp.nonCompliant} to fix${cp.inTextIssues ? `, ${cp.inTextIssues} in-text problem(s)` : ''})${ct ? `; in the text ${miss} citation(s) missing from the list, ${unc} reference(s) never cited` : ''}${rf.suspicious ? `; ${rf.suspicious} not found in any database` : ''}${rf.retracted ? `; ${rf.retracted} retracted` : ''} (Full Screening, Modules 1-3)`;
+  }
   items.references = ans(refOk ? 'yes' : 'no', refNote, { score: refScore });
 
-  // figures
-  const embedded = await embeddedPictures(buffer, filename);
+  // figures (in the Full Screening, Module 5 counted the pictures of the uploaded file)
+  const embedded = S.images?.summary ? (S.images.summary.images || S.images.summary.panels || 0) : await embeddedPictures(buffer, filename);
   const figInfo = figures.map(f => ({ name: f.name, ...imageInfo(f.buffer, f.name) }));
   const cited = (body.match(/\bFig(?:ure)?s?\.?\s*\d/gi) || []).length;
   let figVal, figNote;
@@ -321,7 +367,14 @@ async function analyse(text, { filename = '', buffer = null, figures = [], manus
   items.figures = ans(figVal, figNote, { files: figInfo, embedded });
 
   const scopeAns = ans(sc.yes ? 'yes' : 'no', sc.subjects.length ? `PJPS subject areas: ${sc.subjects.slice(0, 4).join(', ')}` : sc.yes ? 'Pharmaceutical / medical research' : 'No PJPS subject area found in the title, abstract or keywords');
-  const novelty = ans(samePjps ? 'no' : 'yes', samePjps ? `A PJPS article with the same title is already published: “${clip(samePjps.t, 140)}”` : `No published PJPS article has the same title (${pjpsTitles.length.toLocaleString('en-US')} compared). Run the Full Screening for the novelty assessment against the literature.`);
+  // novelty: an already published PJPS article (the similarity report's full-text match in the Full Screening, else the
+  // same title), then the Full Screening's novelty assessment against the literature
+  const pub = S.publishedOnPjps || null, nv = S.novelty && !S.novelty.error && !S.novelty.pending ? S.novelty.summary : null;
+  const novelty = pub
+    ? ans('no', `Already published on the PJPS website (${pub.where || 'pjps.pk'}): “${clip(pub.title, 140)}”${pub.percent != null ? `; ${pub.percent}% of the text matches it` : ''}`)
+    : samePjps ? ans('no', `A PJPS article with the same title is already published: “${clip(samePjps.t, 140)}”`)
+    : nv ? ans(nv.band === 'low' ? 'no' : 'yes', `Novelty ${nv.score}/100 (${nv.band}); ${nv.closeRecent} close work(s) in the last 5 years (Full Screening novelty assessment)${nv.band === 'low' ? ' – close to work already published' : ''}`)
+    : ans('yes', `No published PJPS article has the same title (${pjpsTitles.length.toLocaleString('en-US')} compared). Run the Full Screening for the novelty assessment against the literature.`);
   const sheet = {
     version: 1, createdAt: new Date().toISOString(), filename, msNo, title,
     scope: scopeAns, novelty,
@@ -464,4 +517,4 @@ async function toDocx(sheet) {
   return z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-module.exports = { analyse, applyEdits, finish, toDocx, imageInfo, headings, articleType, TYPES, ITEMS };
+module.exports = { analyse, applyEdits, finish, toDocx, imageInfo, headings, articleType, pjpsTitles, fromScreening, TYPES, ITEMS };

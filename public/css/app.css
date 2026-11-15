@@ -827,3 +827,17 @@ g[data-tip]:hover .dv-bar { fill: var(--brand-2, var(--brand)); opacity: .85; }
   .le-pop { width: min(340px, 100%); }
 }
 .le-top select { width: auto; flex: none; }
+
+/* Preliminary Review Sheet */
+.rs-sheet .rs-head { text-align: center; margin-bottom: 14px; line-height: 1.5; }
+.rs-sheet .rs-head h2 { margin: 10px 0 0; letter-spacing: .04em; }
+.rs-sheet h3 { margin: 20px 0 8px; font-size: 15px; }
+.rs-title { width: 100%; font-weight: 600; text-align: center; }
+.rs-t td { vertical-align: top; }
+.rs-t tr.rs-on td { background: var(--brand-soft); }
+.rs-choice { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.rs-opt { display: inline-flex; gap: 4px; align-items: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.rs-opt.on { border-color: var(--brand-2); background: var(--brand-soft); font-weight: 600; }
+.rs-opt input { margin: 0; }
+.rs-ev { color: var(--text-3); font-size: 12px; margin-top: 4px; }
+@media print { .rs-opt:not(.on) { display: none; } .rs-opt { border: 0; } }

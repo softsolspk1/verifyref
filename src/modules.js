@@ -9,6 +9,7 @@ const MODULES = [
   { key: 'papermill', label: 'Module 4 — Paper Mill Detection (integrity screening, risk score, peer review, cases)', group: 'PJPS modules', editor: true },
   { key: 'images', label: 'Module 5 — Image Integrity Detection', group: 'PJPS modules', editor: true },
   { key: 'language', label: 'Module 6 — PJPS Scribe (medical and pharmaceutical language editing: grammar, clarity, tone, AI rewrites, research writing checks)', group: 'PJPS modules' },
+  { key: 'review-sheet', label: 'Preliminary Review Sheet (the PJPS desk-review form, filled from the uploaded manuscript)', group: 'PJPS modules', editor: true },
   { key: 'manuscript', label: 'Screen a submission with all 6 modules at once (Full Screening Report)', group: 'Across the 6 modules', editor: true },
   { key: 'reports', label: 'Editor letters & decision summary (Modules 1-3 author version, revisions)', group: 'Across the 6 modules', editor: true }
 ];
@@ -36,6 +37,8 @@ const IMPLIES = { citations: ['verify'] };
 const ADDED_V4 = ['papermill', 'images'];
 // Module 6 (v6): granted to editors and reviewers whose permissions were customised before it existed
 const ADDED_V6 = ['language'];
+// Preliminary Review Sheet (v7): granted to editors whose permissions were customised before it existed
+const ADDED_V7 = ['review-sheet'];
 
 const ROLES = {
   super_admin: { label: 'Super Admin' },
@@ -64,12 +67,13 @@ function permissionsOf(u) {
   let list = (p || defaultPermissions(u.role)).filter(k => ALL.includes(k));
   if (p && u.role === 'editor' && !p.includes('_v4')) list = [...new Set([...list, ...ADDED_V4])];
   if (p && !p.includes('_v6')) list = [...new Set([...list, ...ADDED_V6])];
+  if (p && u.role === 'editor' && !p.includes('_v7')) list = [...new Set([...list, ...ADDED_V7])];
   return expand(list);
 }
 
-/** Permissions as stored: the v4 / v6 markers record that the new modules were offered to this user */
+/** Permissions as stored: the v4 / v6 / v7 markers record that the new modules were offered to this user */
 function storePermissions(list) {
-  return [...new Set([...(list || []).filter(k => ALL.includes(k)), '_v4', '_v6'])];
+  return [...new Set([...(list || []).filter(k => ALL.includes(k)), '_v4', '_v6', '_v7'])];
 }
 
 module.exports = { MODULES, LEGACY, ROLES, ALL, defaultPermissions, permissionsOf, storePermissions };

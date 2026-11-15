@@ -33,6 +33,7 @@ import { renderApiKeys } from './views/apiKeys.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderReports } from './views/reports.js';
 import { renderLanguage, renderLanguageEditor } from './views/language.js';
+import { renderReviewSheets, renderReviewSheet } from './views/reviewSheet.js';
 
 // PJPS v4: the six modules and the Full Screening Report. The earlier tools stay in the code (routes below) but are
 // switched off in src/modules.js, so they are not shown and their routes refuse access.
@@ -48,6 +49,7 @@ const NAV = [
   { path: '/papermill', label: '4 · Paper Mill Detection', icon: 'papermill', module: 'papermill' },
   { path: '/images', label: '5 · Image Integrity', icon: 'image', module: 'images' },
   { path: '/language', label: '6 · PJPS Scribe', icon: 'assistant', module: 'language' },
+  { path: '/review-sheet', label: 'Preliminary Review Sheet', icon: 'verify', module: 'review-sheet' },
   { path: '/demo', label: 'Demo data', icon: 'manuscript', hidden: true },
   { group: 'Earlier tools' },
   { path: '/verify', label: 'Verify Citations', icon: 'verify', module: 'verify', hidden: true },
@@ -92,6 +94,8 @@ const ROUTES = [
   [/^\/images$/, guard('images', renderImages)],
   [/^\/language$/, guard('language', renderLanguage)],
   [/^\/language\/(\d+)$/, guard('language', (v, m) => renderLanguageEditor(v, m[1]))],
+  [/^\/review-sheet$/, guard('review-sheet', renderReviewSheets)],
+  [/^\/review-sheet\/(\d+)$/, guard('review-sheet', (v, m) => renderReviewSheet(v, m[1]))],
   [/^\/restyle$/, guard('restyle', renderRestyle)],
   [/^\/verify$/, guard('verify', renderVerify)],
   [/^\/evidence$/, guard('evidence', renderEvidence)],

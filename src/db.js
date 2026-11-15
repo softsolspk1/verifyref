@@ -714,6 +714,20 @@ CREATE TABLE IF NOT EXISTS language_ai_cache (
   value JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Preliminary Review Sheet: the journal's desk-review form, filled from the uploaded manuscript and corrected by the editor
+CREATE TABLE IF NOT EXISTS review_sheets (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ms_no TEXT,
+  title TEXT,
+  filename TEXT,
+  outcome TEXT,
+  data JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_review_sheets_user ON review_sheets(user_id, updated_at DESC);
 `;
 
 // One-off data migrations from the editor-approval model (v2) to Super Admin management (v3)

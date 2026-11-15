@@ -145,6 +145,9 @@ router.get('/admin/stats', wrap(async (req, res) => {
   res.json({ success: true, days, byKind, byUser, totals });
 }));
 
+// service health: the PJPS Scribe grammar server and its standby (addresses and tokens are not shown)
+router.get('/admin/health', wrap(async (req, res) => res.json({ success: true, grammar: await require('../language/languagetool').health() })));
+
 // ------------------------------------------------------------------ datasets and journal lists
 
 router.get('/admin/datasets', wrap(async (req, res) => {

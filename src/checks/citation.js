@@ -156,10 +156,38 @@ function checkAuthorYear(body, refs) {
         spelling.push({ citation: label, context: c.context, para: c.para, index: k.ref.index, message: `Spelled “${c.authors[0]}” in the text but “${k.ref.authors[0].family}” in the reference list` });
         citedCount.set(k.ref.index, (citedCount.get(k.ref.index) || 0) + 1);
       } else {
-        missing.push({ citation: label, context: c.context, para: c.para, reason: sameAuthor.length ? `Author is in the list but not with year ${c.year}` : 'No matching entry in the reference list' });
+        missing.push({ citation: label, context: c.context, para: c.para, reason: sameAuthor.length ? `Author is in the list but not with year ${c.year}` : 'No matching entry in the reference list', cite: c });
       }
     }
   }
+
+  // the same work written two ways: cited "Abu, 2017", "ESCOP, 2003", "Deepika & Vidya, 2013", "Draper andHadley, 1990" for
+  // the entries "Abu Arab W (2017)", "ESCOP Monographs (2003)", "Deepika Arya and Vidya Patni (2013)", "Draper HH and Hadley M
+  // (1990)": one name-form note for the pair, not a missing reference and an uncited one
+  const flat = x => stripDiacritics(String(x || '')).toLowerCase().replace(/[^a-z]/g, '');
+  const paired = new Map();   // citation label -> the entry it was paired with (a work cited several times)
+  for (let i = 0; i < missing.length; i++) {
+    const c = missing[i].cite;
+    if (!c || !c.year) continue;
+    const cited = flat(c.authors[0]);
+    if (cited.length < 3) continue;
+    const pair = paired.has(missing[i].citation) ? [paired.get(missing[i].citation)] : refKeys.filter(k => k.year === c.year && !citedCount.get(k.ref.index) && (() => {
+      const raw = String(k.ref.raw).split(/\(\s*(?:1[6-9]|20)\d{2}/)[0];
+      const head = flat(raw), word = flat(raw.split(/[\s,]/)[0]);
+      const fam = flat(k.ref.authors?.[0]?.family);
+      // the cited name begins the entry (a whole first word, or at least 4 letters of it), or the entry's surname begins the cited one
+      return (head.startsWith(cited) && (cited === word || cited.length >= Math.min(4, head.length))) || (fam.length >= 4 && cited.startsWith(fam));
+    })());
+    if (pair.length !== 1) continue;
+    const k = pair[0];
+    paired.set(missing[i].citation, k);
+    missing[i].paired = true;
+    if (spelling.some(s => s.citation === missing[i].citation)) { citedCount.set(k.ref.index, (citedCount.get(k.ref.index) || 0) + 1); continue; }
+    spelling.push({ citation: missing[i].citation, context: c.context, para: c.para, index: k.ref.index, message: `Cited as “${c.authors.join(c.authors.length === 2 ? ' & ' : ', ')}” but the reference list entry begins “${String(k.ref.raw).split(/\s*\(/)[0].slice(0, 60)}”: write the authors' surnames the same way in both` });
+    citedCount.set(k.ref.index, (citedCount.get(k.ref.index) || 0) + 1);
+  }
+  for (let i = missing.length - 1; i >= 0; i--) if (missing[i].paired) missing.splice(i, 1);
+  for (const m of missing) delete m.cite;
 
   // Same author+year in the list without suffixes
   const groups = new Map();

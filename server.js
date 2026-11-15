@@ -114,7 +114,14 @@ if (cfg.DESKTOP) {
     const monitoring = await require('./src/integrity/monitoring').runMonitor({ limit: 150 }).catch(e => ({ error: e.message }));
     // Module 5: newly published PJPS papers into the image reference database (time-boxed; the rest follows tomorrow)
     const pjpsFigures = await require('./src/imageRefs').indexPjps({ limit: 40, budgetMs: 120000 }).catch(e => ({ error: e.message }));
-    res.json({ success: true, corpusIndex, datasets, alerts, monitoring, pjpsFigures });
+    // the PJPS Scribe grammar server (and standby): super admins are told when none answers
+    const grammarHealth = await require('./src/language/languagetool').health().catch(e => ({ error: e.message }));
+    if (grammarHealth.configured && !grammarHealth.ok) {
+      for (const u of await db.all("SELECT id FROM users WHERE role = 'super_admin' AND status = 'active'")) {
+        await require('./src/alerts').notify(u.id, { kind: 'system', title: 'PJPS Scribe grammar server is not answering', body: `The daily check could not reach the grammar server${grammarHealth.servers.length > 1 ? ' or its standby' : ''} (${grammarHealth.servers.map(x => x.error).join('; ')}). PJPS Scribe still works with the in-house rules; restart the server (Admin > Datasets, Service health).`, link: '#/admin/data' }).catch(() => {});
+      }
+    }
+    res.json({ success: true, corpusIndex, datasets, alerts, monitoring, pjpsFigures, grammarHealth: grammarHealth.servers ? grammarHealth.servers.map(x => ({ role: x.role, ok: x.ok })) : grammarHealth });
   }));
   // Second daily cron: grows the Module 5 image databases (retracted cases, publishers' open access, PubMed Central)
   app.get('/api/cron/images', wrap(async (req, res) => {

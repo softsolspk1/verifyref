@@ -25,6 +25,8 @@ export async function renderAdmin(view) {
   view.innerHTML = `
     <div class="page-head"><div><h1>Datasets, journal lists &amp; PJPS rules</h1><p>Integrity datasets used by every check, and the licensed journal index lists used by Journal Check and Find a Journal.${desk ? ' On the desktop these are copies synchronised from the web platform, which is what makes the offline checks possible.' : ' Desktop computers download copies of all of these at synchronisation for offline use.'}</p></div></div>
 
+    ${desk ? '' : '<div class="card" id="health"><div class="card-head"><h2>Service health</h2><span class="muted">checking…</span></div></div>'}
+
     <div class="card">
       <div class="card-head">
         <div>
@@ -235,6 +237,12 @@ export async function renderAdmin(view) {
       </table></div>
     </div>`;
 
+  if (!desk) api('/api/admin/health').then(({ grammar: g }) => {
+    const row = s => `<tr><td><b>PJPS Scribe grammar server${s.role === 'standby' ? ' (standby)' : ''}</b><div class="muted">LanguageTool, about 5,000 grammar rules; without it the in-house rules work alone</div></td><td>${s.ok ? badge('answering', 'good') : badge('not answering', 'bad')}</td><td class="num">${s.ok ? `${s.ms} ms` : esc(s.error || '')}</td></tr>`;
+    $('#health', view).innerHTML = `<div class="card-head"><h2>Service health</h2><span class="muted">${g.ok ? 'All checks can run' : g.configured ? 'Grammar server down: PJPS Scribe uses the in-house rules only' : 'No grammar server configured'}</span></div>
+      <table class="t">${g.servers.map(row).join('') || '<tr><td colspan="3" class="muted">LANGUAGETOOL_URL is not set.</td></tr>'}</table>
+      <p class="muted" style="margin:10px 0 0">${g.servers.some(s => s.role === 'standby') ? 'When the main server does not answer, the standby is used.' : 'A standby server can be added with LANGUAGETOOL_STANDBY_URL.'} Admins are notified by the daily check when no grammar server answers.${g.lastError ? ` Last failure: ${esc(g.lastError)} (${fmtDate(g.lastErrorAt)}).` : ''}</p>`;
+  }).catch(() => { $('#health', view).innerHTML = ''; });
   renderImageDatabases($('#image-dbs', view), { desk });
   renderStorage($('#storage', view), { desk });
   api('/api/settings/age-rule').then(d => { $('#rule-share', view).value = d.rule.minShare; $('#rule-years', view).value = d.rule.years; }).catch(() => {});

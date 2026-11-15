@@ -64,7 +64,9 @@ function checkEntry(ref, record, nlm = null) {
   else if (/^[A-Z][a-z]{2,}\s+(?:[A-Z]\.\s*)+[A-Z][a-z]{2,}/.test(authorSeg)) add('authors', 'Surname first, then initials (Livak KJ, not Kenneth J. Livak)', authorSeg.split(/,|\s+and\s/)[0]);
   // two or more authors: "and" before the last one (Khan A, Ali B and Shah C)
   if (!web && ref.authors?.length >= 2 && /,/.test(authorSeg) && !/\s(?:and|&)\s/i.test(authorSeg) && !/\bet\s+al\b/i.test(authorSeg)) add('authors', 'Use “and” before the last author (Khan A, Ali B and Shah C)', authorSeg.split(',').slice(-1)[0].trim(), null, 'low');
-  if (!web && /^[A-Z][a-z]+\s+[A-Z][a-z]{2,}\b/.test(authorSeg) && !/^(?:van|von|de|del|al|el)\b/i.test(authorSeg.split(/\s+/)[1] || '')) add('authors', 'Use initials for first names (Khan A, not Ahmed Khan / Khan Ahmed)', authorSeg.split(/[,]/)[0], null, 'low');
+  // (a two-word surname followed by initials is right: "De Nunzio C", "Abu Arab W", "Del Re M")
+  const initialsOnly = /^[A-Z]{1,4}$/.test(String(ref.authors?.[0]?.given || '').replace(/[.\s-]/g, ''));
+  if (!web && !initialsOnly && /^[A-Z][a-z]+\s+[A-Z][a-z]{2,}\b/.test(authorSeg) && !/^(?:van|von|de|del|al|el)\b/i.test(authorSeg.split(/\s+/)[1] || '') && !/^(?:van|von|de|del|della|di|da|du|dos|le|la|al|el|abu|bin|ibn)$/i.test(authorSeg.split(/\s+/)[0] || '')) add('authors', 'Use initials for first names (Khan A, not Ahmed Khan / Khan Ahmed)', authorSeg.split(/[,]/)[0], null, 'low');
 
   // ---- year
   if (!p) {

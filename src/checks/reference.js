@@ -111,7 +111,11 @@ function compare(ref, rec, s) {
   const add = (code, severity, message, cited, registered) => issues.push({ code, severity, message, cited, registered });
 
   const extra = extraTitleWords(ref, rec);
-  if (extra.invented >= 4) add('title-extra', 'medium', `The cited title has words that are not in the registered title (“${extra.extras.slice(0, 8).join(' ')}”)`, ref.title, rec.title);
+  // a registry that holds only the main title ("Leishmaniasis" for "Leishmaniasis. Public health aspects and control"):
+  // the cited subtitle is not invented
+  const flatT = x => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const shortRecord = rec.title && flatT(rec.title).split(' ').length <= 3 && flatT(ref.title).startsWith(flatT(rec.title));
+  if (extra.invented >= 4 && !shortRecord) add('title-extra', 'medium', `The cited title has words that are not in the registered title (“${extra.extras.slice(0, 8).join(' ')}”)`, ref.title, rec.title);
   else if (s.tSim < 0.85 && ref.title) add('title', s.tSim < 0.65 ? 'medium' : 'low', 'Title differs from the registered record', ref.title, rec.title);
   if (s.authorScore === 0) add('author', 'medium', 'First author does not appear in the registered author list', ref.authors.map(a => a.family).join(', '), rec.authors.slice(0, 6).map(a => a.family).join(', '));
   // the cited first author is a later author of the record ("Olson and Trott" for Trott and Olson): the citation itself
@@ -125,7 +129,12 @@ function compare(ref, rec, s) {
   // a chapter matched to its book, or a book to a series, is not a wrong journal
   if (s.journalScore !== null && s.journalScore < 0.5 && !greyRef(ref) && !/book|chapter|monograph|reference-entry/i.test(rec.type || '')) {
     const preprint = rec.type === 'preprint' || /arxiv|biorxiv|medrxiv|chemrxiv|ssrn|preprint|research square|zenodo/i.test(`${rec.journal} ${rec.source}`);
+    // the journal written as its acronym ("JDDT" for Journal of Drug Delivery and Therapeutics, "AAC" for Antimicrobial
+    // Agents and Chemotherapy): the right journal, written the wrong way
+    const acronym = /^[A-Z]{2,8}$/.test(String(ref.journal || '').replace(/[.\s]/g, '')) &&
+      String(rec.journal || '').split(/[\s:-]+/).filter(w => /^[A-Za-z]/.test(w) && !/^(?:of|and|the|for|in|on|&)$/i.test(w)).map(w => w[0].toUpperCase()).join('') === String(ref.journal).replace(/[.\s]/g, '');
     if (preprint) add('preprint', 'low', 'Matched the preprint version; the cited venue may be the published version — cite the published record', ref.journal, rec.journal);
+    else if (acronym) add('journal-acronym', 'low', 'Journal written as an acronym: use its standard abbreviation', ref.journal, rec.journalAbbrev || rec.journal);
     else add('journal', 'high', 'Real article attributed to the wrong journal', ref.journal, rec.journal);
   }
   // registries write "Volume 17" or "03"
@@ -134,7 +143,13 @@ function compare(ref, rec, s) {
   if (ref.issue && rec.issue && normalize(ref.issue) !== normalize(rec.issue) && !String(rec.issue).includes(ref.issue)) add('issue', 'low', 'Issue number differs', ref.issue, rec.issue);
   if (ref.pages && rec.pages) {
     const fp = firstPage(ref.pages), rfp = firstPage(rec.pages);
-    if (fp && rfp && fp !== rfp) add('pages', 'medium', 'First page is wrong', ref.pages, rec.pages);
+    // an online journal's article number on one side and its page count ("1-8") on the other is the same article: cited
+    // "263897" for BioMed Res. Int. (DOI 10.1155/2014/263897, registered "1-8"), cited "1-7" for article 16
+    const artNo = x => /^[eE]?\d+$/.test(String(x).trim()), count = x => /^1\s*[-–]\s*\d+$/.test(String(x).trim());
+    const sameArticle = (artNo(ref.pages) && count(rec.pages)) || (count(ref.pages) && artNo(rec.pages)) ||
+      (artNo(ref.pages) && fp.length >= 4 && new RegExp(`[./]e?0*${fp}$`, 'i').test(String(rec.doi || '')));
+    if (sameArticle) { /* the same article written as article number or page count */ }
+    else if (fp && rfp && fp !== rfp) add('pages', 'medium', 'First page is wrong', ref.pages, rec.pages);
     else {
       const lp = lastPage(ref.pages), rlp = lastPage(rec.pages);
       if (lp && rlp && lp !== rlp) add('last-page', 'low', 'Last page differs', ref.pages, rec.pages);
@@ -754,4 +769,4 @@ function summarize(results) {
   };
 }
 
-module.exports = { checkReferences, verifyReference, scoreCandidate, summarize, STATUS, doiRepairs };
+module.exports = { checkReferences, verifyReference, scoreCandidate, compare, summarize, STATUS, doiRepairs };

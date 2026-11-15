@@ -289,13 +289,21 @@ function splitNumbered(lines) {
  */
 function splitInlineAuthorYear(line) {
   if (line.length < 120) return [line];
-  const parts = line.split(/(?<=(?:\d|10\.\S+)\.)\s+(?=[\p{Lu}][\p{L}'’-]+(?:\s[\p{Lu}][\p{L}'’-]+)?,?\s+(?:[\p{Lu}]\.?\s?){1,3}(?:,|\s+and\s|\s*&|\s*\(\s*(?:1[6-9]|20)\d{2}|\s+et al))/u);
+  // the next reference's authors: "Khan A, ...", "Barrett KE and ...", "Percie du Sert N, ...", "De Nunzio C, ...", "Wang H H, ...";
+  // the one before may end with its pages, a DOI or a word ("... Marcel Dekker, New York. Khan A ...")
+  let parts = line.split(/(?<=(?:10\.\S+|[\p{L}\d)\]])\.)\s+(?=[\p{Lu}][\p{L}'’-]+(?:\s(?:(?:van|de|da|du|del|der|den|von|la|le|el|dos|das|di)\s)*[\p{Lu}][\p{L}'’-]+)?,?\s+(?:[\p{Lu}]\.?\s?){1,4}(?:,|\s+and\s|\s*&|\s*\(\s*(?:1[6-9]|20)\d{2}|\s+et al))/u);
+  // no full stop between them ("... 54(5): 261- 266 Johansen JS, ... (2014)"), or an organisation as the author
+  // ("... 211-213. ESCOP (2003). ..."): only where the bracketed year of the next one follows closely
+  parts = parts.flatMap(p => p.split(/(?<=\d)\s+(?=[\p{Lu}][\p{L}'’-]+,?\s+(?:[\p{Lu}]\.?\s?){1,4}(?:,|\s+and\s|\s*&|\s+et al)[^()]{0,200}\((?:1[6-9]|20)\d{2}[a-z]?\))|(?<=[\p{L}\d)]\.)\s+(?=[\p{Lu}][\p{L}'’&,-]*(?:\s+[\p{L}'’&,-]+){0,7}\s*\((?:1[6-9]|20)\d{2}[a-z]?\)\.\s)/u));
   if (parts.length < 2) return [line];
   const out = [];
   for (const p of parts) {
+    // a piece without a year is not a reference of its own ("... Smith J. Jones K, ..." inside one author list)
     if (out.length && !YEAR_RE.test(p)) out[out.length - 1] += ' ' + p;
     else out.push(p);
   }
+  // text before the first reference (a running head, a page footer) goes with it rather than stopping every split
+  if (out.length > 1 && !YEAR_RE.test(out[0])) out.splice(0, 2, out[0] + ' ' + out[1]);
   return out.every(p => YEAR_RE.test(p)) ? out : [line];
 }
 
@@ -303,7 +311,7 @@ function splitInlineAuthorYear(line) {
 function splitContinuation(lines) {
   const entries = [];
   let cur = '';
-  const startsEntry = l => /^[\p{Lu}][\p{L}'’\-]+(?:\s+[\p{Lu}][\p{L}'’\-]+)?,?\s+(?:[\p{Lu}]\.?\s*){1,3}[,.&(]/u.test(l) ||
+  const startsEntry = l => /^[\p{Lu}][\p{L}'’\-]+(?:\s+(?:(?:van|de|da|du|del|der|den|von|la|le|el|dos|das|di)\s+)*[\p{Lu}][\p{L}'’\-]+)?,?\s+(?:[\p{Lu}]\.?\s*){1,4}(?:[,.&(]|and\s|et al)/u.test(l) ||
     /^[\p{Lu}][\p{L}'’\-]+,\s+[\p{Lu}]/u.test(l) || /^(?:[\p{Lu}]\.\s?){1,3}[\p{Lu}][\p{L}'’\-]+,/u.test(l);
   for (const line of lines) {
     const curDone = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /[.)\d]$/.test(cur);
@@ -338,9 +346,9 @@ function parseAuthors(segment) {
       out[out.length - 1].given = p; // "Smith, J. A." -> family, given
       continue;
     }
-    // "Smith JA" (Vancouver)
-    let m = p.match(/^([\p{L}'’\- ]+?)\s+((?:[\p{Lu}]\.?){1,4})$/u);
-    if (m) { out.push({ family: m[1], given: m[2] }); continue; }
+    // "Smith JA" (Vancouver), also with spaced initials: "Guarino M P", "Ko C W"
+    let m = p.match(/^([\p{L}'’\-]+(?:\s[\p{L}'’\-]{2,})*)\s+((?:[\p{Lu}]\.?\s){1,3}[\p{Lu}]\.?)$/u) || p.match(/^([\p{L}'’\- ]+?)\s+((?:[\p{Lu}]\.?){1,4})$/u);
+    if (m) { out.push({ family: m[1], given: m[2].replace(/\s+/g, '') }); continue; }
     // "J. A. Smith" (IEEE)
     m = p.match(/^((?:[\p{Lu}]\.\s?-?){1,4})\s*([\p{L}'’\- ]+)$/u);
     if (m) { out.push({ family: m[2].trim(), given: m[1].trim() }); continue; }
@@ -355,6 +363,9 @@ function parseAuthors(segment) {
 function parseReferenceEntry(raw, index) {
   const cleaned = repairText(raw).replace(/\s+/g, ' ').trim();
   let body = cleaned.replace(NUMBERED_PREFIX, '').replace(BULLET_PREFIX, '');
+  // the title run into an abbreviated journal without a space ("... FIX concentrate.Eur.J.Pharm.Sci.,153: 105485"); not
+  // inside a DOI or web address
+  if (!/https?:|www\.|doi/i.test(body)) body = body.replace(/([a-z]{3,})\.(?=(?:[A-Z][a-z]{0,8}\.\s?){2,})/g, '$1. ').replace(/([A-Z][a-z]{0,8}\.),(?=\d)/g, '$1, ');
 
   const ref = { index, raw: cleaned, doi: null, doiAsWritten: null, pmid: null, arxiv: null, isbn: null, urls: [], authors: [], title: '', journal: '', year: null, volume: '', issue: '', pages: '' };
 
@@ -717,6 +728,28 @@ function trailingReferences(lines) {
   return hits >= 3 && bodyWords >= 100 ? { start, end: end + 1 } : null;
 }
 
+/** reference list after a heading inside a long run-together line -> { body, references, found } or null */
+function flatReferenceSection(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].length < 1600) continue;
+    const re = new RegExp(String.raw`(?:^|[\s.])(?:\d+\.?\s*)?(REFERENCES|References|BIBLIOGRAPHY|Bibliography|LITERATURE CITED|Literature cited|Literature Cited)\s*[:.]?\s+(?=\S)`, 'g');
+    let last = null;
+    for (const m of lines[i].matchAll(re)) {
+      const after = lines[i].slice(m.index + m[0].length);
+      // entries must follow, and the list must reach towards the end of the text (not "references" in a sentence)
+      if (after.length > 200 && looksLikeReference(after.slice(0, 400)) && (after.match(/\b(?:1[6-9]|20)\d{2}[a-z]?\b/g) || []).length >= 3) last = m;
+    }
+    if (!last) continue;
+    const at = last.index + last[0].length;
+    return {
+      body: [...lines.slice(0, i), lines[i].slice(0, last.index)].join('\n'),
+      references: [lines[i].slice(at), ...lines.slice(i + 1)].join('\n').trim(),
+      found: true, flattened: true
+    };
+  }
+  return null;
+}
+
 function findReferenceSection(text) {
   const lines = text.split('\n');
   let start = -1, inline = null;
@@ -732,6 +765,10 @@ function findReferenceSection(text) {
   }
   let end = lines.length;
   if (start === -1) {
+    // text with its line breaks lost (some PDFs give a whole page or the whole article as one line): the last
+    // "REFERENCES" / "References" heading inside a long line that is followed by reference entries
+    const flat = flatReferenceSection(lines);
+    if (flat) return flat;
     // no heading at all (a plain Word document): the reference-like lines at the end are the list
     const t = trailingReferences(lines);
     if (!t) return { body: text, references: '', found: false };

@@ -1,0 +1,127 @@
+PJPS INTEGRITY PORTAL - PRELIMINARY REVIEW SHEET
+Date: 15 November 2026
+Portal: https://verifyref.vercel.app/app
+Release: commit 1dfa54a (pushed and live on Vercel)
+
+
+1. WHERE TO FIND IT
+-------------------
+
+- Left menu: "Preliminary Review Sheet", directly after "6 · PJPS Scribe".
+- Home page: a card with the same name, after PJPS Scribe.
+- Press Ctrl+Shift+R once on the portal so the browser shows the new menu.
+
+
+2. HOW IT WORKS
+---------------
+
+1. Open "Preliminary Review Sheet" and upload the manuscript (Word or PDF).
+   Optionally attach the authors' figure files, so their format and
+   resolution can be checked.
+2. The sheet is filled in automatically. Every answer shows the text it was
+   read from in the manuscript.
+3. Change any answer with one click. It is saved at once, and the outcome
+   updates.
+4. Click "Download Word form" to get the journal's own PJPS form, filled in:
+   MS No, title, ticks in the boxes, the outcome, and comments listing what
+   to correct.
+5. All saved sheets are listed on the page, with a Word download for each.
+
+
+3. WHAT IS FILLED AUTOMATICALLY
+-------------------------------
+
+MS No and title
+- MS No is read from the file name (e.g. "G.P-16692" gives 16692), or can be
+  typed in before uploading.
+- The title is read from the manuscript.
+
+Within the scope / Possesses Novelty / Suitable
+- Scope: matched against the 19 PJPS subject areas.
+- Novelty: checked against the titles of all published PJPS articles (an
+  article with the same title already published is marked "No"). The deeper
+  novelty check against the wider literature is still done by Full Screening.
+- Suitable: follows from scope and novelty.
+
+Article type and reporting guideline
+- Type detected from the title, abstract and methods:
+    * Randomized Trial (RCT) or Interventional study - CONSORT
+    * Observational Study (Cohort / Case-control / Cross-sectional) - STROBE
+      or RECORD
+    * Case Report - CARE
+    * Retrospective Study - STROBE
+    * Systematic Review - PRISMA
+    * Scoping Review - PRISMA-ScR
+    * Animal study - ARRIVE
+    * Nonrandomized / quasi-experimental intervention studies - TREND
+    * Others, with a description (e.g. "In vitro / laboratory study",
+      "Synthesis / medicinal chemistry", "Formulation development")
+- For that type's guideline it checks whether the manuscript:
+    * names the guideline (followed)
+    * includes its checklist
+    * has a flow diagram
+- If the editor changes the type, the guideline answers switch to that
+  type's guideline.
+
+Author's Instructions for PJPS
+- Abstract: structured (Background, Objectives, Methods, Results,
+  Conclusion) and at most 300 words; shows the headings found and the word
+  count.
+- Introduction heading.
+- Materials and Methods heading.
+- Trial registration number and date: clinical trials only (otherwise N/A).
+- Ethical approval: quotes the approval statement; human or animal studies
+  only (otherwise N/A).
+- Results and Discussion as separate headings ("Results and Discussion"
+  combined counts as No).
+- References in PJPS format: checked with the Module 2 style rules and the
+  Module 3 citation check (citations missing from the list, references never
+  cited).
+- Figures as separate 600 dpi TIFF files: when the authors' figure files are
+  attached, their format and dpi are read from the files. Pictures pasted
+  inside the manuscript count as No.
+
+Outcome
+- "The article can be processed for Peer Review" when every check is met.
+- "Lies in the Scope but requires resubmission after correction", listing
+  what to fix.
+- "Not suitable" when the article is outside the scope or the same title is
+  already published in PJPS.
+- The editor always decides; any answer can be changed.
+
+
+4. TESTED ON FOUR REAL PJPS MANUSCRIPTS
+---------------------------------------
+
+- Article types found correctly:
+    * animal study, with the ARRIVE guideline and checklist
+    * synthesis / medicinal chemistry study
+    * retrospective cohort, with STROBE, its checklist and the flowchart
+    * quasi-experimental study, with TREND and its checklist
+- Ethical approval statements quoted correctly.
+- Abstracts over 300 words caught (303 and 322 words).
+- A missing trial registration flagged.
+- A new automated test (upload, editing answers, Word download) passes, as do
+  the integrity suite, web smoke test, PJPS Scribe and desktop sync tests.
+
+
+5. ACCESS
+---------
+
+- Editors and Super Admins get the page automatically, including editors
+  whose permissions were set before the page existed.
+- Reviewers do not get it by default (a Super Admin can grant it).
+- It also works in the desktop app.
+- In-house checks only: no paid service is used.
+
+
+6. FIGURE INDEXING (MODULE 5)
+-----------------------------
+
+- The first indexing run finished at 8:08 this morning, when every PJPS
+  subject area reached its 2,500-paper target.
+- A new visible window, "Module 5 figure indexing", is running now. It raises
+  the target to 6,000 papers per subject, then fetches open-access papers
+  from the major publishers.
+- Keep that window open. To start it again at any time, run:
+  D:\pjps-tmp\run-module5-more.cmd

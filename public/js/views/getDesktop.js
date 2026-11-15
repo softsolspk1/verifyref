@@ -1,4 +1,4 @@
-// views/getDesktop.js - web portal: download the Windows desktop application (same five modules, own database,
+// views/getDesktop.js - web portal: download the Windows desktop application (same six modules, own database,
 // works offline and synchronises with this platform)
 import { api, esc, fmtDate, copyText, ICONS } from '../core.js';
 
@@ -27,7 +27,7 @@ export async function renderGetDesktop(view) {
     <div class="dl-hero">
       <div class="dl-art" aria-hidden="true"><div class="scr"><i></i><div><i></i><i></i><i></i><i></i></div></div><div class="stand"></div></div>
       <h1>PJPS Data Integrity System for Windows</h1>
-      <p>The complete software as a desktop application: the same five modules as this web portal, with its own database on your computer. It keeps working without internet and synchronises with the platform when you are online.</p>
+      <p>The complete software as a desktop application: the same six modules as this web portal, with its own database on your computer. It keeps working without internet and synchronises with the platform when you are online.</p>
       <div class="row" style="margin-top:16px">
         ${setup ? `<a class="btn" href="/api/desktop-app/download/setup">${ICONS.desktop} Download installer (${mb(setup.size)})</a>` : '<span class="btn" aria-disabled="true" style="opacity:.75;cursor:default">Not published yet</span>'}
         ${portable ? `<a class="btn btn-ghost" href="/api/desktop-app/download/portable">Portable version (${mb(portable.size)})</a>` : ''}

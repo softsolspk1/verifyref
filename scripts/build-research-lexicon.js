@@ -8,6 +8,8 @@
 //   [--no-pjps]    leave out the PJPS articles
 //   [--counts F]   where the word counts are saved (default D:/pjps-tmp/research-lexicon-counts.json.gz)
 //   [--no-fda]     leave out the drug names of the FDA Orange Book dataset (ingredients and brand names)
+//   [--mesh DIR]   add the words of NLM's Medical Subject Headings (desc2026.gz and supp2026.gz from
+//                  nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh/: headings, entry terms, drug and chemical names)
 //   --from-counts  rebuild the lists from the saved counts without reading the papers again (seconds, to tune the rules)
 // Writes src/language/dict/research.txt (terms) and src/language/dict/research-common.txt (words most research articles
 // use: not "overused" when a paragraph repeats them).
@@ -105,7 +107,7 @@ const garbled = w => !/[aeiouy]/.test(w) || !START.test(w) || /[bcdfghjklmnpqrst
     for (const [k, n] of c.df) df.set(k, n);
     for (const [k, n] of c.lowerDf) lowerDf.set(k, n);
   } else await read(t0);
-  build(t0, argv.includes('--no-fda') ? [] : await drugNames());
+  build(t0, argv.includes('--no-fda') ? [] : await drugNames(), opt('mesh', null) ? await meshWords(opt('mesh')) : []);
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
 
@@ -149,7 +151,36 @@ async function drugNames() {
   return [...out];
 }
 
-function build(t0, drugs = []) {
+/** The words of the MeSH headings, entry terms and supplementary concept names (drugs, chemicals, organisms): [word] */
+async function meshWords(dir) {
+  const readline = require('readline');
+  const out = new Map(); // lower case -> seen in lower case
+  for (const file of fs.readdirSync(dir).filter(n => /^(?:desc|supp)\d{4}\.gz$/.test(n))) {
+    // read line by line: the supplementary file is over 500 MB of XML
+    const lines = readline.createInterface({ input: fs.createReadStream(path.join(dir, file)).pipe(zlib.createGunzip()), crlfDelay: Infinity });
+    let n = 0, name = false;
+    for await (const line of lines) {
+      // the names only: <String> inside a record name, a concept name or a term (not the qualifiers, not the scope notes)
+      if (/<(?:DescriptorName|SupplementalRecordName|ConceptName|Term)\b/.test(line)) { name = true; if (!line.includes('<String>')) continue; }
+      const m = line.match(/<String>([^<]+)<\/String>/);
+      if (!m) continue;
+      if (!name) continue;
+      name = false;
+      n++;
+      for (const w of m[1].replace(/&amp;/g, '&').match(/[A-Za-z][A-Za-z']*[A-Za-z]/g) || []) {
+        for (const part of w.replace(/'s$/, '').split('-')) {
+          if (part.length < 4 || part.length > 40 || /^[A-Z]{2,}s?$/.test(part) || /[a-z][A-Z]/.test(part)) continue;
+          const k = part.toLowerCase();
+          out.set(k, out.get(k) || part === k);
+        }
+      }
+    }
+    console.log(`MeSH ${file}: ${n} names, ${out.size} distinct words so far`);
+  }
+  return [...out];
+}
+
+function build(t0, drugs = [], mesh = []) {
 
   // terms: in several papers, not in the general dictionaries, and not a one-letter slip of a far more common word
   // the plain English dictionaries (spell.js also loads the vocabulary this script writes)
@@ -178,9 +209,36 @@ function build(t0, drugs = []) {
   let added = 0;
   for (const w of drugs) if (!have.has(w.toLowerCase()) && !known(w.toLowerCase()) && !garbled(w.toLowerCase())) { terms.push(w); have.add(w.toLowerCase()); added++; }
   console.log(`FDA Orange Book: ${drugs.length} drug name words, ${added} new`);
+  // MeSH: curated by NLM, so no frequency is needed; a word no paper here uses that is one slip from a common word
+  // ("cancr", "tumur") is left out so the same slip in a manuscript is still found
+  let meshAdded = 0;
+  for (const [k, lower] of mesh) {
+    if (have.has(k) || known(k) || garbled(k) || S.TYPOS[k]) continue;
+    if (GLUE.some(g => k.startsWith(g) && k.length - g.length >= 3 && known(k.slice(g.length)))) continue;
+    const n = df.get(k) || 0;
+    // short MeSH words are mostly gene symbols and pieces of chemical names (aaap, acety, abch): the published papers
+    // decide those (a short word they support is in the list already)
+    if (k.length < 7) continue;
+    // the same slip rule as for the papers' words, and for a word no paper uses, any common word one slip away
+    if (n < 500 && [...slips(k)].some(e => { const m = df.get(e) || 0; return known(e) && (n ? m >= n * (n < 20 ? 100 : 150) : m >= 20); })) continue;
+    terms.push(lower || (lowerDf.get(k) || 0) >= (df.get(k) || 0) * 0.25 && df.get(k) ? k : k[0].toUpperCase() + k.slice(1));
+    have.add(k); meshAdded++;
+  }
+  if (mesh.length) console.log(`MeSH: ${mesh.length} words, ${meshAdded} new`);
+  // last: a word one letter (any letter) from a real word the papers use a thousand times more often is a typo or
+  // garbled scan however many old PDFs repeat it ("absense", "consistant", "hypertention", "softwere", "abcess")
+  // (the names NLM and the FDA list are curated and stay: phosphite, carbohydrase, hydrophobin)
+  const curated = new Set([...mesh.map(([k]) => k), ...drugs.map(w => w.toLowerCase())]);
+  const before = terms.length;
+  for (let i = terms.length - 1; i >= 0; i--) {
+    const k = terms[i].toLowerCase(), n = df.get(k) || 0;
+    if (k.length < 5 || curated.has(k)) continue;
+    for (const e of edits1(k)) { if ((df.get(e) || 0) >= Math.max(n, 1) * 500 && known(e)) { terms.splice(i, 1); break; } }
+  }
+  console.log(`one letter from a far more common word: ${before - terms.length} left out`);
   terms.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   const common = [...df].filter(([k, n]) => n >= docs * 0.2 && k.length > 3).map(([k]) => k).sort();
-  const head = `# PJPS Scribe research vocabulary, built ${new Date().toISOString().slice(0, 10)} by scripts/build-research-lexicon.js from ${docs} published papers (PJPS articles and PubMed Central open access) and the FDA Orange Book drug names. One word per line.\n`;
+  const head = `# PJPS Scribe research vocabulary, built ${new Date().toISOString().slice(0, 10)} by scripts/build-research-lexicon.js from ${docs} published papers (PJPS articles and PubMed Central open access), the FDA Orange Book drug names${mesh.length ? ' and the NLM Medical Subject Headings (MeSH)' : ''}. One word per line.\n`;
   fs.writeFileSync(path.join(OUT, 'research.txt'), head + terms.join('\n') + '\n');
   fs.writeFileSync(path.join(OUT, 'research-common.txt'), head.replace('vocabulary', 'words used by at least 20 % of research articles') + common.join('\n') + '\n');
   console.log(`done: ${docs} papers, ${terms.length} terms, ${common.length} common research words (${Math.round((Date.now() - t0) / 1000)} s)`);

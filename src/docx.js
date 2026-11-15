@@ -651,15 +651,16 @@ function screeningScorecard(r) {
     { module: '4. Paper mill signals', result: sc.lines.papermill || 'not checked', level: lvl(pm?.level) },
     { module: '5. Image integrity', result: sc.lines.images || 'not checked', level: lvl(im?.level) }
   ];
-  if (r.plagiarism) rows.push({ module: '6. Plagiarism (text overlap)', result: r.plagiarism.error || sc.lines.plagiarism || `${r.plagiarism.summary.similarity}% overlap`, level: r.plagiarism.error ? 'na' : r.plagiarism.summary.level });
-  if (r.novelty) rows.push({ module: '7. Novelty & citation outlook', result: r.novelty.error || sc.lines.novelty || `novelty ${r.novelty.summary.score}/100`, level: r.novelty.error ? 'na' : r.novelty.summary.level, verdict: r.novelty.error ? null : `${r.novelty.summary.band[0].toUpperCase()}${r.novelty.summary.band.slice(1)}` });
-  if (r.authorIdentity) rows.push({ module: '8. Author identity (ORCID)', result: r.authorIdentity.error || sc.lines.authors || '', level: r.authorIdentity.error ? 'na' : r.authorIdentity.summary.level });
+  if (r.language) rows.push({ module: '6. PJPS Scribe (language)', result: r.language.error || sc.lines.language || `language score ${r.language.summary.score}/100`, level: r.language.error ? 'na' : r.language.summary.level });
+  if (r.plagiarism) rows.push({ module: '7. Plagiarism (text overlap)', result: r.plagiarism.error || sc.lines.plagiarism || `${r.plagiarism.summary.similarity}% overlap`, level: r.plagiarism.error ? 'na' : r.plagiarism.summary.level });
+  if (r.novelty) rows.push({ module: '8. Novelty & citation outlook', result: r.novelty.error || sc.lines.novelty || `novelty ${r.novelty.summary.score}/100`, level: r.novelty.error ? 'na' : r.novelty.summary.level, verdict: r.novelty.error ? null : `${r.novelty.summary.band[0].toUpperCase()}${r.novelty.summary.band.slice(1)}` });
+  if (r.authorIdentity) rows.push({ module: '9. Author identity (ORCID)', result: r.authorIdentity.error || sc.lines.authors || '', level: r.authorIdentity.error ? 'na' : r.authorIdentity.summary.level });
   return rows;
 }
 
 /** Module 6: text overlap with published papers */
 function plagiarismBlocks(pl) {
-  const blocks = [{ h2: '6. Similarity report (originality)' }];
+  const blocks = [{ h2: '7. Similarity report (originality)' }];
   if (!pl || pl.error) return [...blocks, { p: pl?.error || 'Not checked.' }];
   const s = pl.summary;
   const pt = v => (v > 0 && v < 1 ? '<1%' : `${Math.round(v)}%`);
@@ -763,7 +764,7 @@ function similarityReportBlocks(r) {
 
 /** Module 7: novelty and citation outlook (OpenAlex data model) */
 function noveltyBlocks(nv) {
-  const blocks = [{ h2: '7. Novelty and citation outlook' }];
+  const blocks = [{ h2: '8. Novelty and citation outlook' }];
   if (!nv || nv.error) return [...blocks, { p: nv?.error || 'Not assessed.' }];
   const s = nv.summary, f = nv.forecast, c = nv.components;
   const w = nv.weights || { distance: 50, uncrowded: 25, rarity: c.rarity === null ? 0 : 25 };
@@ -786,9 +787,25 @@ function noveltyBlocks(nv) {
   return blocks;
 }
 
-/** Section 8: author identity from the ORCID registry */
+/** Section 6: PJPS Scribe, the language review of the whole manuscript */
+function languageBlocks(lg) {
+  const blocks = [{ h2: '6. PJPS Scribe (language)' }];
+  if (!lg || lg.error) return [...blocks, { p: lg?.error || 'Not checked.' }];
+  const s = lg.summary;
+  const AREA = { correctness: 'Correctness (spelling, grammar, punctuation)', clarity: 'Clarity', engagement: 'Engagement', delivery: 'Delivery (tone, claims)', style: 'Academic style' };
+  blocks.push({ kv: [['Language score', `${s.score}/100`], ['Spelling', `${s.variant === 'en-GB' ? 'British' : 'American'} English (as the manuscript is written)`], ['Words (above the references)', s.words.toLocaleString('en-US')], ['Suggestions', String(s.total)],
+    ['Misspelt words', String(s.spelling)], ['Grammar / punctuation', String(s.grammar)], ['Readability (Flesch)', s.flesch == null ? '-' : String(s.flesch)], ['Sentences over 30 words', String(s.longSentences ?? '-')]] });
+  blocks.push({ table: { headers: ['Area', 'Suggestions', 'Assessment'], rows: Object.keys(AREA).map(a => [AREA[a], String(s.byArea[a] || 0), lg.areas?.[a] || '-']) } });
+  if (lg.spelling?.length) blocks.push({ p: 'Misspelt words', bold: true }, { table: { headers: ['Word', 'Times', 'Suggested', 'In the sentence'], rows: lg.spelling.slice(0, 25).map(w => [w.word, String(w.count), (w.suggestions || []).join(', ') || '-', w.context || '']) } });
+  const ex = Object.entries(lg.examples || {}).flatMap(([a, list]) => list.slice(0, 6).map(e => [AREA[a]?.split(' (')[0] || a, e.title, e.replacement ? `${e.text} -> ${e.replacement}` : e.text, e.message]));
+  if (ex.length) blocks.push({ p: 'Examples to correct', bold: true }, { table: { headers: ['Area', 'Kind', 'Text', 'Suggestion'], rows: ex } });
+  blocks.push({ p: lg.method, italics: true });
+  return blocks;
+}
+
+/** Section 9: author identity from the ORCID registry */
 function authorIdentityBlocks(ai) {
-  const blocks = [{ h2: '8. Author identity (ORCID)' }];
+  const blocks = [{ h2: '9. Author identity (ORCID)' }];
   if (!ai || ai.error) return [...blocks, { p: ai?.error || 'Not checked.' }];
   const s = ai.summary;
   blocks.push({ kv: [['Authors', String(s.authors)], ['Identified in ORCID', `${s.verified} (${s.fromManuscript} from iDs in the manuscript)`], ['ORCID iDs in the manuscript', String(s.idsInManuscript)], ['Problems', String(s.flags)]] });
@@ -842,6 +859,7 @@ function screeningBlocks(r, version = 'editor') {
     // the complete Module 5 report (loaded by the export route as r.images.report), else its summary
     if (r.images?.report) blocks.push(...imagesBlocks(r.images.report, { section: 5 }));
     else blocks.push({ h2: '5. Image integrity' }, { p: r.images ? `Image risk ${r.images.summary.level}: ${r.images.summary.findings} finding(s) in ${r.images.summary.panels} panels${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0) ? `, ${(r.images.summary.references || 0) + (r.images.summary.referenceCharts || 0)} figure(s) matching published PJPS / retracted-paper figures` : ''}.` : r.imagesNote || 'Not checked — upload the Word / PDF manuscript (or attach a Module 5 report) to analyse its figures.' });
+    if (r.language) blocks.push(...languageBlocks(r.language));
     if (r.plagiarism) blocks.push(...plagiarismBlocks(r.plagiarism));
     if (r.novelty) blocks.push(...noveltyBlocks(r.novelty));
     if (r.authorIdentity) blocks.push(...authorIdentityBlocks(r.authorIdentity));
@@ -850,7 +868,7 @@ function screeningBlocks(r, version = 'editor') {
 }
 
 module.exports = {
-  complianceBlocks, citationsBlocks, papermillBlocks, papermillCoverage, imagesBlocks, screeningBlocks, plagiarismBlocks, similarityReportBlocks, noveltyBlocks, authorIdentityBlocks,
+  complianceBlocks, citationsBlocks, papermillBlocks, papermillCoverage, imagesBlocks, screeningBlocks, plagiarismBlocks, similarityReportBlocks, noveltyBlocks, authorIdentityBlocks, languageBlocks,
   buildDocx, decisionSummaryBlocks, referenceQualityBlocks, letterBlocks, issueReportBlocks, reviewersBlocks, referenceReportBlocks, revisionBlocks,
   verifyBlocks, evidenceBlocks, assistantBlocks, journalFinderBlocks, conferenceBlocks, restyleBlocks, formatBlocks, authorBlocks
 };

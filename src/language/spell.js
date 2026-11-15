@@ -55,8 +55,14 @@ const PREFIXES = ['anti', 'bio', 'cyto', 'hepato', 'nephro', 'neuro', 'cardio', 
 const CHEM_SUFFIX = /(?:ine|ide|ate|ite|ase|ose|ol|one|ene|yne|ane|yl|oid|in|an|mab|nib|vir|pril|sartan|olol|statin|azole|mycin|cillin|cycline|floxacin|dipine|tidine|prazole|gliptin|gliflozin|parin|xaban|lukast|setron|triptan|afil)s?$/i;
 
 /** Words that are not spelling mistakes even if no dictionary has them */
+// units, laboratory products and instruments written in their own case (MPa, KBr, mmol, TRIzol, UV-Vis, Q-TOF)
+const UNITS = new Set('mol mmol nmol pmol fmol umol µmol mosm mosmol meq mmhg kpa mpa gpa hpa kda mda rpm ppm ppb ppt khz mhz ghz mev kev kbr kcl nacl trizol qtof vis uv-vis lux kcal kj mj'.split(' '));
+
 function exempt(word, ctx = {}) {
   if (word.length < 3) return true;
+  if (UNITS.has(word.toLowerCase())) return true;
+  if (/^[A-Z]{2,}[a-z]{1,2}$/.test(word)) return true;              // MPa, KBr, QTof
+  if (/^[A-Z][a-z]{1,4}-[A-Z][a-z]{1,4}$/.test(word)) return true;  // hyphenated given names: Yu-Jie, Dong-Mei
   if (/\d/.test(word)) return true;                                // compound codes, genes, units with numbers
   if (/^[A-Z0-9-]+s?$/.test(word)) return true;                    // acronyms: HPLC, NSAIDs, COX-2
   if (/[a-z][A-Z]/.test(word)) return true;                        // mixed case: mRNA, pH, iPhone, NaCl
@@ -89,6 +95,9 @@ function correctAny(sp, w) {
 /** Is the word spelled correctly for this variant? personal: Set of the user's own dictionary (lower case) */
 function check(word, { variant = 'en-US', personal = null, ctx = {} } = {}) {
   if (personal && personal.has(word.toLowerCase())) return true;
+  // a known misspelling is wrong even when its parts are words ("prevalance" = pre + valance)
+  const t = TYPOS[word.toLowerCase()];
+  if (t && t !== word.toLowerCase() && word.length >= 3 && !/\d/.test(word)) return false;
   if (exempt(word, ctx)) return true;
   const sp = load(variant);
   if (sp.correct(word) || sp.correct(word.toLowerCase())) return true;
@@ -111,6 +120,9 @@ function otherVariant(word, variant) {
 // Frequent typing slips with an obvious answer, ranked ahead of computed suggestions
 const TYPOS = {
   teh: 'the', adn: 'and', hte: 'the', taht: 'that', thier: 'their', recieve: 'receive', recieved: 'received', beleive: 'believe', occured: 'occurred',
+  resistence: 'resistance', hypertention: 'hypertension', absense: 'absence', consistant: 'consistent', prevalance: 'prevalence', persistant: 'persistent',
+  medecine: 'medicine', concentraion: 'concentration', signifcant: 'significant', statisticaly: 'statistically',
+  diabetis: 'diabetes', antioxident: 'antioxidant', phosphorilation: 'phosphorylation', monocional: 'monoclonal', recommandations: 'recommendations',
   occurence: 'occurrence', seperate: 'separate', seperately: 'separately', definately: 'definitely', accomodate: 'accommodate', acheive: 'achieve',
   acheived: 'achieved', untill: 'until', wich: 'which', whcih: 'which', becuase: 'because', becasue: 'because', alot: 'a lot', goverment: 'government',
   enviroment: 'environment', existance: 'existence', independant: 'independent', neccessary: 'necessary', necesary: 'necessary', occassion: 'occasion',

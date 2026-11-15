@@ -35,7 +35,7 @@ const STEPS = [
     '“Ali et al., 2020” is cited but not in the list; “Iqbal et al., 2020” and others are checked in both directions. Add a source PDF for claim support, then prepare the author letter.'
   ] },
   { module: 'manuscript', path: '/manuscript', title: 'Full Screening Report', items: [
-    'Upload the demonstration manuscript once: front-page summary of all five modules and the desk-review recommendation; export the editor and the author versions.'
+    'Upload the demonstration manuscript once: front-page summary of all six modules and the desk-review recommendation; export the editor and the author versions.'
   ] }
 ];
 

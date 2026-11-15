@@ -35,7 +35,9 @@ async function checkParagraphs(paragraphs, opts = {}) {
   const own = paragraphs.map(p => R.checkParagraph(p, opts.goals, { variant, personal, docWords, disabled: opts.disabled }));
   const lt = await LT.check(paragraphs, variant);
   // LanguageTool's spelling knows no pharmacology: keep its spelling notes only where ours agrees, or its word is not exempt
-  const ltKept = lt ? lt.map(list => list.filter(i => !i.spelling || !S.check(i.text, { variant, personal, ctx: { midSentence: true, repeated: (docWords.get(i.text.toLowerCase()) || 0) >= 3 } }))) : null;
+  const ours = w => S.check(w, { variant, personal, ctx: { midSentence: true, repeated: (docWords.get(w.toLowerCase()) || 0) >= 3 } });
+  // a phrase ("Kamel et" before "al.") is kept only when one of its words is wrong for us too
+  const ltKept = lt ? lt.map(list => list.filter(i => !i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w)))) : null;
   let ai = paragraphs.map(() => []), aiError = null;
   if (opts.ai && AI.enabled()) {
     try {

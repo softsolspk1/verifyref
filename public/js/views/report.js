@@ -63,6 +63,7 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
   if (result.plagiarism) tabs.push(['plagiarism', 'Similarity report', pend(result.plagiarism) ? '…' : result.plagiarism.error ? null : `${Math.round(result.plagiarism.summary.similarity)}%`]);
   if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', pend(result.novelty) ? '…' : result.novelty.error ? null : result.novelty.summary.score]);
   if (result.authorIdentity) tabs.push(['authors', 'Authors (ORCID)', pend(result.authorIdentity) ? '…' : result.authorIdentity.error ? null : `${result.authorIdentity.summary.verified}/${result.authorIdentity.summary.authors}`]);
+  if (result.language) tabs.push(['language', 'PJPS Scribe', pend(result.language) ? '…' : result.language.error ? null : result.language.summary.score]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
 
   el.innerHTML = `
@@ -87,7 +88,7 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
         <button class="btn btn-sm" onclick="window.print()">${ICONS.print} Print / PDF</button>
       </div>
     </div>
-    ${result.preview ? `<div class="alert alert-info no-print"><b>Provisional report — still running: ${esc(result.preview.pending.join(', '))}.</b> Modules 1 to 5 are complete and can be read now. The remaining section(s) and the final recommendation fill in automatically in a few minutes — keep this page open. Export, the editor letters and the decision are available when the report is complete.</div>` : ''}
+    ${result.preview ? `<div class="alert alert-info no-print"><b>Provisional report — still running: ${esc(result.preview.pending.join(', '))}.</b> The other modules are complete and can be read now. The remaining section(s) and the final recommendation fill in automatically in a few minutes — keep this page open. Export, the editor letters and the decision are available when the report is complete.</div>` : ''}
     ${datasetBanner(result)}
     ${result.noReferenceList ? `<div class="alert alert-warn">${esc(result.noReferenceList)}</div>` : ''}
     ${result.changes ? changesBanner(result.changes) : ''}
@@ -116,10 +117,11 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
     else if (k === 'journals') journalsTab(body, result.journals);
     else if (k === 'pattern') patternTab(body, result.pattern, refs);
     else if (k === 'editor') editorTab(body, result);
-    else if (['plagiarism', 'novelty', 'authors'].includes(k) && pend({ plagiarism: result.plagiarism, novelty: result.novelty, authors: result.authorIdentity }[k])) body.innerHTML = `<div class="card"><h3>${esc(tabs.find(t => t[0] === k)[1])}</h3><p class="muted">Still running. This section fills in automatically when it is finished — keep this page open.</p></div>`;
+    else if (['plagiarism', 'novelty', 'authors', 'language'].includes(k) && pend({ plagiarism: result.plagiarism, novelty: result.novelty, authors: result.authorIdentity, language: result.language }[k])) body.innerHTML = `<div class="card"><h3>${esc(tabs.find(t => t[0] === k)[1])}</h3><p class="muted">Still running. This section fills in automatically when it is finished — keep this page open.</p></div>`;
     else if (k === 'plagiarism') plagiarismTab(body, result.plagiarism, id);
     else if (k === 'novelty') noveltyTab(body, result.novelty);
     else if (k === 'authors') authorsTab(body, result.authorIdentity);
+    else if (k === 'language') languageTab(body, result.language);
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
   $$('.kpi.clickable', el).forEach(k => (k.onclick = () => { show('references'); const f = $(`.filter[data-f="${k.dataset.f}"]`, el); if (f) f.click(); }));
@@ -192,9 +194,10 @@ function summaryTab(body, r) {
       ${sc.lines.selfPjps ? row(3, 'Self-citation &amp; PJPS citations', sc.lines.selfPjps, selfPjpsTone(r.pattern)) : ''}
       ${hasModule('papermill') ? row(4, 'Paper mill risk', sc.lines.papermill, !pm ? '' : pm.level === 'HIGH' ? 'bad' : pm.level === 'MEDIUM' ? 'warn' : 'good') : ''}
       ${hasModule('images') ? row(5, 'Image integrity', sc.lines.images, !im ? '' : im.level === 'HIGH' ? 'bad' : im.level === 'MEDIUM' ? 'warn' : 'good') : ''}
-      ${r.plagiarism ? row(6, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error || r.plagiarism.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
-      ${r.novelty ? row(7, 'Novelty &amp; citation outlook', r.novelty.error || sc.lines.novelty || '', r.novelty.error || r.novelty.pending ? '' : r.novelty.summary.band === 'low' ? 'warn' : 'good') : ''}
-      ${r.authorIdentity ? row(8, 'Author identity (ORCID)', r.authorIdentity.error || sc.lines.authors || '', r.authorIdentity.error || r.authorIdentity.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.authorIdentity.summary.level]) : ''}
+      ${r.language ? row(6, 'PJPS Scribe (language)', r.language.error || sc.lines.language || '', r.language.error || r.language.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.language.summary.level]) : ''}
+      ${r.plagiarism ? row(7, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error || r.plagiarism.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
+      ${r.novelty ? row(8, 'Novelty &amp; citation outlook', r.novelty.error || sc.lines.novelty || '', r.novelty.error || r.novelty.pending ? '' : r.novelty.summary.band === 'low' ? 'warn' : 'good') : ''}
+      ${r.authorIdentity ? row(9, 'Author identity (ORCID)', r.authorIdentity.error || sc.lines.authors || '', r.authorIdentity.error || r.authorIdentity.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.authorIdentity.summary.level]) : ''}
     </table>
     <p class="muted" style="margin:10px 0 0">Author version: Modules 1–3 only, after your approval. Editor version: all modules. Claim support (does each source support its claim?) is checked in Module 3.</p></div>
     ${r.indicators?.flags?.length ? `<div class="card"><h3>Bibliography indicators</h3>${r.indicators.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.message)}</div></div>`).join('')}</div>` : ''}
@@ -329,6 +332,28 @@ function authorsTab(body, ai) {
         <td class="num">${a.record ? `${Math.max(a.record.works, a.openalex?.works || 0)}${a.openalex?.hIndex != null ? `<div class="muted">h-index ${a.openalex.hIndex}</div>` : ''}` : '—'}</td>
         <td>${a.record ? `${a.claimsThisWork ? badge('this manuscript in record', 'good') + ' ' : ''}${a.field?.relatedWorks ? `${a.field.relatedWorks} related work(s)` : ''}${a.field?.topicMatch ? ' · topic match' : ''}${a.field?.examples?.length ? `<div class="muted">${esc(a.field.examples[0])}</div>` : ''}` : '—'}${a.flags.length ? a.flags.map(f => `<div class="flag ${f.severity}" style="margin-top:4px"><div class="msg">${esc(f.text)}</div></div>`).join('') : ''}</td></tr>`).join('')}
     </table><p class="muted" style="margin-top:10px">${esc(ai.method)}</p></div>`;
+}
+
+// Module 6 PJPS Scribe in the Full Screening: the language review of the whole manuscript, and its copy to correct
+const LANG_AREAS = [['correctness', 'Correctness', 'spelling, grammar, punctuation'], ['clarity', 'Clarity', 'wordy and hard-to-read sentences'], ['engagement', 'Engagement', 'passive voice, repetition'], ['delivery', 'Delivery', 'tone, overstated claims'], ['style', 'Academic style', 'abbreviations, citations, Methods tense, P values']];
+function languageTab(body, lg) {
+  if (lg.error) { body.innerHTML = `<div class="card"><h3>PJPS Scribe (language)</h3><p class="muted">${esc(lg.error)}</p></div>`; return; }
+  const s = lg.summary;
+  const open = lg.docId && hasModule('language') ? `<a class="btn btn-primary btn-sm" href="#/language/${lg.docId}">Open the manuscript in PJPS Scribe to correct it</a>` : '';
+  body.innerHTML = `
+    <div class="risk-banner risk-${{ ok: 'low', warn: 'medium', bad: 'high' }[s.level]}"><div class="risk-level">${s.score}</div><div><b>Language score ${s.score}/100 — ${s.level === 'ok' ? 'ready for review' : s.level === 'warn' ? 'some language editing advised' : 'language editing needed before review'}</b>
+      <div class="muted">${s.total} suggestion(s) in ${Number(s.words).toLocaleString()} words, ${s.variant === 'en-GB' ? 'British' : 'American'} English as the manuscript is written: ${s.spelling} misspelt word(s), ${s.grammar} grammar / punctuation problem(s).</div></div></div>
+    ${open ? `<div class="row no-print" style="margin:8px 0 12px">${open}</div>` : ''}
+    <div class="kpis">${LANG_AREAS.map(([k, l, d]) => `<div class="kpi ${!s.byArea[k] ? 'good' : /work|attention/i.test(lg.areas?.[k] || '') ? 'warn' : ''}" title="${esc(d)}"><div class="n">${s.byArea[k] || 0}</div><div class="l">${esc(l)} · ${esc(lg.areas?.[k] || '')}</div></div>`).join('')}
+      <div class="kpi"><div class="n">${s.flesch ?? '—'}</div><div class="l">Readability (Flesch)</div></div></div>
+    ${lg.spelling?.length ? `<div class="card"><h3>Misspelt words (${s.spelling})</h3><table class="t"><tr><th>Word</th><th class="num">Times</th><th>Suggested</th><th>In the sentence</th></tr>
+      ${lg.spelling.map(w => `<tr><td><b>${esc(w.word)}</b></td><td class="num">${w.count}</td><td>${esc((w.suggestions || []).join(', ') || '—')}</td><td class="muted">${esc(w.context || '')}</td></tr>`).join('')}</table></div>` : '<div class="alert alert-good">No misspelt words: medical, pharmaceutical and statistical terms are checked against the PJPS research vocabulary.</div>'}
+    ${LANG_AREAS.filter(([k]) => lg.examples?.[k]?.length).map(([k, l]) => `<div class="card"><h3>${esc(l)}: examples (${s.byArea[k]})</h3><table class="t"><tr><th>Kind</th><th>Text</th><th>Suggestion</th></tr>
+      ${lg.examples[k].map(e => `<tr><td><b>${esc(e.title)}</b>${e.count > 1 ? ` <span class="muted">×${e.count}</span>` : ''}${e.engine === 'languagetool' ? ' ' + badge('grammar server', 'neutral') : ''}</td>
+        <td>${e.replacement != null ? `<span class="diff-old">${esc(e.text)}</span> → <span class="diff-new">${esc(e.replacement || '(remove)')}</span>` : esc(e.text)}${e.context && e.context !== e.text ? `<div class="muted" style="font-size:12px">${esc(e.context)}</div>` : ''}</td>
+        <td class="muted">${esc(e.message)}</td></tr>`).join('')}</table></div>`).join('')}
+    ${lg.structure?.missing?.length ? `<div class="card"><h3>Manuscript structure</h3><p>Sections not found: ${esc(lg.structure.missing.join(', '))}</p></div>` : ''}
+    <div class="card"><h3>Method</h3><p class="muted" style="margin:0">${esc(lg.method)}</p></div>`;
 }
 
 function styleTab(body, cp) {

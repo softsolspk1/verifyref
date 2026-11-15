@@ -127,6 +127,25 @@ References
   r = await call('DELETE', `/api/language/docs/${id}`);
   assert.ok(r.data.success, 'document deleted');
 
+  // Full Screening (Module 6 in the report): the whole manuscript as it comes out of a Word / PDF file
+  const SC = require('../src/language/screen');
+  const manuscript = ['Effect of metformin on hypertention in diabetic rats', 'Abstract',
+    'Hypertension is common in patients with diabetes and its prevalance is rising worldwide (Kamel et al., 2020; Azim, 2019).',
+    'Methods', 'Wistar rats received metformin (200 mg/kg) and the absense of adverse effects was recorded at 4 °C in a cool, dry place.',
+    'The tumor size was', 'characterized by the analysts in all groups.', 'Days', 'uncertain', 'A549 cells were exposed to 5 mmol of KBr at 10 MPa.',
+    ...Array(30).fill('The treated group showed lower blood pressure than the control group, and the results were analyzed with one-way ANOVA followed by the Tukey test.'),
+    'References', '1. Kamel A, Hassan B (2020). Metformin in hypertension. Pak. J. Pharm. Sci., 33(1): 1-5.'].join('\n');
+  const sc = await SC.screenLanguage(manuscript, { save: false });
+  const miss = sc.spelling.map(w => w.word.toLowerCase());
+  assert.strictEqual(sc.summary.variant, 'en-US', 'American spelling detected');
+  for (const w of ['hypertention', 'prevalance', 'absense']) assert.ok(miss.includes(w), `screening finds "${w}"`);
+  for (const w of ['kamel', 'azim', 'mmol', 'kbr', 'mpa', 'wistar', 'metformin', 'hassan']) assert.ok(!miss.includes(w), `screening accepts "${w}"`);
+  const all = Object.values(sc.examples).flat();
+  assert.ok(!all.some(e => /^(?:Days|uncertain|was)$/.test(e.text) && /capital|punctuation/i.test(e.title)), 'table cells and PDF line breaks are not sentence errors');
+  assert.ok(!all.some(e => e.text === 'cool'), '"cool" (temperature) is not informal');
+  assert.ok(sc.summary.score > 0 && sc.summary.score <= 100 && sc.method, 'score and method');
+  assert.ok(SC.reflow('a sentence that\ncontinues here.') === 'a sentence that continues here.', 'PDF lines joined');
+
   console.log('language: all checks passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

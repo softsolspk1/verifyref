@@ -18,7 +18,7 @@ async function request(text, variant) {
   if (process.env.LANGUAGETOOL_USER) body.set('username', process.env.LANGUAGETOOL_USER);
   if (process.env.LANGUAGETOOL_KEY) body.set('apiKey', process.env.LANGUAGETOOL_KEY);
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 12000);
+  const t = setTimeout(() => ctl.abort(), 20000);
   try {
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' };
     // our own server sits behind a gatekeeper (scripts/setup-languagetool-server.sh) that only lets this token through
@@ -34,9 +34,7 @@ async function check(paragraphs, variant) {
   if (!enabled() || !paragraphs.length) return null;
   const out = paragraphs.map(() => []);
   const SEP = '\n\n';
-  let batch = [], size = 0;
-  const flush = async () => {
-    if (!batch.length) return;
+  const run = async batch => {
     const text = batch.map(b => paragraphs[b]).join(SEP);
     const starts = [];
     let pos = 0;
@@ -53,14 +51,18 @@ async function check(paragraphs, variant) {
         replacements: (m.replacements || []).slice(0, 4).map(r => r.value), spelling: m.rule?.issueType === 'misspelling', engine: 'languagetool'
       });
     }
-    batch = []; size = 0;
   };
   try {
+    const batches = [];
+    let batch = [], size = 0;
     for (let i = 0; i < paragraphs.length; i++) {
-      if (size + paragraphs[i].length > 18000) await flush();
+      if (batch.length && size + paragraphs[i].length > 18000) { batches.push(batch); batch = []; size = 0; }
       batch.push(i); size += paragraphs[i].length + 2;
     }
-    await flush();
+    if (batch.length) batches.push(batch);
+    // a whole manuscript (Full Screening): three requests at a time, so 60,000 characters take one request's time
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(3, batches.length) }, async () => { while (next < batches.length) await run(batches[next++]); }));
     return out;
   } catch (e) {
     console.warn(`[languagetool] ${e.message}`);

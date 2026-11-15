@@ -9,8 +9,8 @@ const MODULES = [
   { key: 'papermill', label: 'Module 4 — Paper Mill Detection (integrity screening, risk score, peer review, cases)', group: 'PJPS modules', editor: true },
   { key: 'images', label: 'Module 5 — Image Integrity Detection', group: 'PJPS modules', editor: true },
   { key: 'language', label: 'Module 6 — PJPS Scribe (medical and pharmaceutical language editing: grammar, clarity, tone, AI rewrites, research writing checks)', group: 'PJPS modules' },
-  { key: 'manuscript', label: 'Screen a submission with all 5 modules at once (Full Screening Report)', group: 'Across the 5 modules', editor: true },
-  { key: 'reports', label: 'Editor letters & decision summary (Modules 1-3 author version, revisions)', group: 'Across the 5 modules', editor: true }
+  { key: 'manuscript', label: 'Screen a submission with all 6 modules at once (Full Screening Report)', group: 'Across the 6 modules', editor: true },
+  { key: 'reports', label: 'Editor letters & decision summary (Modules 1-3 author version, revisions)', group: 'Across the 6 modules', editor: true }
 ];
 
 // Switched off for PJPS (code kept; can be re-enabled by moving an entry back into MODULES)

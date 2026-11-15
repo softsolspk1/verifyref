@@ -5,7 +5,7 @@ import { renderReport } from './report.js';
 const MODES = {
   manuscript: {
     title: 'Full Screening Report',
-    intro: 'One upload runs the PJPS modules: Check Bibliography (every reference searched in all databases: Crossref, PubMed, Europe PMC, OpenAlex, Semantic Scholar, CORE, Google Books and more, plus Google Scholar and Google when set up; retractions, quality indicators), PJPS style compliance, Citations (list matching and citation pattern) and Paper Mill Detection — and Module 5 Image Integrity on the figures of the uploaded Word / PDF file (analysed in your browser). The front page gives a summary per module and a desk-review recommendation; an author version (Modules 1–3) can be sent after your approval. Claim support is checked in Module 3.',
+    intro: 'One upload runs the PJPS modules: Check Bibliography (every reference searched in all databases: Crossref, PubMed, Europe PMC, OpenAlex, Semantic Scholar, CORE, Google Books and more, plus Google Scholar and Google when set up; retractions, quality indicators), PJPS style compliance, Citations (list matching and citation pattern) and Paper Mill Detection, Module 5 Image Integrity on the figures of the uploaded Word / PDF file (analysed in your browser) and Module 6 PJPS Scribe, the language review of the whole text (spelling with the medical and pharmaceutical research vocabulary, grammar, clarity and academic style). The front page gives a summary per module and a desk-review recommendation; an author version (Modules 1–3) can be sent after your approval. Claim support is checked in Module 3.',
     needsBody: true, meta: true, screening: true
   },
   references: {
@@ -230,7 +230,7 @@ export function renderCheckForm(view, kind) {
           await api(`/api/jobs/${jobId}/images`, { body: attach }).catch(() => {});
         })();
       }
-      // Full Screening: Modules 1-5 are shown as soon as they are ready (provisional), the similarity report, novelty and
+      // Full Screening: Modules 1-6 are shown as soon as they are ready (provisional), the similarity report, novelty and
       // author identity fill in when they finish; the final report keeps the tab and place the editor is reading
       const out = $('#result', view);
       let shown = false;

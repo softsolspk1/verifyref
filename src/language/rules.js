@@ -249,7 +249,7 @@ const WEAK = {
   'very often': ['frequently'], 'very carefully': ['meticulously'], 'really important': ['crucial', 'essential'], 'really good': ['excellent'], 'quite large': ['sizeable'],
   'quite small': ['modest'], 'pretty good': ['decent', 'solid'], 'a lot of': ['many', 'much', 'considerable'], 'lots of': ['many', 'much'], 'a bit': ['slightly', 'somewhat']
 };
-const BLAND = { good: ['favourable', 'effective', 'sound'], bad: ['poor', 'adverse', 'harmful'], nice: ['pleasant', 'favourable'], big: ['large', 'major', 'substantial'], thing: ['factor', 'aspect', 'element'], things: ['factors', 'aspects', 'elements'], stuff: ['material', 'items'], got: ['obtained', 'received'], get: ['obtain', 'receive'], gets: ['obtains', 'receives'], };
+const BLAND = { good: ['effective', 'sound', 'positive'], bad: ['poor', 'adverse', 'harmful'], nice: ['pleasant', 'positive'], big: ['large', 'major', 'substantial'], thing: ['factor', 'aspect', 'element'], things: ['factors', 'aspects', 'elements'], stuff: ['material', 'items'], got: ['obtained', 'received'], get: ['obtain', 'receive'], gets: ['obtains', 'receives'], };
 const FILLER = /\b(basically|actually|literally|totally|really|just|simply|truly|definitely|certainly|obviously|clearly|essentially|virtually)\b/gi;
 
 // Synonyms for words academic writers repeat often
@@ -259,7 +259,7 @@ const THESAURUS = {
   showed: ['demonstrated', 'revealed', 'indicated'], shows: ['demonstrates', 'reveals', 'indicates'], use: ['application', 'employ'], used: ['employed', 'applied'], study: ['investigation', 'research', 'work'],
   effect: ['impact', 'influence', 'action'], effects: ['impacts', 'influences', 'actions'], result: ['finding', 'outcome'], results: ['findings', 'outcomes', 'data'], high: ['elevated', 'considerable'],
   different: ['distinct', 'diverse', 'various'], various: ['several', 'diverse', 'numerous'], also: ['additionally', 'likewise'], however: ['nevertheless', 'yet', 'still'],
-  good: ['favourable', 'sound', 'effective'], new: ['novel', 'recent'], main: ['principal', 'primary', 'chief'], help: ['assist', 'aid', 'support'], need: ['requirement', 'necessity'],
+  good: ['sound', 'effective', 'beneficial'], new: ['novel', 'recent'], main: ['principal', 'primary', 'chief'], help: ['assist', 'aid', 'support'], need: ['requirement', 'necessity'],
   potential: ['possible', 'prospective'], activity: ['action', 'effect', 'efficacy'], observed: ['noted', 'seen', 'recorded'], found: ['identified', 'detected', 'observed'],
   role: ['function', 'part'], level: ['concentration', 'amount'], levels: ['concentrations', 'amounts'], method: ['technique', 'procedure', 'approach'], methods: ['techniques', 'procedures', 'approaches'],
   determine: ['establish', 'ascertain', 'assess'], evaluate: ['assess', 'examine', 'appraise'], obtained: ['acquired', 'gained', 'derived'], present: ['current', 'this'], suggest: ['indicate', 'imply'],
@@ -332,7 +332,7 @@ const CONTRACTIONS = {
 };
 const INFORMAL = {
   gonna: ['going to'], wanna: ['want to'], gotta: ['have to'], kinda: ['somewhat'], sorta: ['somewhat'], okay: ['acceptable'], ok: ['acceptable'], kids: ['children'],
-  awesome: ['excellent', 'impressive'], cool: ['good', 'impressive'], huge: ['substantial', 'major'], tons: ['a great deal'], 'a ton of': ['many'], 'pretty much': ['almost'],
+  awesome: ['excellent', 'impressive'], huge: ['substantial', 'major'], tons: ['a great deal'], 'a ton of': ['many'], 'pretty much': ['almost'],
   anyways: ['anyway'], guy: ['person', 'man'], guys: ['people', 'everyone'], stuff: ['material', 'items'], 'figure out': ['determine'], 'find out': ['discover', 'determine'],
   'look into': ['investigate', 'examine'], 'come up with': ['develop', 'devise'], 'get rid of': ['remove', 'eliminate'], 'go up': ['increase', 'rise'], 'went up': ['increased', 'rose'],
   'go down': ['decrease', 'fall'], 'went down': ['decreased', 'fell'], 'set up': ['establish'], 'cut down on': ['reduce'], 'deal with': ['address', 'handle'], 'big deal': ['major issue'],
@@ -404,6 +404,10 @@ function spelling(p, opts) {
     const repeated = (opts.docWords?.get(x.w.toLowerCase()) || 0) >= 3;
     // joined to a dot, slash or @ without a space: a web address, e-mail or file name ("pjps.pk", "report.pdf")
     const address = /[./@]\w/.test(p.slice(x.end, x.end + 2)) || /\w[./@]/.test(p.slice(Math.max(0, x.start - 2), x.start));
+    // an author's name in a citation: "Prihantono et al.", "(Azim, 2019)", "Kamel and Hassan"
+    const after = p.slice(x.end, x.end + 16);
+    const name = /^[A-Z]/.test(x.w) && (/^\s+et\.?\s+al\b/.test(after) || /^,?\s+(?:19|20)\d\d\b/.test(after) || /^\s+(?:and|&)\s+[A-Z][a-z]+\s*(?:[,(]|\s(?:19|20)\d\d|$)/.test(after));
+    if (name) continue;
     if (S.check(x.w, { variant: opts.variant, personal: opts.personal, ctx: { midSentence, repeated, address } })) continue;
     const variantWord = S.otherVariant(x.w, opts.variant);
     const reps = S.suggest(x.w, opts.variant);

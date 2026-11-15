@@ -1,4 +1,4 @@
-# PJPS Scribe research words used by at least 20 % of research articles, built 2026-11-14 by scripts/build-research-lexicon.js from 64921 published papers (PJPS articles and PubMed Central open access) and the FDA Orange Book drug names. One word per line.
+# PJPS Scribe research words used by at least 20 % of research articles, built 2026-11-15 by scripts/build-research-lexicon.js from 64921 published papers (PJPS articles and PubMed Central open access), the FDA Orange Book drug names and the NLM Medical Subject Headings (MeSH). One word per line.
 abbreviation
 abbreviations
 ability

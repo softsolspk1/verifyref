@@ -4,7 +4,7 @@ const { sentences, words, stats } = require('./text');
 
 const KNOWN_ABBR = new Set(['DNA', 'RNA', 'mRNA', 'HIV', 'AIDS', 'USA', 'UK', 'EU', 'UN', 'WHO', 'FDA', 'NIH', 'ANOVA', 'SD', 'SEM', 'SE', 'CI', 'OR', 'HR', 'RR', 'ID', 'PhD',
   'MSc', 'BSc', 'MD', 'IV', 'II', 'III', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII', 'UV', 'IR', 'NMR', 'PCR', 'ATP', 'ADP', 'AM', 'PM', 'BC', 'AD', 'CEO', 'IT', 'TV', 'GPS', 'pH',
-  'COVID', 'SARS', 'ICU', 'BMI', 'ISBN', 'ISSN', 'DOI', 'URL', 'PDF', 'NA', 'NS', 'ND', 'OK', 'IQ', 'GDP', 'NGO', 'UNICEF', 'UNESCO', 'NASA', 'USD', 'PKR', 'IUPAC', 'SI']);
+  'COVID', 'SARS', 'ICU', 'BMI', 'ISBN', 'ISSN', 'DOI', 'URL', 'PDF', 'NA', 'NS', 'ND', 'OK', 'IQ', 'GDP', 'NGO', 'UNICEF', 'UNESCO', 'NASA', 'USD', 'PKR', 'IUPAC', 'SI', 'PJPS']);
 
 function abbreviations(text) {
   const out = [];
@@ -29,6 +29,7 @@ function abbreviations(text) {
     const def = defined.get(a);
     if (def === undefined) {
       if ((text.match(new RegExp(`\\b${a}s?\\b`, 'g')) || []).length < 2) continue; // used once: perhaps a name, not flagged
+      if (/\d/.test(a)) continue; // cell lines, genes and compound codes (A549, PD-1, TMPAD-2): names, not abbreviations to spell out
       out.push({ rule: 'abbr-undefined', category: 'style', title: 'Abbreviation not defined', offset: m.index, length: a.length, text: a,
         message: `"${a}" is never spelled out. Give the full term at first use, followed by the abbreviation in brackets.`, replacements: [] });
     } else if (def > m.index) {

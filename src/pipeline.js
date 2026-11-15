@@ -290,9 +290,12 @@ async function textModules({ input, body, refs, meta, update, stage, deadline, a
     .catch(e => ({ kind: 'novelty', error: `The novelty assessment could not be completed: ${e.message}` })));
   const authors = stage('authors', () => require('./checks/authorIdentity').checkAuthorIdentity({ text, meta })
     .catch(e => ({ kind: 'authors', error: `The author identity check could not be completed: ${e.message}` })));
+  // Module 6 PJPS Scribe: the language review of the whole text (in-house rules and our grammar server; no paid AI)
+  const language = stage('language', () => require('./language/screen').screenLanguage(text, { userId: input.userId || null, title: meta.manuscriptCode ? `${meta.manuscriptCode} ${meta.title || ''}`.trim() : meta.title, save: input.saveMode !== 'counts' })
+    .catch(e => ({ kind: 'language', error: `The language review could not be completed: ${e.message}` })));
   const done = key => v => { onPart(key, v); return v; };
-  const [plagiarism, novelty_, authorIdentity] = await Promise.all([similarity.then(done('plagiarism')), novelty.then(done('novelty')), authors.then(done('authorIdentity'))]);
-  return { plagiarism, novelty: novelty_, authorIdentity };
+  const [plagiarism, novelty_, authorIdentity, language_] = await Promise.all([similarity.then(done('plagiarism')), novelty.then(done('novelty')), authors.then(done('authorIdentity')), language.then(done('language'))]);
+  return { plagiarism, novelty: novelty_, authorIdentity, language: language_ };
 }
 
 /**
@@ -349,6 +352,7 @@ function screeningSummary(r) {
   const pl = r.plagiarism && !r.plagiarism.error && !r.plagiarism.pending ? r.plagiarism.summary : null;
   const nv = r.novelty && !r.novelty.error && !r.novelty.pending ? r.novelty.summary : null;
   const ai = r.authorIdentity && !r.authorIdentity.error && !r.authorIdentity.pending ? r.authorIdentity : null;
+  const lg = r.language && !r.language.error && !r.language.pending ? r.language.summary : null;
   const reasons = [];
   let rec = 'proceed';
   const escalate = (level, why) => { reasons.push(why); if (level === 'investigate' || (level === 'return' && rec === 'proceed')) rec = level; };
@@ -374,6 +378,8 @@ function screeningSummary(r) {
   const aiHigh = ai ? ai.flags.filter(f => f.severity === 'high') : [];
   if (aiHigh.length) escalate('return', `Author identity: ${aiHigh.slice(0, 2).map(f => f.text).join('; ')}`);
   if (r.noReferenceList) escalate('return', 'No reference list was found in the document');
+  // the language alone never stops a manuscript; a text that needs much editing goes back before review
+  if (lg && lg.score < 70) escalate('return', `PJPS Scribe: language score ${lg.score}/100 — ${lg.spelling} misspelt word(s), ${lg.grammar} grammar / punctuation problem(s); language editing needed before review`);
   const label = { proceed: 'Proceed to peer review', return: 'Return to the authors for corrections', investigate: 'Investigate before any further processing' }[rec];
   return {
     recommendation: rec, recommendationLabel: label, reasons,
@@ -388,13 +394,14 @@ function screeningSummary(r) {
         : `${pl.similarity}% overlap with ${pl.sources} published source(s)`) : 'not checked',
       novelty: nv ? `Novelty ${nv.score}/100 (${nv.band}); ${nv.closeRecent} close work(s) in the last 5 years; 5-year citation outlook ${nv.outlook}${Number.isFinite(nv.fiveYearMedian) ? ` (median ${nv.fiveYearMedian})` : ''}` : 'not assessed',
       authors: ai ? `${ai.summary.verified} of ${ai.summary.authors} author(s) identified in ORCID${ai.summary.flags ? `; ${ai.summary.flags} problem(s)` : ''}` : 'not checked',
+      language: lg ? `Language score ${lg.score}/100 (${lg.variant === 'en-GB' ? 'British' : 'American'} English); ${lg.total} suggestion(s): ${lg.spelling} misspelt word(s), ${lg.grammar} grammar / punctuation, ${lg.byArea.clarity} clarity, ${lg.byArea.style} academic style` : r.language?.error || 'not checked',
       published: pv ? `Already published on the PJPS website (${pv.where || 'Article in Press'}): “${pv.title}”${pv.doi ? `, DOI ${pv.doi}` : ''}${pv.percent != null ? `; ${pv.percent}% of the text matches it` : ''}${ownFigs ? `; ${ownFigs} figure panel(s) are its published figures` : ''}` : null,
       images: im ? `${im.level} — ${im.findings} finding(s) in ${im.panels} panels${ownFigs ? `; ${ownFigs} panel(s) match the manuscript's own published PJPS version (expected, not re-use)` : ''}${(im.references || 0) + (im.referenceCharts || 0) ? `, ${(im.references || 0) + (im.referenceCharts || 0)} matching published / retracted-paper figures` : ''}` : r.imagesNote || 'not checked (upload the Word / PDF manuscript to analyse its figures)'
     }
   };
 }
 
-const PENDING = { plagiarism: 'Similarity report', novelty: 'Novelty & citation outlook', authorIdentity: 'Author identity (ORCID)' };
+const PENDING = { plagiarism: 'Similarity report', novelty: 'Novelty & citation outlook', authorIdentity: 'Author identity (ORCID)', language: 'PJPS Scribe (language)' };
 
 /**
  * The Full Screening as the browser shows it before the similarity report is finished: a copy of the result (Modules
@@ -411,7 +418,7 @@ function provisional(result, done) {
   }
   markPublishedOnPjps(r);
   r.screening = screeningSummary(r);
-  for (const k of pending) r.screening.lines[{ plagiarism: 'plagiarism', novelty: 'novelty', authorIdentity: 'authors' }[k]] = 'Still running — fills in automatically';
+  for (const k of pending) r.screening.lines[{ plagiarism: 'plagiarism', novelty: 'novelty', authorIdentity: 'authors', language: 'language' }[k]] = 'Still running — fills in automatically';
   r.screening.provisional = true;
   r.screening.recommendationLabel = `Provisional: ${r.screening.recommendationLabel}`;
   r.preview = { pending: pending.map(k => PENDING[k]) };

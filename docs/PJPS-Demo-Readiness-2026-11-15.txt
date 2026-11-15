@@ -1,0 +1,82 @@
+PJPS INTEGRITY PORTAL - DEMO READINESS REPORT
+Date: 15 November 2026
+Portal: https://verifyref.vercel.app/app
+Release: commit f4db001 (pushed and live on Vercel)
+
+
+1. PJPS SCRIBE (MODULE 6, PREVIOUSLY "LANGUAGE EDITING")
+---------------------------------------------------------
+
+Vocabulary
+- PJPS Scribe now knows 213,335 medical, pharmaceutical and research terms.
+- The terms were learned from:
+    * all 5,398 PJPS articles on pjps.pk
+    * about 59,500 PubMed Central open-access papers in the PJPS subject areas
+    * the drug names in the FDA Orange Book
+- Common typing slips and garbled PDF text were kept out of the list.
+- If a wrong word is ever found in the list, it can be removed in about one
+  minute without re-reading the papers.
+
+Results on your document (report #1, /app#/language/1)
+- Suggestions: 240 before, 117 now.
+- Writing score: 84 before, 92 now.
+- Spelling flags: 70 before, 5 now. The remaining five are reasonable; two of
+  them are British spellings in a document set to American English.
+
+Other improvements
+- Abbreviations joined by hyphens (e.g. LNG-IUS-containing), names in the
+  title block, and web addresses or file names are no longer flagged.
+- P values follow PJPS's own practice: 86% of 1,500 PJPS articles write
+  "P<0.05". Only a missing leading zero (e.g. "P<.05") is flagged.
+- Words that most research articles repeat (significantly, levels, groups)
+  are no longer called "overused".
+- The grammar server's "knot / not" rule is switched off.
+- The grammar server runs on our own Oracle Cloud server (no subscription).
+
+
+2. ALL SIX MODULES RECHECKED
+-----------------------------
+
+- All 51 automated test files pass.
+- Three failures turned out to be outdated tests, not faults in the app.
+  The tests were fixed:
+    * The integrity suite still expected 5 modules instead of 6.
+    * The Module 5 end-to-end test looked for reference figures in the
+      database, but they now live on Cloudflare R2. Rerun against the live
+      data, it found a figure from a retracted paper and reported HIGH risk,
+      as it should.
+    * The provisional Full Screening test relied on the computer being fast
+      enough.
+
+
+3. SIMILARITY AND PAPER MILL DATA (OWN DATA, NO PAID SUBSCRIPTION)
+-------------------------------------------------------------------
+
+Both modules already run on our own datasets:
+- 2.2 million PubMed Central papers stored on Cloudflare R2
+- the full PJPS text repository (all pjps.pk articles)
+- Retraction Watch: 64,764 records
+- Problematic Paper Screener: 14,729 records
+- Beall's list: 6,195 records
+- FDA Orange Book: 48,990 records
+- NLM Catalog: 42,167 records
+- Module 5 figure database:
+    * about 7,948 retracted papers
+    * 7,541 PJPS papers
+    * 34,886 PMC papers
+
+No new datasets were added tonight. Downloading and indexing more data takes
+days, and starting a large job the night before the demo would risk breaking
+what already works. The next dataset additions should be planned after the
+demo.
+
+
+4. TIPS FOR THE DEMO
+--------------------
+
+- Press Ctrl+Shift+R once on the portal before starting, so the browser loads
+  the latest version (it was still showing the old cached version until this
+  was done).
+- Keep the Admin page open if you want the Data jobs to run.
+- When demonstrating Module 6, set the language to English (UK) if the
+  manuscript uses British spelling.

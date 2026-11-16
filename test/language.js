@@ -156,10 +156,10 @@ References
   assert.ok(!t3.some(f => /^study->/.test(f)), '"to study" is a verb');
   // comparison with Grammarly on document 8
   const eighth = 'The profile of gestational SSRIs exposure was high. Fluvoxamine released extreme strong signals. Serotonin re-uptake inhibitors were used. Cleaning used MySQ, which removed duplicates. ' +
-    'The dataset generated during the study is available. All authors approved publishment of the manuscript. Neonates had Hypoglycaemia neonatal and Infantile apnoea and foetal distress. Haemophilus influenzae and kaempferol were studied.';
+    'The dataset generated during the study is available. All authors approved publishment of the manuscript. Neonates had Hypoglycaemia neonatal and Infantile apnoea and foetal distress. Mothers received counselling. Paroxetine had the highest number of reports. Haemophilus influenzae and kaempferol were studied.';
   const t8 = require('../src/language/rules').checkParagraph(eighth, { domain: 'academic' }, { variant: 'en-US' }).map(i => `${i.text}->${i.replacements[0]}`);
   for (const f of ['SSRIs->SSRI', 'extreme strong->extremely strong', 're-uptake->reuptake', 'MySQ->MySQL', 'The dataset generated->The datasets generated', 'publishment->publication',
-    'Hypoglycaemia->Hypoglycemia', 'apnoea->apnea', 'foetal->fetal']) assert.ok(t8.includes(f), `${f} (${t8.join(' | ')})`);
+    'Hypoglycaemia->Hypoglycemia', 'apnoea->apnea', 'foetal->fetal', 'counselling->counseling', 'the highest number of->the most']) assert.ok(t8.includes(f), `${f} (${t8.join(' | ')})`);
   assert.ok(!t8.some(f => /^(?:Haemophilus|kaempferol)/.test(f)), 'a genus or a flavonoid is not a British spelling');
   assert.ok(!require('../src/language/rules').checkParagraph('Hypoglycaemia and apnoea were seen.', {}, { variant: 'en-GB' }).some(i => i.spelling), 'British document: British spelling is right');
   const cap8 = require('../src/language/rules').checkParagraph('Figure 2 Signal detection scatter plot', {}, { variant: 'en-US' });

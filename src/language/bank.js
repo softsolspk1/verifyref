@@ -181,6 +181,7 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ['be benefited from', 'benefit from'], ['be greatly benefited from', 'greatly benefit from'], ['be benefitted from', 'benefit from'],
   ['Author declare', 'Authors declare', { cs: true }], ['Authors declares', 'Authors declare', { cs: true }],
   // comparison with Grammarly on document 8
+  ['the highest number of', 'the most', { a: '[a-z]+s', xa: 'reports' }], ['the lowest number of', 'the fewest', { a: '[a-z]+s', xa: 'reports' }],
   ['re-uptake', 'reuptake'], ['publishment', 'publication'], ['MySQ', 'MySQL', { cs: true }],
   ['The dataset generated', 'The datasets generated', { cs: true, a: 'during|and|or' , xa: 'during' }], ['The data set generated', 'The datasets generated', { cs: true, a: 'during|and|or', xa: 'during' }],
   ...['strong', 'high', 'low', 'small', 'large', 'weak', 'rare', 'severe', 'important', 'significant', 'sensitive', 'toxic', 'potent', 'difficult', 'useful', 'effective', 'dangerous', 'variable', 'heterogeneous', 'limited'].map(a => [`extreme ${a}`, `extremely ${a}`]),

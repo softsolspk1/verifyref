@@ -164,6 +164,8 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ['since long', 'for a long time'], ['besides of', 'besides'], ['married with', 'married to'], ['prior than', 'before|prior to'],
   ['affect on', 'effect on|affect', { m: '"Affect" is a verb and takes no "on"; the noun is "effect on".' }], ['affects on', 'effects on|affects', { m: '"Affects" is a verb and takes no "on"; the noun is "effects on".' }],
   ['impact of on', 'impact on'], ['effect of on', 'effect on'],
+  ['medical adherence', 'medication adherence'], ['medicine adherence', 'medication adherence'], ['drug adherence', 'medication adherence|adherence to the drug'],
+  ['the similar pattern', 'a similar pattern'], ['the similar trend', 'a similar trend'], ['the similar results', 'similar results'], ['the similar findings', 'similar findings'],
   ['a need of', 'a need for'], ['the need of', 'the need for', { a: '[a-z]+ing|more|further|new|better|effective|a|an|the', xa: 'more' }], ['due to absence of', 'due to the absence of'], ['in absence of', 'in the absence of'],
   ['in presence of', 'in the presence of'], ['after completion of', 'after the completion of'], ['before completion of', 'before the completion of'], ['In case of', 'In the case of', { cs: true, a: 'participants|patients|children|women|men|students|respondents|subjects|those', xa: 'patients' }],
   ['interviews were taken', 'interviews were conducted'], ['interview was taken', 'interview was conducted'], ['according to Health Belief Model', 'according to the Health Belief Model'],

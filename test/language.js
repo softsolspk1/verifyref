@@ -134,6 +134,16 @@ References
   assert.strictEqual(fixed.filter(f => f === ' ->, ').length, 2, 'Jhang, Punjab, Pakistan: both commas');
   assert.ok(!tp.some(i => i.rule === 'author-block' && i.offset > title.indexOf('Aga Khan') - 1 && i.offset < title.indexOf('Journal')), 'an institution name with a country is not split');
   assert.ok(tp.some(i => i.rule === 'hyphen-consistency' && i.text === 'E-mail'), 'E-mail and Email: one form');
+  // second comparison with Grammarly: degrees, titles, labels, a name spelled two ways, phrases
+  const tp2 = L.checkDocument('Title\nJaved Iqbal, Degrees ma RN\nCredential: Doctor of Philosophy (PhD), Registered Nurse (RN)\nAdjunct professor, Datta Meghe Institute\nABSTRACT\n' +
+    'Background: Data were collected in Jhang district. The Jhang clinics and Jhang hospitals served Jahng villages and nearby areas well.\n', { counts: {} }).issues;
+  const fx2 = tp2.map(i => `${i.text}->${i.replacements[0]}`);
+  for (const f of ['ma->MA', 'Credential->Credentials', 'professor->Professor', 'Jahng->Jhang']) assert.ok(fx2.includes(f), `${f} (${fx2.join(' | ')})`);
+  assert.ok(!fx2.some(f => /^Datta/.test(f)), 'a name that is a word apart (Datta / Data) is not changed');
+  const { paragraphs: [ph] } = await L.checkParagraphs(['Medical adherence was assessed pre and post-test, and the attitude also showed the similar pattern. P-value less than 0.05 was significant. P value <0.05 was significant.'], { goals: { domain: 'academic' } });
+  for (const [t, f] of [['medical adherence', 'Medication adherence'], ['pre', 'pre-'], ['the similar pattern', 'a similar pattern'], ['P-value', 'A P value']]) assert.ok(ph.some(i => i.text.toLowerCase() === t.toLowerCase() && i.replacements[0] === f), `${t} -> ${f}`);
+  assert.ok(!ph.some(i => i.spelling && i.text === 'pre'), '"pre" is a word in manuscripts');
+  assert.strictEqual(ph.filter(i => i.rule === 'determiner' && /^P/.test(i.text)).length, 1, '"P value <0.05" (PJPS form) is not changed');
   assert.deepStrictEqual(tp.filter(i => i.rule === 'case-consistency').map(i => i.text), ['Latent'], 'capitals: "Latent" mid-sentence, not the Health Belief Model or a sentence start');
 
   // ---------------------------------------------------------------- permissions: users customised before Module 6 get it

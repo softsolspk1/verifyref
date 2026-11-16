@@ -131,6 +131,34 @@ function capitals(text) {
   }
   return out;
 }
+// ------------------------------------------------------------------ a name spelled two ways ("Jhang" and "Jahng")
+// A capitalised word no dictionary knows, used once, one slip (transposed or changed letter) from a capitalised word
+// the text uses at least twice: the rarer form is the slip.
+function nameSpellings(text) {
+  const S = require('./spell');
+  const count = new Map();
+  for (const m of text.matchAll(/\b[A-Z][a-z]{3,}\b/g)) count.set(m[0], (count.get(m[0]) || 0) + 1);
+  const names = [...count.keys()];
+  const out = [];
+  // two letters swapped ("Jahng" / "Jhang"): different names (Rahman / Rehman) and adjectives (Pakistani) differ otherwise
+  const near = (a, b) => {
+    if (a === b || a[0] !== b[0] || a.length !== b.length) return false;
+    const d = [...a].map((c, i) => (c !== b[i] ? i : -1)).filter(i => i >= 0);
+    return d.length === 2 && d[1] === d[0] + 1 && a[d[0]] === b[d[1]] && a[d[1]] === b[d[0]];
+  };
+  // a word any dictionary or the vocabularies know (Data, Iran, Rehman, Patel) is a word in its own right
+  const known = w => S.load('en-US').correct(w) || S.load('en-US').correct(w.toLowerCase()) || S.load('en-GB').correct(w.toLowerCase());
+  for (const w of names) {
+    if (count.get(w) > 1 || known(w)) continue;
+    const other = names.find(o => count.get(o) >= 2 && near(w, o) && !S.load('en-US').correct(o.toLowerCase()));
+    if (!other) continue;
+    const m = new RegExp(`\\b${w}\\b`).exec(text);
+    out.push({ rule: 'name-consistency', category: 'correctness', title: 'Inconsistent spelling', offset: m.index, length: w.length, text: w,
+      message: `"${w}" is written "${other}" elsewhere in the text (${count.get(other)} times). Use one spelling.`, replacements: [other], consistency: true });
+  }
+  return out;
+}
+
 const lineSpans = text => { const out = []; let pos = 0; for (const l of text.split('\n')) { out.push({ start: pos, end: pos + l.length }); pos += l.length + 1; } return out; };
 
 // ------------------------------------------------------------------ the author block (title page)
@@ -161,6 +189,18 @@ function authorBlock(text, end) {
   }
   // degrees run together: "RN,MHA" -> "RN, MHA"
   for (const m of block.matchAll(/\b([A-Z][A-Za-z]{1,5}),([A-Z][A-Za-z]{1,5})\b/g)) add(m.index + m[1].length, 1, 'Spacing', 'Add a space after the comma.', ', ');
+  // degrees in lower case ("Degrees ma RN") and job titles in an affiliation ("Adjunct professor")
+  for (const m of block.matchAll(/\b(?:Degrees?:?|,)\s+(ma|msc|mphil|phd|mbbs|bsc|pharmd|mpharm|mph|mba|md|ms|bs|mha|bds|fcps|mrcp)\b(?=[\s,]|$)/g)) {
+    const at = m.index + m[0].length - m[1].length;
+    const up = { phd: 'PhD', mphil: 'MPhil', msc: 'MSc', bsc: 'BSc', pharmd: 'PharmD', mpharm: 'MPharm' }[m[1]] || m[1].toUpperCase();
+    add(at, m[1].length, 'Capitalization', `Academic degrees are written with capitals: "${up}".`, up);
+  }
+  for (const m of block.matchAll(/\b(Adjunct|Assistant|Associate|Visiting|Emeritus|Full|Senior|Clinical)\s+(professor|lecturer)\b/g)) {
+    const at = m.index + m[1].length + 1;
+    add(at, m[2].length, 'Capitalization', 'A title in an affiliation is capitalised.', m[2][0].toUpperCase() + m[2].slice(1));
+  }
+  // "Credential: Doctor of Philosophy (PhD), Registered Nurse (RN)": several, so plural
+  for (const m of block.matchAll(/\b(Credential|Qualification|Degree)(?=:[^\n]*,)/g)) add(m.index, m[1].length, 'Noun number', `Several are listed, so the label is plural: "${m[1]}s".`, `${m[1]}s`);
   // "ORCIdD :-", "Email /-" -> "ORCID:", "Email:"
   for (const m of block.matchAll(/\bORCI[dD]{1,2}\b/g)) if (m[0] !== 'ORCID') add(m.index, m[0].length, 'Spelling', 'The identifier is written "ORCID".', 'ORCID');
   for (const m of block.matchAll(/\s*(?::-|\/-|:\s*-(?=\s))/g)) add(m.index, m[0].length, 'Incorrect punctuation', 'Introduce the address or identifier with a colon alone.', ':');
@@ -348,7 +388,7 @@ function checkDocument(text, goals = {}, opts = {}) {
     if (first) out.push(...authorBlock(text, first));
   }
   const body = structure?.referencesAt != null ? text.slice(0, structure.referencesAt) : text;
-  out.push(...hyphenation(body), ...capitals(body));
+  out.push(...hyphenation(body), ...capitals(body), ...nameSpellings(body));
   out = out.filter(i => !disabled.has(i.rule) && !(i.rule.startsWith('abbr-') && disabled.has('abbreviations')));
   return { issues: out, structure };
 }

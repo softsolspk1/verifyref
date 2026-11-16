@@ -47,7 +47,7 @@ supernatant supernatants aliquot aliquots pipetted incubated incubation micropla
 docking ligand ligands pharmacophore pharmacophores ADMET QSAR inhibitory inhibitor inhibitors agonist agonists antagonist antagonists
 cytokine cytokines chemokine chemokines interleukin interleukins macrophage macrophages lymphocyte lymphocytes neutrophil neutrophils
 hyperglycemia hyperglycaemia hypoglycemia hypoglycaemia dyslipidemia dyslipidaemia normoglycemic streptozotocin alloxan glibenclamide metformin
-paracetamol acetaminophen diclofenac ibuprofen indomethacin dexamethasone carrageenan formalin Wistar Sprague Dawley
+pre paracetamol acetaminophen diclofenac ibuprofen indomethacin dexamethasone carrageenan formalin Wistar Sprague Dawley
 covariate covariates multivariate univariate multivariable regression heterogeneity meta-analysis meta-analyses
 preprint preprints dataset datasets workflow workflows curcumin quercetin rutin kaempferol resveratrol gallic catechin catechins
 anthocyanin anthocyanins carotenoid carotenoids lycopene berberine silymarin thymoquinone eugenol carvacrol thymol menthol limonene`.split(/\s+/).filter(Boolean);

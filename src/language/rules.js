@@ -604,6 +604,14 @@ const determiners = [
   regexRule('compound-hyphen', 'style', 'Hyphen', /(?<!\b(?:to|will|would|should|must|can|could|may|might|we|they|did|not|and|or|please|i)\s)\b(follow up)\b(?!\s+(?:on|with|the|patients|participants|them|their|all|those|these|each)\b)/gi, (m) => ({
     message: 'As a noun or adjective, "follow-up" takes a hyphen.', replacements: [`${m[1].slice(0, 6)}-up`]
   })),
+  // "pre and post-test" -> "pre- and post-test" (the first prefix keeps its hyphen)
+  regexRule('compound-hyphen', 'style', 'Hyphen', /\b(pre|post|intra|inter|extra|sub|super|over|under|non|anti|self|short|long|low|high|first|second)(\s+(?:and|or|to)\s+)(?=(?:pre|post|intra|inter|extra|sub|super|over|under|non|anti|self|short|long|low|high|first|second|third)-[a-z])/gi, (m) => ({
+    end: m.index + m[1].length, message: `A prefix shared with the next word keeps its hyphen: "${m[1]}-${m[2].trimEnd()} …".`, replacements: [`${m[1]}-`]
+  })),
+  // "P-value less than 0.05 was considered significant": a sentence that opens with a singular noun needs "A"
+  regexRule('determiner', 'correctness', 'Missing article', /(?:^|(?<=[.!?]\s+))(P-value|P value|p-value|p value)(?=\s+(?:less|lower|smaller|below)\b)/g, (m) => ({
+    message: 'A singular noun at the start of a sentence needs an article: "A P value".', replacements: [`A ${/^p/.test(m[1]) ? 'P' : 'P'}${m[1].slice(1).replace('-', ' ')}`]
+  })),
   regexRule('word-choice', 'correctness', 'Word choice', /\bread\b[^.;]{0,60}?\b(loudly)\b/gi, (m) => ({ start: m.index + m[0].length - m[1].length, message: 'Reading so others can hear is reading "aloud".', replacements: ['aloud'] }))
 ];
 

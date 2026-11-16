@@ -6,6 +6,8 @@
 //   4. Partial duplicates (cropped, resized, rotated, flipped, partly overlapping): ORB keypoints + RANSAC similarity
 //   5. Cloned areas inside one panel: ORB self-matching and DCT block matching (copy-move)
 // Results are findings for the editor to check, never verdicts.
+import { predict, vector } from './gbdt.js';
+import { CLONE_MODEL } from './models.js';
 
 // ------------------------------------------------------------------ basic image operations
 
@@ -572,7 +574,7 @@ const DCT8 = (() => { const c = new Float32Array(64); for (let u = 0; u < 8; u++
 const ZIG = [[0, 0], [0, 1], [1, 0], [2, 0], [1, 1], [0, 2], [0, 3], [1, 2], [2, 1], [3, 0]];
 
 /** Classic block-matching copy-move detection on a reduced grayscale panel */
-export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30, quant = 6, neigh = 4, minVar = 40, verify = false } = {}) {
+export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30, quant = 6, neigh = 4, minVar = 40, verify = false, minLp = 0.9, minHp = 0.45, keep = 3 } = {}) {
   const { w, h, g } = img;
   const feats = [];
   const tmp = new Float32Array(64);
@@ -618,13 +620,13 @@ export function copyMoveBlocks(img, { step = 2, minShift = 16, minBlocks = 30, q
     if (verify) {
       for (const [ba, bb] of boxes) {
         const v = regionAgreement(img, ba, bb);
-        if (v && (!px || (v.lp >= 0.9 && v.hp > px.hp) || px.lp < 0.9)) { px = v; a = ba; b = bb; }
+        if (v && (!px || (v.lp >= minLp && v.hp > px.hp) || px.lp < minLp)) { px = v; a = ba; b = bb; }
       }
-      if (!px || px.lp < 0.9 || px.hp < 0.45) continue;
+      if (!px || px.lp < minLp || px.hp < minHp) continue;
     }
     out.push({ pixel: px, blocks: s.pairs.length, dx: s.dx, dy: s.dy, a: { x: a.x - 4, y: a.y - 4, w: a.w + 8, h: a.h + 8 }, b: { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 } });
   }
-  return out.sort((p, q) => q.blocks - p.blocks).slice(0, 3);
+  return out.sort((p, q) => q.blocks - p.blocks).slice(0, keep);
 }
 
 /** The block pairs between the 5th and 95th percentile of the source positions (both axes) */
@@ -1270,7 +1272,83 @@ function boxAgreement(img, a, b) {
   return px.length >= 4 ? areaAgreement(img, { px, W, dx, dy }) : null;
 }
 
+// ------------------------------------------------------------------ trained clone verifier
+// The three searches (keypoints, blocks, dense) propose cloned areas with loose limits; a gradient-boosted tree model
+// trained on BioFors (expert-annotated cloned areas and clean figures, scripts/train-image-models.mjs) decides which
+// proposals are real copies, in place of the hand-set limits. Without a model the hand-set limits apply (ruleClone).
+
+/** Measures of one proposal that the model reads (names are the model's feature names) */
+function cloneFeatures(P, CG, toClone, c, nCands) {
+  const s = r => ({ x: r.x * toClone, y: r.y * toClone, w: r.w * toClone, h: r.h * toClone });
+  const v = boxAgreement(CG, s(c.regionA), s(c.regionB)) || {};
+  const A = c.regionA, B = c.regionB, W = P.work.w, H = P.work.h;
+  const st = CG._st || (CG._st = (() => { let m = 0, q = 0; for (const x of CG.g) { m += x; q += x * x; } m /= CG.g.length; return { m, sd: Math.sqrt(Math.max(0, q / CG.g.length - m * m)) }; })());
+  return {
+    kp: c.method === 'keypoints' ? 1 : 0, blk: c.method === 'blocks' ? 1 : 0, dns: c.method === 'dense' ? 1 : 0,
+    inliers: c.inliers || 0, blocks: c.blocks || 0, area: Math.log1p(c.area || 0),
+    lp: c.pixel?.lp ?? 0, hp: c.pixel?.hp ?? 0,
+    blp: v.lp ?? 0, bhp: v.hp ?? 0, bhpFlat: v.hpFlat ?? 0, bexact: v.exact ?? 0, bhstd: v.hstd ?? 0,
+    frac: (A.w * A.h) / (W * H), side: Math.min(A.w, A.h) / Math.max(W, H), aspect: Math.min(A.w, A.h) / Math.max(1, Math.max(A.w, A.h)),
+    shift: Math.hypot(B.x - A.x, B.y - A.y) / Math.hypot(W, H), dxr: Math.abs(B.x - A.x) / W, dyr: Math.abs(B.y - A.y) / H,
+    rot: Math.abs(c.transform?.rotation || 0), scl: Math.abs(Math.log(c.transform?.scale || 1)),
+    blot: P.type === 'blot' ? 1 : 0, micro: P.type === 'microscopy' ? 1 : 0, gray: P.type === 'grayscale' ? 1 : 0,
+    pmean: st.m, psd: st.sd, ncand: nCands
+  };
+}
+
+/** Every proposal of the three searches with loose limits, each with its measures (training and the model path) */
+export function cloneCandidates(P) {
+  const out = [];
+  if (P.features && P.features.pts.length >= 20) {
+    const matches = matchFeatures(P.features, P.features, { self: true, minShift: 24, ratio: 0.8, maxDist: 50 });
+    if (matches.length >= 8) {
+      const r = ransac(matches, P.features, P.features, { minShift: 24 });
+      if (r && r.inliers.length >= 8) {
+        const a = bbox(r.inliers.map(m => P.features.pts[m.i])), b = bbox(r.inliers.map(m => P.features.pts[m.j]));
+        const overlap = !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+        const v = !overlap && a.w > 12 && a.h > 12 ? verifyMapped(P, P, r.inliers.map(m => P.features.pts[m.i]), r.inliers.map(m => P.features.pts[m.j]), a) : null;
+        if (v) out.push({ kind: 'clone', method: 'keypoints', inliers: r.inliers.length, pixel: { lp: v.picture, hp: v.noise }, regionA: a, regionB: b, transform: { rotation: r.rotation, flip: false, scale: r.scale } });
+      }
+    }
+  }
+  if (!P.blank && P.type !== 'chart') {
+    const sizes = [[P.cloneGray || P.workGray, P.scale / (P.cloneScale || P.scale)]];
+    if (P.cloneGray && P.cloneGray !== P.workGray) sizes.push([P.workGray, 1]);
+    for (const [g, k] of sizes) for (const c of copyMoveBlocks(g, { step: 2, quant: 20, neigh: 12, minBlocks: 12, minVar: 15, verify: true, minLp: 0.6, minHp: 0.1, keep: 5 })) {
+      const a = { x: c.a.x * k, y: c.a.y * k, w: c.a.w * k, h: c.a.h * k }, b = { x: c.b.x * k, y: c.b.y * k, w: c.b.w * k, h: c.b.h * k };
+      if (out.some(o => o.method === 'blocks' && Math.abs(o.regionA.x - a.x) < 20 && Math.abs(o.regionA.y - a.y) < 20)) continue;
+      out.push({ kind: 'clone', method: 'blocks', blocks: c.blocks, pixel: c.pixel, regionA: a, regionB: b, transform: { rotation: 0, flip: false, scale: 1 } });
+    }
+    const CG = P.cloneGray || P.workGray, k = (P.cloneGray ? P.scale / P.cloneScale : 1);
+    for (const c of denseClone(CG)) {
+      if (c.area < 200 || Math.min(c.a.w, c.a.h) < 12) continue;
+      const v = areaAgreement(CG, c);
+      if (!v || v.lp < 0.5) continue;
+      out.push({ kind: 'clone', method: 'dense', area: Math.round(c.area * k * k), pixel: { lp: v.lp, hp: v.hpFlat }, regionA: { x: c.a.x * k, y: c.a.y * k, w: c.a.w * k, h: c.a.h * k }, regionB: { x: c.b.x * k, y: c.b.y * k, w: c.b.w * k, h: c.b.h * k }, transform: { rotation: 0, flip: false, scale: 1 } });
+    }
+  }
+  const CG = P.cloneGray || P.workGray, toClone = (P.cloneScale || P.scale) / P.scale;
+  for (const c of out) c.x = cloneFeatures(P, CG, toClone, c, out.length);
+  return out;
+}
+
+/** Cloned areas accepted by the trained model; prob kept for the level and the description */
+function modelClone(P) {
+  const out = [];
+  const cands = cloneCandidates(P).map(c => ({ ...c, prob: predict(CLONE_MODEL, vector(CLONE_MODEL, c.x)) })).sort((a, b) => b.prob - a.prob);
+  for (const c of cands) {
+    if (c.prob < CLONE_MODEL.medium) break;
+    if (out.some(o => [o.regionA, o.regionB].some(r => [c.regionA, c.regionB].some(q => Math.abs(r.x - q.x) < 20 && Math.abs(r.y - q.y) < 20)))) continue;
+    out.push(c);
+  }
+  return out;
+}
+
 function selfClone(P) {
+  return CLONE_MODEL ? modelClone(P) : ruleClone(P);
+}
+
+function ruleClone(P) {
   const out = [];
   if (P.features && P.features.pts.length >= 20) {
     const matches = matchFeatures(P.features, P.features, { self: true, minShift: 24, ratio: 0.8, maxDist: 50 });
@@ -1390,7 +1468,7 @@ export function findIssues(panels, progress = () => {}) {
   usable.forEach(P => {
     for (const c of selfClone(P)) {
       // a dense-search finding is always one to check: it is the method that also accepts recompressed copies
-      const strong = c.method === 'keypoints' ? c.inliers >= 15 : c.method === 'dense' ? false : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.8;
+      const strong = c.prob !== undefined ? c.prob >= CLONE_MODEL.high : c.method === 'keypoints' ? c.inliers >= 15 : c.method === 'dense' ? false : c.blocks >= 80 && (c.pixel?.hp ?? 0) >= 0.8;
       findings.push({ kind: 'clone', level: strong ? 'high' : 'medium', a: { panel: P.id, box: toImage(P, c.regionA) }, b: { panel: P.id, box: toImage(P, c.regionB) }, transform: c.transform, score: c.inliers || c.blocks || Math.round((c.area || 0) / 10), code: c.method,
         verification: c.pixel ? { picture: Math.round(c.pixel.lp * 100) / 100, noise: Math.round(c.pixel.hp * 100) / 100 } : null,
         description: c.method === 'keypoints' ? `Possible cloned area inside one panel (${c.inliers} matching points, ${describeTransform(c.transform)}; ${Math.round(c.pixel.lp * 100)}% similar, noise pattern ${c.pixel.hp.toFixed(2)})` : c.method === 'dense' ? `Possible cloned area inside one panel (an area of about ${toImage(P, c.regionA).w} x ${toImage(P, c.regionA).h} px repeated elsewhere in the panel; ${Math.round(c.pixel.lp * 100)}% similar, fine noise ${c.pixel.hp.toFixed(2)}) - found by the dense search, which also finds recompressed or brightened copies` : `Possible cloned area inside one panel (${c.blocks} matching blocks${c.pixel ? `, pixel match ${c.pixel.lp.toFixed(2)}, noise pattern ${c.pixel.hp.toFixed(2)}` : ''})` });

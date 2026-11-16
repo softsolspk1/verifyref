@@ -559,6 +559,7 @@ async function detectPaperMill(input, update = () => {}) {
   const lookOn = meta.title && input.millLookalike !== false;
   const lookalikes = lookOn ? MI.titleLookalikes(meta.title, { doi: meta.doi }).catch(() => []) : Promise.resolve([]);
   const absLookalikes = lookOn ? MI.abstractLookalikes(meta.title, MI.abstractOf(meta, text), { doi: meta.doi }).catch(() => null) : Promise.resolve(null);
+  const millScore = lookOn ? MI.millModelScore(meta.title, MI.abstractOf(meta, text)).catch(() => null) : Promise.resolve(null);
   await D.warmEmailDomains();
   update('Searching for tortured phrases and AI-text leftovers', 2);
   const textSigs = await textSignals(text, body, await customPhrases(), { title: meta.title });
@@ -650,6 +651,15 @@ async function detectPaperMill(input, update = () => {}) {
           ? 'Paper mills sell many papers made from one template, so their titles and abstracts read alike (the approach of Clear Skies’ Papermill Alarm in the STM Integrity Hub). Benchmark: a closest match of 20% or more was found for 8 of 150 mill papers and none of 126 ordinary papers; 14% or more for 42 of 150 mill and 7 of 126 ordinary papers. Read the closest retracted papers next to the manuscript: same design, assays and wording with other genes, drugs or diseases is the mill pattern.'
           : 'Paper mills sell many papers made from one template, so their titles look alike (the approach of Clear Skies’ Papermill Alarm in the STM Integrity Hub). On the benchmark 10% of mill papers and 3% of ordinary papers had a title this close to a mill retraction: an indicator to read with the other signals, not proof.');
     }
+  }
+
+  // the trained classifier (title + abstract read like mill output in general, not like one retracted paper)
+  const ms = await millScore;
+  if (ms && ms.p >= (ms.model.note ?? 0.5)) {
+    const m = ms.model, strong = ms.p >= m.threshold, bm = m.benchmark;
+    sig('text', 'mill-model', `Title and abstract read like paper-mill output (${Math.round(ms.p * 100)}% by the trained model)`, strong ? 'medium' : 'low', strong ? m.weight : Math.min(1, m.weight - 1),
+      [{ text: `Model trained on ${m.rows.toLocaleString('en')} papers from ${m.journals} journals (papers retracted for paper-mill reasons and ordinary papers of the same journals), ${m.trained}` }],
+      `A model of how mill papers are written, learned from known cases; it reads only the title and abstract. On papers it never saw it scored mill papers above ordinary ones ${Math.round(bm.auc * 100)}% of the time. An indicator to read with the other signals, never proof on its own: genuine papers on popular mill topics can score high.`);
   }
 
   update('Checking whether the paper is already published', 15);

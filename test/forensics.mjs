@@ -54,7 +54,8 @@ for (let y = 0; y < 120; y++) for (let x = 0; x < 300; x++) {
 }
 const pb = analyse(blot);
 console.log('blot:', pb.type, pb.forensic.alterations.map(a => `${a.code}`).join(' ') || 'none');
-assert.ok(pb.forensic.alterations.some(a => a.code === 'splice-edge'), 'lane splice found');
+// the trained join model (images/models.js) replaces the hand-set rule; either way the join at x = 150 is found
+assert.ok(pb.forensic.alterations.some(a => (a.code === 'splice-edge' || a.code === 'splice-model') && a.box.x <= 150 && a.box.x + a.box.w >= 150), 'lane splice found at the join');
 
 // ---- c) AI: provenance markers in the file
 const png = new TextEncoder().encode('\x89PNG\r\n\x1a\n....tEXtparameters\0a lab photo of cells Steps: 30, Sampler: Euler a, CFG scale: 7, Seed: 123');

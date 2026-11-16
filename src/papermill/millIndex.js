@@ -201,6 +201,28 @@ async function meaningLookalikes(title, abstract, { doi = null, limit = 8, min =
   return hits.sort((a, b) => b[1] - a[1]).slice(0, limit).map(([i, sc]) => evidenceOf(rows[i], sc));
 }
 
+// ------------------------------------------------------------------ trained classifier
+// src/papermill/millModel.json (scripts/train-papermill-model.js): a logistic model on the same sentence embedding, trained on
+// ~13,000 mill retractions against ordinary papers of the same journals and years. Unlike the look-alike search it does not
+// need a near copy of one retracted paper: it scores how much the manuscript reads like mill output in general.
+let millModel;
+function loadMillModel() {
+  // require (not a file read): the bundlers of Vercel and the desktop app then always ship the model with the code
+  if (millModel === undefined) { try { millModel = require('./millModel.json'); } catch { millModel = null; } }
+  return millModel;
+}
+
+/** { p (0-1), model } for the manuscript's title + abstract, or null (no model, no abstract or no embedding) */
+async function millModelScore(title, abstract) {
+  const m = loadMillModel();
+  if (!m || String(abstract || '').split(/\s+/).length < 30) return null;
+  const v = (await require('../tools/embed').embed([meaningText(title, abstract)]).catch(() => null))?.[0];
+  if (!v) return null;
+  let z = m.w[m.dim];
+  for (let d = 0; d < m.dim; d++) z += m.w[d] * (Math.round(v[d] * 127) / 127);   // the int8 rounding used in training
+  return { p: 1 / (1 + Math.exp(-z)), model: m };
+}
+
 /** The abstract of a manuscript: the given one, else the text after an "Abstract" heading, else the opening words */
 function abstractOf(meta = {}, text = '') {
   if (String(meta.abstract || '').trim().length > 150) return String(meta.abstract);
@@ -210,4 +232,4 @@ function abstractOf(meta = {}, text = '') {
   return body.split(/\s+/).slice(0, 350).join(' ');
 }
 
-module.exports = { titleLookalikes, abstractLookalikes, meaningLookalikes, meaningIndex, abstractOf, abstractIndex, titleIndex, ABSTRACTS };
+module.exports = { titleLookalikes, abstractLookalikes, meaningLookalikes, millModelScore, loadMillModel, meaningIndex, abstractOf, abstractIndex, titleIndex, ABSTRACTS };

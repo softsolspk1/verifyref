@@ -9,6 +9,8 @@
 //      charts - the same data re-plotted with other colours, axes or scale is found.
 // Everything returns findings for the editor to check, never verdicts.
 import { resizeRGBA } from './engine.js';
+import { predict, vector } from './gbdt.js';
+import { SPLICE_MODEL } from './models.js';
 
 const CAT = { duplicate: 'duplication', partial: 'duplication', clone: 'manipulation', alteration: 'manipulation', ai: 'ai', chart: 'chart' };
 export const categoryOf = kind => CAT[kind] || 'duplication';
@@ -210,6 +212,87 @@ function blotFindings(gray, box) {
     out.push({ code: 'splice-edge', level: 'medium', message: `Sharp straight ${vertical ? 'vertical' : 'horizontal'} step in the background level (${Math.round(Math.abs(best.d))} grey levels) across the whole blot - typical of lanes cut from different blots and joined`,
       box: vertical ? { x: box.x + best.x - 8, y: box.y, w: 16, h: box.h } : { x: box.x, y: box.y + best.x - 8, w: box.w, h: 16 } });
     break;
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ trained splice model (blots and gels)
+// Every column (and row) of a blot is a possible join; the strongest straight edges are measured (edge strength and how
+// straight it runs, background step, sharpness, noise and brightness on both sides) and a gradient-boosted tree model
+// trained on BioFors (expert-marked joins in blots and gels, scripts/train-image-models.mjs) gives each the probability
+// of being a join. Without a model the hand-set rule (blotFindings) applies.
+
+/** Candidate join lines of one blot panel with their measures (training and the model path) */
+export function spliceCandidates(gray, box, perSide = 6) {
+  const { w, g } = gray;
+  const out = [];
+  const sub = new Float32Array(box.w * box.h);
+  for (let y = 0; y < box.h; y++) for (let x = 0; x < box.w; x++) sub[y * box.w + x] = g[(box.y + y) * w + box.x + x];
+  const range = percentile(sub, 0.95) - percentile(sub, 0.05), psd = std(sub);
+  for (const vertical of [true, false]) {
+    const len = vertical ? box.w : box.h, span = vertical ? box.h : box.w;
+    if (len < 40 || span < 12) continue;
+    const at = (i, j) => (vertical ? sub[j * box.w + i] : sub[i * box.w + j]);
+    // edge strength between line i and i+1, and in how many rows it is the local maximum (a straight cut)
+    const G = new Float32Array(len), coh = new Float32Array(len);
+    const d = new Float32Array(span * len);
+    for (let j = 0; j < span; j++) for (let i = 0; i + 1 < len; i++) d[j * len + i] = Math.abs(at(i + 1, j) - at(i, j));
+    for (let i = 0; i + 1 < len; i++) {
+      let s = 0, c = 0;
+      for (let j = 0; j < span; j++) {
+        const v = d[j * len + i];
+        s += v;
+        let mx = true;
+        for (let k = -3; k <= 3 && mx; k++) if (k && i + k >= 0 && i + k + 1 < len && d[j * len + i + k] > v) mx = false;
+        if (mx && v > 2) c++;
+      }
+      G[i] = s / span; coh[i] = c / span;
+    }
+    const gmed = median(Array.from(G.subarray(0, len - 1))) || 0.5;
+    const prof = new Float32Array(len), tmp = new Float32Array(span);
+    for (let i = 0; i < len; i++) { for (let j = 0; j < span; j++) tmp[j] = at(i, j); prof[i] = percentile(tmp, 0.9); }
+    const score = i => (G[i] / gmed) * (0.2 + coh[i]);
+    const idx = [];
+    for (let i = 6; i < len - 7; i++) idx.push(i);
+    idx.sort((a, b) => score(b) - score(a));
+    const picked = [];
+    for (const i of idx) { if (picked.length >= perSide) break; if (picked.some(q => Math.abs(q - i) < 6)) continue; picked.push(i); }
+    for (const i of picked) {
+      const L = Math.max(0, i - 10), R = Math.min(len, i + 12);
+      const left = median(Array.from(prof.subarray(L, i - 1))), right = median(Array.from(prof.subarray(i + 2, R)));
+      const step = right - left, jump = (prof[i + 1] - prof[i]);
+      let agree = 0, nl = 0, nr = 0, ml = 0, mr = 0, n = 0;
+      for (let j = 0; j < span; j++) {
+        let a = -1, b = -1;
+        for (let k = 1; k <= 6; k++) { if (i - k + 1 >= 0) a = Math.max(a, at(i - k + 1, j)); if (i + k < len) b = Math.max(b, at(i + k, j)); }
+        if (Math.abs(step) > 1 && Math.sign(b - a) === Math.sign(step) && Math.abs(b - a) > 0.4 * Math.abs(step)) agree++;
+        // noise (second difference) and level on 6 lines each side
+        for (let k = 2; k <= 6; k++) {
+          if (i - k - 1 >= 0) { nl += Math.abs(at(i - k + 1, j) * 2 - at(i - k, j) - at(i - k + 2, j)); ml += at(i - k + 1, j); }
+          if (i + k + 1 < len) { nr += Math.abs(at(i + k, j) * 2 - at(i + k - 1, j) - at(i + k + 1, j)); mr += at(i + k, j); }
+          n++;
+        }
+      }
+      const pos = i + 0.5;
+      out.push({
+        vertical, pos, box: vertical ? { x: box.x + Math.round(pos) - 4, y: box.y, w: 8, h: box.h } : { x: box.x, y: box.y + Math.round(pos) - 4, w: box.w, h: 8 },
+        x: {
+          vert: vertical ? 1 : 0, gr: G[i] / gmed, g: G[i], coh: coh[i], cohN: (coh[i - 1] + coh[i + 1]) / 2, step: Math.abs(step), stepR: Math.abs(step) / Math.max(1, range),
+          jumpR: Math.abs(step) > 0.5 ? Math.abs(jump) / Math.abs(step) : 0, agree: agree / span, noiseR: Math.log((nl + 1) / (nr + 1)) ** 2,
+          lvl: Math.abs(ml - mr) / Math.max(1, n), edge: Math.min(i, len - i) / len, len, span, range, psd, rank: picked.indexOf(i)
+        }
+      });
+    }
+  }
+  return out;
+}
+
+function spliceModelFindings(gray, box) {
+  const out = [];
+  const c = spliceCandidates(gray, box).map(k => ({ ...k, prob: predict(SPLICE_MODEL, vector(SPLICE_MODEL, k.x)) })).sort((a, b) => b.prob - a.prob)[0];
+  if (c && c.prob >= SPLICE_MODEL.medium) {
+    out.push({ code: 'splice-model', level: c.prob >= SPLICE_MODEL.high ? 'high' : 'medium', prob: c.prob, box: c.box,
+      message: `Straight ${c.vertical ? 'vertical' : 'horizontal'} join line across the blot (${Math.round(c.prob * 100)}% likely by the model trained on expert-marked joins; ${Math.round(c.x.step)} grey levels step) - typical of lanes cut from different blots and joined; ask for the uncropped original` });
   }
   return out;
 }
@@ -427,7 +510,7 @@ export function analysePanel(img, gray, box, type, blank) {
   if (type === 'chart') { try { res.series = chartSeries(img, box); } catch (e) { /* unreadable chart */ } return res; }
   const noise = noiseFindings(gray, box, img);
   res.alterations.push(...noise.out, ...gridFindings(gray, box));
-  if (type === 'blot' || type === 'grayscale') res.alterations.push(...blotFindings(gray, box));
+  if (type === 'blot' || type === 'grayscale') res.alterations.push(...(SPLICE_MODEL ? spliceModelFindings(gray, box) : blotFindings(gray, box)));
   res.alterations.push(...histogramFindings(img, box, type));
   res.aiHints = aiStatistics(gray, box, noise.N);
   // two independent methods on the same area raise the level

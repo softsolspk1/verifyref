@@ -169,7 +169,18 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ['a need of', 'a need for'], ['the need of', 'the need for', { a: '[a-z]+ing|more|further|new|better|effective|a|an|the', xa: 'more' }], ['due to absence of', 'due to the absence of'], ['in absence of', 'in the absence of'],
   ['in presence of', 'in the presence of'], ['after completion of', 'after the completion of'], ['before completion of', 'before the completion of'], ['In case of', 'In the case of', { cs: true, a: 'participants|patients|children|women|men|students|respondents|subjects|those', xa: 'patients' }],
   ['interviews were taken', 'interviews were conducted'], ['interview was taken', 'interview was conducted'], ['according to Health Belief Model', 'according to the Health Belief Model'],
-  ['on impact of', 'on the impact of'], ['on effect of', 'on the effect of'], ['on role of', 'on the role of'], ['about importance of', 'about the importance of']
+  ['on impact of', 'on the impact of'], ['on effect of', 'on the effect of'], ['on role of', 'on the role of'], ['about importance of', 'about the importance of'],
+  // third comparison with Grammarly on document 7
+  ['prior the', 'prior to the'], ['prior this', 'prior to this'], ['prior their', 'prior to their'],
+  ...['with', 'in', 'by', 'to', 'for', 'from', 'on'].flatMap(p => ['limited', 'small', 'large'].map(s => [`${p} ${s} number of`, `${p} a ${s} number of`])),
+  ...['demonstrating', 'demonstrated', 'demonstrates', 'showing', 'showed', 'shows', 'had', 'has', 'have', 'having'].flatMap(v => ['positive', 'negative', 'significant'].map(s => [`${v} ${s} impact`, `${v} a ${s} impact`])),
+  ['There was also similar', 'There was also a similar', { cs: true, a: '(?:slight |small |modest |marked |significant )?(?:increase|decrease|trend|pattern|improvement|rise|decline|reduction|change)', xa: 'increase' }],
+  ['There was similar', 'There was a similar', { cs: true, a: '(?:slight |small |modest |marked |significant )?(?:increase|decrease|trend|pattern|improvement|rise|decline|reduction|change)', xa: 'increase' }],
+  ['due to immunocompromised state', 'due to an immunocompromised state'], ['in immunocompromised state', 'in an immunocompromised state'],
+  ['translating procedures', 'translation procedures'], ['translating procedure', 'translation procedure'], ['deeply penetrated in', 'deeply ingrained in|deeply rooted in'],
+  ['be benefited from', 'benefit from'], ['be greatly benefited from', 'greatly benefit from'], ['be benefitted from', 'benefit from'],
+  ['Author declare', 'Authors declare', { cs: true }], ['Authors declares', 'Authors declare', { cs: true }],
+  ['Linkert scale', 'Likert scale'], ['Linkert-type', 'Likert-type'], ['Lickert scale', 'Likert scale'], ['Lickert-type', 'Likert-type']
 ]);
 
 // ------------------------------------------------------------------ grammar second-language writers often need corrected

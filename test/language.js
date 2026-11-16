@@ -144,6 +144,16 @@ References
   for (const [t, f] of [['medical adherence', 'Medication adherence'], ['pre', 'pre-'], ['the similar pattern', 'a similar pattern'], ['P-value', 'A P value']]) assert.ok(ph.some(i => i.text.toLowerCase() === t.toLowerCase() && i.replacements[0] === f), `${t} -> ${f}`);
   assert.ok(!ph.some(i => i.spelling && i.text === 'pre'), '"pre" is a word in manuscripts');
   assert.strictEqual(ph.filter(i => i.rule === 'determiner' && /^P/.test(i.text)).length, 1, '"P value <0.05" (PJPS form) is not changed');
+  // third comparison with Grammarly on document 7
+  const third = 'The research assistant read each questions aloud. There was also similar slight increase in attitude scores. Beliefs cannot be altered with limited number of sessions. ' +
+    'The risk is due to immunocompromised state. Participants received materials including booklet, and a video. Knowledge rose to 37.5%, that is consistent with the literature. ' +
+    'Author declare no conflict. Consent was obtained prior the start of the study. Results showed positive impact of the intervention. Patients can be greatly benefited from it. ' +
+    'Items were rated on a 5-point Linkert scale. It was translated using standard translating procedures. Some beliefs are deeply penetrated in people. Scholars wish to study.';
+  const t3 = require('../src/language/rules').checkParagraph(third, { domain: 'academic' }, { variant: 'en-US' }).map(i => `${i.text}->${i.replacements[0]}`);
+  for (const f of ['questions->question', 'There was also similar->There was also a similar', 'with limited number of->with a limited number of', 'due to immunocompromised state->due to an immunocompromised state',
+    'booklet->a booklet', 'that->which', 'Author declare->Authors declare', 'prior the->prior to the', 'showed positive impact->showed a positive impact', 'be greatly benefited from->greatly benefit from',
+    'Linkert scale->Likert scale', 'translating procedures->translation procedures', 'deeply penetrated in->deeply ingrained in']) assert.ok(t3.includes(f), `${f} (${t3.join(' | ')})`);
+  assert.ok(!t3.some(f => /^study->/.test(f)), '"to study" is a verb');
   assert.deepStrictEqual(tp.filter(i => i.rule === 'case-consistency').map(i => i.text), ['Latent'], 'capitals: "Latent" mid-sentence, not the Health Belief Model or a sentence start');
 
   // ---------------------------------------------------------------- permissions: users customised before Module 6 get it

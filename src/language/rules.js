@@ -441,7 +441,7 @@ month year hour minute symptom disease infection reaction region area country ho
 paper report trial enzyme protein gene receptor molecule solvent fraction peak technique approach model assay organism bacterium:bacteria fungus:fungi virus
 pathogen product medicine herb leaf:leaves seed fruit criterion:criteria analysis:analyses hypothesis:hypotheses respondent volunteer prescription complication
 tumor tumour lesion mutation cytokine marker biomarker level change difference effect property activity mechanism pathway treatment therapy condition
-characteristic feature sign measurement observation`.split(/\s+/).map(w => {
+characteristic feature sign measurement observation question`.split(/\s+/).map(w => {
   const [s, p] = w.split(':');
   return [s, p || (/(?:s|x|ch|sh)$/.test(s) ? `${s}es` : /[^aeiou]y$/.test(s) ? `${s.slice(0, -1)}ies` : `${s}s`)];
 }));
@@ -537,16 +537,16 @@ const grammar = [
 // singular countable nouns of research writing that need "the" or "a" after a preposition
 const COUNT_DET = 'group|study|questionnaire|booklet|brochure|session|scale|instrument|interview|physician|nurse|doctor|pharmacist|researcher|investigator|assistant|patient|participant|clinic|sample|trial|survey|program|programme|video|cohort|ward|visit|population';
 const NO_DET_BEFORE = new Set('the a an this that these those each every any some no our their its his her my your one another either neither same such which what all both whose per its'.split(' '));
-const PREP_DET = 'in|of|from|to|for|by|at|with|into|on|after|before|during|among|within|across|than|regarding|about';
+const PREP_DET = 'in|of|from|to|for|by|at|with|into|on|after|before|during|among|within|across|than|regarding|about|including|without|through';
 const DET_END = '(?=\\s+(?:were|was|are|is|had|have|has|with|who|which|that|in|of|from|at|for|and|or|but|while|whereas|compared|as|to|on|by|after|before|during|than|did|does|do|showed|received|underwent|could|can|may|might|will|would|should|must)\\b|\\s*[,.;:)]|\\s*$)';
 const gerund = v => (/ee$/.test(v) ? `${v}ing` : /[^aeiou]e$/.test(v) ? `${v.slice(0, -1)}ing` : /^(?:[^aeiou]*[aeiou][bdgmnpt])$/.test(v) ? `${v}${v.slice(-1)}ing` : `${v}ing`);
 const COMPARATIVE_OF = { high: 'higher', low: 'lower', large: 'larger', small: 'smaller', great: 'greater', strong: 'stronger', weak: 'weaker', good: 'better', poor: 'poorer', long: 'longer', short: 'shorter', fast: 'faster', slow: 'slower', early: 'earlier', late: 'later' };
 
 const determiners = [
-  regexRule('determiner', 'correctness', 'Missing article', new RegExp(`\\b(${PREP_DET})\\s+((?:(?:[a-z][a-z-]*|[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*)\\s+){0,3}?)(${COUNT_DET})\\b(?![-'’])${DET_END}`, 'g'), (m, p) => {
+  regexRule('determiner', 'correctness', 'Missing article', new RegExp(`\\b(${PREP_DET})\\s+((?:(?:(?!(?:${PREP_DET})\\b)[a-z][a-z-]*|[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*)\\s+){0,3}?)(${COUNT_DET})\\b(?![-'’])${DET_END}`, 'g'), (m, p) => {
     const prep = m[1], mods = m[2].trim().split(/\s+/).filter(Boolean), noun = m[3];
     if (mods.some(w => NO_DET_BEFORE.has(w.toLowerCase()) || /[a-z]ing$|[^su]s$|^(?:further|vivo|vitro|silico|situ)$/.test(w) || /^(?:in|of|from|to|for|by|at|with|on|and|or|was|were|is|are|not|than|as)$/.test(w))) return null;
-    if ((prep === 'in' && noun === 'hospital') || (prep === 'by' && noun === 'group') || (prep === 'of' && noun === 'study' && !mods.length && /\b(?:design|area|period|protocol|site|population|duration)\s+$/.test(p.slice(0, m.index)))) return null;
+    if ((prep === 'to' && !mods.length && /^(?:study|survey|interview|sample|visit|trial)$/.test(noun)) || (prep === 'in' && noun === 'hospital') || (prep === 'by' && noun === 'group') || (prep === 'of' && noun === 'study' && !mods.length && /\b(?:design|area|period|protocol|site|population|duration)\s+$/.test(p.slice(0, m.index)))) return null;
     // "from patient to patient", "group to group"
     if (new RegExp(`\\b${noun}\\s+$`).test(p.slice(Math.max(0, m.index - 20), m.index))) return null;
     if (/^\s*[A-Z0-9]/.test(p.slice(m.index + m[0].length, m.index + m[0].length + 2)) && /\s/.test(p[m.index + m[0].length] || '')) return null; // "in group A", "in study 2"
@@ -611,6 +611,10 @@ const determiners = [
   // "P-value less than 0.05 was considered significant": a sentence that opens with a singular noun needs "A"
   regexRule('determiner', 'correctness', 'Missing article', /(?:^|(?<=[.!?]\s+))(P-value|P value|p-value|p value)(?=\s+(?:less|lower|smaller|below)\b)/g, (m) => ({
     message: 'A singular noun at the start of a sentence needs an article: "A P value".', replacements: [`A ${/^p/.test(m[1]) ? 'P' : 'P'}${m[1].slice(1).replace('-', ' ')}`]
+  })),
+  // "…, that is consistent with" -> "…, which is consistent with" (a clause after a comma adds a comment)
+  regexRule('word-choice', 'correctness', 'Relative pronoun', /,\s+(that)\s+(?=(?:is|was|are|were)\s+(?:consistent|in line|in agreement|in accordance|similar|comparable)\b)/g, (m) => ({
+    start: m.index + m[0].lastIndexOf(m[1]), end: m.index + m[0].lastIndexOf(m[1]) + 4, message: 'After a comma, a clause that adds a comment opens with "which".', replacements: ['which']
   })),
   regexRule('word-choice', 'correctness', 'Word choice', /\bread\b[^.;]{0,60}?\b(loudly)\b/gi, (m) => ({ start: m.index + m[0].length - m[1].length, message: 'Reading so others can hear is reading "aloud".', replacements: ['aloud'] }))
 ];

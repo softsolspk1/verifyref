@@ -612,6 +612,13 @@ const determiners = [
   regexRule('determiner', 'correctness', 'Missing article', /(?:^|(?<=[.!?]\s+))(P-value|P value|p-value|p value)(?=\s+(?:less|lower|smaller|below)\b)/g, (m) => ({
     message: 'A singular noun at the start of a sentence needs an article: "A P value".', replacements: [`A ${/^p/.test(m[1]) ? 'P' : 'P'}${m[1].slice(1).replace('-', ' ')}`]
   })),
+  // a plural abbreviation used as a modifier: "SSRIs exposure" -> "SSRI exposure", "NSAIDs use" -> "NSAID use"
+  regexRule('noun-number', 'correctness', 'Noun form', /\b([A-Z][A-Z0-9-]{1,9})s\s+(?=(?:exposure|use|users|usage|treatment|therapy|prescription|prescriptions|consumption|intake|administration|dosage|regimen|class|group|signals?|risk)\b)/g, (m, p) => {
+    if (/\b(?:of|with|on|by|between|among|and|or)\s+$/.test(p.slice(Math.max(0, m.index - 12), m.index)) && !/\b(?:gestational|prenatal|maternal|long-term|chronic|concomitant|prior|recent)\s+$/.test(p.slice(Math.max(0, m.index - 20), m.index))) return null;
+    return { end: m.index + m[1].length + 1, message: `An abbreviation used as a modifier stays singular: "${m[1]} ${p.slice(m.index + m[0].length).split(/\s/)[0]}".`, replacements: [m[1]] };
+  }),
+  // a caption label without punctuation: "Figure 1 Distribution of AEs" -> "Figure 1: Distribution" (PJPS writes "Fig. 1:" and "Table 1:")
+  regexRule('punctuation', 'correctness', 'Caption', /^(\s*(?:Figure|Fig\.|Table)\s?\d+[A-Za-z]?)(\s+)(?=[A-Z][a-z])/g, (m) => ({ start: m.index + m[1].length - m[1].trimStart().length, end: m.index + m[0].length, message: 'A figure or table label is followed by a colon: "Fig. 1: …".', replacements: [`${m[1].trimStart()}: `] })),
   // "…, that is consistent with" -> "…, which is consistent with" (a clause after a comma adds a comment)
   regexRule('word-choice', 'correctness', 'Relative pronoun', /,\s+(that)\s+(?=(?:is|was|are|were)\s+(?:consistent|in line|in agreement|in accordance|similar|comparable)\b)/g, (m) => ({
     start: m.index + m[0].lastIndexOf(m[1]), end: m.index + m[0].lastIndexOf(m[1]) + 4, message: 'After a comma, a clause that adds a comment opens with "which".', replacements: ['which']
@@ -649,7 +656,8 @@ function spelling(p, opts) {
     if (name) continue;
     if (S.check(x.w, { variant: opts.variant, personal: opts.personal, ctx: { midSentence, repeated, address } })) continue;
     const variantWord = S.otherVariant(x.w, opts.variant);
-    const reps = S.suggest(x.w, opts.variant);
+    const us = opts.variant !== 'en-GB' && S.usMedical(x.w);
+    const reps = us ? [us, ...S.suggest(x.w, opts.variant).filter(w => w !== us)] : S.suggest(x.w, opts.variant);
     if (variantWord) {
       out.push(issue('variant-spelling', 'correctness', opts.variant === 'en-GB' ? 'US spelling' : 'British spelling', x.start, x.end, p,
         `"${x.w}" is the ${opts.variant === 'en-GB' ? 'American' : 'British'} spelling. This document is set to ${opts.variant === 'en-GB' ? 'British' : 'American'} English.`, reps, { spelling: true }));

@@ -180,6 +180,10 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ['translating procedures', 'translation procedures'], ['translating procedure', 'translation procedure'], ['deeply penetrated in', 'deeply ingrained in|deeply rooted in'],
   ['be benefited from', 'benefit from'], ['be greatly benefited from', 'greatly benefit from'], ['be benefitted from', 'benefit from'],
   ['Author declare', 'Authors declare', { cs: true }], ['Authors declares', 'Authors declare', { cs: true }],
+  // comparison with Grammarly on document 8
+  ['re-uptake', 'reuptake'], ['publishment', 'publication'], ['MySQ', 'MySQL', { cs: true }],
+  ['The dataset generated', 'The datasets generated', { cs: true, a: 'during|and|or' , xa: 'during' }], ['The data set generated', 'The datasets generated', { cs: true, a: 'during|and|or', xa: 'during' }],
+  ...['strong', 'high', 'low', 'small', 'large', 'weak', 'rare', 'severe', 'important', 'significant', 'sensitive', 'toxic', 'potent', 'difficult', 'useful', 'effective', 'dangerous', 'variable', 'heterogeneous', 'limited'].map(a => [`extreme ${a}`, `extremely ${a}`]),
   ['Linkert scale', 'Likert scale'], ['Linkert-type', 'Likert-type'], ['Lickert scale', 'Likert scale'], ['Lickert-type', 'Likert-type']
 ]);
 

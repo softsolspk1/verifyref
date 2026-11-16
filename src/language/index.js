@@ -45,8 +45,15 @@ async function checkParagraphs(paragraphs, opts = {}) {
   // the server's PJPS rules follow the writer's goals and switches like the in-house ones (academic usage and units only in
   // research writing; a kind of suggestion turned off is off on both engines)
   const off = new Set(opts.disabled || []);
-  const ltKept = lt ? lt.map(list => list.filter(i => (!i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w))) && !(academic && ACADEMIC_OFF.test(i.rule || '')) &&
+  // a table cell's leading spaces (a flattened table: "  2004", "  Consumer") are layout, not a typing slip
+  const layout = (i, p) => /^lt:(?:WHITESPACE_RULE|CONSECUTIVE_SPACES)$/.test(i.rule || '') && !p.slice(0, i.offset).trim();
+  const ltKept = lt ? lt.map((list, k) => list.filter(i => !layout(i, paragraphs[k]) && (!i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w))) && !(academic && ACADEMIC_OFF.test(i.rule || '')) &&
     !off.has(i.rule) && ((opts.goals?.domain || 'academic') === 'academic' || !/^(?:academic-usage|unit-style)$/.test(i.rule)))) : null;
+  // a known slip ("publishment") gets the known answer, not the server's nearest word ("punishment")
+  if (ltKept) for (const list of ltKept) for (const i of list) {
+    const t = i.spelling && S.TYPOS[i.text.toLowerCase()];
+    if (t) i.replacements = [R.keepCase(i.text, t), ...i.replacements.filter(x => x.toLowerCase() !== t)];
+  }
   let ai = paragraphs.map(() => []), aiError = null;
   if (opts.ai && AI.enabled()) {
     try {

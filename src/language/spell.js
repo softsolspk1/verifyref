@@ -32,7 +32,7 @@ function load(variant) {
 }
 
 // Common scientific and pharmaceutical words the general dictionaries lack
-const SCIENCE = `pharmacokinetic pharmacokinetics pharmacodynamic pharmacodynamics pharmacological pharmacologically pharmacovigilance pharmacognosy
+const SCIENCE = `xgboost lightgbm catboost pharmacokinetic pharmacokinetics pharmacodynamic pharmacodynamics pharmacological pharmacologically pharmacovigilance pharmacognosy
 pharmaceutics bioavailability bioequivalence bioassay bioassays biomarker biomarkers biofilm biofilms cytotoxic cytotoxicity genotoxic genotoxicity
 hepatotoxic hepatotoxicity nephrotoxic nephrotoxicity antioxidant antioxidants antimicrobial antimicrobials antibacterial antifungal antiviral antidiabetic
 anticancer antiproliferative antiinflammatory analgesic anxiolytic antidepressant antihypertensive anticoagulant antiplatelet antiemetic antipyretic
@@ -102,6 +102,8 @@ function check(word, { variant = 'en-US', personal = null, ctx = {} } = {}) {
   // a known misspelling is wrong even when its parts are words ("prevalance" = pre + valance)
   const t = TYPOS[word.toLowerCase()];
   if (t && t !== word.toLowerCase() && word.length >= 3 && !/\d/.test(word)) return false;
+  // British medical spellings ("Hypoglycaemia", "apnoea", "foetal") are in the research vocabulary, but not right in a US document
+  if (variant !== 'en-GB' && usMedical(word)) return false;
   if (exempt(word, ctx)) return true;
   if (isName(word)) return true;
   const sp = load(variant);
@@ -118,13 +120,25 @@ function check(word, { variant = 'en-US', personal = null, ctx = {} } = {}) {
 
 /** Correct in the other variant: a US spelling in a UK document or the reverse ("color" / "colour") */
 function otherVariant(word, variant) {
+  if (variant !== 'en-GB' && usMedical(word)) return true;
   const other = variant === 'en-GB' ? 'en-US' : 'en-GB';
   return load(other).correct(word) || load(other).correct(word.toLowerCase());
 }
 
+/** The US form of a British medical spelling ("haemorrhage" -> "hemorrhage", "oedema" -> "edema", "apnoea" -> "apnea"), or null */
+const UK_MED = /(?:aem|oedem|^oes(?:oph|tr)|foet|paed|anaes|gynaec|pnoe|rrhoe|^coel|^aetiol)/i;
+function usMedical(word) {
+  if (!UK_MED.test(word) || word.length < 5 || /^haemo(?:philus|nchus|physalis|proteus)|kaempf/i.test(word)) return null;
+  const us = word.replace(/aem/g, 'em').replace(/Aem/g, 'Em').replace(/oedem/g, 'edem').replace(/^Oe(?=dem|s)/, 'E').replace(/^oe(?=dem|s)/, 'e').replace(/pnoe/g, 'pne').replace(/rrhoe/g, 'rrhe').replace(/foet/gi, m => m[0] + 'et')
+    .replace(/paed/gi, m => m[0] + 'ed').replace(/anaes/gi, m => m[0] + 'nes').replace(/^Coel/, 'Cel').replace(/^coel/, 'cel').replace(/^Aetiol/, 'Etiol').replace(/^aetiol/, 'etiol');
+  if (us === word) return null;
+  const sp = load('en-US');
+  return sp.correct(us) || sp.correct(us.toLowerCase()) ? us : null;
+}
+
 // Frequent typing slips with an obvious answer, ranked ahead of computed suggestions
 const HAND_TYPOS = {
-  teh: 'the', adn: 'and', hte: 'the', taht: 'that', thier: 'their', recieve: 'receive', recieved: 'received', beleive: 'believe', occured: 'occurred',
+  teh: 'the', adn: 'and', publishment: 'publication', hte: 'the', taht: 'that', thier: 'their', recieve: 'receive', recieved: 'received', beleive: 'believe', occured: 'occurred',
   resistence: 'resistance', hypertention: 'hypertension', absense: 'absence', consistant: 'consistent', prevalance: 'prevalence', persistant: 'persistent',
   medecine: 'medicine', concentraion: 'concentration', signifcant: 'significant', statisticaly: 'statistically',
   diabetis: 'diabetes', antioxident: 'antioxidant', phosphorilation: 'phosphorylation', monocional: 'monoclonal', recommandations: 'recommendations',
@@ -209,4 +223,4 @@ function suggest(word, variant = 'en-US') {
 // words used by at least a fifth of published research articles (same script): not "overused" when a paragraph repeats them
 const RESEARCH_COMMON = new Set(lines(RESEARCH_COMMON_FILE));
 
-module.exports = { load, check, suggest, otherVariant, resetBudget, exempt, isName, TYPOS, HAND_TYPOS, RESEARCH_COMMON };
+module.exports = { load, check, suggest, otherVariant, usMedical, resetBudget, exempt, isName, TYPOS, HAND_TYPOS, RESEARCH_COMMON };

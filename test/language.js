@@ -154,6 +154,17 @@ References
     'booklet->a booklet', 'that->which', 'Author declare->Authors declare', 'prior the->prior to the', 'showed positive impact->showed a positive impact', 'be greatly benefited from->greatly benefit from',
     'Linkert scale->Likert scale', 'translating procedures->translation procedures', 'deeply penetrated in->deeply ingrained in']) assert.ok(t3.includes(f), `${f} (${t3.join(' | ')})`);
   assert.ok(!t3.some(f => /^study->/.test(f)), '"to study" is a verb');
+  // comparison with Grammarly on document 8
+  const eighth = 'The profile of gestational SSRIs exposure was high. Fluvoxamine released extreme strong signals. Serotonin re-uptake inhibitors were used. Cleaning used MySQ, which removed duplicates. ' +
+    'The dataset generated during the study is available. All authors approved publishment of the manuscript. Neonates had Hypoglycaemia neonatal and Infantile apnoea and foetal distress. Haemophilus influenzae and kaempferol were studied.';
+  const t8 = require('../src/language/rules').checkParagraph(eighth, { domain: 'academic' }, { variant: 'en-US' }).map(i => `${i.text}->${i.replacements[0]}`);
+  for (const f of ['SSRIs->SSRI', 'extreme strong->extremely strong', 're-uptake->reuptake', 'MySQ->MySQL', 'The dataset generated->The datasets generated', 'publishment->publication',
+    'Hypoglycaemia->Hypoglycemia', 'apnoea->apnea', 'foetal->fetal']) assert.ok(t8.includes(f), `${f} (${t8.join(' | ')})`);
+  assert.ok(!t8.some(f => /^(?:Haemophilus|kaempferol)/.test(f)), 'a genus or a flavonoid is not a British spelling');
+  assert.ok(!require('../src/language/rules').checkParagraph('Hypoglycaemia and apnoea were seen.', {}, { variant: 'en-GB' }).some(i => i.spelling), 'British document: British spelling is right');
+  const cap8 = require('../src/language/rules').checkParagraph('Figure 2 Signal detection scatter plot', {}, { variant: 'en-US' });
+  assert.ok(cap8.some(i => i.replacements[0] === 'Figure 2: '), 'caption label takes a colon');
+  assert.ok(!require('../src/language/rules').checkParagraph('Table 1 shows the data.', {}, { variant: 'en-US' }).some(i => i.rule === 'punctuation'), '"Table 1 shows" is a sentence');
   assert.deepStrictEqual(tp.filter(i => i.rule === 'case-consistency').map(i => i.text), ['Latent'], 'capitals: "Latent" mid-sentence, not the Health Belief Model or a sentence start');
 
   // ---------------------------------------------------------------- permissions: users customised before Module 6 get it

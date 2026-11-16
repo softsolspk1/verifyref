@@ -106,9 +106,12 @@ const correctness = [
   }),
   regexRule('loose-lose', 'correctness', 'Confused words', /\b(to|will|may|might|could|would|not)\s+(loose)\b/gi, (m) => ({ start: m.index + m[0].length - 5, message: '"Lose" means to misplace or fail to keep; "loose" means not tight.', replacements: ['lose'] })),
   regexRule('your-youre', 'correctness', 'Confused words', /\b(your)\s+(welcome|right|wrong|going|not|being|able|sure|correct)\b/gi, (m) => ({ end: m.index + 4, message: 'Use "you\'re" (you are).', replacements: [keepCase(m[1], "you're")] })),
-  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', /\b(he|she|it|this|that)\s+(have|do|are|were|don't)\b|\b(I|you|we|they)\s+(has|does|is|doesn't)\b|\b(you|we|they)\s+(was)\b/g, (m) => {
+  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', /\b(he|she|it|this|that)\s+(have|do|are|were|don't)\b|\b(I|you|we|they)\s+(has|does|is|doesn't)\b|\b(you|we|they)\s+(was)\b/g, (m, p) => {
     const subj = m[1] || m[3] || m[5], verb = m[2] || m[4] || m[6];
     if (/^(?:this|that)$/i.test(subj) && /^(?:are|were|do|have)$/.test(verb)) return null; // "that are" (relative clause) is fine
+    // "as it were" is an idiom; "compound I is", "Table I is" use a Roman numeral
+    if (/^it$/i.test(subj) && verb === 'were' && /\bas\s+$/i.test(p.slice(Math.max(0, m.index - 4), m.index))) return null;
+    if (subj === 'I' && /[A-Za-z0-9)]\s+$/.test(p.slice(Math.max(0, m.index - 3), m.index)) && !/\b(?:and|but|so|then|that|because|when|if|as|which|where|while|than)\s+$/i.test(p.slice(Math.max(0, m.index - 10), m.index))) return null;
     const fix = { have: 'has', do: 'does', are: 'is', were: 'was', "don't": "doesn't", has: 'have', does: 'do', is: /^I$/.test(subj) ? 'am' : 'are', "doesn't": "don't", was: 'were' }[verb];
     const s = m.index + m[0].length - verb.length;
     return { start: s, message: `The verb does not agree with the subject "${subj}".`, replacements: [fix] };
@@ -395,7 +398,145 @@ const style = [
   }), { when: g => g.domain === 'academic' })
 ];
 
-const ALL = [...correctness, ...clarity, ...engagement, ...delivery, ...style];
+// ------------------------------------------------------------------ grammar patterns of research writing
+// verbs of Methods and Results with their forms: [base, 3rd person, past, past participle]
+const REGULAR = `perform determine evaluate assess calculate analyze analyse observe obtain prepare administer select include exclude conduct investigate examine
+identify isolate purchase dissolve filter incubate centrifuge wash dilute inject induce divide randomize randomise recruit enroll enrol euthanize anesthetize
+anaesthetise compare detect quantify synthesize synthesise characterize characterise formulate optimize optimise validate apply compute explore establish
+confirm demonstrate achieve consider define describe propose suggest document encourage expose inform interview involve maintain prescribe provide publish
+receive reduce remove require store utilize utilise weigh approve adopt allocate assign classify homogenize homogenise lyse macerate quantitate reconstitute
+sonicate standardize standardise sterilize sterilise suspend tabulate transfect transform inoculate immunize vaccinate embed increase decrease improve
+inhibit enhance prevent contribute occur remain predict develop exhibit indicate reveal appear seem differ depend contain consist affect cause produce
+protect regulate activate attenuate ameliorate alleviate aggravate elevate lower decline exceed report record collect measure test treat use need help
+change control support follow extract express mix stain`.split(/\s+/);
+const DOUBLE = new Set(['enrol', 'occur', 'control', 'transfer', 'refer', 'prefer', 'admit', 'submit', 'commit', 'permit', 'omit', 'stop', 'plan', 'drop']);
+const third = v => (/(?:s|x|z|ch|sh|o)$/.test(v) ? `${v}es` : /[^aeiou]y$/.test(v) ? `${v.slice(0, -1)}ies` : `${v}s`);
+const pastOf = v => (/e$/.test(v) ? `${v}d` : /[^aeiou]y$/.test(v) ? `${v.slice(0, -1)}ied` : DOUBLE.has(v) ? `${v}${v.slice(-1)}ed` : `${v}ed`);
+const IRREG = `show showed shown|take took taken|give gave given|find found found|make made made|see saw seen|begin began begun|become became become|choose chose chosen
+|draw drew drawn|grow grew grown|write wrote written|know knew known|undergo underwent undergone|undertake undertook undertaken|rise rose risen|arise arose arisen
+|fall fell fallen|hold held held|keep kept kept|lead led led|leave left left|feel felt felt|go went gone|run ran run|bring brought brought|buy bought bought
+|seek sought sought|teach taught taught|think thought thought|spend spent spent|send sent sent|build built built|freeze froze frozen|shake shook shaken
+|strike struck struck|bind bound bound|grind ground ground|withdraw withdrew withdrawn|overcome overcame overcome|mean meant meant|meet met met|lose lost lost
+|pay paid paid|say said said|tell told told|understand understood understood|win won won|eat ate eaten|drive drove driven|break broke broken|speak spoke spoken`
+  .split('|').map(s => s.trim().split(/\s+/));
+const VERB = new Map();   // any form -> { base, s, past, pp }
+for (const v of REGULAR) { const f = { base: v, s: third(v), past: pastOf(v), pp: pastOf(v) }; for (const x of [f.s, f.past]) VERB.set(x, f); }
+for (const [base, past, pp] of IRREG) { const f = { base, s: third(base), past, pp }; for (const x of [f.s, past, pp]) if (x !== base) VERB.set(x, f); }
+// base forms that are clearly verbs (never nouns) after "has", "was" or "been": "has demonstrate", "were determine"
+const NEEDS_PP = new Set(`perform determine evaluate assess calculate analyze analyse observe obtain prepare administer select exclude investigate examine identify
+isolate dissolve incubate dilute inject induce divide randomize randomise recruit enroll euthanize compare detect quantify synthesize synthesise characterize
+characterise formulate optimize optimise validate apply compute explore establish confirm demonstrate achieve define describe propose suggest encourage expose
+inform involve maintain prescribe provide publish receive reduce remove utilize utilise approve adopt allocate assign classify homogenize sonicate standardize
+sterilize transfect inoculate immunize vaccinate improve inhibit enhance prevent contribute predict reveal indicate`.split(/\s+/));
+for (const [base] of IRREG) if (!['become', 'overcome', 'run', 'lead', 'hold', 'keep', 'feel', 'find', 'mean', 'meet', 'win', 'pay', 'say', 'tell', 'build', 'spend', 'send', 'buy', 'think', 'teach', 'grind', 'bind', 'strike', 'fall', 'rise', 'lose', 'leave', 'go', 'speak', 'break', 'drive', 'eat'].includes(base)) NEEDS_PP.add(base);
+const PP_OF = new Map([...REGULAR.map(v => [v, pastOf(v)]), ...IRREG.map(([b, , pp]) => [b, pp])]);
+const ADV = '(?:(?:not|also|further|significantly|markedly|potentially|only|still|then|thus|therefore|clearly|successfully|effectively|both|all|first)\\s+)*';
+const verbAlt = [...VERB.keys()].sort((a, b) => b.length - a.length).join('|');
+const ppAlt = [...NEEDS_PP].sort((a, b) => b.length - a.length).join('|');
+
+// research nouns: singular -> plural
+const NOUNS = Object.fromEntries(`patient sample study result group rat mouse:mice cell compound extract drug method parameter factor case participant subject
+child:children woman:women man:men animal plant experiment test value finding outcome variable strain isolate tablet formulation concentration dose day week
+month year hour minute symptom disease infection reaction region area country hospital student pharmacist physician doctor nurse author researcher article
+paper report trial enzyme protein gene receptor molecule solvent fraction peak technique approach model assay organism bacterium:bacteria fungus:fungi virus
+pathogen product medicine herb leaf:leaves seed fruit criterion:criteria analysis:analyses hypothesis:hypotheses respondent volunteer prescription complication
+tumor tumour lesion mutation cytokine marker biomarker level change difference effect property activity mechanism pathway treatment therapy condition
+characteristic feature sign measurement observation`.split(/\s+/).map(w => {
+  const [s, p] = w.split(':');
+  return [s, p || (/(?:s|x|ch|sh)$/.test(s) ? `${s}es` : /[^aeiou]y$/.test(s) ? `${s.slice(0, -1)}ies` : `${s}s`)];
+}));
+const SINGULAR_OF = Object.fromEntries(Object.entries(NOUNS).map(([s, p]) => [p, s]));
+// plurals that are also verbs ("this results in", "this changes the"): never corrected after "this"
+const VERBY = new Set(['results', 'effects', 'changes', 'reports', 'tests', 'models', 'approaches', 'features', 'signs', 'markers', 'studies', 'factors', 'cases', 'groups',
+  'values', 'products', 'drugs', 'peaks', 'assays', 'samples', 'doses', 'extracts', 'plants', 'levels', 'treatments', 'conditions', 'measurements', 'experiments', 'findings', 'cells', 'papers', 'seeds', 'fractions', 'differences', 'properties', 'activities']);
+const sgAlt = Object.keys(NOUNS).join('|'), plAlt = Object.values(NOUNS).join('|');
+// what can follow a noun that ends its phrase (a noun used as a modifier, "several patient groups", is not followed by these)
+const PHRASE_END = '(?=\\s+(?:were|was|are|is|had|have|has|with|who|which|that|in|of|from|at|for|showed|received|underwent|treated)\\b|\\s*[,.;:)])';
+// a noun inside a phrase ("approval for the experiments was", "parameters affecting the reaction were") is not the subject
+const NOT_SUBJECT = '(?<!\\b(?:of|in|for|from|with|by|on|at|to|among|between|than|into|about|under|over|after|before|during|through|against|without|within|per|via|almost|like|across|including|and|or|\\w+ing|\\w+ed)\\s)';
+const BE_VERB_SG = { were: 'was', are: 'is', have: 'has', show: 'shows', suggest: 'suggests', indicate: 'indicates', demonstrate: 'demonstrates', reveal: 'reveals', remain: 'remains', seem: 'seems', appear: 'appears', do: 'does' };
+const BE_VERB_PL = Object.fromEntries(Object.entries(BE_VERB_SG).map(([p, s]) => [s, p]));
+const SUBSTANCES = 'streptozotocin|STZ|alloxan|carrageenan|paracetamol|acetaminophen|CCl4|LPS|lipopolysaccharide|cisplatin|doxorubicin|gentamicin|formalin|ethanol|isoproterenol|isoprenaline|haloperidol|scopolamine|reserpine|dexamethasone|cyclophosphamide|methotrexate|histamine|serotonin|capsaicin|pentylenetetrazole|PTZ|MPTP|rotenone|aluminium|aluminum|cadmium|arsenic|diclofenac|indomethacin|aspirin|ibuprofen|stress|exercise|diet|drug|chemotherapy|radiation|hypoxia|glucose|insulin|nicotine|alcohol|cocaine|morphine|MSG|fructose|thioacetamide|DMBA|DEN|azoxymethane|AOM|DSS|bleomycin|monocrotaline|L-NAME|receptor|antibody|immune|enzyme|cell|ligand|virus|bacteria|toxin|oxidative';
+
+const grammar = [
+  regexRule('verb-form', 'correctness', 'Verb form', new RegExp(`\\b(can|could|might|must|shall|should|will|would|cannot|can't|couldn't|won't|wouldn't|shouldn't|mustn't|may|did|didn't|does|doesn't|do|don't)(\\s+${ADV})(${verbAlt})\\b(?![-'’])`, 'g'), (m) => {
+    const f = VERB.get(m[3]);
+    // "do", "does", "did" only when negative: "How do treated cells respond" is a question with an adjective
+    if (!f || (/^(?:do|does|did)$/.test(m[1]) && !/\bnot\b/.test(m[2]))) return null;
+    const s = m.index + m[1].length + m[2].length;
+    return { start: s, message: `After "${m[1]}" the verb takes its base form: "${f.base}".`, replacements: [f.base] };
+  }),
+  regexRule('verb-form', 'correctness', 'Verb form', new RegExp(`\\b(aimed|aim|aims|designed|intended|sought|able|unable|attempted|tried|tend|tends|tended|failed|order|decided|planned)\\s+to\\s+(${verbAlt})\\b(?![-'’])`, 'gi'), (m) => {
+    const f = VERB.get(m[2].toLowerCase());
+    if (!f) return null;
+    const s = m.index + m[0].length - m[2].length;
+    return { start: s, message: `After "to" the verb takes its base form: "to ${f.base}".`, replacements: [f.base] };
+  }),
+  regexRule('verb-form', 'correctness', 'Verb form', new RegExp(`\\b(has|have|had|having|is|are|was|were|be|been|being)(\\s+${ADV})(${ppAlt})\\b(?![-'’])`, 'gi'), (m) => {
+    const base = m[3].toLowerCase(), pp = PP_OF.get(base);
+    if (!pp) return null;
+    // "to have" + base is a request ("have them complete"), "be" after "to" ("to be determine") is still wrong
+    if (/^(?:have|has|had|having)$/i.test(m[1]) && /\b(?:them|him|her|patients|participants)\s*$/i.test(m[2])) return null;
+    const s = m.index + m[1].length + m[2].length;
+    return { start: s, message: `After "${m[1]}" the verb takes its past participle: "${pp}".`, replacements: [keepCase(m[3], pp)] };
+  }),
+  regexRule('noun-number', 'correctness', 'Noun form', new RegExp(`\\bone of the\\s+(?:(?:most|more|least|main|major|key|important|leading|common|significant|best|largest|first|primary|principal|other|potential|possible|few)\\s+){0,3}(${sgAlt})\\b(?![-'’])${PHRASE_END}`, 'gi'), (m) => {
+    const s = m.index + m[0].length - m[1].length;
+    return { start: s, message: `After "one of the" the noun is plural: "${NOUNS[m[1].toLowerCase()]}".`, replacements: [keepCase(m[1], NOUNS[m[1].toLowerCase()])] };
+  }),
+  // (not after a label: "phase 2 trial was", "Table 3 patient", "type 2 model"; not "both patient and physician")
+  regexRule('noun-number', 'correctness', 'Noun form', new RegExp(`(?<!\\b(?:phase|type|grade|stage|class|figure|fig\\.|table|group|day|week|step|level|model|version|generation|cycle|arm|part|section|lane|wave|round|batch|experiment|study|item|question|category|tier|dose|visit|period|lot|no\\.)\\s)\\b(these|those|several|many|various|numerous|multiple|few|two|three|four|five|six|seven|eight|nine|ten|[2-9]|[1-9]\\d{1,2})\\s+(${sgAlt})\\b(?![-'’])${PHRASE_END}`, 'gi'), (m, p) => {
+    // a number counts only after a word ("after 3 hour"), not in a formula, a range or a page header ("CO 2 level", "2.5 year", "613 extract")
+    if (/^\d/.test(m[1])) {
+      const w = p.slice(Math.max(0, m.index - 30), m.index).match(/(?:^|\s)([a-z]{3,})\s+$/);
+      if (!w || /^(?:phase|type|grade|stage|class|table|group|day|week|step|level|model|version|cycle|arm|part|section|lane|wave|round|batch|experiment|study|item|question|category|tier|dose|visit|period|lot|page|vol|figure|interleukin|caspase|chromosome|cytochrome|exon|intron|codon|domain|subunit|isoform|complex|clone|serotype|genotype|vitamin|omega|compound|formula|equation|tube|well|plate|column|peak|fraction|sample|number|receptor|factor|kinase|protein|cluster|region|channel|line)$/.test(w[1])) return null;
+    }
+    const s = m.index + m[0].length - m[2].length;
+    return { start: s, message: `After "${m[1]}" the noun is plural: "${NOUNS[m[2].toLowerCase()]}".`, replacements: [keepCase(m[2], NOUNS[m[2].toLowerCase()])] };
+  }),
+  regexRule('noun-number', 'correctness', 'Noun form', new RegExp(`\\b(each|every|another|this)\\s+(${plAlt})\\b(?![-'’])`, 'gi'), (m) => {
+    const pl = m[2].toLowerCase();
+    if (m[1].toLowerCase() === 'this') {
+      // "this results in" is a verb; otherwise the writer meant "these patients"
+      if (VERBY.has(pl)) return null;
+      return { end: m.index + 4, message: `"${m[2]}" is plural, so the determiner is "these".`, replacements: [keepCase(m[1], 'these')] };
+    }
+    const s = m.index + m[0].length - m[2].length;
+    return { start: s, message: `After "${m[1]}" the noun is singular: "${SINGULAR_OF[pl]}".`, replacements: [keepCase(m[2], SINGULAR_OF[pl])] };
+  }),
+  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', new RegExp(`${NOT_SUBJECT}\\b(?:the|these|those|our|all|both|most)\\s+(${plAlt})\\s+(was|is|has|shows|suggests|indicates|demonstrates|reveals|remains|seems|appears|does)\\b`, 'gi'), (m) => {
+    const s = m.index + m[0].length - m[2].length;
+    return { start: s, message: `"${m[1]}" is plural, so the verb is "${BE_VERB_PL[m[2].toLowerCase()]}".`, replacements: [BE_VERB_PL[m[2].toLowerCase()]] };
+  }),
+  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', new RegExp(`${NOT_SUBJECT}\\b(?:the|this|that|each|every)\\s+(${sgAlt})\\s+(were|are|have|show|suggest|indicate|demonstrate|reveal|remain|seem|appear|do)\\b`, 'gi'), (m) => {
+    if (/^(?:group|analysis|criterion)$/i.test(m[1])) return null; // a group may take a plural verb in British English
+    const s = m.index + m[0].length - m[2].length;
+    return { start: s, message: `"${m[1]}" is singular, so the verb is "${BE_VERB_SG[m[2].toLowerCase()]}".`, replacements: [BE_VERB_SG[m[2].toLowerCase()]] };
+  }),
+  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', /\b(the number of)\s+(?:(?!who\b|that\b|which\b)[\w-]+\s+){1,5}?(were|are|have)\b/gi, (m) => {
+    const s = m.index + m[0].length - m[2].length;
+    return { start: s, message: '"The number of …" takes a singular verb ("the number of patients was").', replacements: [{ were: 'was', are: 'is', have: 'has' }[m[2].toLowerCase()]] };
+  }),
+  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', /\b(there)\s+(is|was)\s+(?=(?:many|several|numerous|various|multiple|few|no significant differences|significant differences|differences|two|three|four|five)\b)/gi, (m) => {
+    const s = m.index + m[1].length + 1;
+    return { start: s, end: s + m[2].length, message: `The noun after "there ${m[2]}" is plural, so the verb is "${m[2].toLowerCase() === 'is' ? 'are' : 'were'}".`, replacements: [m[2].toLowerCase() === 'is' ? 'are' : 'were'] };
+  }),
+  regexRule('noun-number', 'correctness', 'Noun form', new RegExp(`\\b(much)\\s+(?=(?:${plAlt})\\b)`, 'gi'), (m) => ({ end: m.index + m[1].length, message: 'Use "many" with things you can count.', replacements: [keepCase(m[1], 'many')] })),
+  regexRule('noun-number', 'correctness', 'Noun form', new RegExp(`\\b(amounts? of)\\s+(?=(?:patients|participants|people|subjects|cells|samples|studies|animals|rats|mice|cases|children|women|men|students|doctors|pharmacists|hospitals|tablets|errors|respondents|volunteers|colonies|isolates|strains)\\b)`, 'gi'), (m) => ({ end: m.index + m[1].length, message: 'Use "number of" with things you can count ("the number of patients").', replacements: [/s of$/i.test(m[1]) ? 'numbers of' : 'number of'] })),
+  regexRule('compound-hyphen', 'style', 'Hyphen', /(?<!\bqua\s)\b(non)\s+(?!sequitur\b|grata\b)([a-z]{3,})\b/gi, (m) => ({ message: `"non" is joined to the word it qualifies: "non-${m[2]}".`, replacements: [`${m[1]}-${m[2]}`] })),
+  regexRule('compound-hyphen', 'style', 'Hyphen', new RegExp(`\\b(?:[Ii]n|[Oo]n|[Aa]gainst|[Oo]f|[Ww]ith|[Ff]rom|[Ff]or|[Tt]o|[Ii]nto|[Dd]uring|[Aa]fter|[Ff]ollowing)\\s+(?=(?:${SUBSTANCES})\\s+(?:induced|mediated)\\s+(?!(?:by|in|with|the|a|an|and|or|was|were|is|are|via|through|at|after|for|to|from|on)\\b)[a-z])(\\S+)(\\s+)(induced|mediated)\\b`, 'g'), (m) => {
+    const s = m.index + m[0].length - m[3].length - m[2].length - m[1].length;
+    return { start: s, message: `A compound before a noun takes a hyphen: "${m[1]}-${m[3]}".`, replacements: [`${m[1]}-${m[3]}`] };
+  }),
+  regexRule('unit-style', 'style', 'Unit', /\b(\d+(?:\.\d+)?)\s?(oC|0C|ºC)(?![\w])/g, (m) => ({ message: 'Write degrees Celsius with the degree sign: "°C".', replacements: [`${m[1]} °C`] }), { when: g => g.domain === 'academic' }),
+  regexRule('unit-style', 'style', 'Unit', /\b(\d+(?:\.\d+)?)(mins|hrs|hr|secs|gm|gms|mgs|kgs|Kg|mls)\b/g, (m) => ({ message: 'Put a space between a number and its unit, and use the SI symbol.', replacements: [`${m[1]} ${{ mins: 'min', hrs: 'h', hr: 'h', secs: 's', gm: 'g', gms: 'g', mgs: 'mg', kgs: 'kg', Kg: 'kg', mls: 'mL' }[m[2]]}`] }), { when: g => g.domain === 'academic' })
+];
+
+// the phrase rules of the bank (bank.js): medical confusions, prepositions, noun forms, terms, species, units and more
+const B = require('./bank');
+const bankRules = { id: 'bank', run: (p, g, disabled) => B.match(p, g, disabled) };
+
+const ALL = [...correctness, ...grammar, ...clarity, ...engagement, ...delivery, ...style];
 
 /** Spelling issues of one paragraph */
 function spelling(p, opts) {
@@ -442,6 +583,7 @@ function checkParagraph(p, goals = {}, opts = {}) {
     if (disabled.has(r.id) || (r.when && !r.when(g))) continue;
     out.push(...r.run(p, g));
   }
+  out.push(...bankRules.run(p, g, disabled));
   for (const s of sentences(p)) out.push(...sentenceRules(p, s, g).filter(i => !disabled.has(i.rule)));
   if (!disabled.has('overused')) out.push(...engagementDoc(p, g));
   return out;

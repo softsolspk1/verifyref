@@ -1,6 +1,7 @@
 // language/languagetool.js - Module 6 optional grammar engine: a LanguageTool server (open source, self-hosted) adds its
-// ~5,000 English grammar rules when LANGUAGETOOL_URL is set (e.g. http://our-server:8081). Without it, or when it does not
-// answer, the in-house rules work alone. Paragraphs are sent together in requests of at most ~18 KB.
+// ~6,100 English grammar rules, its n-gram model of confused words and the ~5,000 PJPS Scribe rules for medical and
+// pharmaceutical writing (scripts/build-scribe-rules.js) when LANGUAGETOOL_URL is set (e.g. http://our-server:8081).
+// Without it, or when it does not answer, the in-house rules work alone. Paragraphs are sent together in requests of at most ~18 KB.
 // Standby: LANGUAGETOOL_STANDBY_URL (with LANGUAGETOOL_STANDBY_TOKEN when it has its own) is used when the main server does
 // not answer, and a request that failed on every server is tried once more (a dropped connection is not an outage).
 const servers = () => {
@@ -18,7 +19,17 @@ const CATEGORY = {
   TYPOS: 'correctness', GRAMMAR: 'correctness', PUNCTUATION: 'correctness', CASING: 'correctness', CONFUSED_WORDS: 'correctness', TYPOGRAPHY: 'correctness',
   COLLOCATIONS: 'correctness', SEMANTICS: 'correctness', COMPOUNDING: 'correctness', NONSTANDARD_PHRASES: 'correctness', MISC: 'correctness',
   STYLE: 'clarity', REDUNDANCY: 'clarity', PLAIN_ENGLISH: 'clarity', WIKIPEDIA: 'clarity', REPETITIONS_STYLE: 'engagement', CREATIVE_WRITING: 'engagement',
-  GENDER_NEUTRALITY: 'delivery', AMERICAN_ENGLISH_STYLE: 'style', BRITISH_ENGLISH: 'style'
+  GENDER_NEUTRALITY: 'delivery', AMERICAN_ENGLISH_STYLE: 'style', BRITISH_ENGLISH: 'style',
+  // the PJPS Scribe rules on the server (scripts/build-scribe-rules.js): the rule bank of bank.js and the typing slips
+  PJPS_CONFUSED_WORDS: 'correctness', PJPS_PREPOSITIONS: 'correctness', PJPS_GRAMMAR: 'correctness', PJPS_NOUN_FORMS: 'correctness', PJPS_TYPOS: 'correctness',
+  PJPS_MEDICAL_TERMS: 'style', PJPS_SPECIES: 'style', PJPS_ABBREVIATIONS: 'style', PJPS_UNITS: 'style', PJPS_ACADEMIC: 'style', PJPS_REDUNDANCY: 'clarity', PJPS_WORDINESS: 'clarity'
+};
+/** A PJPS rule reports under the in-house rule of the same group ("PJPS_MEDICAL_TERM_12" -> "medical-term", a typo -> "spelling"),
+ *  so the writer turns a kind of suggestion off once for both engines */
+const ruleOf = id => {
+  const pj = /^PJPS_(.+)_\d+$/.exec(id || '');
+  if (!pj) return `lt:${id || 'rule'}`;
+  return pj[1] === 'TYPO' ? 'spelling' : pj[1].toLowerCase().replace(/_/g, '-');
 };
 
 // which server answered last (tried first next time) and the last outcome, for the admin health view
@@ -76,7 +87,7 @@ async function check(paragraphs, variant) {
       if (off < 0 || off + m.length > p.length) continue;
       const cat = m.rule?.category?.id;
       out[batch[k]].push({
-        rule: `lt:${m.rule?.id || 'rule'}`, category: CATEGORY[cat] || 'correctness', title: m.shortMessage || m.rule?.category?.name || 'Grammar',
+        rule: ruleOf(m.rule?.id), category: CATEGORY[cat] || 'correctness', title: m.shortMessage || m.rule?.category?.name || 'Grammar',
         offset: off, length: m.length, text: p.slice(off, off + m.length), message: m.message,
         replacements: (m.replacements || []).slice(0, 4).map(r => r.value), spelling: m.rule?.issueType === 'misspelling', engine: 'languagetool'
       });

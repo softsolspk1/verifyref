@@ -123,7 +123,7 @@ function otherVariant(word, variant) {
 }
 
 // Frequent typing slips with an obvious answer, ranked ahead of computed suggestions
-const TYPOS = {
+const HAND_TYPOS = {
   teh: 'the', adn: 'and', hte: 'the', taht: 'that', thier: 'their', recieve: 'receive', recieved: 'received', beleive: 'believe', occured: 'occurred',
   resistence: 'resistance', hypertention: 'hypertension', absense: 'absence', consistant: 'consistent', prevalance: 'prevalence', persistant: 'persistent',
   medecine: 'medicine', concentraion: 'concentration', signifcant: 'significant', statisticaly: 'statistically',
@@ -140,8 +140,29 @@ const TYPOS = {
   resluts: 'results', apotosis: 'apoptosis', apoptotis: 'apoptosis', fourty: 'forty', azometine: 'azomethine', patinets: 'patients', pateints: 'patients',
   paitents: 'patients', sigificant: 'significant', statisical: 'statistical', staistically: 'statistically', theraphy: 'therapy', inflamation: 'inflammation',
   inflammtory: 'inflammatory', hemorrage: 'hemorrhage', haemorrage: 'haemorrhage', protien: 'protein', protiens: 'proteins', efficasy: 'efficacy',
-  efficiacy: 'efficacy', toxicty: 'toxicity', cytotoxicty: 'cytotoxicity', antibiotc: 'antibiotic', asthama: 'asthma', diarhea: 'diarrhea'
+  efficiacy: 'efficacy', toxicty: 'toxicity', cytotoxicty: 'cytotoxicity', antibiotc: 'antibiotic', asthama: 'asthma', diarhea: 'diarrhea',
+  arthiritis: 'arthritis', pnemonia: 'pneumonia', pneumonae: 'pneumoniae', ophthalmalogy: 'ophthalmology', opthalmic: 'ophthalmic', opthalmology: 'ophthalmology',
+  hemmorhage: 'hemorrhage', haemorrhege: 'haemorrhage', rhythym: 'rhythm', arrythmia: 'arrhythmia', arrythmias: 'arrhythmias', dyspnoae: 'dyspnoea', diarrohea: 'diarrhoea',
+  gastroentritis: 'gastroenteritis', hepatits: 'hepatitis', menengitis: 'meningitis', pharmacutical: 'pharmaceutical', pharmaceutcal: 'pharmaceutical', pharamaceutical: 'pharmaceutical',
+  pharmacolgy: 'pharmacology', pharmocology: 'pharmacology', pharmacokinatics: 'pharmacokinetics', bioavailablity: 'bioavailability', paracetemol: 'paracetamol', ibuprofin: 'ibuprofen',
+  acetominophen: 'acetaminophen', asprin: 'aspirin', amoxycilin: 'amoxicillin', amoxicilline: 'amoxicillin', penicilin: 'penicillin', ciprofloxacine: 'ciprofloxacin', metformine: 'metformin',
+  insuline: 'insulin', glibenclamid: 'glibenclamide', dexamethazone: 'dexamethasone', predinsolone: 'prednisolone', hydrocortizone: 'hydrocortisone', omeprazol: 'omeprazole',
+  flavanoids: 'flavonoids', flavanoid: 'flavonoid', alkaloides: 'alkaloids', saponines: 'saponins',
+  chromatograpy: 'chromatography', chromotography: 'chromatography', spectrophotmeter: 'spectrophotometer', spectrophotomter: 'spectrophotometer', centrifugated: 'centrifuged',
+  supernatent: 'supernatant', homogenete: 'homogenate', incubeted: 'incubated', aliqout: 'aliquot', aliqouts: 'aliquots',
+  histopathalogy: 'histopathology', histopathalogical: 'histopathological', immunohistochemestry: 'immunohistochemistry', apoptois: 'apoptosis', necroisis: 'necrosis', infiltaration: 'infiltration',
+  questionaire: 'questionnaire', questionaires: 'questionnaires', questionnair: 'questionnaire', particpants: 'participants', partcipants: 'participants', respondants: 'respondents',
+  significanly: 'significantly', signficantly: 'significantly', statistcally: 'statistically', statistially: 'statistically', corelation: 'correlation', corellation: 'correlation',
+  regresion: 'regression', varience: 'variance', standart: 'standard', deviaton: 'deviation', comparision: 'comparison', comparisions: 'comparisons', reproducability: 'reproducibility',
+  recomended: 'recommended', recomendation: 'recommendation', occuring: 'occurring', ocurred: 'occurred', begining: 'beginning', sucessfully: 'successfully', succesfully: 'successfully',
+  accomodation: 'accommodation', aquire: 'acquire', aquired: 'acquired', adress: 'address', adressed: 'addressed', apparant: 'apparent', concensus: 'consensus',
+  critisism: 'criticism', excercise: 'exercise', excercises: 'exercises', foward: 'forward', grammer: 'grammar', harrass: 'harass', immediatly: 'immediately', interupt: 'interrupt',
+  mantain: 'maintain', mantained: 'maintained', maintainance: 'maintenance', nieghbour: 'neighbour', occassionally: 'occasionally', paralell: 'parallel', parralel: 'parallel',
+  perfomance: 'performance', perfomed: 'performed', posible: 'possible', prefered: 'preferred', presense: 'presence', responsibilty: 'responsibility',
+  succesive: 'successive', suprise: 'surprise', tendancy: 'tendency', therefor: 'therefore', thershold: 'threshold', threshhold: 'threshold', usefull: 'useful', vaccum: 'vacuum', withold: 'withhold'
 };
+// with the slips found in published papers and drug names in another language's form (scripts/build-scribe-rules.js)
+const TYPOS = { ...Object.fromEntries(require('./bank').typoList().map(t => [t.typo, t.word])), ...HAND_TYPOS };
 
 const ALPHA = 'abcdefghijklmnopqrstuvwxyz';
 function edits1(w) {
@@ -188,4 +209,4 @@ function suggest(word, variant = 'en-US') {
 // words used by at least a fifth of published research articles (same script): not "overused" when a paragraph repeats them
 const RESEARCH_COMMON = new Set(lines(RESEARCH_COMMON_FILE));
 
-module.exports = { load, check, suggest, otherVariant, resetBudget, exempt, isName, TYPOS, RESEARCH_COMMON };
+module.exports = { load, check, suggest, otherVariant, resetBudget, exempt, isName, TYPOS, HAND_TYPOS, RESEARCH_COMMON };

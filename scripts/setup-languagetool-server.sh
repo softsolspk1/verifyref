@@ -11,6 +11,8 @@
 #     requests carrying our secret token (Authorization: Bearer <token>); everything else gets 401
 #   - ports 80/443 opened in the server's own firewall (Oracle's Ubuntu images block everything but SSH)
 # Safe to run again: it keeps the token and updates LanguageTool to the latest stable version.
+# Afterwards, from the laptop: node scripts/build-scribe-rules.js --deploy  adds the ~5,000 PJPS Scribe rules for medical and
+# pharmaceutical writing and the research vocabulary (checked on a staging copy first) and switches on the n-gram data.
 set -euo pipefail
 
 [ "$(id -u)" = 0 ] || { echo "Run with sudo: sudo bash $0"; exit 1; }

@@ -42,7 +42,11 @@ async function checkParagraphs(paragraphs, opts = {}) {
   const ours = w => S.check(w, { variant, personal, ctx: { midSentence: true, repeated: (docWords.get(w.toLowerCase()) || 0) >= 3 } });
   // a phrase ("Kamel et" before "al.") is kept only when one of its words is wrong for us too
   const academic = opts.goals?.domain === 'academic';
-  const ltKept = lt ? lt.map(list => list.filter(i => (!i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w))) && !(academic && ACADEMIC_OFF.test(i.rule || '')))) : null;
+  // the server's PJPS rules follow the writer's goals and switches like the in-house ones (academic usage and units only in
+  // research writing; a kind of suggestion turned off is off on both engines)
+  const off = new Set(opts.disabled || []);
+  const ltKept = lt ? lt.map(list => list.filter(i => (!i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w))) && !(academic && ACADEMIC_OFF.test(i.rule || '')) &&
+    !off.has(i.rule) && ((opts.goals?.domain || 'academic') === 'academic' || !/^(?:academic-usage|unit-style)$/.test(i.rule)))) : null;
   let ai = paragraphs.map(() => []), aiError = null;
   if (opts.ai && AI.enabled()) {
     try {

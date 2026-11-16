@@ -47,6 +47,8 @@ export async function renderLanguage(view) {
     <div class="page-head"><div><h1>PJPS Scribe</h1>
       <p>A writing assistant for medical and pharmaceutical research manuscripts: spelling, grammar and punctuation; clarity and conciseness; word choice and tone;
       academic and journal conventions (Methods tense, abbreviations, figure order, P values, units, claims that need a citation);
+      medical and laboratory word confusions (prostrate / prostate, essay / assay), prepositions and verb forms, plural and uncountable nouns,
+      drug, species and statistical names, and the typing slips found in published papers;
       AI rewriting, reviewer-style feedback and an overall writing score. Everything runs inside the portal — no browser extension.</p></div>
       <div class="row" style="gap:8px"><button class="btn" id="le-upload">Upload a file</button><button class="btn btn-primary" id="le-new">New document</button></div></div>
     <input type="file" id="le-file" accept=".docx,.doc,.pdf,.odt,.rtf,.txt" hidden>

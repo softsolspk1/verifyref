@@ -41,6 +41,39 @@ const has = (list, rule, text) => list.some(i => i.rule === rule && (text === un
   // a slip in a medical word is still found
   const { paragraphs: [pt] } = await L.checkParagraphs(['The myometrail thickness was measured.'], { goals: { domain: 'academic' } });
   assert.ok(has(pt, 'spelling', 'myometrail'), 'misspelled medical term still reported');
+  // the rule bank (bank.js, also the grammar server's PJPS rules): every rule finds its example and leaves the correction alone
+  const BANK = require('../src/language/bank');
+  const bankFails = [];
+  for (const e of BANK.entries()) {
+    if (!BANK.match(e.example.bad).some(i => i.rule === e.rule && i.offset === e.example.offset)) bankFails.push(`${e.id} misses "${e.example.bad}"`);
+    if (e.example.good && BANK.match(e.example.good).some(i => i.rule === e.rule && i.offset === e.example.offset)) bankFails.push(`${e.id} flags its correction "${e.example.good}"`);
+  }
+  assert.deepStrictEqual(bankFails, [], `rule bank: ${bankFails.length} of ${BANK.entries().length} rules fail their examples`);
+  assert.ok(BANK.entries().length > 2500 && BANK.typoList().length > 1500, 'rule bank and typing-slip list loaded');
+  // slips seen in published papers and drug names in another language's form, with the right word first
+  const { paragraphs: [ps] } = await L.checkParagraphs(['The postive control and metformine were given; malodialdehyde rose.'], { goals: { domain: 'academic' } });
+  for (const [w, fix] of [['postive', 'positive'], ['metformine', 'metformin'], ['malodialdehyde', 'malondialdehyde']]) assert.ok(ps.find(i => i.spelling && i.text === w)?.replacements[0] === fix, `${w} -> ${fix}`);
+  // medical confusions, prepositions, second-language forms, terms and species (Grammarly-style areas, research focus)
+  const gram = 'The MTT essay was used and samples were purchased form Sigma. The drug could not calculated and did not showed effects; the plant have mild activity. ' +
+    'Rats were treated for 5 week, one of the most important factor is diet, and each patients consented. Patients had underwent surgery for prostrate cancer. ' +
+    'Results were associated to age and discussed about in detail. In streptozotocin induced diabetic rats, Escherichia Coli and E.coli grew in-vitro; informations were recorded.';
+  const { paragraphs: [pg] } = await L.checkParagraphs([gram], { goals: { domain: 'academic' } });
+  for (const [rule, text] of [['medical-confusion', 'essay'], ['medical-confusion', 'form'], ['verb-form', 'calculated'], ['verb-form', 'showed'], ['subject-verb', 'have'],
+    ['noun-number', 'week'], ['noun-number', 'factor'], ['noun-number', 'patients'], ['l2-grammar', 'had underwent'], ['medical-confusion', 'prostrate'], ['preposition', 'associated to'],
+    ['preposition', 'discussed about'], ['compound-hyphen', 'streptozotocin induced'], ['species-name', 'Escherichia Coli'], ['species-name', 'E.coli'], ['medical-term', 'in-vitro']]) {
+    assert.ok(has(pg, rule, text), `rule ${rule} on "${text}"`);
+  }
+  assert.ok(pg.find(i => i.text === 'informations')?.replacements[0] === 'information', 'uncountable noun: informations -> information');
+  // and not on correct research writing (false alarms found in 250 published PJPS articles)
+  const fine = ['The results obtained in this study suggest a benefit.', 'Ethical approval for the experiments was obtained.', 'A phase 2 trial was done in table 2.',
+    'Both patient and physician agreed.', 'How do treated cells respond?', 'This results in lower doses.', 'The interleukin 6 concentration rose.', 'The (+/-)-praeruptorin A was used.',
+    'It was, as it were, a test.', 'The structure of compound I is shown.', 'The total does not exceed 10 mg.', 'It is converted in the liver.', 'Systemic bias was low.',
+    'Mean values are shown in table 1 vs control.', 'Samples were diluted in mg/ml units at 37 °C.', 'The CO 2 level and the IC 50 value were low.', 'Patients were discussed about 20 times.'];
+  for (const s of fine) {
+    const { paragraphs: [pf] } = await L.checkParagraphs([s], { goals: { domain: 'academic' } });
+    const wrong = pf.filter(i => ['medical-confusion', 'preposition', 'l2-grammar', 'noun-number', 'verb-form', 'subject-verb', 'compound-hyphen', 'academic-usage', 'unit-style', 'medical-term'].includes(i.rule));
+    assert.deepStrictEqual(wrong.map(i => `${i.rule}: ${i.text}`), [], `no false alarm in "${s}"`);
+  }
   // P values: written as PJPS articles write them ("P<0.05" or "P < 0.05"); only a missing leading zero is reported
   const { paragraphs: [pv] } = await L.checkParagraphs(['Groups differed (P<0.001), and scores did not (P > 0.05); the trend was P<.05.'], { goals: { domain: 'academic' } });
   assert.deepStrictEqual(pv.filter(i => i.rule === 'p-value').map(i => i.text), ['P<.05'], 'P values in PJPS style accepted');

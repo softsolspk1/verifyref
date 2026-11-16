@@ -105,6 +105,9 @@ if (MODE === 'extract') {
     return { img: out, boxes };
   };
 
+  // --only splice|clone: extend one model's data only
+  const ONLY = arg('only', null);
+  if (ONLY) { const keep = ONLY === 'splice' ? ['cstd', 'negS', 'synS'] : ['idd', 'negC', 'synC']; for (const it of items.splice(0)) if (keep.includes(it.set)) items.push(it); }
   const LIMIT = parseInt(arg('limit', '0'), 10);
   if (LIMIT) { const by = {}; for (const it of items.splice(0)) if ((by[it.set] = (by[it.set] || 0) + 1) <= LIMIT) items.push(it); }
   const fd = fs.openSync(OUT, 'a');
@@ -152,8 +155,8 @@ if (MODE === 'train') {
     // IMG_TREES / IMG_DEPTH / IMG_RATE / IMG_MINLEAF / IMG_NOSYN: settings for experiments; the defaults are the chosen ones
     const env = (k, d) => (process.env[k] !== undefined ? +process.env[k] : d);
     // chosen 16 Nov 2026 (cross-validated): clones without the synthetic copies (they made the model accept recompressed
-    // look-alikes of real textures), joins with shallow trees and the synthetic joins
-    const D0 = name === 'clone' ? { trees: 250, depth: 3, nosyn: 1 } : { trees: 300, depth: 2, nosyn: 0 };
+    // look-alikes of real textures), joins with the synthetic joins (3,000 clean blots and 1,800 synthetic joins drawn, 16 Nov)
+    const D0 = name === 'clone' ? { trees: 250, depth: 3, nosyn: 1 } : { trees: 300, depth: 3, nosyn: 0 };
     const opts = { trees: env('IMG_TREES', D0.trees), depth: env('IMG_DEPTH', D0.depth), rate: env('IMG_RATE', 0.06), minLeaf: env('IMG_MINLEAF', 10) };
     const useSyn = !env('IMG_NOSYN', D0.nosyn);
     const fit = list => {

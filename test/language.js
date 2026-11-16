@@ -122,6 +122,19 @@ References
   assert.ok(d.score.overall >= 0 && d.score.overall <= 100 && d.stats.words > 50 && d.tone.tones.length, 'score, statistics, tone');
   const clean = L.checkDocument('The extract reduced inflammation in treated rats. The effect was dose dependent.', { counts: {} });
   assert.ok(clean.score.overall >= 90, `clean text scores high (${clean.score.overall})`);
+  // the title page and capitals used inconsistently (gaps against Grammarly, 16 Nov 2026)
+  const title = 'EFFECT OF A NURSE-LED PROGRAM\nJaved Iqbal, RN,MHA\nMedicine department District Headquarters Hospital, Jhang Punjab Pakistan\n' +
+    'Adjunct professor, Datta Meghe Institute, Wardha. India\nORCIdD :- https://orcid.org/0000-0003-2627-685X\nE-mail address: a@b.pk\nEmail: c@d.pk\n' +
+    'Aga Khan University Pakistan Journal of Pharmaceutical Sciences, Karachi, Pakistan.\nABSTRACT\nBackground: Knowledge of latent infection is low. ' +
+    'We measured knowledge and attitudes. Poor knowledge led to poor adherence, and the management of Latent tuberculosis infection and knowledge of it were assessed in households.\n' +
+    'Introduction\nThe programme improved knowledge in all participants and the Health Belief Model explains latent infection and latent risk in households of patients with tuberculosis disease.\n';
+  const tp = L.checkDocument(title, { counts: {} }).issues;
+  const fixed = tp.filter(i => i.rule === 'author-block').map(i => `${i.text}->${i.replacements[0]}`);
+  for (const f of ['Medicine department->Department of Medicine', ' ->, ', '. ->, ', ',->, ', 'ORCIdD->ORCID', ' :-->:']) assert.ok(fixed.includes(f), `author block: ${f} (${fixed.join(' | ')})`);
+  assert.strictEqual(fixed.filter(f => f === ' ->, ').length, 2, 'Jhang, Punjab, Pakistan: both commas');
+  assert.ok(!tp.some(i => i.rule === 'author-block' && i.offset > title.indexOf('Aga Khan') - 1 && i.offset < title.indexOf('Journal')), 'an institution name with a country is not split');
+  assert.ok(tp.some(i => i.rule === 'hyphen-consistency' && i.text === 'E-mail'), 'E-mail and Email: one form');
+  assert.deepStrictEqual(tp.filter(i => i.rule === 'case-consistency').map(i => i.text), ['Latent'], 'capitals: "Latent" mid-sentence, not the Health Belief Model or a sentence start');
 
   // ---------------------------------------------------------------- permissions: users customised before Module 6 get it
   assert.ok(permissionsOf({ role: 'editor', permissions: ['references', 'papermill', '_v4'] }).includes('language'), 'editor with older custom permissions');
@@ -220,6 +233,25 @@ References
   const us = await SC.screenLanguage(usMs, { save: false });
   const mix = Object.values(us.examples).flat().find(e => e.rule === 'variant-mix');
   assert.ok(!us.spelling.some(w => w.word === 'sulphate') && mix && mix.text === 'sulphate' && mix.replacement === 'sulfate', 'sulphate: a spelling-mix note offering "sulfate", not a misspelling');
+
+  // AI sentence and paragraph suggestions (Grammarly's "Paragraph can be improved"), with a stand-in client: no paid call
+  const AI = require('../src/language/ai');
+  let asked = null;
+  AI._setTestClient({ beta: { messages: { create: async req => {
+    asked = req.messages[0].content;
+    return { stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text', text: JSON.stringify({
+      suggestions: [{ original: 'Total sample size was 240, half of which were present in control group.', replacement: 'The total sample size was 240, half of whom were in the control group.', category: 'correctness', title: 'Ungrammatical sentence', explanation: 'Articles and the relative pronoun are corrected.' }],
+      rewrite: 'The total sample size was 240, half of whom were in the control group and half in the intervention group, and all were assessed at 12 weeks.' }) }] };
+  } } } });
+  process.env.ANTHROPIC_API_KEY = 'test-only';
+  const aiPara = 'Total sample size was 240, half of which were present in control group. Other half in intervention group were assessed at 12 weeks.';
+  const sug = await AI.suggest(null, aiPara, { goals: { domain: 'academic' }, variant: 'en-US', known: [{ text: 'control group', title: 'Missing article' }] });
+  process.env.ANTHROPIC_API_KEY = '';
+  AI._setTestClient(null);
+  assert.ok(/Already reported by the rule checker[\s\S]*control group/.test(asked), 'the rule findings are given to the AI so it does not repeat them');
+  assert.ok(sug.some(s => s.title === 'Ungrammatical sentence' && s.offset === 0 && s.replacements[0].startsWith('The total')), 'a whole ungrammatical sentence corrected');
+  const whole = sug.find(s => s.rule === 'ai-paragraph');
+  assert.ok(whole && whole.whole && whole.ai && whole.length === aiPara.length && whole.title === 'Paragraph can be improved', 'the paragraph revised as one suggestion');
 
   console.log('language: all checks passed');
   process.exit(0);

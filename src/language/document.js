@@ -86,7 +86,8 @@ function hyphenation(text) {
   const out = [];
   const lower = text.toLowerCase();
   const flagged = new Set();
-  for (const m of text.matchAll(/\b([A-Za-z]{2,})-([A-Za-z]{2,})\b/g)) {
+  // (and "E-mail" / "email")
+  for (const m of text.matchAll(/\b([A-Za-z]{2,}|[Ee])-([A-Za-z]{2,})\b/g)) {
     const joined = (m[1] + m[2]).toLowerCase(), spaced = `${m[1]} ${m[2]}`.toLowerCase();
     const key = m[0].toLowerCase();
     if (flagged.has(key)) continue;
@@ -97,6 +98,72 @@ function hyphenation(text) {
       message: `The text uses both "${m[0]}" and "${other}". Use one form throughout.`, replacements: [other], consistency: true });
     void spaced;
   }
+  return out;
+}
+
+// ------------------------------------------------------------------ capital letters used inconsistently
+// "knowledge" in most sentences, "Knowledge" in the middle of one: Grammarly's "Text inconsistencies". A word written in
+// lower case at least twice and with a capital mid-sentence is reported where it has the capital, unless the capital is
+// part of a name ("Health Belief Model", "Tuberculosis Control Educational Program") or a heading, table row or quotation.
+function capitals(text) {
+  const out = [];
+  const lowerCount = new Map();
+  for (const m of text.matchAll(/(?<![A-Za-z'’-])([a-z][a-z-]{3,})\b/g)) lowerCount.set(m[1], (lowerCount.get(m[1]) || 0) + 1);
+  const seen = new Set();
+  for (const line of lineSpans(text)) {
+    const s = text.slice(line.start, line.end);
+    // headings, title lines, table cells and keyword lists keep their own capitals
+    const ws = s.match(/[A-Za-z][A-Za-z'-]*/g) || [];
+    // (a line of thousands of characters is PDF text whose headings run into the sentences: not judged)
+    if (ws.length < 8 || s.length > 2500 || ws.filter(w => /^[A-Z]/.test(w)).length > ws.length * 0.4 || !/[.?!]\s*$/.test(s.trim())) continue;
+    // between two lower-case words: "management of Latent tuberculosis" (not "Table 2", "; Performed", "Figure S1")
+    for (const m of s.matchAll(/(?<=[a-z]\s)([A-Z][a-z][a-z-]{2,})\b(?=\s+[a-z])/g)) {
+      const w = m[1], low = w.toLowerCase();
+      if ((lowerCount.get(low) || 0) < 3 || seen.has(low)) continue;
+      const before = s.slice(Math.max(0, m.index - 30), m.index), after = s.slice(m.index + w.length, m.index + w.length + 30);
+      // a name of several capitalised words, a quotation, or a word after "named", "called", "titled"
+      if (/[A-Z][a-z]+\s+$/.test(before) || /^\s+(?:of\s+)?[A-Z][a-z]/.test(after) || /["“‘']\s*$/.test(before) || /\b(?:named|called|titled|entitled|termed)\s+$/i.test(before)) continue;
+      seen.add(low);
+      const at = line.start + m.index;
+      out.push({ rule: 'case-consistency', category: 'correctness', title: 'Inconsistent capitalization', offset: at, length: w.length, text: w,
+        message: `"${w}" has a capital letter here but is written "${low}" elsewhere in the text. Use one form throughout.`, replacements: [low], consistency: true });
+    }
+  }
+  return out;
+}
+const lineSpans = text => { const out = []; let pos = 0; for (const l of text.split('\n')) { out.push({ start: pos, end: pos + l.length }); pos += l.length + 1; } return out; };
+
+// ------------------------------------------------------------------ the author block (title page)
+// Affiliations as editors correct them: "Jhang Punjab Pakistan" -> "Jhang, Punjab, Pakistan"; "Wardha. India" ->
+// "Wardha, India"; "Medicine department" -> "Department of Medicine"; "RN,MHA" -> "RN, MHA"; "ORCIdD :-" -> "ORCID:"
+const COUNTRIES = 'Pakistan|India|China|Malaysia|Bangladesh|Iran|Iraq|Turkey|Türkiye|Egypt|Nigeria|Saudi Arabia|Japan|Korea|Indonesia|Thailand|Vietnam|Nepal|Sri Lanka|Afghanistan|Jordan|Lebanon|Syria|Oman|Qatar|Kuwait|Bahrain|UAE|United Arab Emirates|USA|United States|UK|United Kingdom|Canada|Australia|Germany|France|Italy|Spain|Brazil|Mexico|South Africa|Kenya|Ethiopia|Ghana|Morocco|Algeria|Tunisia|Libya|Sudan|Yemen|Palestine|Russia|Poland|Romania|Greece|Portugal|Netherlands|Belgium|Sweden|Norway|Denmark|Finland|Switzerland|Austria|Ireland|Singapore|Philippines|Taiwan';
+const PROVINCES = 'Punjab|Sindh|Balochistan|Baluchistan|Khyber Pakhtunkhwa|KPK|Gilgit-Baltistan|Azad Kashmir|Selangor|Johor|Penang|Sabah|Sarawak';
+const NOT_PLACE = /^(?:University|College|Institute|Hospital|Journal|Society|Association|Council|Medical|National|Government|Republic|Bank|Army|Navy|Air|Railways|Agriculture|Agricultural|Pharmaceutical|Pharmacy|Islamic|Northern|Southern|Eastern|Western|Central|Upper|Lower|New|Sri|Saudi|South|North|East|West|United|Arab|Royal|State|Federal|Medicine|Sciences|Science|Technology|Health|Faculty|Department|School|Centre|Center|Laboratory|Company|Limited|Ltd|Inc|The|Of|And|Board|Commission|Authority|Ministry)$/;
+function authorBlock(text, end) {
+  const out = [];
+  const block = text.slice(0, end);
+  const add = (at, len, title, message, rep) => out.push({ rule: 'author-block', category: 'correctness', title, offset: at, length: len, text: text.substr(at, len), message, replacements: [rep] });
+  // a missing comma before a country or province: "Punjab Pakistan", "Jhang Punjab"
+  for (const m of block.matchAll(new RegExp(`\\b([A-Z][a-z]+)( )(?=(${COUNTRIES}|${PROVINCES})\\b(?![ \\t]+(?!(?:${COUNTRIES}|${PROVINCES})\\b)[A-Z][a-z])(?!-))`, 'g'))) {
+    if (NOT_PLACE.test(m[1])) continue;
+    const at = m.index + m[1].length;
+    add(at, 1, 'Missing comma', `Separate the parts of an address with commas: "${m[1]}, ${m[3]}".`, ', ');
+  }
+  // a full stop between a city and its country: "Wardha. India"
+  for (const m of block.matchAll(new RegExp(`\\b([A-Z][a-z]+)(\\.\\s+)(${COUNTRIES})\\b(?=\\s*(?:$|\\n|[,.;]))`, 'gm'))) {
+    if (NOT_PLACE.test(m[1])) continue;
+    add(m.index + m[1].length, m[2].length, 'Incorrect punctuation', `Use a comma between a city and its country: "${m[1]}, ${m[3]}".`, ', ');
+  }
+  // "Medicine department" -> "Department of Medicine"
+  for (const m of block.matchAll(/\b([A-Z][a-z]+(?: [A-Z][a-z]+)?) department\b/g)) {
+    if (/^(?:The|A|An|This|Our)$/.test(m[1])) continue;
+    add(m.index, m[0].length, 'Misplaced words', `An affiliation names the department first: "Department of ${m[1]}".`, `Department of ${m[1]}`);
+  }
+  // degrees run together: "RN,MHA" -> "RN, MHA"
+  for (const m of block.matchAll(/\b([A-Z][A-Za-z]{1,5}),([A-Z][A-Za-z]{1,5})\b/g)) add(m.index + m[1].length, 1, 'Spacing', 'Add a space after the comma.', ', ');
+  // "ORCIdD :-", "Email /-" -> "ORCID:", "Email:"
+  for (const m of block.matchAll(/\bORCI[dD]{1,2}\b/g)) if (m[0] !== 'ORCID') add(m.index, m[0].length, 'Spelling', 'The identifier is written "ORCID".', 'ORCID');
+  for (const m of block.matchAll(/\s*(?::-|\/-|:\s*-(?=\s))/g)) add(m.index, m[0].length, 'Incorrect punctuation', 'Introduce the address or identifier with a colon alone.', ':');
   return out;
 }
 
@@ -276,8 +343,12 @@ function checkDocument(text, goals = {}, opts = {}) {
     // the reference list is names, abbreviations and journal titles: no writing checks there
     const prose = structure.referencesAt != null ? text.slice(0, structure.referencesAt) : text;
     out.push(...abbreviations(prose), ...figureOrder(prose), ...r.issues);
+    // the title page: everything before the first section heading (the abstract)
+    const first = structure.sections.length ? structure.sections[0].start : null;
+    if (first) out.push(...authorBlock(text, first));
   }
-  out.push(...hyphenation(structure?.referencesAt != null ? text.slice(0, structure.referencesAt) : text));
+  const body = structure?.referencesAt != null ? text.slice(0, structure.referencesAt) : text;
+  out.push(...hyphenation(body), ...capitals(body));
   out = out.filter(i => !disabled.has(i.rule) && !(i.rule.startsWith('abbr-') && disabled.has('abbreviations')));
   return { issues: out, structure };
 }

@@ -59,7 +59,11 @@ async function aiRun(userId, op, b) {
   if (op === 'generate') return L.AI.generate(userId, String(b.prompt || ''), { documentText: text, selection: String(b.selection || '').slice(0, 20000), goals, variant });
   if (op === 'tone') return L.AI.tone(userId, text, { goals, variant });
   if (op === 'review') return L.AI.review(userId, text, { goals, variant, focus: b.focus });
-  if (op === 'suggest') return Promise.all((b.paragraphs || []).slice(0, 60).map(p => L.AI.suggest(userId, String(p).slice(0, 8000), { goals, variant })));
+  if (op === 'suggest') {
+    // known: per paragraph, what the rules found ({ text, title }), so the AI does not repeat it
+    const known = Array.isArray(b.known) ? b.known : [];
+    return Promise.all((b.paragraphs || []).slice(0, 60).map((p, k) => L.AI.suggest(userId, String(p).slice(0, 8000), { goals, variant, known: Array.isArray(known[k]) ? known[k].slice(0, 40) : [] })));
+  }
   const e = new Error('Unknown AI operation.'); e.status = 400; throw e;
 }
 
@@ -93,7 +97,8 @@ router.post('/language/check', mod, wrap(async (req, res) => {
   // AI sentence suggestions: on request only (they cost per paragraph), on the desktop through the platform
   if (b.ai && paragraphs.length) {
     try {
-      const extra = await ai(req, 'suggest', { paragraphs, goals, variant });
+      const known = r.paragraphs.map(list => list.map(i => ({ text: i.text, title: i.title })));
+      const extra = await ai(req, 'suggest', { paragraphs, goals, variant, known });
       if (extra) r.paragraphs = r.paragraphs.map((list, k) => L.merge([list, extra[k] || []]));
       r.engines.ai = 'on';
     } catch (e) { r.engines.ai = 'unavailable'; r.engines.aiError = e.message; }

@@ -428,6 +428,7 @@ export async function renderLanguageEditor(view, id) {
 
   // ---------------------------------------------------------------- checking
   const body = extra => ({ variant: S.variant, goals: S.goals, disabled: S.disabled || [], ...extra });
+  let aiAutoDone = false; // the automatic AI pass runs once, after the first full check
   async function check() {
     if (checking) { again = true; return; }
     checking = true;
@@ -457,6 +458,7 @@ export async function renderLanguageEditor(view, id) {
       renderFoot();
       if (!$('#le-pane-research', view).hidden) renderResearch();
       if (again) { again = false; check(); }
+      else if (!aiAutoDone && cfgCache?.ai && S.autoAi !== false) { aiAutoDone = true; runAiSuggestions({ auto: true }); }
     }
   }
 
@@ -699,6 +701,7 @@ export async function renderLanguageEditor(view, id) {
         ${sel('g-passive', 'Passive voice', [['allow', 'Accept it (normal in Methods and Results)'], ['flag', 'Suggest the active voice']], g.passive)}
         <div class="field"><label for="g-abs">Abstract word limit</label><input id="g-abs" type="number" min="50" max="1000" value="${g.abstractWords || 250}"></div>
       </div>
+      <div class="field"><label><input type="checkbox" id="g-autoai" ${S.autoAi !== false ? 'checked' : ''}> AI sentence and paragraph suggestions when the document opens (uses the daily AI allowance; paragraphs already read are not paid for again)</label></div>
       ${(S.disabled || []).length ? `<div class="field"><label>Checks turned off</label><div class="chips">${S.disabled.map(r => `<span class="chip">${esc(r)} <a href="#" data-on="${esc(r)}">turn on</a></span>`).join('')}</div></div>` : ''}
       <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="g-save">Apply</button></div>`, {
       onMount(m, close) {
@@ -711,6 +714,7 @@ export async function renderLanguageEditor(view, id) {
         };
         m.addEventListener('click', e => { const on = e.target.closest('[data-on]'); if (on) { e.preventDefault(); S.disabled = S.disabled.filter(r => r !== on.dataset.on); on.closest('.chip').remove(); } });
         $('#g-save', m).onclick = () => {
+          S.autoAi = $('#g-autoai', m).checked;
           S.goals = { domain: $('#g-domain', m).value, formality: $('#g-formality', m).value, audience: $('#g-audience', m).value, intent: $('#g-intent', m).value, passive: $('#g-passive', m).value, abstractWords: +$('#g-abs', m).value || 250 };
           const p = PRESETS[preset.value];
           S.preset = p && Object.keys(p.goals).every(k => String(p.goals[k]) === String(S.goals[k])) ? preset.value : 'custom';
@@ -755,13 +759,13 @@ export async function renderLanguageEditor(view, id) {
     });
   }
 
-  async function runAiSuggestions() {
-    if (aiOff()) return;
+  async function runAiSuggestions({ auto = false } = {}) {
+    if (auto ? !cfgCache?.ai : aiOff()) return;
     const paras = [...new Set(paragraphs(ta.value).map(p => p.text).filter(p => p.trim().split(/\s+/).length >= 6 && !aiCache.has(p)))];
     const refs = refStart(ta.value);
     const cover = coverEnd(ta.value);
     const prose = paras.filter(p => { const at = ta.value.indexOf(p); return at < refs && at >= cover && !refEntry(p); });
-    if (!prose.length) return toast('AI suggestions are already shown for every paragraph.');
+    if (!prose.length) return auto ? null : toast('AI suggestions are already shown for every paragraph.');
     const btn = $('#le-ai-run', view);
     btn.disabled = true;
     try {
@@ -769,12 +773,12 @@ export async function renderLanguageEditor(view, id) {
         btn.textContent = `✦ AI reading… ${Math.round(k / prose.length * 100)}%`;
         const chunk = prose.slice(k, k + 8);
         const r = await api('/api/language/check', { body: body({ paragraphs: chunk, ai: true }) });
-        if (r.engines?.ai === 'unavailable') { toast(r.engines.aiError || 'AI suggestions are unavailable.', 'error'); break; }
+        if (r.engines?.ai === 'unavailable') { if (!auto) toast(r.engines.aiError || 'AI suggestions are unavailable.', 'error'); break; }
         chunk.forEach((p, j) => aiCache.set(p, (r.paragraphs[j] || []).filter(i => i.ai)));
         compute();
       }
       refreshUsage();
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) { if (!auto) toast(e.message, 'error'); }
     btn.disabled = false;
     btn.textContent = '✦ AI sentence suggestions';
   }
@@ -838,7 +842,7 @@ export async function renderLanguageEditor(view, id) {
     if (t.dataset.t === 'insights') renderInsights();
   });
   $('#le-score', view).onclick = () => $('#le-tabs [data-t="insights"]', view).click();
-  $('#le-ai-run', view).onclick = runAiSuggestions;
+  $('#le-ai-run', view).onclick = () => runAiSuggestions();
   $('#le-goals', view).onclick = goalsModal;
   $('#le-ask', view).onclick = askModal;
   $('#le-variant', view).onchange = e => { S.variant = e.target.value; paraCache.clear(); aiCache.clear(); check(); save(); };

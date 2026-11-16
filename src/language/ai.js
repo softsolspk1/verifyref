@@ -14,6 +14,7 @@ const enabled = () => !!process.env.ANTHROPIC_API_KEY && process.env.LANGUAGE_AI
 
 let client = null;
 const clientOf = () => {
+  if (testClient) return testClient;
   if (!client) {
     const Anthropic = require('@anthropic-ai/sdk').default || require('@anthropic-ai/sdk');
     client = new Anthropic({ maxRetries: 1 });
@@ -104,25 +105,39 @@ const SUGGEST_SCHEMA = {
         required: ['original', 'replacement', 'category', 'title', 'explanation'],
         additionalProperties: false
       }
-    }
+    },
+    rewrite: { type: 'string' }
   },
-  required: ['suggestions'],
+  required: ['suggestions', 'rewrite'],
   additionalProperties: false
 };
 
 const SUGGEST_SYSTEM = `${BASE}
 Review one paragraph the way a professional language editor would and return only the changes worth making:
-grammar and usage errors a rule-based checker misses, unclear or awkward sentences (fluency), wordy sentences that can be
-made concise, and tone that does not suit the goals. Each suggestion quotes the exact text to replace ("original", copied
-character for character from the paragraph, as short as possible but at least a few words) and gives the replacement.
-"title" is 2-4 words (e.g. "Unclear sentence", "Rewrite for clarity", "Awkward phrasing", "Wrong preposition").
-"explanation" is one short sentence for the writer. Do not report spelling of technical terms. Return at most 6
-suggestions, none if the paragraph is already well written.`;
+grammar and usage errors a rule-based checker misses (missing articles, wrong prepositions, noun number, verb forms, word
+order), ungrammatical sentences, unclear or awkward sentences (fluency), wordy sentences that can be made concise, and tone
+that does not suit the goals. Many authors write English as a second language: correct what a native-speaking journal
+editor would correct. Each suggestion quotes the exact text to replace ("original", copied character for character from
+the paragraph); keep it short for a local error, but quote the WHOLE sentence when the sentence is ungrammatical or needs
+restructuring (title "Ungrammatical sentence" or "Rewrite for clarity") and give the whole corrected sentence.
+"title" is 2-4 words (e.g. "Ungrammatical sentence", "Rewrite for clarity", "Awkward phrasing", "Wrong preposition",
+"Missing article"). "explanation" is one short sentence for the writer. Do not report spelling of technical terms and do
+not repeat the problems the rule checker already reported (listed after the paragraph). Return at most 10 suggestions,
+none if the paragraph is already well written.
+"rewrite": when the paragraph has two or more problems or reads awkwardly as a whole, the complete paragraph as a skilled
+journal editor would revise it (every error fixed, fluent and concise, the same facts, numbers, citations and order of
+ideas, roughly the same length); otherwise "".`;
 
 /** AI suggestions for a paragraph, positioned in it: [{ offset, length, text, rule, category, title, message, replacements, ai: true }] */
-async function suggest(userId, paragraph, { goals, variant } = {}) {
+async function suggest(userId, paragraph, { goals, variant, known = [] } = {}) {
   if (!enabled() || paragraph.trim().split(/\s+/).length < 6) return [];
-  const out = await call(userId, ['suggest', paragraph, goals, variant], { system: SUGGEST_SYSTEM, content: `${context(goals, variant)}\n\nParagraph:\n${paragraph}`, schema: SUGGEST_SCHEMA, maxTokens: 3000 });
+  // what the rules already report, so the AI spends its suggestions on what they miss
+  const listed = (known || []).slice(0, 40).map(k => `- "${String(k.text || '').slice(0, 80)}": ${String(k.title || '').slice(0, 40)}`).join('\n');
+  const out = await call(userId, ['suggest2', paragraph, goals, variant, listed], {
+    system: SUGGEST_SYSTEM,
+    content: `${context(goals, variant)}\n\nParagraph:\n${paragraph}${listed ? `\n\nAlready reported by the rule checker (do not repeat):\n${listed}` : ''}`,
+    schema: SUGGEST_SCHEMA, maxTokens: 6000, timeout: 60000
+  });
   if (!out) return [];
   const res = [];
   for (const s of out.suggestions || []) {
@@ -131,6 +146,13 @@ async function suggest(userId, paragraph, { goals, variant } = {}) {
     if (at < 0) continue;
     res.push({ rule: 'ai-suggestion', category: s.category, title: s.title || 'Suggested rewrite', offset: at, length: s.original.length, text: s.original,
       message: s.explanation, replacements: [s.replacement], ai: true });
+  }
+  // the whole paragraph revised (Grammarly's "Paragraph can be improved"); kept only when it is a revision, not a new text
+  const rw = String(out.rewrite || '').trim();
+  if (rw && rw !== paragraph.trim() && rw.length > paragraph.trim().length * 0.6 && rw.length < paragraph.trim().length * 1.4) {
+    const lead = paragraph.length - paragraph.trimStart().length;
+    res.push({ rule: 'ai-paragraph', category: 'clarity', title: 'Paragraph can be improved', offset: lead, length: paragraph.trim().length, text: paragraph.trim(),
+      message: 'The whole paragraph revised by the AI editor: every error corrected and the sentences made clearer and more fluent.', replacements: [rw], ai: true, whole: true });
   }
   return res;
 }
@@ -236,4 +258,8 @@ async function usageToday(userId) {
   return { used: r?.calls || 0, limit: DAILY };
 }
 
-module.exports = { enabled, suggest, rewrite, generate, tone, review, usageToday, MODES, MODEL, LimitError };
+// tests only: a stand-in for the Anthropic client, so no paid call is made (test/language.js)
+let testClient = null;
+const _setTestClient = c => { testClient = c; };
+
+module.exports = { enabled, suggest, rewrite, generate, tone, review, usageToday, MODES, MODEL, LimitError, _setTestClient };

@@ -513,7 +513,7 @@ const grammar = [
     const s = m.index + m[0].length - m[2].length;
     return { start: s, message: `"${m[1]}" is singular, so the verb is "${BE_VERB_SG[m[2].toLowerCase()]}".`, replacements: [BE_VERB_SG[m[2].toLowerCase()]] };
   }),
-  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', /\b(the number of)\s+(?:(?!who\b|that\b|which\b)[\w-]+\s+){1,5}?(were|are|have)\b/gi, (m) => {
+  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', /\b(the number of)\s+(?:(?!who\b|that\b|which\b)[\w-]+\s+){1,8}?(were|are|have)\b/gi, (m) => {
     const s = m.index + m[0].length - m[2].length;
     return { start: s, message: '"The number of …" takes a singular verb ("the number of patients was").', replacements: [{ were: 'was', are: 'is', have: 'has' }[m[2].toLowerCase()]] };
   }),
@@ -532,11 +532,86 @@ const grammar = [
   regexRule('unit-style', 'style', 'Unit', /\b(\d+(?:\.\d+)?)(mins|hrs|hr|secs|gm|gms|mgs|kgs|Kg|mls)\b/g, (m) => ({ message: 'Put a space between a number and its unit, and use the SI symbol.', replacements: [`${m[1]} ${{ mins: 'min', hrs: 'h', hr: 'h', secs: 's', gm: 'g', gms: 'g', mgs: 'mg', kgs: 'kg', Kg: 'kg', mls: 'mL' }[m[2]]}`] }), { when: g => g.domain === 'academic' })
 ];
 
+// ------------------------------------------------------------------ determiners, comparatives and formatting (gaps found
+// against Grammarly on a PJPS manuscript, report of 16 Nov 2026: "in control group", "by physician", "highly efficacious than")
+// singular countable nouns of research writing that need "the" or "a" after a preposition
+const COUNT_DET = 'group|study|questionnaire|booklet|brochure|session|scale|instrument|interview|physician|nurse|doctor|pharmacist|researcher|investigator|assistant|patient|participant|clinic|sample|trial|survey|program|programme|video|cohort|ward|visit|population';
+const NO_DET_BEFORE = new Set('the a an this that these those each every any some no our their its his her my your one another either neither same such which what all both whose per its'.split(' '));
+const PREP_DET = 'in|of|from|to|for|by|at|with|into|on|after|before|during|among|within|across|than|regarding|about';
+const DET_END = '(?=\\s+(?:were|was|are|is|had|have|has|with|who|which|that|in|of|from|at|for|and|or|but|while|whereas|compared|as|to|on|by|after|before|during|than|did|does|do|showed|received|underwent|could|can|may|might|will|would|should|must)\\b|\\s*[,.;:)]|\\s*$)';
+const gerund = v => (/ee$/.test(v) ? `${v}ing` : /[^aeiou]e$/.test(v) ? `${v.slice(0, -1)}ing` : /^(?:[^aeiou]*[aeiou][bdgmnpt])$/.test(v) ? `${v}${v.slice(-1)}ing` : `${v}ing`);
+const COMPARATIVE_OF = { high: 'higher', low: 'lower', large: 'larger', small: 'smaller', great: 'greater', strong: 'stronger', weak: 'weaker', good: 'better', poor: 'poorer', long: 'longer', short: 'shorter', fast: 'faster', slow: 'slower', early: 'earlier', late: 'later' };
+
+const determiners = [
+  regexRule('determiner', 'correctness', 'Missing article', new RegExp(`\\b(${PREP_DET})\\s+((?:(?:[a-z][a-z-]*|[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*)\\s+){0,3}?)(${COUNT_DET})\\b(?![-'’])${DET_END}`, 'g'), (m, p) => {
+    const prep = m[1], mods = m[2].trim().split(/\s+/).filter(Boolean), noun = m[3];
+    if (mods.some(w => NO_DET_BEFORE.has(w.toLowerCase()) || /[a-z]ing$|[^su]s$|^(?:further|vivo|vitro|silico|situ)$/.test(w) || /^(?:in|of|from|to|for|by|at|with|on|and|or|was|were|is|are|not|than|as)$/.test(w))) return null;
+    if ((prep === 'in' && noun === 'hospital') || (prep === 'by' && noun === 'group') || (prep === 'of' && noun === 'study' && !mods.length && /\b(?:design|area|period|protocol|site|population|duration)\s+$/.test(p.slice(0, m.index)))) return null;
+    // "from patient to patient", "group to group"
+    if (new RegExp(`\\b${noun}\\s+$`).test(p.slice(Math.max(0, m.index - 20), m.index))) return null;
+    if (/^\s*[A-Z0-9]/.test(p.slice(m.index + m[0].length, m.index + m[0].length + 2)) && /\s/.test(p[m.index + m[0].length] || '')) return null; // "in group A", "in study 2"
+    const start = m.index + prep.length + 1 + (m[0].slice(prep.length + 1).length - m[0].slice(prep.length + 1).trimStart().length);
+    const span = p.slice(start, m.index + m[0].length);
+    const first = span.split(/\s+/)[0];
+    const article = /^(?:population|group|study|cohort|programme|program)$/.test(noun) || mods.length ? 'the' : 'a';
+    const an = /^(?:[aeio]|u(?!ni|s[eu])|[AEFHILMNORSX][A-Z0-9-]*$)/.test(first) ? 'an' : 'a';
+    const reps = article === 'the' ? [`the ${span}`, `${an} ${span}`] : [`${an} ${span}`, `the ${span}`];
+    return { start, message: `A singular countable noun needs an article here: "${reps[0]}".`, replacements: reps };
+  }),
+  // a sentence that opens with a singular noun and its verb: "Booklet also included", "Total sample size was"
+  regexRule('determiner', 'correctness', 'Missing article', /(?:^|(?<=[.!?]\s+))((?:Booklet|Brochure|Questionnaire|Session|Instrument|Scale|Study|Survey|Program|Programme|Video|Sample|Physician|Nurse|Researcher|Clinic|Intervention|Control group|Intervention group)|(?:Total|Overall|Mean|Average)\s+(?:sample size|number|score|duration|age))(?=\s+(?:also\s+)?(?:was|is|has|had|included|includes|contained|contains|consisted|comprised|showed|shows|demonstrated|provided)\b)/g, (m) => ({
+    message: `A singular noun at the start of a sentence needs an article: "The ${m[1][0].toLowerCase()}${m[1].slice(1)}".`, replacements: [`The ${m[1][0].toLowerCase()}${m[1].slice(1)}`]
+  })),
+  regexRule('determiner', 'correctness', 'Missing article', /(?:^|(?<=[.!?;:]\s+|,\s+|\b(?:and|that|while|whereas|but|On average,)\s+))(Number|number|Percentage|percentage|Proportion|proportion|Majority|majority|Remainder|remainder|Rest|rest|Total|total) of\b(?=\s+[a-z])/g, (m, p) => {
+    if (/\b(?:a|the|this|that|its|their|our|large|small|greater|higher|lower|total|same|any)\s*$/i.test(p.slice(Math.max(0, m.index - 12), m.index))) return null;
+    const cap = /^[A-Z]/.test(m[1]);
+    return { end: m.index + m[1].length, message: `"${m[1].toLowerCase()} of …" needs "the" here.`, replacements: [`${cap ? 'The' : 'the'} ${m[1].toLowerCase()}`] };
+  }),
+  regexRule('determiner', 'correctness', 'Missing article', /\b(Remaining|Following|Based on following|based on following|on following|in following|of following)\b(?=\s+(?:\d+|[a-z]+)\s+(?:[a-z]+\s+)?(?:were|was|are|is|had|have|did|has|characteristics|criteria|materials|steps|items)\b)/g, (m) => {
+    const w = m[1];
+    if (/^(?:Remaining|Following)$/.test(w)) return { message: `Add "the": "The ${w.toLowerCase()} …".`, replacements: [`The ${w.toLowerCase()}`] };
+    return { message: 'Add "the": "the following".', replacements: [w.replace(/following$/, 'the following')] };
+  }),
+  // "highly efficacious than", "high adherence than": a comparison takes the comparative
+  regexRule('comparative', 'correctness', 'Comparison', /\b(highly|very|much)\s+([a-z]{4,})\s+than\b/g, (m) => {
+    if (/(?:er|more|less|other|rather|better|worse)$/.test(m[2])) return null;
+    return { end: m.index + m[1].length + 1 + m[2].length, message: `A comparison with "than" needs "more": "more ${m[2]} than".`, replacements: [`more ${m[2]}`] };
+  }),
+  regexRule('comparative', 'correctness', 'Comparison', /\b(high|low|large|small|great|strong|weak|good|poor|long|short|fast|slow|early|late)\s+((?:[a-z-]+\s+){0,2}?)than\b/g, (m, p) => {
+    if (/\b(?:rather|other|more|less|much)\s*$/.test(p.slice(Math.max(0, m.index - 10), m.index)) || /\b(?:rather|other|more|less|much)\b/.test(m[2])) return null;
+    return { end: m.index + m[1].length, message: `A comparison with "than" needs the comparative: "${COMPARATIVE_OF[m[1]]}".`, replacements: [COMPARATIVE_OF[m[1]]] };
+  }),
+  // ranges: "from 30-35 minutes" -> "from 30 to 35"; "between 2-5" -> "between 2 and 5"; "31—40" -> en dash
+  regexRule('range', 'style', 'Range', /\b(from|between)\s+(\d+(?:\.\d+)?)(\s?[-–—]\s+|[-–—])(\d+(?:\.\d+)?)\b/gi, (m) => {
+    const s = m.index + m[1].length + 1;
+    return { start: s, message: `After "${m[1].toLowerCase()}", write the range with "${/^from$/i.test(m[1]) ? 'to' : 'and'}".`, replacements: [`${m[2]} ${/^from$/i.test(m[1]) ? 'to' : 'and'} ${m[4]}`] };
+  }),
+  regexRule('range', 'style', 'Range', /\b(\d+(?:\.\d+)?)—(\d+(?:\.\d+)?)\b/g, (m) => ({ message: 'A range of numbers takes an en dash (–), not an em dash.', replacements: [`${m[1]}–${m[2]}`] })),
+  // "pre:33.3%" (a space after the colon), "43% participants" (of)
+  regexRule('spacing-colon', 'correctness', 'Spacing', /\b([a-z]{2,}):(?=\d)/g, (m) => ({ start: m.index + m[1].length, end: m.index + m[1].length + 1, message: 'Add a space after the colon.', replacements: [': '] })),
+  regexRule('percent-of', 'correctness', 'Missing preposition', /\b(\d+(?:\.\d+)?\s?%)\s+(?=(?:participants|patients|respondents|subjects|cases|children|women|men|students|individuals|people|contacts|adults|doctors|nurses|pharmacists)\b)/g, (m) => ({
+    end: m.index + m[1].length, message: 'A percentage of a group takes "of": "43% of participants".', replacements: [`${m[1]} of`]
+  })),
+  // "play a role to address" -> "role in addressing"
+  regexRule('preposition', 'correctness', 'Preposition', /\b(?:play|plays|played|playing)\s+(?:an?\s+)?(?:[a-z]+\s+){0,4}?role\s+(to\s+([a-z]{3,}))\b/g, (m) => {
+    const s = m.index + m[0].length - m[1].length;
+    return { start: s, message: '"A role" is played "in" something: "role in addressing".', replacements: [`in ${gerund(m[2])}`] };
+  }),
+  // "12 week follow up", "a 6 month period": a number and unit before a noun are hyphenated
+  regexRule('compound-hyphen', 'style', 'Hyphen', /\b(\d+)\s+(week|day|month|year|hour|minute|item|point)\s+(?=(?:period|follow-up|follow up|course|program|programme|intervention|study|trial|treatment|regimen|interval|time|scale|questionnaire|assessment|duration|history|survival|mortality|old)\b)/g, (m) => ({
+    end: m.index + m[1].length + 1 + m[2].length, message: `A number and unit before a noun are joined by a hyphen: "${m[1]}-${m[2]}".`, replacements: [`${m[1]}-${m[2]}`]
+  })),
+  regexRule('compound-hyphen', 'style', 'Hyphen', /(?<!\b(?:to|will|would|should|must|can|could|may|might|we|they|did|not|and|or|please|i)\s)\b(follow up)\b(?!\s+(?:on|with|the|patients|participants|them|their|all|those|these|each)\b)/gi, (m) => ({
+    message: 'As a noun or adjective, "follow-up" takes a hyphen.', replacements: [`${m[1].slice(0, 6)}-up`]
+  })),
+  regexRule('word-choice', 'correctness', 'Word choice', /\bread\b[^.;]{0,60}?\b(loudly)\b/gi, (m) => ({ start: m.index + m[0].length - m[1].length, message: 'Reading so others can hear is reading "aloud".', replacements: ['aloud'] }))
+];
+
 // the phrase rules of the bank (bank.js): medical confusions, prepositions, noun forms, terms, species, units and more
 const B = require('./bank');
 const bankRules = { id: 'bank', run: (p, g, disabled) => B.match(p, g, disabled) };
 
-const ALL = [...correctness, ...grammar, ...clarity, ...engagement, ...delivery, ...style];
+const ALL = [...correctness, ...grammar, ...determiners, ...clarity, ...engagement, ...delivery, ...style];
 
 /** Spelling issues of one paragraph */
 function spelling(p, opts) {

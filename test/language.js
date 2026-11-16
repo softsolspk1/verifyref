@@ -64,14 +64,25 @@ const has = (list, rule, text) => list.some(i => i.rule === rule && (text === un
     assert.ok(has(pg, rule, text), `rule ${rule} on "${text}"`);
   }
   assert.ok(pg.find(i => i.text === 'informations')?.replacements[0] === 'information', 'uncountable noun: informations -> information');
+  // gaps found against Grammarly on a PJPS manuscript (report of 16 Nov 2026): articles, comparatives, ranges, percentages
+  const g7 = 'Half were in control group and other half in intervention group. Booklet also included pictures. Standard counselling by physician was provided. ' +
+    'T-CED is highly efficacious than routine care and showed high adherence than control. The session ranged from 30-35 minutes. On average, number of contacts was 6.3. ' +
+    'Smoking was seen in about 43% participants. Nurses play a suitable role to address these barriers. There is a need of counseling. TB is the leading causes of death.';
+  const { paragraphs: [p7] } = await L.checkParagraphs([g7], { goals: { domain: 'academic' } });
+  for (const [rule, text, fix] of [['determiner', 'control group', 'the control group'], ['determiner', 'Booklet', 'The booklet'], ['determiner', 'physician', 'a physician'],
+    ['comparative', 'highly efficacious', 'more efficacious'], ['comparative', 'high', 'higher'], ['range', '30-35', '30 to 35'], ['determiner', 'number', 'the number'],
+    ['percent-of', '43%', '43% of'], ['preposition', 'to address', 'in addressing'], ['preposition', 'a need of', 'a need for'], ['academic-usage', 'is the leading causes', 'is the leading cause']]) {
+    assert.ok(p7.some(i => i.rule === rule && i.text === text && i.replacements[0] === fix), `${rule}: "${text}" -> "${fix}"`);
+  }
   // and not on correct research writing (false alarms found in 250 published PJPS articles)
   const fine = ['The results obtained in this study suggest a benefit.', 'Ethical approval for the experiments was obtained.', 'A phase 2 trial was done in table 2.',
     'Both patient and physician agreed.', 'How do treated cells respond?', 'This results in lower doses.', 'The interleukin 6 concentration rose.', 'The (+/-)-praeruptorin A was used.',
     'It was, as it were, a test.', 'The structure of compound I is shown.', 'The total does not exceed 10 mg.', 'It is converted in the liver.', 'Systemic bias was low.',
-    'Mean values are shown in table 1 vs control.', 'Samples were diluted in mg/ml units at 37 °C.', 'The CO 2 level and the IC 50 value were low.', 'Patients were discussed about 20 times.'];
+    'Mean values are shown in table 1 vs control.', 'Samples were stored for further study.', 'Further in vivo study is needed.', 'Patients were treated in hospital in group A.',
+    'Dilutions ranged between 10 -4 and 10 -8 M.', 'The majority of patients in the control group were women, rather than men.', 'Samples were diluted in mg/ml units at 37 °C.', 'The CO 2 level and the IC 50 value were low.', 'Patients were discussed about 20 times.'];
   for (const s of fine) {
     const { paragraphs: [pf] } = await L.checkParagraphs([s], { goals: { domain: 'academic' } });
-    const wrong = pf.filter(i => ['medical-confusion', 'preposition', 'l2-grammar', 'noun-number', 'verb-form', 'subject-verb', 'compound-hyphen', 'academic-usage', 'unit-style', 'medical-term'].includes(i.rule));
+    const wrong = pf.filter(i => ['medical-confusion', 'preposition', 'l2-grammar', 'noun-number', 'verb-form', 'subject-verb', 'compound-hyphen', 'academic-usage', 'unit-style', 'medical-term', 'determiner', 'comparative', 'range', 'percent-of', 'spacing-colon', 'word-choice'].includes(i.rule));
     assert.deepStrictEqual(wrong.map(i => `${i.rule}: ${i.text}`), [], `no false alarm in "${s}"`);
   }
   // P values: written as PJPS articles write them ("P<0.05" or "P < 0.05"); only a missing leading zero is reported

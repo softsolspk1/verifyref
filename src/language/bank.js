@@ -163,7 +163,11 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ['in comparison of', 'in comparison with'], ['in comparison with to', 'in comparison with'], ['till date', 'to date'], ['till now', 'to date|so far'], ['up till now', 'to date|so far'],
   ['since long', 'for a long time'], ['besides of', 'besides'], ['married with', 'married to'], ['prior than', 'before|prior to'],
   ['affect on', 'effect on|affect', { m: '"Affect" is a verb and takes no "on"; the noun is "effect on".' }], ['affects on', 'effects on|affects', { m: '"Affects" is a verb and takes no "on"; the noun is "effects on".' }],
-  ['impact of on', 'impact on'], ['effect of on', 'effect on']
+  ['impact of on', 'impact on'], ['effect of on', 'effect on'],
+  ['a need of', 'a need for'], ['the need of', 'the need for', { a: '[a-z]+ing|more|further|new|better|effective|a|an|the', xa: 'more' }], ['due to absence of', 'due to the absence of'], ['in absence of', 'in the absence of'],
+  ['in presence of', 'in the presence of'], ['after completion of', 'after the completion of'], ['before completion of', 'before the completion of'], ['In case of', 'In the case of', { cs: true, a: 'participants|patients|children|women|men|students|respondents|subjects|those', xa: 'patients' }],
+  ['interviews were taken', 'interviews were conducted'], ['interview was taken', 'interview was conducted'], ['according to Health Belief Model', 'according to the Health Belief Model'],
+  ['on impact of', 'on the impact of'], ['on effect of', 'on the effect of'], ['on role of', 'on the role of'], ['about importance of', 'about the importance of']
 ]);
 
 // ------------------------------------------------------------------ grammar second-language writers often need corrected
@@ -462,6 +466,10 @@ G('academic-usage', 'style', 'Academic usage', (f, t) => `In formal research wri
   ['proves that', 'shows that|indicates that', { m: 'A single study rarely proves; "shows" or "indicates" states the finding without overclaiming.' }], ['proved that', 'showed that|indicated that', { m: 'A single study rarely proves; "showed" or "indicated" states the finding without overclaiming.' }],
   ['it is proved that', 'it was shown that'], ['it was proved that', 'it was shown that'], ['this study proves', 'this study shows|this study indicates'], ['our results prove', 'our results show|our results indicate'],
   ['the results prove', 'the results show|the results indicate'], ['these results prove', 'these results show|these results indicate'], ['clearly proves', 'shows|indicates'], ['clearly proved', 'showed|indicated'],
+  ['great significant', 'highly significant|significant'], ['great statistically significant', 'statistically significant|highly significant'], ['greatly significant', 'highly significant'],
+  ['great statistical significance', 'high statistical significance|a statistically significant difference'], ['great significance', 'high significance|considerable importance'],
+  ['is the leading causes', 'is the leading cause'], ['was the leading causes', 'was the leading cause'], ['is one of the leading cause', 'is one of the leading causes'],
+  ['On every alternate days', 'On alternate days'], ['on every alternate days', 'on alternate days'], ['every alternate days', 'every alternate day|on alternate days'],
   ['very significant', 'highly significant', { m: 'Statistical significance is not graded with "very"; write "highly significant" with the P value, or describe the size of the effect.' }], ['very significantly', 'markedly|substantially'],
   ['extremely significant', 'highly significant'], ['more significant', 'stronger|larger', { m: 'Significance is a yes/no outcome of a test; compare the effect sizes or P values instead.' }], ['most significant', 'strongest|largest'],
   ['statistically insignificant', 'not statistically significant'], ['statistically non-significant', 'not statistically significant'], ['insignificant difference', 'non-significant difference|no significant difference'],

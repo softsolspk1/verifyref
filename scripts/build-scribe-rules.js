@@ -127,10 +127,17 @@ const CATEGORY = {
   'academic-usage': ['PJPS_ACADEMIC', 'PJPS Scribe: academic usage', 'style'],
   typo: ['PJPS_TYPOS', 'PJPS Scribe: medical and research spelling slips', 'misspelling']
 };
-/** LanguageTool's English tokens: hyphenated words stay whole; full stops, slashes, plus signs, brackets and apostrophes split */
+/** LanguageTool's English tokens: hyphenated words stay whole; full stops, slashes, plus signs, brackets and apostrophes split,
+ *  and so does a hyphen that does not join two words ("mean+/-SD" is mean + / - SD on the server) */
 const ltTokens = s => {
   const out = [];
-  for (const m of s.matchAll(/'s\b|’s\b|[.\/+(),;:±'’]|[^\s.\/+(),;:±'’]+/g)) out.push({ t: m[0], space: m.index > 0 && /\s/.test(s[m.index - 1]) });
+  for (const m of s.matchAll(/'s\b|’s\b|[.\/+(),;:±'’]|[^\s.\/+(),;:±'’]+/g)) {
+    const space = m.index > 0 && /\s/.test(s[m.index - 1]);
+    const lead = m[0].match(/^-+(?=[^-])/);
+    if (!lead) { out.push({ t: m[0], space }); continue; }
+    for (let k = 0; k < lead[0].length; k++) out.push({ t: '-', space: k === 0 && space });
+    out.push({ t: m[0].slice(lead[0].length), space: false });
+  }
   return out;
 };
 const ctxToken = (alts, cs) => {

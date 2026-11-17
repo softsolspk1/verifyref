@@ -47,6 +47,8 @@ function coverEnd(t) {
   return end;
 }
 const blank = s => s.replace(/[^\n]/g, ' ');
+// figure and table captions placed after the reference list are still the manuscript's text ("Figure 1 Distribution of ...")
+const CAPTION = /^\s*(?:(?:Supplementary\s+)?(?:Figure|Fig\.?|Table)\s*S?\d+[A-Za-z]?)\b/;
 
 // the same word in the manuscript's spelling (sulphate -> sulfate, analysed -> analyzed, favoured -> favored), if the
 // dictionary knows it
@@ -127,13 +129,13 @@ async function screenLanguage(text, { userId = null, title = '', save = true } =
   const variant = variantOf(prose);
   const paras = [];
   let pos = 0;
-  for (const p of text.split('\n')) { if (p.trim() && pos < refs && !refEntry(p)) paras.push({ text: p, start: pos }); pos += p.length + 1; }
+  for (const p of text.split('\n')) { if (p.trim() && (pos < refs || CAPTION.test(p)) && !refEntry(p)) paras.push({ text: p, start: pos, caption: pos >= refs }); pos += p.length + 1; }
   const r = await L.checkParagraphs(paras.map(p => p.text), { variant, goals: GOALS, docText: prose, ai: false, personal: [...personal] });
   const issues = [];
   paras.forEach((p, k) => {
     for (const i of r.paragraphs[k] || []) {
       const off = p.start + i.offset;
-      if (off >= refs || (off < front && i.spelling && /^[A-Z]/.test(i.text) && p.start > 0)) continue;
+      if ((off >= refs && !p.caption) || (off < front && i.spelling && /^[A-Z]/.test(i.text) && p.start > 0)) continue;
       if (LAYOUT.has(i.rule) || (SENTENCE.has(i.rule) && fragment(p.text))) continue;
       // "analysed" in an American text is correct English (PJPS accepts both): a consistency note, not a misspelling
       if (i.spelling && S.otherVariant(i.text, variant)) {

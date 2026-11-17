@@ -456,6 +456,11 @@ const PHRASE_END = '(?=\\s+(?:were|was|are|is|had|have|has|with|who|which|that|i
 const NOT_SUBJECT = '(?<!\\b(?:of|in|for|from|with|by|on|at|to|among|between|than|into|about|under|over|after|before|during|through|against|without|within|per|via|almost|like|across|including|and|or|\\w+ing|\\w+ed)\\s)';
 const BE_VERB_SG = { were: 'was', are: 'is', have: 'has', show: 'shows', suggest: 'suggests', indicate: 'indicates', demonstrate: 'demonstrates', reveal: 'reveals', remain: 'remains', seem: 'seems', appear: 'appears', do: 'does' };
 const BE_VERB_PL = Object.fromEntries(Object.entries(BE_VERB_SG).map(([p, s]) => [s, p]));
+// measures of disease and treatment that make a plural subject when two are joined ("incidence and mortality are")
+const MEASURES = 'incidence|prevalence|morbidity|mortality|burden|severity|frequency|sensitivity|specificity|efficacy|safety|toxicity|tolerability|knowledge|awareness|absorption|distribution|metabolism|excretion|bioavailability|solubility|stability';
+// a person in an author list (Chunyan Sheng, Muhammad Ali Khan, KF) and the verbs of a contributions statement
+const PERSON = "(?:[A-Z][a-z'’-]+(?: [A-Z][a-z'’-]+){1,2}|[A-Z]{2,4})";
+const CONTRIB_VERBS = 'conceived|designed|wrote|drafted|performed|collected|analy[sz]ed|interpreted|revised|reviewed|edited|supervised|contributed|carried|conducted|prepared|approved|developed|acquired';
 const SUBSTANCES = 'streptozotocin|STZ|alloxan|carrageenan|paracetamol|acetaminophen|CCl4|LPS|lipopolysaccharide|cisplatin|doxorubicin|gentamicin|formalin|ethanol|isoproterenol|isoprenaline|haloperidol|scopolamine|reserpine|dexamethasone|cyclophosphamide|methotrexate|histamine|serotonin|capsaicin|pentylenetetrazole|PTZ|MPTP|rotenone|aluminium|aluminum|cadmium|arsenic|diclofenac|indomethacin|aspirin|ibuprofen|stress|exercise|diet|drug|chemotherapy|radiation|hypoxia|glucose|insulin|nicotine|alcohol|cocaine|morphine|MSG|fructose|thioacetamide|DMBA|DEN|azoxymethane|AOM|DSS|bleomycin|monocrotaline|L-NAME|receptor|antibody|immune|enzyme|cell|ligand|virus|bacteria|toxin|oxidative';
 
 const grammar = [
@@ -516,6 +521,18 @@ const grammar = [
   regexRule('subject-verb', 'correctness', 'Subject-verb agreement', /\b(the number of)\s+(?:(?!who\b|that\b|which\b)[\w-]+\s+){1,8}?(were|are|have)\b/gi, (m) => {
     const s = m.index + m[0].length - m[2].length;
     return { start: s, message: '"The number of …" takes a singular verb ("the number of patients was").', replacements: [{ were: 'was', are: 'is', have: 'has' }[m[2].toLowerCase()]] };
+  }),
+  // two measures joined by "and" are a plural subject ("TB disease burden and mortality is very high" -> are); not after
+  // a preposition ("the risk of morbidity and mortality is" has "risk" as its subject)
+  regexRule('subject-verb', 'correctness', 'Subject-verb agreement', new RegExp(`(?:^|(?<=[.;:]\\s+)|\\b(\\w+)\\s+)(${MEASURES})\\s+and\\s+(${MEASURES})\\s+(is|was|has)\\b`, 'gi'), (m) => {
+    if (m[1] && /^(?:of|in|for|on|to|with|between|from|by|about|regarding|and|or|its|their)$/i.test(m[1])) return null;
+    const v = m[4].toLowerCase(), s = m.index + m[0].length - m[4].length;
+    return { start: s, message: `"${m[2]} and ${m[3]}" are two things, so the verb is "${BE_VERB_PL[v]}".`, replacements: [BE_VERB_PL[v]] };
+  }),
+  // the authors' contributions: "Chunyan Sheng, Guo Sun conceived the study" -> "Chunyan Sheng and Guo Sun"
+  regexRule('author-list', 'correctness', 'Missing conjunction', new RegExp(`(?:^|(?<=[;:]\\s*))((?:${PERSON}, ){1,6})(${PERSON}) (?=(?:${CONTRIB_VERBS})\\b)`, 'g'), (m) => {
+    const s = m.index + m[1].length - 2;
+    return { start: s, end: s + 2, message: 'Join the last two names with "and": "A, B and C wrote the manuscript".', replacements: [' and '] };
   }),
   regexRule('subject-verb', 'correctness', 'Subject-verb agreement', /\b(there)\s+(is|was)\s+(?=(?:many|several|numerous|various|multiple|few|no significant differences|significant differences|differences|two|three|four|five)\b)/gi, (m) => {
     const s = m.index + m[1].length + 1;

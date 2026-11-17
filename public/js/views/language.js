@@ -233,6 +233,8 @@ export async function renderLanguageEditor(view, id) {
   // the title block above the abstract: author names, departments, hospitals and cities are not spelling mistakes
   const frontEnd = text => { const from = coverEnd(text); const m = text.slice(from, from + 4000).match(/(^|\n)\s*abstract\b/i); return m ? from + m.index + m[1].length : from; };
   const keyOf = (i, text) => `${i.rule}|${text.slice(Math.max(0, i.offset - 20), i.offset + i.length + 20)}`;
+  // figure and table captions placed after the reference list are still the manuscript's text ("Figure 1 Distribution of ...")
+  const CAPTION = /^\s*(?:(?:Supplementary\s+)?(?:Figure|Fig\.?|Table)\s*S?\d+[A-Za-z]?)\b/;
 
   /** Rebuild the positioned suggestion list from the paragraph caches and the last whole-document check */
   function compute() {
@@ -244,7 +246,7 @@ export async function renderLanguageEditor(view, id) {
       for (const src of [paraCache.get(p.text), aiCache.get(p.text)]) {
         for (const i of src || []) {
           const off = p.start + i.offset;
-          if (off >= refs || (off < front && i.spelling && /^[A-Z]/.test(i.text) && p.start > 0)) continue;
+          if ((off >= refs && !CAPTION.test(p.text)) || (off < front && i.spelling && /^[A-Z]/.test(i.text) && p.start > 0)) continue;
           out.push({ ...i, offset: off });
         }
       }

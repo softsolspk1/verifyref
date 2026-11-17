@@ -166,6 +166,18 @@ References
   assert.ok(cap8.some(i => i.replacements[0] === 'Figure 2: '), 'caption label takes a colon');
   assert.ok(!require('../src/language/rules').checkParagraph('Table 1 shows the data.', {}, { variant: 'en-US' }).some(i => i.rule === 'punctuation'), '"Table 1 shows" is a sentence');
   assert.deepStrictEqual(tp.filter(i => i.rule === 'case-consistency').map(i => i.text), ['Latent'], 'capitals: "Latent" mid-sentence, not the Health Belief Model or a sentence start');
+  // fourth comparison with Grammarly (documents 7 and 8): two measures as one subject, an author list without "and",
+  // "Ai", a language named with "language", "Programme" in a US document
+  const fourth = 'TB disease burden and mortality is very high. The risk of morbidity and mortality is high. Ai Statement: the authors did not use Ai in writing. Shen X, Ai W and Cao X reported it. ' +
+    'The questionnaire was developed in English language and asked in Urdu or Punjabi language. Training in English language teaching was given. The National Tuberculosis Programme was followed.';
+  const t4 = require('../src/language/rules').checkParagraph(fourth, { domain: 'academic' }, { variant: 'en-US' }).map(i => `${i.text}->${i.replacements[0]}`);
+  for (const f of ['is->are', 'Ai->AI', 'English language->English', 'Punjabi language->Punjabi', 'Programme->Program']) assert.ok(t4.includes(f), `${f} (${t4.join(' | ')})`);
+  assert.strictEqual(t4.filter(f => f === 'is->are').length, 1, '"the risk of morbidity and mortality is" has "risk" as its subject');
+  assert.strictEqual(t4.filter(f => f === 'Ai->AI').length, 2, '"Ai W" in an author list is a surname');
+  assert.strictEqual(t4.filter(f => f === 'English language->English').length, 1, '"English language teaching" is a compound');
+  const t4b = require('../src/language/rules').checkParagraph('Chunyan Sheng, Guo Sun conceived the study; KF, MA, ZH wrote the manuscript. Table 1, Figure 2 show the results.', {}, { variant: 'en-US' }).filter(i => i.rule === 'author-list');
+  assert.strictEqual(t4b.length, 2, 'author lists without "and"');
+  assert.ok(t4b.every(i => i.text === ', ' && i.replacements[0] === ' and '), 'the last comma becomes "and"');
 
   // ---------------------------------------------------------------- permissions: users customised before Module 6 get it
   assert.ok(permissionsOf({ role: 'editor', permissions: ['references', 'papermill', '_v4'] }).includes('language'), 'editor with older custom permissions');

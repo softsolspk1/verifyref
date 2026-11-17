@@ -15,6 +15,10 @@ const path = require('path');
 const groups = [];
 const G = (rule, category, title, message, entries, opts = {}) => groups.push({ rule, category, title, message, entries, ...opts });
 
+const LANGS = ['English', 'Urdu', 'Punjabi', 'Sindhi', 'Pashto', 'Balochi', 'Saraiki', 'Arabic', 'Persian', 'Hindi', 'Bengali', 'Chinese', 'Malay', 'Turkish', 'French', 'Spanish', 'Portuguese', 'German', 'Japanese', 'Korean'];
+// what may follow the language for the phrase to end there ("in English language teaching" is a compound and is left alone)
+const LANG_END = '\\.|,|;|\\)|\\[|and|or|by|with|was|were|is|are|as|to|for|at|from|using|before|after|during';
+
 // ------------------------------------------------------------------ confused words in medical and laboratory writing
 const PATIENT_NOUNS = 'were|who|had|received|underwent|aged|enrolled|included|presenting|diagnosed|undergoing|admitted|treated|recruited';
 G('medical-confusion', 'correctness', 'Confused words', (f, t) => `"${f}" is a different word here; the medical term is "${t[0]}".`, [
@@ -185,7 +189,9 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ['re-uptake', 'reuptake'], ['publishment', 'publication'], ['MySQ', 'MySQL', { cs: true }],
   ['The dataset generated', 'The datasets generated', { cs: true, a: 'during|and|or' , xa: 'during' }], ['The data set generated', 'The datasets generated', { cs: true, a: 'during|and|or', xa: 'during' }],
   ...['strong', 'high', 'low', 'small', 'large', 'weak', 'rare', 'severe', 'important', 'significant', 'sensitive', 'toxic', 'potent', 'difficult', 'useful', 'effective', 'dangerous', 'variable', 'heterogeneous', 'limited'].map(a => [`extreme ${a}`, `extremely ${a}`]),
-  ['Linkert scale', 'Likert scale'], ['Linkert-type', 'Likert-type'], ['Lickert scale', 'Likert scale'], ['Lickert-type', 'Likert-type']
+  ['Linkert scale', 'Likert scale'], ['Linkert-type', 'Likert-type'], ['Lickert scale', 'Likert scale'], ['Lickert-type', 'Likert-type'],
+  // fourth comparison (document 7): "in English language" -> in English; "in Urdu or Punjabi language" -> in Urdu or Punjabi
+  ...LANGS.map(l => [`${l} language`, l, { cs: true, b: 'in|into|or|and', a: LANG_END, xb: 'in', xa: 'by' }])
 ]);
 
 // ------------------------------------------------------------------ grammar second-language writers often need corrected
@@ -391,7 +397,10 @@ G('abbreviation-case', 'style', 'Abbreviation', (f, t) => `The standard form of 
   ['ros', 'ROS', { a: 'production|generation|levels|level|scavenging|formation|accumulation' }], ['mda', 'MDA', { a: 'levels|level|content|concentration|concentrations' }],
   ['S.D.', 'SD', { cs: true, b: '±|mean|Mean|as|and', xb: 'mean' }], ['S.E.M.', 'SEM', { cs: true, b: '±|mean|Mean|as|and', xb: 'mean' }],
   ['PH', 'pH', { cs: true, a: 'value|values|of|range|meter|levels|level|adjusted|was|scale|\\d+(?:\\.\\d+)?', xa: 'value' }], ['Ph', 'pH', { cs: true, a: 'value|values|of|range|meter|levels|level|adjusted|was|scale|\\d+(?:\\.\\d+)?', xa: 'value' }],
-  ['ph', 'pH', { cs: true, a: 'value|values|of|range|meter|levels|level|adjusted|was|scale|\\d+(?:\\.\\d+)?', xa: 'value' }]
+  ['ph', 'pH', { cs: true, a: 'value|values|of|range|meter|levels|level|adjusted|was|scale|\\d+(?:\\.\\d+)?', xa: 'value' }],
+  // artificial intelligence (Grammarly comparison on document 7: "Ai Statement", "did not use Ai"); "Ai" alone is a surname (Ai W, Ai Q)
+  ['Ai', 'AI', { cs: true, a: 'Statement|statement|Declaration|declaration|Disclosure|disclosure|tools?|models?|software|technology|technologies|chatbots?|assistance', xa: 'Statement' }],
+  ['Ai', 'AI', { cs: true, b: 'use|used|using|uses|generative|Generative|any|no', xb: 'used' }]
 ], { cs: true });
 
 // ------------------------------------------------------------------ units (SI and the forms journals use)

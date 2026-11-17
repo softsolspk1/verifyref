@@ -134,6 +134,12 @@ function usMedical(word) {
   // "Programme" ("National Tuberculosis Programme" in a US document; Grammarly comparison on document 7) -> "Program"
   const pg = word.match(/^(program)mes?$/i);
   if (pg) return pg[1] + (/s$/i.test(word) ? 's' : '');
+  // "sulphate", "sulphur", "sulphonamide" -> sulfate, sulfur, sulfonamide
+  if (/sulph/i.test(word)) {
+    const us = word.replace(/sulph/g, 'sulf').replace(/Sulph/g, 'Sulf').replace(/SULPH/g, 'SULF');
+    const sp = load('en-US');
+    if (sp.correct(us) || sp.correct(us.toLowerCase())) return us;
+  }
   if (!UK_MED.test(word) || word.length < 5 || /^haemo(?:philus|nchus|physalis|proteus)|kaempf/i.test(word)) return null;
   const us = word.replace(/aem/g, 'em').replace(/Aem/g, 'Em').replace(/oedem/g, 'edem').replace(/^Oe(?=dem|s)/, 'E').replace(/^oe(?=dem|s)/, 'e').replace(/pnoe/g, 'pne').replace(/rrhoe/g, 'rrhe').replace(/foet/gi, m => m[0] + 'et')
     .replace(/paed/gi, m => m[0] + 'ed').replace(/anaes/gi, m => m[0] + 'nes').replace(/^Coel/, 'Cel').replace(/^coel/, 'cel').replace(/^Aetiol/, 'Etiol').replace(/^aetiol/, 'etiol');

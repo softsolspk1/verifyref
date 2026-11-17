@@ -388,9 +388,63 @@ function checkDocument(text, goals = {}, opts = {}) {
     if (first) out.push(...authorBlock(text, first));
   }
   const body = structure?.referencesAt != null ? text.slice(0, structure.referencesAt) : text;
-  out.push(...hyphenation(body), ...capitals(body), ...nameSpellings(body));
+  out.push(...hyphenation(body), ...capitals(body), ...nameSpellings(body), ...serialCommas(body));
   out = out.filter(i => !disabled.has(i.rule) && !(i.rule.startsWith('abbr-') && disabled.has('abbreviations')));
   return { issues: out, structure };
+}
+
+// ------------------------------------------------------------------ the serial comma used in some lists and not others
+// Grammarly asks for the comma before the last "and" of every list ("apoptosis, and cognitive impairment"); published PJPS
+// articles mostly leave it out (7,931 lists without it, 648 with), so it is asked for only where the manuscript itself
+// uses it (at least twice and in a fifth of its lists): a writer who never uses it is consistent
+const LIST_INTRO = /^(?:in|on|at|for|after|before|when|whereas|while|although|though|however|therefore|thus|here|moreover|furthermore|to|by|with|without|since|because|if|as|following|during|briefly|then|finally|next|notably|interestingly|similarly|additionally|consequently|nevertheless|nonetheless|meanwhile|overall|first|second|third|lastly|together|accordingly|hence|indeed|specifically|subsequently|importantly|alternatively|conversely|likewise|besides|unlike|like|compared|according|based|given|despite|among|within|upon|once|until|unless|where|whereby|regarding|e\.g|i\.e|\w+ing|\w+ed)\b/i;
+const NOT_ITEM = /^(?:including|such as|especially|particularly|namely|accompanied|followed|along|together|compared|respectively|which|that|who|whom|whose|where|when|while|whereas|but|although|though|because|since|so|thus|then|as|if|i\.e|e\.g|etc|et al)\b/i;
+const FINITE = /\b(?:is|are|was|were|has|have|had|be|been|being|will|would|can|could|may|might|should|must|did|does|do)\b/i;
+// MedDRA system organ classes and other official names are written as they are
+const OFFICIAL_LIST = /congenital, familial and genetic|pregnancy, puerperium and perinatal|pregnancy, neonatal and perinatal|respiratory, thoracic and mediastinal|injury, poisoning and procedural|neoplasms benign, malignant and unspecified|benign, malignant and unspecified/i;
+
+function lists(text) {
+  const out = [];
+  for (const m of text.matchAll(/(?:[^\n.;:?!]|[.;:?!](?!\s|$))*(?:[.;:?!](?=\s|$)|\n|$)/g)) {
+    const s = m[0], base = m.index;
+    // a heading or a table cell (a short line without a full stop) is not a sentence
+    if (!s.trim() || (!/[.;:?!]\s*$/.test(s) && s.trim().split(/\s+/).length <= 14) || OFFICIAL_LIST.test(s)) continue;
+    const segs = [];
+    let depth = 0, from = 0;
+    for (let k = 0; k < s.length; k++) {
+      const c = s[k];
+      if (c === '(' || c === '[') depth++;
+      else if ((c === ')' || c === ']') && depth) depth--;
+      else if (c === ',' && !depth) { segs.push({ t: s.slice(from, k), at: from }); from = k + 1; }
+    }
+    segs.push({ t: s.slice(from), at: from });
+    for (let k = 1; k < segs.length; k++) {
+      const seg = segs[k].t, prev = segs[k - 1].t.trim();
+      if (/^\s+(?:and|or)\s/.test(seg)) { // "A, B, and C"
+        if (k >= 2 && prev.split(/\s+/).length <= 5 && !NOT_ITEM.test(prev)) out.push({ serial: true });
+        continue;
+      }
+      const a = /^\s+((?:\S+\s+){0,2}?)(and|or)\s+(?!then\b|also\b|thus\b|therefore\b)/.exec(seg);
+      if (!a) continue;
+      const B = a[1].trim();
+      if (!B || NOT_ITEM.test(B) || FINITE.test(B) || /\b(?:between|both|either|whether)\b/i.test(B) || /[()]/.test(B.replace(/\([^()]*\)/g, ''))) continue;
+      // an item before B: an earlier short item, or a first part that is not an opening phrase ("In this study, rats and mice")
+      const listBefore = k >= 2 && prev.split(/\s+/).length <= 5;
+      if (!listBefore && LIST_INTRO.test(prev)) continue;
+      if (/\b(?:between|both)\b[^,]*$/i.test(prev)) continue;
+      const andAt = segs[k].at + a[0].length - a[0].match(/\s+$/)[0].length - a[2].length;
+      out.push({ serial: false, offset: base + andAt - 1, word: a[2] });
+    }
+  }
+  return out;
+}
+
+function serialCommas(text) {
+  const all = lists(text);
+  const used = all.filter(l => l.serial).length, missing = all.filter(l => !l.serial);
+  if (used < 2 || used < (used + missing.length) * 0.2) return [];
+  return missing.map(l => ({ rule: 'serial-comma', category: 'correctness', title: 'Comma before the last item', offset: l.offset, length: l.word.length + 1, text: ` ${l.word}`,
+    message: `The manuscript puts a comma before the last "and" or "or" of a list in ${used} places; put one here too (or leave it out everywhere).`, replacements: [`, ${l.word}`], consistency: true }));
 }
 
 /** Word counts of the document (lower case), used to accept terms the writer uses repeatedly */

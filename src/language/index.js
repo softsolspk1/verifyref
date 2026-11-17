@@ -11,7 +11,15 @@ const PRIORITY = { 'ai-suggestion': 0 };
 // LanguageTool notes that do not fit a research article in PJPS style: hyphenated ranges (PJPS writes 48-81, 83-88),
 // passive voice in Methods and Results, noun strings that are medical terms (sodium chloride injection solution), and
 // "use a synonym" for a repeated word ("significant" for "important" changes the meaning in a statistical paper)
-const ACADEMIC_OFF = /^lt:(?:HYPHEN_TO_EN|DASH_RULE|REP_PASSIVE_VOICE|PASSIVE_VOICE|FOUR_NN|EN_REPEATEDWORDS_\w+|ENGLISH_WORD_REPEAT_BEGINNING_RULE)$/;
+const ACADEMIC_OFF = /^lt:(?:HYPHEN_TO_EN|DASH_RULE|REP_PASSIVE_VOICE|PASSIVE_VOICE|FOUR_NN|EN_REPEATEDWORDS_\w+|ENGLISH_WORD_REPEAT_BEGINNING_RULE|CONFUSION_RULE_AFFECTS_EFFECTS)$/;
+// the server's notes that are wrong in research text (Grammarly comparison on document 22): "Analyses" (the plural noun) as
+// the British verb, "least absolute shrinkage and selection operator" (LASSO) without "the", PJPS's "vs" without a full
+// stop, an author's superscript and asterisk ("Sun⁴*"), and significance marks ("&&&P < 0.001") as a misspelled word
+const ltWrong = (i, p) => (i.rule === 'lt:EN_WORD_COHERENCY' && /^analyses$/i.test(i.text)) ||
+  (i.rule === 'lt:THE_SUPERLATIVE' && /^least\s+absolute\s+shrinkage/i.test(p.slice(i.offset))) ||
+  (i.rule === 'lt:MISSING_PERIOD_AFTER_ABBREVIATION' && /^vs$/i.test(i.text)) ||
+  (i.rule === 'lt:MULTIPLICATION_SIGN' && /[⁰¹²³⁴⁵⁶⁷⁸⁹a-z]\*/i.test(i.text) && !/\d\s*\*\s*\d/.test(i.text)) ||
+  (i.spelling && /[&#*§†‡]/.test(i.text));
 const overlaps = (a, b) => a.offset < b.offset + b.length && b.offset < a.offset + a.length;
 
 /** One suggestion per place: the first found wins (LanguageTool, then in-house rules); whole-sentence notes never block */
@@ -47,7 +55,7 @@ async function checkParagraphs(paragraphs, opts = {}) {
   const off = new Set(opts.disabled || []);
   // a table cell's leading spaces (a flattened table: "  2004", "  Consumer") are layout, not a typing slip
   const layout = (i, p) => /^lt:(?:WHITESPACE_RULE|CONSECUTIVE_SPACES)$/.test(i.rule || '') && !p.slice(0, i.offset).trim();
-  const ltKept = lt ? lt.map((list, k) => list.filter(i => !layout(i, paragraphs[k]) && (!i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w))) && !(academic && ACADEMIC_OFF.test(i.rule || '')) &&
+  const ltKept = lt ? lt.map((list, k) => list.filter(i => !layout(i, paragraphs[k]) && !ltWrong(i, paragraphs[k]) && (!i.spelling || i.text.split(/\s+/).filter(Boolean).some(w => !ours(w))) && !(academic && ACADEMIC_OFF.test(i.rule || '')) &&
     !off.has(i.rule) && ((opts.goals?.domain || 'academic') === 'academic' || !/^(?:academic-usage|unit-style)$/.test(i.rule)))) : null;
   // a known slip ("publishment") gets the known answer, not the server's nearest word ("punishment")
   if (ltKept) for (const list of ltKept) for (const i of list) {

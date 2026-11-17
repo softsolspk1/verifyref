@@ -192,6 +192,8 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ['Linkert scale', 'Likert scale'], ['Linkert-type', 'Likert-type'], ['Lickert scale', 'Likert scale'], ['Lickert-type', 'Likert-type'],
   // fourth comparison (document 7): "in English language" -> in English; "in Urdu or Punjabi language" -> in Urdu or Punjabi
   ...LANGS.map(l => [`${l} language`, l, { cs: true, b: 'in|into|or|and', a: LANG_END, xb: 'in', xa: 'by' }]),
+  // document 22: "Flow-cytometric analysis" -> flow cytometric (50 of 50 in published PJPS articles)
+  ['flow-cytometric', 'flow cytometric'], ['flow-cytometry', 'flow cytometry', { a: 'analysis|was|were|data|results|assay' }],
   // fifth pass (document 7): "Fully compliant to complete regimen" -> compliant with; not "compliance to take the medication"
   ...['compliant to', 'compliance to', 'non-compliant to', 'non-compliance to', 'noncompliance to'].map(f => [f, f.replace(/to$/, 'with'), { a: 'the|a|an|their|his|her|its|this|these|treatment|therapy|medication|medications|medicine|medicines|regimen|regimens|complete|full|guidelines|protocol|protocols|drugs|drug|diet|instructions|ART|antiretroviral|antihypertensive|antitubercular|insulin', xa: 'treatment' }]),
   // "The study design employed was quasi-experimental pre-test/post-test design" -> was a quasi-experimental
@@ -246,6 +248,8 @@ G('l2-grammar', 'correctness', 'Grammar', (f, t) => `"${f}" is not standard Engl
 
 // ------------------------------------------------------------------ uncountable nouns and Latin plurals
 G('noun-number', 'correctness', 'Noun form', (f, t) => `"${f}" is not used in this form; write "${t[0]}".`, [
+  // document 22: "The differential gene expressions were" (144 to 19 in published PJPS articles)
+  ['gene expressions', 'gene expression'], ['protein expressions', 'protein expression'], ['mRNA expressions', 'mRNA expression', { cs: true }],
   ['informations', 'information', { m: '"Information" is uncountable and has no plural.' }], ['knowledges', 'knowledge', { m: '"Knowledge" is uncountable and has no plural.' }],
   ['equipments', 'equipment', { m: '"Equipment" is uncountable and has no plural.' }], ['advices', 'advice', { m: '"Advice" is uncountable; the plural is "pieces of advice".' }],
   ['feedbacks', 'feedback', { m: '"Feedback" is uncountable and has no plural.' }], ['softwares', 'software|software programs', { m: '"Software" is uncountable; write "software" or "software programs".' }],

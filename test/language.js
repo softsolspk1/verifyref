@@ -192,6 +192,22 @@ References
   assert.ok(!t5.includes('Compliance to->Compliance with'), '"compliance to take" is an infinitive');
   const r5b = require('../src/language/rules').checkParagraph('The control group yielded no significance in any of the four outcomes indicating the futility of care. The red areas are the core regions indicating the best fit.', {}, { variant: 'en-US' });
   assert.deepStrictEqual(r5b.filter(i => i.rule === 'comma-participle').map(i => i.offset), [69], 'after a plural noun only when the clause has its verb');
+  // comparison with Grammarly on document 22: hyphens after abbreviations, articles before named pathways and assays,
+  // "Figure.", "7 days'", "gene expressions", "Flow-cytometric", a British part of a compound, and the false alarms
+  const d22 = 'RUNX3 was related to TGF-β mediated signaling in an Aβ induced rat model and AD related genes. RUNX3 knockdown increased viability. Neuron survival is regulated through PI3K/AKT pathway. ' +
+    'Viability was determined by CCK-8 assay, using 2-ΔΔCt method and by Microbiological assay technique. Memory was tested in Morris water maze test (Figure. 2A and B). After their 7 days\' adaptation period and 24 hours\' of treatment, rats were used. ' +
+    'Flow-cytometric analysis showed that gene expressions changed. Proteins were separated by sodium dodecyl sulphate-polyacrylamide gel electrophoresis. (A and C) Examples of swimming paths.';
+  const r22 = require('../src/language/rules').checkParagraph(d22, { domain: 'academic' }, { variant: 'en-US' });
+  const t22 = r22.map(i => `${i.text}->${i.replacements[0]}`);
+  for (const f of ['TGF-β mediated->TGF-β-mediated', 'Aβ induced->Aβ-induced', 'AD related->AD-related', 'PI3K/AKT->the PI3K/AKT', 'CCK-8->the CCK-8', '2-ΔΔCt->the 2-ΔΔCt', 'Morris->the Morris',
+    'Figure.->Figure', "7 days'->7-day", 'Flow-cytometric->Flow cytometric', 'gene expressions->gene expression', 'sulphate->sulfate']) assert.ok(t22.includes(f), `${f} (${t22.join(' | ')})`);
+  for (const f of ['RUNX3 knockdown->RUNX3-knockdown', 'Microbiological->the Microbiological', "24 hours'->24-hour", 'A->An']) assert.ok(!t22.includes(f), `not ${f}`);
+  // the serial comma: asked for only in a manuscript that uses it, and not in official MedDRA names
+  const D6 = require('../src/language/document');
+  const mixed = 'We measured viability, apoptosis, and memory. Rats, mice, and cells were used. Cells were washed, fixed and stained. In this study, rats and mice were used. ' +
+    'Events in Congenital, familial and genetic disorders were common. Values were 20.27, 30.1 and 40.2 (EBGM=20.27, Metabolism and nutrition disorders).\n';
+  assert.deepStrictEqual(D6.checkDocument(mixed, { domain: 'academic' }).issues.filter(i => i.rule === 'serial-comma').map(i => mixed.slice(i.offset - 5, i.offset + i.length)), ['fixed and', ' 30.1 and'], 'serial comma where the writer uses it');
+  assert.strictEqual(D6.checkDocument(mixed.replace(/, and/g, ' and'), { domain: 'academic' }).issues.filter(i => i.rule === 'serial-comma').length, 0, 'a writer who never uses it is consistent');
 
   // ---------------------------------------------------------------- permissions: users customised before Module 6 get it
   assert.ok(permissionsOf({ role: 'editor', permissions: ['references', 'papermill', '_v4'] }).includes('language'), 'editor with older custom permissions');

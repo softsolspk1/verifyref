@@ -63,8 +63,10 @@ const correctness = [
     if (/^[A-Z]/.test(m[1]) && /^[A-Z]/.test(m[0].slice(m[1].length + m[2].length))) return null; // a name: Chu Chu, Li Li
     return { start: m.index + m[1].length, message: `"${m[1]}" is repeated.`, replacements: [''] };
   }),
-  regexRule('a-an', 'correctness', 'Article', /\b(a|an|A|An)\s+([A-Za-z][\w-]*)/g, (m) => {
+  regexRule('a-an', 'correctness', 'Article', /\b(a|an|A|An)\s+([A-Za-z][\w-]*)/g, (m, p) => {
     const art = m[1].toLowerCase(), w = m[2];
+    // a figure panel ("(A and C) Examples of", "A, B and C show") is a letter, not the article
+    if (m[1] === 'A' && (/[(\[]\s*$/.test(p.slice(Math.max(0, m.index - 2), m.index)) || /^(?:and|or|to)$/.test(w) && /^\s+[A-Z]\b/.test(p.slice(m.index + m[0].length)))) return null;
     if (/^[A-Z]{2,}/.test(w)) {
       const needAn = ACRONYM_AN.test(w);
       if (needAn && art === 'a') return { end: m.index + m[1].length, message: `Use "an" before "${w}": it is read letter by letter and starts with a vowel sound.`, replacements: [keepCase(m[1], 'an')] };
@@ -558,6 +560,9 @@ const grammar = [
 // ------------------------------------------------------------------ determiners, comparatives and formatting (gaps found
 // against Grammarly on a PJPS manuscript, report of 16 Nov 2026: "in control group", "by physician", "highly efficacious than")
 // singular countable nouns of research writing that need "the" or "a" after a preposition
+// a word joined to an abbreviation before a noun ("Aβ-induced injury") and the words after it that end the phrase instead
+const COMPOUND_PART = 'mediated|induced|related|dependent|associated|treated|lesioned|exposed|positive|negative|resistant|derived|loaded|stimulated|activated|deficient';
+const COMPOUND_NOT = 'by|with|to|in|on|at|from|for|and|or|as|than|via|the|a|an|is|was|were|are|be|been|into|during|after|before|within|under|over|per|of|that|which|who';
 const COUNT_DET = 'group|study|questionnaire|booklet|brochure|session|scale|instrument|interview|physician|nurse|doctor|pharmacist|researcher|investigator|assistant|patient|participant|clinic|sample|trial|survey|program|programme|video|cohort|ward|visit|population';
 const NO_DET_BEFORE = new Set('the a an this that these those each every any some no our their its his her my your one another either neither same such which what all both whose per its'.split(' '));
 const PREP_DET = 'in|of|from|to|for|by|at|with|into|on|after|before|during|among|within|across|than|regarding|about|including|without|through';
@@ -580,6 +585,30 @@ const determiners = [
     const an = /^(?:[aeio]|u(?!ni|s[eu])|[AEFHILMNORSX][A-Z0-9-]*$)/.test(first) ? 'an' : 'a';
     const reps = article === 'the' ? [`the ${span}`, `${an} ${span}`] : [`${an} ${span}`, `the ${span}`];
     return { start, message: `A singular countable noun needs an article here: "${reps[0]}".`, replacements: reps };
+  }),
+  // Grammarly comparison on document 22: a named pathway, assay, method or kit after a preposition needs "the" ("through
+  // PI3K/AKT pathway", "by CCK-8 assay", "using 2-ΔΔCt method", "in Morris water maze test")
+  regexRule('determiner', 'correctness', 'Missing article', /\b(?:through|via|in|on|of|by|into|activating|inhibiting|regulating|targeting|modulating|suppressing|blocking)\s+([A-Z][A-Za-z0-9]*\/[A-Z][\w/-]*)(?=(?:\s+signal(?:l)?ing)?\s+pathway\b)/g, (m) => {
+    const s = m.index + m[0].length - m[1].length;
+    return { start: s, message: 'A named pathway takes "the": "the PI3K/AKT pathway".', replacements: [`the ${m[1]}`] };
+  }),
+  regexRule('determiner', 'correctness', 'Missing article', /\b(?:using|by|with|via|through)\s+([A-Za-z0-9.-]*[A-Z0-9Δ][A-Za-z0-9.Δ-]*)(?=\s+(?:method|assay|kit|technique|staining)\b)/g, (m) => {
+    if ((m[1].match(/[A-Z0-9Δ]/g) || []).length < 2) return null; // "Microbiological assay" is a kind, not a name
+    const s = m.index + m[0].length - m[1].length;
+    return { start: s, message: 'A named assay, method or kit takes "the": "by the MTT assay".', replacements: [`the ${m[1]}`] };
+  }),
+  regexRule('determiner', 'correctness', 'Missing article', /\b(?:in|using|by|with|during|of|on|from|via|for)\s+(Morris)(?= water maze\b)/g, (m) => {
+    const s = m.index + m[0].length - m[1].length;
+    return { start: s, message: '"The Morris water maze" takes "the".', replacements: ['the Morris'] };
+  }),
+  // "(Figure. 2A and B)" -> "Figure 2A": "Fig." is an abbreviation, "Figure" is not
+  regexRule('punctuation', 'correctness', 'Punctuation', /\b(Figure|Table|Figures|Tables)\.(?=\s?\d)/g, (m) => ({ message: `"${m[1]}" is not abbreviated, so it takes no full stop.`, replacements: [m[1]] })),
+  // "after their 7 days' adaptation period" -> "7-day adaptation period"
+  regexRule('compound-hyphen', 'style', 'Hyphen', /\b(\d+) (day|week|month|hour|year|minute)s['’](?= (?!of\b|and\b|or\b)[a-z])/g, (m) => ({ message: `A number and a unit before a noun are joined: "${m[1]}-${m[2]}".`, replacements: [`${m[1]}-${m[2]}`] })),
+  // "TGF-β mediated signaling", "Aβ induced injury", "STZ induced diabetic rats" -> "TGF-β-mediated", "Aβ-induced", "STZ-induced"
+  regexRule('compound-hyphen', 'style', 'Hyphen', new RegExp(`\\b((?:[A-Z][A-Za-z0-9]*[A-Z0-9α-ωΑ-Ω₀-₉₋][A-Za-z0-9α-ωΑ-Ω₀-₉₋]*|[A-Z][α-ω][A-Za-z0-9₀-₉₋]*)(?:-[A-Za-z0-9α-ω]+)*) (${COMPOUND_PART})(?=\\s+(?!(?:${COMPOUND_NOT})\\b)[A-Za-z])`, 'g'), (m, p) => {
+    if (new RegExp(`^(?:${SUBSTANCES})$`, 'i').test(m[1]) && /b(?:in|on|against|of|with|from|for|to|into|during|after|following)\s+$/i.test(p.slice(Math.max(0, m.index - 12), m.index))) return null; // the substance rule above
+    return { message: `A compound before a noun takes a hyphen: "${m[1]}-${m[2]}".`, replacements: [`${m[1]}-${m[2]}`] };
   }),
   // a sentence that opens with a singular noun and its verb: "Booklet also included", "Total sample size was"
   regexRule('determiner', 'correctness', 'Missing article', /(?:^|(?<=[.!?]\s+))((?:Booklet|Brochure|Questionnaire|Session|Instrument|Scale|Study|Survey|Program|Programme|Video|Sample|Physician|Nurse|Researcher|Clinic|Intervention|Control group|Intervention group)|(?:Total|Overall|Mean|Average)\s+(?:sample size|number|score|duration|age))(?=\s+(?:also\s+)?(?:was|is|has|had|included|includes|contained|contains|consisted|comprised|showed|shows|demonstrated|provided)\b)/g, (m) => ({
@@ -689,6 +718,20 @@ function spelling(p, opts) {
     const after = p.slice(x.end, x.end + 16);
     const name = /^[A-Z]/.test(x.w) && (/^\s+et\.?\s+al\b/.test(after) || /^,?\s+(?:19|20)\d\d\b/.test(after) || /^\s+(?:and|&)\s+[A-Z][a-z]+\s*(?:[,(]|\s(?:19|20)\d\d|$)/.test(after));
     if (name) continue;
+    // a British part of a compound in a US document ("sodium dodecyl sulphate-polyacrylamide gel"; Grammarly comparison on
+    // document 22): the part is reported, the compound otherwise accepted
+    if (x.w.includes('-') && opts.variant !== 'en-GB') {
+      let at = x.start, hit = false;
+      for (const part of x.w.split('-')) {
+        if (part.length >= 4 && /^[A-Za-z]+$/.test(part) && !S.check(part, { variant: opts.variant, personal: opts.personal }) && S.otherVariant(part, opts.variant)) {
+          const us = S.usMedical(part), reps = us ? [us] : S.suggest(part, opts.variant);
+          out.push(issue('variant-spelling', 'correctness', 'British spelling', at, at + part.length, p, `"${part}" is the British spelling. This document is set to American English.`, reps, { spelling: true }));
+          hit = true;
+        }
+        at += part.length + 1;
+      }
+      if (hit) continue;
+    }
     if (S.check(x.w, { variant: opts.variant, personal: opts.personal, ctx: { midSentence, repeated, address } })) continue;
     const variantWord = S.otherVariant(x.w, opts.variant);
     const us = opts.variant !== 'en-GB' && S.usMedical(x.w);

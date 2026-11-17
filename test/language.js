@@ -178,6 +178,20 @@ References
   const t4b = require('../src/language/rules').checkParagraph('Chunyan Sheng, Guo Sun conceived the study; KF, MA, ZH wrote the manuscript. Table 1, Figure 2 show the results.', {}, { variant: 'en-US' }).filter(i => i.rule === 'author-list');
   assert.strictEqual(t4b.length, 2, 'author lists without "and"');
   assert.ok(t4b.every(i => i.text === ', ' && i.replacements[0] === ' and '), 'the last comma becomes "and"');
+  // fifth pass: commas after an opening time phrase and before a participle that comments on the clause, "compliant
+  // with", "was a quasi-experimental design"
+  const fifth = 'After 12 weeks the T-CED group improved. After 12 weeks, the scores rose. At 6 months of follow-up participants were called. Adherence remained unchanged indicating the futility of care. ' +
+    'Values closer to 1.0 indicating a good fit were seen. Patients indicating pain were excluded. Patients were fully compliant to complete regimen. Compliance to take the medication was low. ' +
+    'The study design employed was quasi-experimental pre-test/post-test design. It was observational study.';
+  const r5 = require('../src/language/rules').checkParagraph(fifth, { domain: 'academic' }, { variant: 'en-US' });
+  const t5 = r5.map(i => `${i.text}->${i.replacements[0]}`);
+  for (const f of ['After 12 weeks->After 12 weeks,', 'At 6 months of follow-up->At 6 months of follow-up,', ' ->, ', 'compliant to->compliant with', 'was quasi-experimental->was a quasi-experimental', 'was observational->was an observational'])
+    assert.ok(t5.includes(f), `${f} (${t5.join(' | ')})`);
+  assert.strictEqual(r5.filter(i => i.rule === 'intro-comma').length, 2, '"After 12 weeks, the" already has its comma');
+  assert.strictEqual(r5.filter(i => i.rule === 'comma-participle').length, 1, '"closer to 1.0 indicating" and "Patients indicating pain" describe a noun');
+  assert.ok(!t5.includes('Compliance to->Compliance with'), '"compliance to take" is an infinitive');
+  const r5b = require('../src/language/rules').checkParagraph('The control group yielded no significance in any of the four outcomes indicating the futility of care. The red areas are the core regions indicating the best fit.', {}, { variant: 'en-US' });
+  assert.deepStrictEqual(r5b.filter(i => i.rule === 'comma-participle').map(i => i.offset), [69], 'after a plural noun only when the clause has its verb');
 
   // ---------------------------------------------------------------- permissions: users customised before Module 6 get it
   assert.ok(permissionsOf({ role: 'editor', permissions: ['references', 'papermill', '_v4'] }).includes('language'), 'editor with older custom permissions');

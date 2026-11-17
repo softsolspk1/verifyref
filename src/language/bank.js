@@ -191,7 +191,12 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ...['strong', 'high', 'low', 'small', 'large', 'weak', 'rare', 'severe', 'important', 'significant', 'sensitive', 'toxic', 'potent', 'difficult', 'useful', 'effective', 'dangerous', 'variable', 'heterogeneous', 'limited'].map(a => [`extreme ${a}`, `extremely ${a}`]),
   ['Linkert scale', 'Likert scale'], ['Linkert-type', 'Likert-type'], ['Lickert scale', 'Likert scale'], ['Lickert-type', 'Likert-type'],
   // fourth comparison (document 7): "in English language" -> in English; "in Urdu or Punjabi language" -> in Urdu or Punjabi
-  ...LANGS.map(l => [`${l} language`, l, { cs: true, b: 'in|into|or|and', a: LANG_END, xb: 'in', xa: 'by' }])
+  ...LANGS.map(l => [`${l} language`, l, { cs: true, b: 'in|into|or|and', a: LANG_END, xb: 'in', xa: 'by' }]),
+  // fifth pass (document 7): "Fully compliant to complete regimen" -> compliant with; not "compliance to take the medication"
+  ...['compliant to', 'compliance to', 'non-compliant to', 'non-compliance to', 'noncompliance to'].map(f => [f, f.replace(/to$/, 'with'), { a: 'the|a|an|their|his|her|its|this|these|treatment|therapy|medication|medications|medicine|medicines|regimen|regimens|complete|full|guidelines|protocol|protocols|drugs|drug|diet|instructions|ART|antiretroviral|antihypertensive|antitubercular|insulin', xa: 'treatment' }]),
+  // "The study design employed was quasi-experimental pre-test/post-test design" -> was a quasi-experimental
+  ...['was', 'is'].flatMap(v => ['quasi-experimental', 'cross-sectional', 'prospective', 'retrospective', 'descriptive', 'observational', 'randomized', 'randomised', 'single-blind', 'double-blind', 'open-label', 'multicenter', 'multicentre'].map(d =>
+    [`${v} ${d}`, `${v} ${/^[aeiou]/.test(d) ? 'an' : 'a'} ${d}`, { a: 'design|study|trial|survey|pre-test/post-test|pretest-posttest|pre-test|cohort|case-control|controlled|clinical|comparative|analytical', xa: 'study' }]))
 ]);
 
 // ------------------------------------------------------------------ grammar second-language writers often need corrected

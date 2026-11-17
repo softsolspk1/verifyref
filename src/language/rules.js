@@ -130,6 +130,8 @@ const correctness = [
 ];
 
 // a sentence-level rule: capital letter at the start, comma after an introductory word, number at the start
+// "After 12 weeks the ..." / "At 6 months participants ...": a time phrase that opens the sentence, before its subject
+const TIME_INTRO = /^((?:After|At|Within|Following|Over|By)\s+(?:the end of\s+)?(?:\d+|one|two|three|four|five|six|eight|ten|twelve)\s+(?:weeks?|days?|months?|years?|hours?|minutes?)(?:\s+of\s+[a-z-]+)?)\s+(?=(?:the|a|an|we|all|participants|patients|it|this|these|there|both|no|mice|rats|animals|subjects|children|women|most)\b)/;
 const INTRO = /^(However|Therefore|Moreover|Furthermore|Additionally|Consequently|Nevertheless|Nonetheless|Meanwhile|Similarly|Likewise|Thus|Hence|Finally|Firstly|Secondly|Thirdly|Lastly|Overall|Interestingly|Importantly|Notably|Accordingly|Conversely|Alternatively|Subsequently|Indeed|Instead|Otherwise|In addition|In contrast|In conclusion|In summary|In particular|For example|For instance|On the other hand|As a result|In other words|To date|Of note|Taken together|In this study|In the present study)(\s)(?=[a-z]|[A-Z][a-z])/;
 
 function sentenceRules(p, s, g) {
@@ -153,6 +155,10 @@ function sentenceRules(p, s, g) {
     const at = s.start + intro[1].length;
     out.push(issue('intro-comma', 'correctness', 'Missing comma', s.start, at, p, `Add a comma after the introductory "${intro[1]}".`, [`${intro[1]},`]));
   }
+  // an opening time phrase before the subject: "After 12 weeks the scores rose" -> "After 12 weeks, the" (Grammarly
+  // comparison on document 7; 34 of 38 such sentences in published PJPS articles have the comma)
+  const time = s.text.match(TIME_INTRO);
+  if (time) out.push(issue('intro-comma', 'correctness', 'Missing comma', s.start, s.start + time[1].length, p, `Add a comma after the introductory "${time[1]}".`, [`${time[1]},`]));
   const num = s.text.match(/^(\d+)\s+[a-z]/);
   if (num && g.domain === 'academic') out.push(issue('number-start', 'style', 'Number at sentence start', s.start, s.start + num[1].length, p, 'Spell out a number that starts a sentence, or reword the sentence so it does not start with a number.', []));
   // unbalanced brackets and quotation marks
@@ -640,6 +646,18 @@ const determiners = [
   regexRule('word-choice', 'correctness', 'Relative pronoun', /,\s+(that)\s+(?=(?:is|was|are|were)\s+(?:consistent|in line|in agreement|in accordance|similar|comparable)\b)/g, (m) => ({
     start: m.index + m[0].lastIndexOf(m[1]), end: m.index + m[0].lastIndexOf(m[1]) + 4, message: 'After a comma, a clause that adds a comment opens with "which".', replacements: ['which']
   })),
+  // "... are broadly different settings indicating that" -> ", indicating": a participle that comments on the whole clause,
+  // after a number, a bracket or an adjective or adverb (102 of 114 such clauses in published PJPS articles have the comma)
+  regexRule('comma-participle', 'correctness', 'Missing comma', /(?<=(?:\d%?|\)|\]|[a-z]{2}(?:ly|ed|ant|ent|ive|ble|ous|ar|nt)))( )(indicating|suggesting|implying|confirming)(?= (?:that|a|an|the)\b)/g, (m, p) => {
+    if (/\b(?:to|than|of)\s+[\d.]+$/.test(p.slice(Math.max(0, m.index - 30), m.index))) return null; // "values closer to 1.0 indicating a good fit" describes the values
+    return { end: m.index + 1, message: `Put a comma before "${m[2]}" when it comments on the whole clause.`, replacements: [', '] };
+  }),
+  // the same after a plural noun when the clause already has its verb ("the control group yielded no significance in any of
+  // the four outcomes indicating the futility of ..."); without one ("Patients indicating pain") the participle describes the noun
+  regexRule('comma-participle', 'correctness', 'Missing comma', /(?:^|[.;:,]\s)[^.;:,]*?\b(?:showed|shows|yielded|yields|revealed|reveals|exhibited|produced|resulted|remained|increased|decreased|reduced|improved|(?:was|were|is|are)\s+(?:not\s+)?(?:observed|found|seen|noted|recorded|detected|reduced|increased|decreased))\b[^.;:,]*?\b[a-z]{3,}s( )(indicating|suggesting|implying|confirming)(?= (?:that|the|a|an)\b)/g, (m) => {
+    const at = m.index + m[0].length - m[2].length - 1;
+    return { start: at, end: at + 1, message: `Put a comma before "${m[2]}" when it comments on the whole clause.`, replacements: [', '] };
+  }),
   regexRule('word-choice', 'correctness', 'Word choice', /\bread\b[^.;]{0,60}?\b(loudly)\b/gi, (m) => ({ start: m.index + m[0].length - m[1].length, message: 'Reading so others can hear is reading "aloud".', replacements: ['aloud'] }))
 ];
 

@@ -9,6 +9,7 @@ const REFS = require('./imageRefs');
 const cfg = require('./config');
 const SCORE = require('./imageScore');
 const VERSION = require('../package.json').version;
+const { titleSimilarity } = require('./text');
 
 const COVERAGE = {
   duplication: { done: true, note: 'Whole, partial, rotated, mirrored, resized, cropped copies - inside the manuscript, against earlier PJPS manuscripts, published PJPS papers and papers retracted for image problems' },
@@ -214,6 +215,14 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
   // matches below 80 % confidence are not reported (src/imageScore.js MIN_SHOWN)
   earlier = SCORE.reportedMatches(earlier);
   refs.matches = SCORE.reportedMatches(refs.matches);
+  // figures of an earlier upload of this same manuscript (the same title) are not re-use: kept apart, not counted
+  // (report 214: art1's two charts matched its own upload of the morning as a strong finding)
+  const ownTitle = meta.title || '';
+  const code = meta.manuscriptCode || null;
+  const isOwn = e => !!(ownTitle && e.title && titleSimilarity(ownTitle, e.title) >= 0.9 && !(code && e.manuscriptCode && e.manuscriptCode !== code));
+  const ownEarlier = [...earlier.filter(isOwn), ...earlierCharts.filter(isOwn)];
+  earlier = earlier.filter(e => !isOwn(e));
+  earlierCharts = earlierCharts.filter(e => !isOwn(e));
   const { byLevel, level } = imageLevel(findings, earlier, earlierCharts, refs.matches, refs.charts);
   const refCount = refs.matches.length + refs.charts.length;
   const result = {
@@ -226,7 +235,7 @@ async function saveImageCheck(userId, input, { save = true } = {}) {
       referencesRetracted: refs.matches.filter(m => m.source === 'retracted').length + refs.charts.filter(m => m.source === 'retracted').length, level
     },
     images: imageList, reviewNotes: review.notes,
-    panels, findings, earlier, earlierCharts, references: refs.matches, referenceCharts: refs.charts, referencesSearched: refs.searched, referencesError: refs.error || null, coverage: coverageOf(Number(input.externalChecked) || 0), provenanceChecked: Number(input.provenance) || 0, externalChecked: Number(input.externalChecked) || 0, externalErrors: (Array.isArray(input.externalErrors) ? input.externalErrors : []).slice(0, 5).map(e => String(e).slice(0, 200)),
+    panels, findings, earlier, earlierCharts, ownEarlier: ownEarlier.slice(0, 30), references: refs.matches, referenceCharts: refs.charts, referencesSearched: refs.searched, referencesError: refs.error || null, coverage: coverageOf(Number(input.externalChecked) || 0), provenanceChecked: Number(input.provenance) || 0, externalChecked: Number(input.externalChecked) || 0, externalErrors: (Array.isArray(input.externalErrors) ? input.externalErrors : []).slice(0, 5).map(e => String(e).slice(0, 200)),
     skipped: (input.skipped || []).slice(0, 100).map(s => ({ name: String(s.name || '').slice(0, 160), reason: String(s.reason || '').slice(0, 200) })),
     vendor: await vendorStatus(),
     guidance: KB.guidance(level),

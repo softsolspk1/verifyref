@@ -304,6 +304,18 @@ const instKey = s => String(s || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim
  *   medium - first name agrees in full and the name is not a common one
  *   low    - surname + initial only, or a common name (retractions at 4+ different institutions) with no institution match
  */
+/** The initials after the first name ("Khalid M. A." -> "MA", "Hosam O." -> "O", "Khalid" -> "") */
+function middleInitials(given) {
+  const w = String(given || '').replace(/([\p{Lu}])\.(?=[\p{Lu}])/gu, '$1 ').split(/[\s.]+/).filter(Boolean);
+  if (w.length < 2 || w[0].replace(/-/g, '').length < 2) return '';   // initials only ("M. A."): no first name to start from
+  return w.slice(1).map(x => x[0].toUpperCase()).join('');
+}
+/** Both names give middle initials and the first of them differ: two people with the same first name and surname */
+function middleConflict(g1, g2) {
+  const a = middleInitials(g1), b = middleInitials(g2);
+  return !!(a && b && a[0] !== b[0]);
+}
+
 async function authorRetractions(authors, affiliations = []) {
   const out = [];
   const myAff = affTokens((affiliations || []).join(' '));
@@ -320,6 +332,9 @@ async function authorRetractions(authors, affiliations = []) {
       const names = String(r.authors || '').split(/\s*;\s*/).map(n => splitName(n.trim())).filter(n => n.family);
       if (!names.some(n => nameMatch(n, a) === 'exact' || (nameMatch(n, a) === 'likely' && n.given && a.given && n.given[0] === a.given[0]))) continue;
       const theirName = names.find(n => nameMatch(n, a) === 'exact' || nameMatch(n, a) === 'likely');
+      // the middle initials, where both names give them, must agree: "Khalid M. A. Almutairi" is not "Khalid F. Almutairi"
+      // (another person of the same university; report 214)
+      if (theirName && middleConflict(theirName.given, a.given)) continue;
       // initials only ("M. A. Khan") are not a first name, even two of them
       const fullFirst = !!(firstWord(theirName?.given) && firstWord(theirName.given) === firstWord(a.given));
       const theirAff = affTokens(r.institution);
@@ -414,7 +429,12 @@ async function duplicateSubmissions({ body, meta, excludeCode, excludeCheckIds =
     for (const h of theirs) if (mine.has(h)) inter++;
     const overlap = mine.size && theirs.length ? inter / Math.min(mine.size, theirs.length) : 0;
     const tsim = meta.title && r.title ? titleSimilarity(meta.title, r.title) : 0;
-    if (overlap >= 0.2 || tsim >= 0.9) out.push({ manuscriptCode: r.manuscript_code, title: r.title, checkId: r.check_id, date: r.created_at, textOverlap: Math.round(overlap * 100), titleSimilarity: Math.round(tsim * 100) });
+    // the same title (or the same text) by the same authors: an earlier upload or version of this manuscript, not another
+    // paper copying it (report 214: art1 screened six times without a manuscript ID)
+    // two different manuscript IDs are two submissions (the same paper submitted again under a new ID stays a duplicate)
+    const sameWork = !(excludeCode && r.manuscript_code && r.manuscript_code !== excludeCode)
+      && (tsim >= 0.9 || overlap >= 0.9) && (r.data?.authors || []).some(a => myFamilies.has(familyOf(a)));
+    if (overlap >= 0.2 || tsim >= 0.9) out.push({ manuscriptCode: r.manuscript_code, title: r.title, checkId: r.check_id, date: r.created_at, textOverlap: Math.round(overlap * 100), titleSimilarity: Math.round(tsim * 100), sameWork });
     else if (Date.now() - new Date(r.created_at).getTime() < WAVE_DAYS * 86400e3) {
       // a wave: different manuscripts by different authors, built on the same title template or the same boilerplate
       const tw = templateSimilarity(meta.title, r.title);
@@ -899,7 +919,10 @@ async function detectPaperMill(input, update = () => {}) {
   update('Checking cell lines and earlier submissions', 70);
 
   const dup = await duplicateSubmissions({ body, meta, excludeCode: meta.manuscriptCode, excludeCheckIds: input.excludeCheckIds || [] }).catch(e => ({ compared: 0, matches: [], shingles: [], error: e.message }));
-  const strong = dup.matches.filter(m => m.textOverlap >= 50 || m.titleSimilarity >= 90);
+  const strong = dup.matches.filter(m => !m.sameWork && (m.textOverlap >= 50 || m.titleSimilarity >= 90));
+  const before = dup.matches.filter(m => m.sameWork);
+  if (before.length) sig('data', 'screened-before', `Screened before with the same title and authors (${before.length})`, 'low', 0, before.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId}: “${m.title || ''}” — ${new Date(m.date).toISOString().slice(0, 10)}, ${m.textOverlap}% text overlap`, checkId: m.checkId })),
+    'An earlier upload or version of this manuscript, not counted in the risk. Use the same Manuscript ID for revisions so that versions are compared; a manuscript submitted to PJPS again under a new ID shows here too.');
   if (strong.length) sig('data', 'duplicate', `Matches an earlier PJPS submission (${strong.length})`, 'high', 5, strong.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId}: “${m.title || ''}” — ${m.textOverlap}% text overlap${m.titleSimilarity >= 90 ? `, title ${m.titleSimilarity}% similar` : ''}`, checkId: m.checkId })));
   else if (dup.matches.length) sig('data', 'duplicate-partial', `Partial text overlap with earlier PJPS submission(s) (${dup.matches.length})`, 'medium', 3, dup.matches.map(m => ({ text: `${m.manuscriptCode || 'check #' + m.checkId}: “${m.title || ''}” — ${m.textOverlap}% overlap`, checkId: m.checkId })));
   // Waves of similar manuscripts from unrelated author groups (template reuse, a hallmark of mill output; papermill.txt 6)
@@ -947,4 +970,4 @@ function papermillProblems(r) {
   return [`Paper mill risk ${r.risk.level} (score ${r.risk.score})`, ...r.signals.filter(s => s.severity !== 'low').slice(0, 5).map(s => s.title)];
 }
 
-module.exports = { warm, imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, authorRetractions, crossrefAuthorOrcid, emailsOf, hiddenText, shingles, fnv };
+module.exports = { warm, imagesSignal, riskLevel, textSignals, millLookalikes, millProfile, methodsGaps, screenerMatches, detectPaperMill, publishedElsewhere, storeFingerprint, papermillProblems, torturedPhrases, aiLeftovers, templateWording, cellLines, cellLineCandidates, orcidValid, orcidProfile, authorRetractions, middleConflict, crossrefAuthorOrcid, emailsOf, hiddenText, shingles, fnv };

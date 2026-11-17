@@ -231,7 +231,7 @@ function splitInlineNumbered(line) {
 }
 
 function splitReferences(rawText, strategy = 'auto') {
-  const text = repairText(rawText).trim();
+  const text = dropRunningHeads(repairText(rawText)).trim();
   if (!text) return { entries: [], strategy: 'empty' };
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean).flatMap(splitInlineNumbered);
 
@@ -248,19 +248,38 @@ function splitReferences(rawText, strategy = 'auto') {
   const blank = splitBlank(text);
   if (blank.length >= 2 && blank.length >= lines.length * 0.3) return { entries: trimBackMatter(blank), strategy: 'blank-line' };
 
-  return { entries: trimBackMatter(splitContinuation(lines.flatMap(splitInlineAuthorYear))), strategy: 'line-with-continuation' };
+  return { entries: trimBackMatter(splitContinuation(lines.flatMap(splitInlineAuthorYear))).map(dropLeadingRunningHead), strategy: 'line-with-continuation' };
+}
+
+/** A PDF's running head of authors before an entry: "Alamgeer et al Isselbacher EM (2001). ..." */
+function dropLeadingRunningHead(e) {
+  return e.replace(/^(?:[\p{Lu}][\p{L}'’-]+\s){1,3}et al\.?\s+(?=[\p{Lu}][\p{L}'’-]+(?:\s[\p{Lu}][\p{L}'’-]+)?\s+\p{Lu}{1,3}\b[^()]{0,250}\((?:1[6-9]|20)\d{2})/u, '');
 }
 
 /** Drop figure/table captions that ran on into the last entry (or became entries of their own) */
 function trimBackMatter(entries) {
   const out = [];
-  for (const e of entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
     if (/^(?:Captions\b|List of (?:tables|figures)\b)/i.test(e)) break;
     const m = e.match(BACK_MATTER);
-    if (m) { const head = e.slice(0, m.index).trim(); if (head.length > 15) out.push(head); break; }
+    if (m) {
+      const head = e.slice(0, m.index).trim(); if (head.length > 15) out.push(head);
+      // a PDF puts a figure or table in the middle of the list (published articles, page by page): the caption is left
+      // out and the list goes on when references follow it; after a Word manuscript's list only captions and tables do
+      const next = entries.slice(i + 1, i + 4);
+      if (next.length >= 2 && next.filter(looksLikeReference).length >= Math.min(2, next.length)) continue;
+      break;
+    }
     out.push(e);
   }
   return out;
+}
+
+/** A PDF's running header inside the text: "Pak. J. Pharm. Sci., Vol.30, No.5, September 2017, pp.1625-1628 1628" */
+const RUNNING_HEAD = /\s*(?:[\p{Lu}][\p{L}.]*\s?){1,6},?\s*Vol\.?\s*\d+\s*(?:\(\w+\))?,?\s*No\.?\s*\d+(?:\s*\(\w+\))?,?\s*(?:Special\s+Issue,?\s*)?(?:[\p{Lu}][\p{L}]+(?:-[\p{Lu}][\p{L}]+)?\s+)?(?:1[89]|20)\d{2},?\s*pp\.?\s*(\d+)\s*-\s*(\d+)\s+(\d+)\b/gu;
+function dropRunningHeads(text) {
+  return text.replace(RUNNING_HEAD, (all, a, b, page) => (+page >= +a && +page <= +b ? ' ' : all));
 }
 
 function splitBlank(text) {
@@ -294,7 +313,12 @@ function splitInlineAuthorYear(line) {
   let parts = line.split(/(?<=(?:10\.\S+|[\p{L}\d)\]])\.)\s+(?=[\p{Lu}][\p{L}'’-]+(?:\s(?:(?:van|de|da|du|del|der|den|von|la|le|el|dos|das|di)\s)*[\p{Lu}][\p{L}'’-]+)?,?\s+(?:[\p{Lu}]\.?\s?){1,4}(?:,|\s+and\s|\s*&|\s*\(\s*(?:1[6-9]|20)\d{2}|\s+et al))/u);
   // no full stop between them ("... 54(5): 261- 266 Johansen JS, ... (2014)"), or an organisation as the author
   // ("... 211-213. ESCOP (2003). ..."): only where the bracketed year of the next one follows closely
-  parts = parts.flatMap(p => p.split(/(?<=\d)\s+(?=[\p{Lu}][\p{L}'’-]+,?\s+(?:[\p{Lu}]\.?\s?){1,4}(?:,|\s+and\s|\s*&|\s+et al)[^()]{0,200}\((?:1[6-9]|20)\d{2}[a-z]?\))|(?<=[\p{L}\d)]\.)\s+(?=[\p{Lu}][\p{L}'’&,-]*(?:\s+[\p{L}'’&,-]+){0,7}\s*\((?:1[6-9]|20)\d{2}[a-z]?\)\.\s)/u));
+  parts = parts.flatMap(p => p.split(/(?<=\d)\s+(?=[\p{Lu}][\p{L}'’-]+,?\s+(?:[\p{Lu}]\.?\s?){1,4}(?:,|\s+and\s|\s*&|\s+et al)[^()]{0,200}\((?:1[6-9]|20)\d{2}[a-z]?\))|(?<=[\p{L}\d)\]]\.\]?)\s+(?=[\p{Lu}][\p{L}'’&,-]*(?:\s+[\p{L}'’&,-]+){0,7}\s*\((?:1[6-9]|20)\d{2}[a-z]?\)\.\s)/u));
+  // the one before ends without a full stop ("... 16(3) Roszczenko P and ...", "... chamomile.htm Kaneko T, ...") or a
+  // PDF's running head stands between them ("... et al Farber JL (1994). ..."): a whole author list up to "(2006)." with
+  // no sentence end inside it, never cut inside an author list (after a comma, "and" or initials) or an editors' list,
+  // and only where the text before the cut is already a reference of its own (its "(2003)." and title)
+  parts = parts.flatMap(cutBeforeAuthorList);
   if (parts.length < 2) return [line];
   const out = [];
   for (const p of parts) {
@@ -305,6 +329,18 @@ function splitInlineAuthorYear(line) {
   // text before the first reference (a running head, a page footer) goes with it rather than stopping every split
   if (out.length > 1 && !YEAR_RE.test(out[0])) out.splice(0, 2, out[0] + ' ' + out[1]);
   return out.every(p => YEAR_RE.test(p)) ? out : [line];
+}
+
+const NEXT_AUTHORS = /(?<=[^\s,;&])(?<!\band|\bIn:?|\beds?\.?|\b\p{Lu}{1,3}\.?)\s+(?=[\p{Lu}][\p{L}'’-]+(?:\s(?:(?:van|de|da|du|del|der|den|von|la|le|el|dos|das|di)\s)*[\p{Lu}][\p{L}'’-]+){0,2}\s+(?:\p{Lu}(?:-?\p{Lu}){0,3}|(?:\p{Lu}\.\s?){1,3})(?:,\s|\s+and\s|\s*&\s)(?:[^().:]|(?<=\b\p{Lu})\.){0,250}\((?:1[6-9]|20)\d{2}\s?[a-z]?\s?\)\.|[\p{Lu}][\p{L}'’-]+\s+\p{Lu}{1,3}\s*\((?:1[6-9]|20)\d{2}[a-z]?\)\.\s)/gu;
+const OPENED = /\((?:1[6-9]|20)\d{2}\s?[a-z]?\s?\)\.?\s+\S.{15,}/su;
+function cutBeforeAuthorList(p) {
+  const out = []; let from = 0;
+  for (const m of p.matchAll(NEXT_AUTHORS)) {
+    if (!OPENED.test(p.slice(from, m.index))) continue;
+    out.push(p.slice(from, m.index)); from = m.index + m[0].length;
+  }
+  out.push(p.slice(from));
+  return out;
 }
 
 /** Line-continuation heuristic for unnumbered author-year lists (each entry starts "Surname, X." or "Surname X,") */
@@ -920,21 +956,47 @@ function extractAuthorYearCitations(body) {
   // years, and a letter alone after a lettered year: (Khan et al., 2020a, b) cites 2020a and 2020b
   const yearList = '((?:1[6-9]\\d{2}|20\\d{2})[a-z]?(?:\\s*,\\s*(?:(?:1[6-9]\\d{2}|20\\d{2})[a-z]?|[a-z](?=\\s*[,;)]|\\s*$)))*)';
   const authorPart = `(${NAME_TOKEN}(?:\\s+et\\s+al\\.?|\\s*(?:&|and)\\s*${NAME_TOKEN})?)`;
-  // several authors named in brackets: (Shah, Iqbal and Khan, 2018)
-  const parenAuthor = `(${PAREN_NAME}(?:\\s+et\\s+al\\.?|(?:\\s*,\\s*${PAREN_NAME})*\\s*,?\\s*(?:&|and)\\s*${PAREN_NAME})?)`;
+  // several authors named in brackets: (Shah, Iqbal and Khan, 2018), (Moniz, Verissimo et al., 2007)
+  const parenAuthor = `(${PAREN_NAME}(?:(?:\\s*(?:,|&|and)\\s*${PAREN_NAME})*\\s+et\\s+al\\.?|(?:\\s*,\\s*${PAREN_NAME})*\\s*,?\\s*(?:&|and)\\s*${PAREN_NAME})?)`;
+  const onlyYears = new RegExp(`^${yearList}$`, 'u');
+  const covered = [];
 
-  // Parenthetical groups
-  for (const m of body.matchAll(/\(([^()]{4,400}?(?:1[6-9]\d{2}|20\d{2})[a-z]?[^()]*?)\)/g)) {
-    // works are separated by semicolons, but often by "and" or a comma after a year: (Ahmad et al., 2019 and Butt et al., 2020)
-    for (const part of m[1].split(/\s*;\s*|(?<=\b(?:1[6-9]\d{2}|20\d{2})[a-z]?)\s*(?:,|\band\b)\s+(?=(?:e\.g\.,?\s+|see\s+)?\p{Lu}[\p{Ll}'’])/u)) {
-      const pm = part.replace(/^(?:e\.g\.,?|see|cf\.|also|i\.e\.,?)\s+/i, '').match(new RegExp(`^${parenAuthor},?\\s+${yearList}`, 'u'));
-      if (pm) addAuthorYear(cites, pm[1], pm[2], m, body);
+  // Parenthetical groups, and bracketed ones written with author and year: [IOM, 2001; ATSDR, 2008]
+  for (const m of [...body.matchAll(/\(([^()]{2,400}?(?:1[6-9]\d{2}|20\d{2})[a-z]?[^()]*?)\)/g), ...body.matchAll(/\[([^[\]]{2,400}?\p{L}{2}[^[\]]*?(?:1[6-9]\d{2}|20\d{2})[a-z]?[^[\]]*?)\]/gu)]) {
+    covered.push([m.index, m.index + m[0].length]);
+    // works are separated by semicolons, but often by "and", ", and", a colon or a comma after a year, or nothing at all:
+    // (Ahmad et al., 2019 and Butt et al., 2020), (Boulton et al., 2001, and Davies, 2003), (Huff et al., 1995 Johnson et al., 1995)
+    let lastAuthor = null;
+    for (const raw of m[1].split(/\s*;\s*|(?<=\b(?:1[6-9]\d{2}|20\d{2})[a-z]?)(?:\s*(?:,\s*(?:and\s+)?|:\s*|\band\s+)|\s+)(?=(?:e\.g\.,?\s+|see\s+)?\p{Lu}(?:[\p{Ll}'’]|\p{Lu}+\s*,\s*(?:1[6-9]|20)\d{2}))/u)) {
+      const part = normalizeCitation(raw.replace(/^(?:e\.g\.,?|see|cf\.|also|i\.e\.,?)\s+/i, ''));
+      const pm = part.match(new RegExp(`^${parenAuthor}(,\\s*|\\s+)${yearList}`, 'u'));
+      // an acronym followed by an old "year" is a product or strain number: (RPMI 1640), (MT 1631), (ATCC 1911), (Shimadzu UV-1700)
+      if (pm && !(/^[\p{Lu}\d\s-]+$/u.test(pm[1]) && !pm[2].includes(',') && +pm[3].slice(0, 4) < 1950) && !/-$/.test(pm[1])) { addAuthorYear(cites, pm[1], pm[3], m, body); lastAuthor = pm[1]; continue; }
+      // more years of the same authors after a semicolon: (Wanxi et al., 2013a; 2013b; 2012a)
+      const ym = lastAuthor && part.match(onlyYears);
+      if (ym) addAuthorYear(cites, lastAuthor, ym[1], m, body);
     }
   }
   // Narrative: Smith et al. (2020), Smith and Jones (2019a, 2020)
   // (and possessive: Khan et al.'s (2019) study)
   for (const m of body.matchAll(new RegExp(`${authorPart}(?:['’]s)?\\s+\\(${yearList}\\)`, 'gu'))) addAuthorYear(cites, m[1], m[2], m, body);
+  // Narrative without brackets, only after "et al." (the author list makes it a citation): "White et al 1968 reported",
+  // "described by Magnani, et al., 1998."
+  for (const m of body.matchAll(new RegExp(`(${NAME_TOKEN}),?\\s+et\\.?\\s*al\\.?,?\\s+((?:1[6-9]\\d{2}|20\\d{2})[a-z]?)\\b(?![\\d)])`, 'gu'))) {
+    if (covered.some(([a, b]) => m.index >= a && m.index < b)) continue;
+    addAuthorYear(cites, m[1] + ' et al.', m[2], m, body);
+  }
   return cites;
+}
+
+/** The forms authors write a citation in, read as the usual one: "Bischoff, et al.", "Moriarty et. al.", "Hagger et al,",
+ *  "Ahmed W et al", "Zheng, J et al", "Berendes H., 1992", "and 1997" after a year */
+function normalizeCitation(part) {
+  return part
+    .replace(/\s*,?\s*\bet\.?\s*al\b\.?,?/gi, ' et al.,')
+    .replace(/(\p{L}{2,})\s*,?\s+(?:\p{Lu}\.?){1,3}(?<![\p{Ll}])\b\.?(?=\s+(?:et al|and\b|&)|\s*,\s*(?:1[6-9]|20)\d{2})/gu, '$1')
+    .replace(/(\b(?:1[6-9]|20)\d{2}[a-z]?)\s+(?:and|&)\s+(?=(?:1[6-9]|20)\d{2}\b)/g, '$1, ')
+    .replace(/ et al\.,(\s*)$/, ' et al.$1');
 }
 
 function addAuthorYear(cites, authorStr, years, m, body) {

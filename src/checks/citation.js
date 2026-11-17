@@ -108,7 +108,10 @@ function etAlIssue(c, ref) {
 function checkAuthorYear(body, refs) {
   const cites = extractAuthorYearCitations(body);
   const etAlIssues = [];
-  const refKeys = refs.map(r => ({ ref: r, authors: refAuthorKeys(r), year: r.year, suffix: r.yearSuffix || '' }));
+  // a surname of several words is also cited by its last one ("Ricardo da Silva JM" as "da Silva"; a PDF's running head
+  // run into the entry, "Bacillus Mouafi FE", as "Mouafi")
+  const lastWord = r => { const f = r.authors?.[0]; const w = !f?.corporate && String(f?.family || '').trim().split(/\s+/); return w && w.length > 1 ? key(w[w.length - 1]) : null; };
+  const refKeys = refs.map(r => ({ ref: r, authors: refAuthorKeys(r), last: lastWord(r), year: r.year, suffix: r.yearSuffix || '' }));
   const citedCount = new Map();
   const missing = [];
   const ambiguous = [];
@@ -119,7 +122,8 @@ function checkAuthorYear(body, refs) {
   for (const c of cites) {
     const first = key(c.authors[0]);
     const second = c.authors[1] ? key(c.authors[1]) : null;
-    const sameAuthor = refKeys.filter(k => k.authors[0] === first || (k.ref.authors?.[0]?.corporate && key(k.ref.authors[0].family).startsWith(first)));
+    let sameAuthor = refKeys.filter(k => k.authors[0] === first || (k.ref.authors?.[0]?.corporate && key(k.ref.authors[0].family).startsWith(first)));
+    if (!sameAuthor.some(k => k.year === c.year) && first.length >= 3) sameAuthor = sameAuthor.concat(refKeys.filter(k => k.last === first && k.year === c.year));
     let cands = sameAuthor.filter(k => k.year === c.year);
     if (second) {
       const narrowed = cands.filter(k => k.authors[1] === second);

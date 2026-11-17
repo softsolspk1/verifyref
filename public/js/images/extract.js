@@ -153,6 +153,15 @@ async function fromDocx(file, onStep) {
       skipped.push({ name: label, reason: `Could not decode the image (${path.split('/').pop()})` });
     }
   }
+  // no picture to read, but the figures are there as Word charts or drawn shapes (a PDF converted to Word gives these):
+  // say so, instead of a report with no reason at all
+  if (!images.length && !skipped.length) {
+    const charts = Object.keys(zip.files).filter(p => /^word\/charts\/chart\d+\.xml$/i.test(p)).length;
+    const raw = await doc.async('string');
+    const shapes = (raw.match(/<(?:wpg:wgp|wps:wsp|v:group|v:shape)\b/g) || []).length;
+    if (charts || shapes) skipped.push({ name: file.name, reason: `The figures are ${charts ? `${charts} Word chart(s)` : 'drawn as Word shapes'}, not pictures, so they cannot be analysed as images. Upload the PDF of the manuscript or the figure files (TIFF / JPEG / PNG).` });
+    else skipped.push({ name: file.name, reason: 'The Word file contains no pictures. Upload the PDF of the manuscript or the figure files (TIFF / JPEG / PNG).' });
+  }
   return { images, skipped };
 }
 

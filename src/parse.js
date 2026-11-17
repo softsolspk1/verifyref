@@ -279,7 +279,9 @@ function trimBackMatter(entries) {
 /** A PDF's running header inside the text: "Pak. J. Pharm. Sci., Vol.30, No.5, September 2017, pp.1625-1628 1628" */
 const RUNNING_HEAD = /\s*(?:[\p{Lu}][\p{L}.]*\s?){1,6},?\s*Vol\.?\s*\d+\s*(?:\(\w+\))?,?\s*No\.?\s*\d+(?:\s*\(\w+\))?,?\s*(?:Special\s+Issue,?\s*)?(?:[\p{Lu}][\p{L}]+(?:-[\p{Lu}][\p{L}]+)?\s+)?(?:1[89]|20)\d{2},?\s*pp\.?\s*(\d+)\s*-\s*(\d+)\s+(\d+)\b/gu;
 function dropRunningHeads(text) {
-  return text.replace(RUNNING_HEAD, (all, a, b, page) => (+page >= +a && +page <= +b ? ' ' : all));
+  return text.replace(RUNNING_HEAD, (all, a, b, page) => (+page >= +a && +page <= +b ? ' ' : all))
+    // the authors' running head with the page number, on lines of its own: "HOSAM O. ELANSARY\nET AL.,\n1856"
+    .replace(/(^|\n)[ \t]*[\p{Lu}][\p{Lu}.'’ -]{2,60}\s*\n?\s*ET\.?\s*AL\.?,?\s*\n?\s*\d{1,5}[ \t]*(?=\n|$)/gu, '$1');
 }
 
 function splitBlank(text) {
@@ -350,6 +352,13 @@ function splitContinuation(lines) {
   const startsEntry = l => /^[\p{Lu}][\p{L}'’\-]+(?:\s+(?:(?:van|de|da|du|del|der|den|von|la|le|el|dos|das|di)\s+)*[\p{Lu}][\p{L}'’\-]+)?,?\s+(?:[\p{Lu}]\.?\s*){1,4}(?:[,.&(]|and\s|et al)/u.test(l) ||
     /^[\p{Lu}][\p{L}'’\-]+,\s+[\p{Lu}]/u.test(l) || /^(?:[\p{Lu}]\.\s?){1,3}[\p{Lu}][\p{L}'’\-]+,/u.test(l);
   for (const line of lines) {
+    // a PDF's running head between two pages: "HOSAM O. ELANSARY ET AL., 1856"
+    if (/^[\p{Lu}][\p{Lu}.\s'’-]+\sET\.?\s*AL\.?,?\s*\d{1,5}$/u.test(line)) continue;
+    // the line ends inside the author list ("..., R." / "..., A.K.M.M.") or just after the year that follows the authors
+    // ("Chandra, S., D.S. Rawat and J. Rastogi. 2015."): the next line belongs to the same reference
+    const midAuthors = cur && !YEAR_RE.test(cur) && /(?:,|\b\p{Lu}\.|\band|&|\p{L}-)$/u.test(cur);
+    const yearOnly = cur && /\s(?:1[6-9]|20)\d{2}[a-z]?\.$/.test(cur) && (cur.match(/\b(?:1[6-9]|20)\d{2}\b/g) || []).length === 1 && !/\(\s*(?:1[6-9]|20)\d{2}/.test(cur);
+    if (midAuthors || yearOnly) { cur += ' ' + line; continue; }
     const curDone = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /[.)\d]$/.test(cur);
     const strongEnd = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /(?:\d[.)]?|10\.\S+)$/.test(cur);
     if (!cur) cur = line;
@@ -825,11 +834,22 @@ const AFFIL_RE = /\b(university|department|dept\.?|institute|faculty|college|hos
 /** Detect title, authors, affiliations, abstract and keywords from the first page of a manuscript */
 function extractManuscriptMeta(text) {
   const head = text.slice(0, 8000);
-  const lines = head.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = [];
+  // a PDF title page puts each affiliation mark, and the comma or "AND" after it, on a line of its own:
+  // "HOSAM O. ELANSARY¹, KHALID F. ALMUTAIRI" / "1" / ", ADEL M. AL-SAIF" ... "AND" / "ABDULLAH ALEBIDI": one author line
+  for (const raw of head.split('\n')) {
+    const l = raw.trim();
+    if (!l) continue;
+    const prev = lines[lines.length - 1];
+    if (prev && !/^(?:abstract|summary)\b/i.test(l) && (/^[\d⁰¹²³⁴⁵⁶⁷⁸⁹*#†‡,\s]{1,8}$/.test(l) || /^,/.test(l) || /(?:,|\s(?:AND|and|&))$/.test(prev) && /^[\p{Lu}]/u.test(l) && l.length < 200 && !AFFIL_RE.test(l))) lines[lines.length - 1] = `${prev} ${l}`.replace(/\s+,/g, ',');
+    else lines.push(l);
+  }
   const meta = { title: '', authors: [], affiliations: [], abstract: '', keywords: [] };
 
   const absIdx = lines.findIndex(l => /^(?:【\s*)?(?:abstract|summary)\b[:.\s】]*/i.test(l));
-  const skip = l => /^(?:original (?:research )?article|research (?:article|paper)|review article|short communication|case report|manuscript|running title|title:?)$/i.test(l) || /^page \d+/i.test(l);
+  const skip = l => /^(?:original (?:research )?article|research (?:article|paper)|review article|short communication|case report|manuscript|running title|title:?)$/i.test(l) || /^page \d+/i.test(l)
+    // a published article's header: "Pak. J. Bot., 58(9): 1849-1856, September 2026.", "Received: ...", "ARTICLE doi: ..."
+    || /^[\p{Lu}][\p{L}.]*(?:\s[\p{L}.&]+){0,5},?\s*\d+\s*\(\s*[\w-]+\s*\)\s*:\s*\d+/u.test(l) || /^(?:received|revised|accepted|online|published)\b/i.test(l) || /^(?:article|research article)?\s*doi\s*:/i.test(l);
   const headLines = (absIdx > 0 ? lines.slice(0, absIdx) : lines.slice(0, 12)).filter(l => !skip(l));
 
   // Labelled title-page lines: "Manuscript ID: …", "Authors: …", "Corresponding author: …", "Running title: …"
@@ -895,14 +915,20 @@ function authorNames(l) {
 const NOT_A_NAME = /\b(?:university|college|department|institute|hospital|school|faculty|centre|center|laboratory|province|china|pakistan|india|iran|egypt|saudi|arabia|turkey|review|abstract|keywords?|introduction|systems?|article|research)\b/i;
 const isPersonName = n => /^[\p{Lu}][\p{L}.'’\-]*(?:\s+[\p{Lu}][\p{L}.'’\-]*){1,4}$/u.test(n) && !NOT_A_NAME.test(n) && (n !== n.toUpperCase() || /^(?:[\p{Lu}]\.\s*)+[\p{Lu}][\p{L}'’\-]+$/u.test(n));
 
+// an author line in capitals ("HOSAM O. ELANSARY¹, KHALID F. ALMUTAIRI 1 AND ...") is read in ordinary case when it carries
+// the affiliation marks; a title in capitals has none
+const titleCase = s => s.toLowerCase().replace(/(^|[\s.'’-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+const caseOf = l => (l === l.toUpperCase() && /\p{Lu}{3}/u.test(l) && /[\d⁰¹²³⁴⁵⁶⁷⁸⁹*†]/.test(l) ? titleCase(l).replace(/\bAnd\b/g, 'and') : l);
+
 function looksLikeAuthorLine(l) {
+  l = caseOf(l);
   if (l.length > 400 || /[.:]\s+[a-z]/.test(l)) return false;
   const names = authorNames(l);
   return names.length >= 1 && names.every(isPersonName);
 }
 
 function parseAuthorLine(l) {
-  return authorNames(l).filter(isPersonName).map(n => ({ name: n, ...splitName(n) }));
+  return authorNames(caseOf(l)).filter(isPersonName).map(n => ({ name: n, ...splitName(n) }));
 }
 
 // ------------------------------------------------------------------ in-text citations

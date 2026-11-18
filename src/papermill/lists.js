@@ -62,7 +62,7 @@ const AI_LEFTOVERS = [
   [/\bas an AI language model\b/i, 'As an AI language model'], [/\bas a large language model\b/i, 'As a large language model'], [/\bregenerate response\b/i, 'Regenerate response'],
   [/\bI (?:cannot|can't|am unable to) (?:fulfil|fulfill|provide|access|browse)\b/i, 'Chatbot refusal text'], [/\bcertainly[!,] here (?:is|are)\b/i, '“Certainly! Here is…”'],
   [/\bhere is (?:a|the) (?:revised|rewritten|improved|paraphrased) version\b/i, '“Here is a revised version…”'], [/\bmy (?:knowledge|training) (?:cutoff|cut-off)\b/i, 'Knowledge cut-off remark'],
-  [/\bas of my last (?:knowledge )?update\b/i, '“As of my last update”'], [/\bI hope this helps\b/i, '“I hope this helps”'], [/\b(?:ChatGPT|GPT-4|GPT-3\.5)\b(?![^.]{0,80}\b(?:was used|were used|assist|tool|study|evaluat))/i, 'Chatbot name in the text'],
+  [/\bas of my last (?:knowledge )?update\b/i, '“As of my last update”'], [/\bI hope this helps\b/i, '“I hope this helps”'], [/(?<!\b(?:use|used|using|usage|acknowledge\w*|disclos\w*|declar\w*|assist\w*|help|aid|tools?)\b[^.]{0,120})\b(?:ChatGPT|GPT-4|GPT-3\.5)\b(?![^.]{0,80}\b(?:was used|were used|assist|tool|study|evaluat|editing|language|grammar|proofread|polish|writing))/i, 'Chatbot name in the text'],
   [/\[insert [^\]]{2,40}\]/i, 'Unfilled “[insert …]” placeholder'], [/\blorem ipsum\b/i, 'Lorem ipsum placeholder'], [/\((?:Author|Authors|Smith) et al\.?,? (?:Year|20XX|XXXX)\)/i, 'Placeholder citation (Author, Year)'],
   [/\[(?:citation needed|reference|ref|citation)\]/i, 'Placeholder citation marker'], [/\bXX(?:\.X+)?\s?%/, 'Placeholder number (XX%)'], [/\bp\s*[<=]\s*0\.0X\b/i, 'Placeholder p-value']
 ];

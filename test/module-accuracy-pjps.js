@@ -87,6 +87,10 @@ const { checkEntry } = require('../src/checks/compliance');
   assert.deepStrictEqual(await conf(['Nael Abutaha'], ['Bioproducts Research Chair, Department of Zoology, College of Science, King Saud University, Riyadh']), ['Nael Abutaha:high'], 'same person, same department');
   assert.ok((await conf(['Ghulam Rasool', 'Fahad Said Khan', 'Muhammad Riaz'], ['Department of Biochemistry, Government College University, Faisalabad'])).every(x => x.endsWith(':high')), 'three co-authors on one retracted paper are the group');
 
+  // ---- an AI-use disclosure is not AI text left in the manuscript (pjps-7916); a leftover still is
+  assert.deepStrictEqual(PM.aiLeftovers('The authors acknowledge the use of an artificial intelligence-based language tool (ChatGPT, OpenAI) for minor language editing.'), []);
+  assert.ok(PM.aiLeftovers('Regenerate response. As ChatGPT, I recommend the following treatment plan.').length >= 1);
+
   console.log('module-accuracy-pjps: all checks passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

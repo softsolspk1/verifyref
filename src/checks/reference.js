@@ -106,6 +106,14 @@ function scoreCandidate(ref, rec) {
 
 // ------------------------------------------------------------------ discrepancies
 
+/** Two surnames of 5+ letters that differ by one letter added, dropped or changed */
+function oneLetterApart(a, b) {
+  a = String(a || '').toLowerCase(); b = String(b || '').toLowerCase();
+  if (a === b || Math.min(a.length, b.length) < 5 || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0; while (i < a.length && a[i] === b[i]) i++;
+  return a.slice(i + 1) === b.slice(i + 1) || a.slice(i) === b.slice(i + 1) || a.slice(i + 1) === b.slice(i);
+}
+
 function compare(ref, rec, s) {
   const issues = [];
   const add = (code, severity, message, cited, registered) => issues.push({ code, severity, message, cited, registered });
@@ -125,6 +133,8 @@ function compare(ref, rec, s) {
   const badAuthor = /\b(?:department|deparment|dept|college|university|institute|faculty|school|hospital|laboratory)\b|\d/i.test(`${rec.authors?.[0]?.family || ''} ${rec.authors?.[0]?.given || ''}`)
     || (/\(\s*eds?\.?\s*\)|\beditors?\b/i.test(ref.raw || '') && bookRec);
   if (badAuthor) { /* not compared */ }
+  // one letter apart ("Elliot" for the registered "Elliott"): the right paper, the name misspelled
+  else if (s.authorScore === 0 && oneLetterApart(ref.authors?.[0]?.family, rec.authors?.[0]?.family)) add('author-spelling', 'medium', `First author's name is misspelled: registered as ${rec.authors[0].family}`, ref.authors[0].family, rec.authors[0].family);
   else if (s.authorScore === 0) add('author', 'medium', 'First author does not appear in the registered author list', ref.authors.map(a => a.family).join(', '), rec.authors.slice(0, 6).map(a => a.family).join(', '));
   // the cited first author is a later author of the record ("Olson and Trott" for Trott and Olson): the citation itself
   // (author-year, place in an alphabetical list) is wrong, not just the order further down

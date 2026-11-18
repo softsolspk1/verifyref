@@ -32,13 +32,18 @@ const fixtures = {
   exhausted: { error: 'Your account has run out of searches.' }
 };
 let mode = 'ok';
-let serpCalls = 0;
+let serpCalls = 0, directCalls = 0;
 const realFetch = global.fetch;
 global.fetch = async (url, opts) => {
   if (String(url).startsWith('https://serpapi.com/')) {
     serpCalls++;
     const body = fixtures[mode];
     return new Response(JSON.stringify(body), { status: body.error ? 429 : 200, headers: { 'content-type': 'application/json' } });
+  }
+  // Google Scholar read directly (after the key is refused): a results page with no results
+  if (String(url).startsWith('https://scholar.google.com/')) {
+    directCalls++;
+    return new Response('<html><body><div id="gs_res_ccl_mid"></div></body></html>', { status: 200, headers: { 'content-type': 'text/html' } });
   }
   return realFetch(url, opts);
 };
@@ -77,17 +82,20 @@ global.fetch = async (url, opts) => {
   assert.notStrictEqual(cit.record?.source, 'Google Scholar', 'a [CITATION] entry verified a reference');
   assert(cit.status !== 'verified', `[CITATION]-only reference marked verified (${cit.reason})`);
 
-  // 4. an exhausted key pauses Google Scholar
+  // 4. an exhausted (or expired) key is left off: the same search reads Google Scholar directly, and SerpApi is not
+  // asked again
+  assert(S.databases().includes('Google Scholar (SerpApi)'));
   mode = 'exhausted';
   const r1 = await S.googleScholarSearch({ title: 'Some other reference title that is long enough' });
-  assert(r1.error, 'exhausted key not reported');
-  const before = serpCalls;
-  const r2 = await S.googleScholarSearch({ title: 'Yet another reference title that is long enough' });
-  assert(/paused/.test(r2.error || ''), 'Google Scholar not paused after the key ran out');
-  assert.strictEqual(serpCalls, before, 'SerpApi asked again while paused');
-  assert(S.databases().includes('Google Scholar (SerpApi)'));
+  assert(!r1.error && Array.isArray(r1.records), `exhausted key: no fallback to Google Scholar read directly (${JSON.stringify(r1)})`);
+  assert(directCalls >= 1, 'Google Scholar was not read directly');
+  const before = serpCalls, directBefore = directCalls;
+  await S.googleScholarSearch({ title: 'Yet another reference title that is long enough' });
+  assert.strictEqual(serpCalls, before, 'SerpApi asked again after the key was refused');
+  assert(directCalls > directBefore, 'the next search did not read Google Scholar directly');
+  assert(S.databases().includes('Google Scholar') && !S.databases().includes('Google Scholar (SerpApi)'));
 
-  console.log(`google scholar test passed (parsing, Scholar-only verification: ${ok.status}, [CITATION] rejected: ${cit.status}, pause on exhausted key)`);
+  console.log(`google scholar test passed (parsing, Scholar-only verification: ${ok.status}, [CITATION] rejected: ${cit.status}, direct Scholar after a refused key)`);
   await db.close().catch(() => {});
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

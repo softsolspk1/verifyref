@@ -268,6 +268,13 @@ async function request(url, options = {}) {
       console.warn(`OpenAlex: the API key's daily budget is spent; using the free allowance for ${Math.round(Math.min(Math.max(after, 600), 86400) / 3600)} h`);
       return request(withoutKey(url), options);
     }
+    // the key itself is refused (expired, cancelled or mistyped): the free allowance answers without it, so the key is
+    // left off for a day instead of every OpenAlex lookup failing until someone removes it from the settings
+    if ((result.status === 401 || result.status === 403) && host === 'api.openalex.org' && /[?&]api_key=/.test(url)) {
+      openalexKeyOut = Date.now() + 86400000;
+      console.warn(`OpenAlex: the API key was refused (HTTP ${result.status}); using the free allowance without it for 24 h`);
+      return request(withoutKey(url), options);
+    }
     if (host === 'api.openalex.org') {
       const left = parseFloat(result.headers?.['x-ratelimit-remaining-usd']);
       if (Number.isFinite(left)) openalexLeftUsd = left;

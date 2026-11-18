@@ -348,6 +348,7 @@ async function verifyReference(ref, opts = {}) {
     ['DBLP', S.dblpSearch(ref)],
     ['arXiv', S.arxivSearch(ref)],
     ['ERIC', S.ericSearch(ref)],
+    ['DOAJ', S.doajSearch(ref)],
     ['CORE', S.coreSearch(ref)],
     ['Open Library', S.openLibrarySearch(ref)],
     ['Google Books', S.googleBooksSearch(ref)]

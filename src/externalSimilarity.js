@@ -32,7 +32,12 @@ function baseUrl() {
   const v = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   return v ? `https://${v.replace(/^https?:\/\//, '').replace(/\/+$/, '')}` : '';
 }
-const enabled = () => !!(cfg.COPYLEAKS_EMAIL && cfg.COPYLEAKS_API_KEY && baseUrl() && !cfg.DESKTOP);
+// the account refused (expired or cancelled subscription, no credits left): the service is left out for a day, so the
+// reports and figure checks go on in-house at once instead of each one failing on the service
+let refusedUntil = 0;
+const refused = () => refusedUntil > Date.now();
+const refuse = why => { refusedUntil = Date.now() + 86400000; console.warn(`External similarity service left out for 24 h: ${why}`); };
+const enabled = () => !!(cfg.COPYLEAKS_EMAIL && cfg.COPYLEAKS_API_KEY && baseUrl() && !cfg.DESKTOP) && !refused();
 
 const sign = scanId => crypto.createHmac('sha256', `${cfg.COPYLEAKS_API_KEY}|callbacks`).update(String(scanId)).digest('hex').slice(0, 32);
 function verify(scanId, t) {
@@ -53,7 +58,10 @@ async function token(fresh = false) {
   }
   // the login is limited to 12 per 15 minutes: the token (valid 48 h) is shared through the database
   const r = await call(`${ID}/v3/account/login/api`, { method: 'POST', body: { email: cfg.COPYLEAKS_EMAIL, key: cfg.COPYLEAKS_API_KEY }, auth: false });
-  if (!r.ok || !r.data?.access_token) throw new Error(`the similarity service refused the login (HTTP ${r.status})`);
+  if (!r.ok || !r.data?.access_token) {
+    if ([400, 401, 402, 403].includes(r.status)) refuse(`login refused (HTTP ${r.status})`);
+    throw new Error(`the similarity service refused the login (HTTP ${r.status})`);
+  }
   memToken = { token: r.data.access_token, expires: new Date(r.data['.expires']).getTime() || Date.now() + 47 * 3600e3 };
   await db.query("INSERT INTO ext_tokens(id, token, expires) VALUES('sim', $1, $2) ON CONFLICT (id) DO UPDATE SET token = $1, expires = $2",
     [memToken.token, new Date(memToken.expires).toISOString()]).catch(() => null);
@@ -157,6 +165,7 @@ async function scanText(text, { update = () => {}, deadline = Infinity, stop = (
         }
       });
       if (!r.ok) {
+        if (r.status === 402 || r.status === 403 || /credit/i.test(r.text || '')) refuse(`submission refused (HTTP ${r.status})`);
         await db.query("UPDATE ext_scans SET status = 'error', error = $2 WHERE scan_id = $1", [scanId, `submission refused (HTTP ${r.status}) ${r.text || ''}`.trim().slice(0, 300)]);
         return { error: `the external comparison could not be started (HTTP ${r.status})` };
       }
@@ -191,7 +200,7 @@ async function scanText(text, { update = () => {}, deadline = Infinity, stop = (
 // ------------------------------------------------------------------ figures (Module 5)
 
 /** The image checks need only the login (they answer in the same request, no callback): web and desktop */
-const imagesEnabled = () => !!(cfg.COPYLEAKS_EMAIL && cfg.COPYLEAKS_API_KEY);
+const imagesEnabled = () => !!(cfg.COPYLEAKS_EMAIL && cfg.COPYLEAKS_API_KEY) && !refused();
 
 async function callForm(url, form, { timeout = 90000, retried = false } = {}) {
   let res, text = '';

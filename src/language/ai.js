@@ -10,7 +10,10 @@ const db = require('../db');
 const MODEL = process.env.LANGUAGE_AI_MODEL || 'claude-opus-5-5';
 const EFFORT = process.env.LANGUAGE_AI_EFFORT || 'low';
 const DAILY = parseInt(process.env.LANGUAGE_AI_DAILY_LIMIT || '300', 10);
-const enabled = () => !!process.env.ANTHROPIC_API_KEY && process.env.LANGUAGE_AI !== 'off' && !cfg.DESKTOP;
+// a refused key (invalid, expired, no credit left) switches the AI off for a day instead of failing on every request
+let refusedUntil = 0;
+const keyRefused = e => e?.status === 401 || e?.status === 403 || /credit balance|billing|api key/i.test(String(e?.message || ''));
+const enabled = () => !!process.env.ANTHROPIC_API_KEY && process.env.LANGUAGE_AI !== 'off' && !cfg.DESKTOP && refusedUntil <= Date.now();
 
 let client = null;
 const clientOf = () => {
@@ -82,6 +85,7 @@ async function call(userId, cacheParts, { system, content, schema, maxTokens = 4
   } catch (e) {
     const why = `${e.status || ''} ${String(e.message || e).slice(0, 160)}`;
     if (!warned.has(why)) { warned.add(why); console.warn(`[language ai] ${why}`); }
+    if (keyRefused(e)) refusedUntil = Date.now() + 86400000;
     return null;
   }
 }

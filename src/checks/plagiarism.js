@@ -50,6 +50,13 @@ const OPENALEX_RESERVE_USD = 0.3; // OpenAlex budget kept for the reference chec
 const LIT_RESERVE_MS = 60000;
 const WIKI_PHRASES = Math.max(0, parseInt(cfg.WIKI_PHRASES || 120, 10) || 0); // passages no literature index has, searched in Wikipedia per report (free)
 const WIKI = 'https://en.wikipedia.org/w/api.php';
+// regional and repository literature (free, no paid key): DOAJ's open-access journals (many outside PubMed: Pakistani and
+// other regional journals, PJPS itself) and CORE's university repositories and theses, searched by passage in their
+// abstracts; the papers found are compared whole. REGIONAL_PHRASES passages per report, REGIONAL_GROUP per query
+const REGIONAL_PHRASES = Math.max(0, parseInt(process.env.REGIONAL_PHRASES || 80, 10) || 0);
+const REGIONAL_GROUP = 4;
+const REGIONAL_SOURCES = 15;  // papers found this way compared per report
+const DOAJ = 'https://doaj.org/api/search/articles/';
 // what is kept in the cache of a Wikipedia phrase search: the article titles found, nothing of the query
 const keepWiki = d => ({ query: { searchinfo: { totalhits: d?.query?.searchinfo?.totalhits || 0 }, search: (d?.query?.search || []).map(x => ({ title: x.title })) } });
 const MAX_TEXT = 200000;     // characters of the manuscript shown highlighted in the report
@@ -133,7 +140,8 @@ async function sourceText(c) {
     const r = await getText(c.webUrl, { ttl: 7 * 86400, timeout: 20000, retries: 0 });
     const html = r.ok && /html|text\/plain/i.test(r.headers?.['content-type'] || 'text/html') ? String(r.text || '') : '';
     const t = stripHtml(html);
-    return { text: t.length > 300 ? t : '', scope: 'web page' };
+    if (t.length > 300) return { text: t, scope: 'web page' };
+    if (!c.abstract) return { text: '', scope: 'web page' };
   }
   if (c.pmcid) {
     const r = await getText(`${EPMC}/${c.pmcid}/fullTextXML`, { ttl: 30 * 86400, timeout: 30000, retries: 1 });
@@ -474,6 +482,50 @@ function windowAt(prep, j, covered) {
 /** n items spread evenly over a list */
 const spread = (list, n) => (list.length <= n ? list.slice() : Array.from({ length: n }, (_, i) => list[Math.floor(i * list.length / n)]));
 
+/** A passage made safe inside a quoted query-string phrase (DOAJ, CORE): letters, digits, spaces and hyphens only */
+const queryPhrase = p => String(p).replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim();
+
+// what is kept in the cache of a regional search: the records found, nothing of the query
+const keepDoaj = d => ({ results: (d?.results || []).slice(0, 5).map(x => ({ bibjson: { title: x.bibjson?.title, year: x.bibjson?.year, abstract: String(x.bibjson?.abstract || '').slice(0, 6000),
+  journal: { title: x.bibjson?.journal?.title }, identifier: (x.bibjson?.identifier || []).filter(i => i.type === 'doi'), link: (x.bibjson?.link || []).filter(l => l.type === 'fulltext').slice(0, 2) } })) });
+const keepCore = d => ({ results: (d?.results || []).slice(0, 3).map(w => ({ id: w.id, title: w.title, doi: w.doi, yearPublished: w.yearPublished, publisher: w.publisher, documentType: w.documentType,
+  journals: (w.journals || []).slice(0, 1).map(j => ({ title: j.title })), links: (w.links || []).filter(l => l.type === 'display'), downloadUrl: w.downloadUrl, abstract: String(w.abstract || '').slice(0, 6000),
+  fullText: typeof w.fullText === 'string' ? w.fullText.slice(0, 400000) : null })) });
+
+/**
+ * Papers in DOAJ journals and CORE repositories whose abstract holds one of these passages (asked together, one query
+ * per source) -> records for compare(): full text (CORE), the open full-text link (DOAJ: web page or PDF), else the abstract
+ */
+async function regionalSearch(phrases) {
+  const ps = phrases.map(queryPhrase).filter(p => p.split(' ').length >= WINDOW - 1);
+  if (!ps.length) return [];
+  const out = [];
+  const [doaj, core] = await Promise.all([
+    getJson(`${DOAJ}${encodeURIComponent(`bibjson.abstract:(${ps.map(p => `"${p}"`).join(' OR ')})`)}?pageSize=5`, { ttl: 30 * 86400, timeout: 20000, retries: 1, private: keepDoaj }),
+    cfg.CORE_API_KEY ? getJson(`https://api.core.ac.uk/v3/search/works/?q=${encodeURIComponent(ps.map(p => `abstract:"${p}"`).join(' OR '))}&limit=3`,
+      { headers: { Authorization: `Bearer ${cfg.CORE_API_KEY}` }, ttl: 30 * 86400, timeout: 25000, retries: 1, private: keepCore }) : null
+  ]);
+  for (const x of doaj?.ok ? doaj.data?.results || [] : []) {
+    const b = x.bibjson || {};
+    if (!b.title) continue;
+    const doi = cleanDoi((b.identifier || []).find(i => i.type === 'doi')?.id) || null;
+    const links = (b.link || []).filter(l => /^https?:/.test(l.url || ''));
+    const pdf = links.find(l => /pdf/i.test(l.content_type || '') || /\.pdf($|\?)/i.test(l.url));
+    const html = links.find(l => l !== pdf);
+    out.push({ type: 'publication', title: b.title, journal: b.journal?.title || null, year: parseInt(b.year, 10) || null, doi, abstract: b.abstract || '',
+      oaPdf: pdf?.url || null, webUrl: !pdf && html ? html.url : null, via: 'DOAJ (open-access journals)', url: doi ? `https://doi.org/${doi}` : links[0]?.url || null });
+  }
+  for (const w of core?.ok ? core.data?.results || [] : []) {
+    if (!w.title) continue;
+    const doi = cleanDoi(w.doi) || null;
+    const thesis = /thesis/i.test(w.documentType || '');
+    out.push({ type: thesis ? 'internet' : 'publication', title: w.title, journal: w.journals?.[0]?.title || w.publisher || (thesis ? 'Thesis (CORE)' : null), year: w.yearPublished || null, doi,
+      fullText: w.fullText && w.fullText.length > 2000 && !/^Not available/i.test(w.fullText) ? w.fullText : null, oaPdf: w.downloadUrl || null, abstract: w.abstract || '',
+      via: 'CORE (repositories and theses)', url: w.links?.[0]?.url || (doi ? `https://doi.org/${doi}` : `https://core.ac.uk/works/${w.id}`) });
+  }
+  return out;
+}
+
 /** Open-access papers on the manuscript's subject (Europe PMC, by the words of its title), compared in full */
 async function topicNeighbours(text, meta = {}, n = 20) {
   const title = meta.title || String(text).split('\n').find(l => l.trim().split(/\s+/).length >= 6) || '';
@@ -599,7 +651,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const covered = new Uint8Array(mine.length); // words already matched by a compared full text: not searched again
   const texts = new Map(); // source key -> its text, for the reference list (4c)
   const markCovered = hit => hit.forEach((h, k) => { if (h) covered[k] = 1; });
-  const stats = { queries: 0, searchErrors: 0, webSearches: 0, wikiSearches: 0, openalexSearches: 0, windows: 0, windowsFound: 0, neighbours: 0, common: 0, searched: 0, timeLimited: false };
+  const stats = { queries: 0, searchErrors: 0, webSearches: 0, wikiSearches: 0, openalexSearches: 0, regionalSearches: 0, regionalCompared: 0, windows: 0, windowsFound: 0, neighbours: 0, common: 0, searched: 0, timeLimited: false };
 
   // the external comparison the editor asked for needs only the text: started now, it runs while the in-house search does
   // (it used to start after it, adding its whole wait to the report). The same scan (found again by its text) is used below.
@@ -774,6 +826,22 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
       hitWindow(w, { type: 'internet', title: `${x.title} - Wikipedia`, journal: 'en.wikipedia.org', year: null, doi: null, webUrl: `https://en.wikipedia.org/api/rest_v1/page/html/${page}`, via: 'Wikipedia', url: `https://en.wikipedia.org/wiki/${page}` });
     }
   });
+  // regional journals (DOAJ) and repositories and theses (CORE), free: passages no index has found yet, asked a few at
+  // a time; every paper found is compared whole (only the words it really shares count, so a loose hit costs nothing)
+  const regional = spread(unknown.filter(w => !w.found), REGIONAL_PHRASES);
+  if (regional.length) {
+    update(`Searching ${regional.length} passages in regional journals and repositories`);
+    const groups = [];
+    for (let i = 0; i < regional.length; i += REGIONAL_GROUP) groups.push(regional.slice(i, i + REGIONAL_GROUP));
+    const recs = new Map();
+    await pool(groups, 2, async g => {
+      if (late()) return;
+      stats.regionalSearches++;
+      const res = await regionalSearch(g.map(w => w.phrase)).catch(() => { stats.searchErrors++; return []; });
+      for (const rec of res) if (!isSelf(rec) && !recs.has(sourceKeyOf(rec))) recs.set(sourceKeyOf(rec), rec);
+    });
+    await pool([...recs.values()].slice(0, REGIONAL_SOURCES), 3, async rec => { if (late()) return; stats.regionalCompared++; await compare(rec); });
+  }
   // the open web (SerpApi, Brave Search or Google Programmable Search) for passages no literature index has
   if (WEB.enabled()) {
     const web = spread(unknown.filter(w => !w.found), WEB_PHRASES);
@@ -912,6 +980,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
   const databases = [...(extUsed ? [`External full-text similarity service: the text without the reference list compared with web pages and publications, paraphrase included (${extSources.length} source(s) matched${external ? '; asked for by the editor' : ''})`] : ext?.error ? [`External full-text similarity service: not used for this report (${ext.error})`] : extSkipped ? [`External full-text similarity service: ${extSkipped}`] : []),
     ...(stats.timeLimited ? [`Time limit reached: ${stats.searched} of ${stats.windows} passages were searched before the report had to be saved; the passages searched are kept, so running the report again searches further`] : []),
     ...(subsOn ? [`Earlier PJPS submissions (opt-in): ${submissions.length} sharing text with this manuscript compared in full`] : []), 'PJPS text repository (published papers and web pages kept by earlier checks)', 'Europe PMC (open-access full texts and all PubMed abstracts)', 'Open-access full texts of papers on the same subject',
+    ...(stats.regionalSearches ? [`Regional open-access journals (DOAJ) and repositories and theses (CORE): ${stats.regionalSearches} searches of passages in abstracts, ${stats.regionalCompared} paper(s) compared whole`] : []),
     ...(stats.openalexSearches ? [`OpenAlex index of publisher full texts (${stats.openalexSearches} passage searches${stats.openalexBudget ? '; stopped: the daily OpenAlex search budget is used up - add funds at openalex.org/pricing' : ''})`] : []), ...(stats.wikiSearches ? [`Wikipedia (${stats.wikiSearches} passage searches)`] : []), ...(WEB.enabled() ? [`The web (${WEB.provider()}, ${stats.webSearches} passage searches)`] : ['The wider web: not searched (no web search key: SerpApi, Brave Search or Google Programmable Search)'])];
   return hideServiceNames({
     kind: 'plagiarism',
@@ -941,7 +1010,7 @@ async function checkPlagiarism({ body, bibliography = '', meta = {}, submissions
     publishedOnPjps: view.sources.filter(x => pjpsCopy(x) && meta.title && titleSimilarity(meta.title, x.title || '') >= 0.85).slice(0, 3)
       .map(x => ({ title: x.title, doi: x.doi || null, url: x.url || null, year: x.year || null, journal: x.journal || null, percent: x.percent })),
     checked: { references: refStats, passages: stats.windows, passagesFound: stats.windowsFound, commonPhrases: stats.common, queries: stats.queries, openalexSearches: stats.openalexSearches, webSearches: stats.webSearches, wikiSearches: stats.wikiSearches, neighbours: stats.neighbours, candidates: found.size, sourcesCompared: compared.length, repositoryMatches: fromRepo.length, repository: await corpus.stats().catch(() => ({})), submissionsCompared: subsOn ? submissions.length : 0, searchErrors: stats.searchErrors, timeLimited: stats.timeLimited, passagesSearched: stats.searched, databases },
-    coverage: `${extUsed ? 'The text (without the reference list) with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), Wikipedia (${WIKI_PHRASES} passage searches at most), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
+    coverage: `${extUsed ? 'The text (without the reference list) with an external full-text similarity service (web pages, publications, paraphrase detection); ' : ''}Open-access literature and all PubMed abstracts (Europe PMC), publisher full texts indexed by OpenAlex (${OPENALEX_PHRASES} passage searches at most per report), regional open-access journals (DOAJ) and repositories and theses (CORE) (${REGIONAL_PHRASES} passages at most),Wikipedia (${WIKI_PHRASES} passage searches at most), ${WEB.enabled() ? `the open web (${WEB.provider()})` : 'not the open web (add a web search key: SerpApi, Brave Search or Google Programmable Search)'}. ${subsOn ? 'Earlier PJPS submissions were compared (opt-in).' : 'Earlier unpublished PJPS submissions were not compared (opt-in, off).'} Turnitin's own archive of student papers is not available.`,
     method: `Like Turnitin's similarity report: the whole manuscript was compared with the open full texts of papers on the same subject, then every remaining ${WINDOW}-word stretch, aligned on the sentences (${stats.windows} passages), was searched as an exact phrase; open sources were compared with the whole text in ${K}-word sequences (case, punctuation, plural forms and in-text citation markers ignored; up to ${GAP} different words inside one match; sentences restated in other words matched by their specific words and meaning, marked paraphrased), paywalled ones by the passages found in them. The bibliography and quotations are compared (the editor can exclude either), and matches of ${FLOOR} words or more are counted (the editor can exclude small matches). Each entry of the reference list is matched whole to every source listing the same work (title and first author, whatever the citation style), or else to the cited work's own record (Crossref, Open Library, Google Books)${refStats.entries ? ` - ${refStats.inSources + refStats.citedWork} of ${refStats.entries} entries matched` : ''}. Every matched word is credited to one primary source, so the source percentages add up to the Similarity Index.`
   });
 }
@@ -958,6 +1027,8 @@ function viaLabel(v) {
   if (/same subject/i.test(s)) return 'Open-access literature (same subject)';
   if (/^(?:Web\b|Wikipedia)/i.test(s)) return 'Internet';
   if (/OpenAlex|publisher/i.test(s)) return 'Publisher full texts';
+  if (/^DOAJ/i.test(s)) return 'Open-access journals';
+  if (/^CORE\b/.test(s)) return 'Repositories and theses';
   return 'Published literature';
 }
 const SERVICE_TEXT = [
@@ -974,6 +1045,7 @@ const SERVICE_TEXT = [
   [/^Wikipedia \((\d+) passage searches\)$/g, 'Encyclopedia articles ($1 passage searches)'],
   [/Wikipedia \((\d+) passage searches at most\)/g, 'encyclopedia articles ($1 passage searches at most)'],
   [/ \(Crossref, Open Library, Google Books\)/g, ''],
+  [/([Rr])egional open-access journals \(DOAJ\) and repositories and theses \(CORE\)/g, '$1egional open-access journals, repositories and theses'],
   [/\b(?:Europe PMC|OpenAlex|Crossref|Open Library|Google Books|Semantic Scholar|SerpApi|Brave Search|Google Programmable Search)\b/g, 'the literature index'],
   [/\bPubMed\b/g, 'biomedical']
 ];

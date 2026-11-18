@@ -10,7 +10,10 @@ const S = require('./sources');
 // what is kept in the cache of a phrase search: the links and titles found, nothing of the query
 const keepLinks = (list, url, title, snippet) => d => ({ results: (list(d) || []).slice(0, 10).map(o => ({ url: o[url] || null, title: o[title] || null, snippet: String(o[snippet] || '').replace(/<[^>]+>/g, '').slice(0, 300) })) });
 
-const provider = () => (cfg.BRAVE_API_KEY ? 'Brave Search' : cfg.GOOGLE_CSE_KEY && cfg.GOOGLE_CSE_CX ? 'Google Programmable Search' : S.scholarEnabled() ? 'SerpApi (Google)' : null);
+// a refused key (expired subscription, credit used up) is left off for a day and the next provider is used
+let braveDeadUntil = 0;
+const braveOn = () => !!cfg.BRAVE_API_KEY && braveDeadUntil <= Date.now();
+const provider = () => (braveOn() ? 'Brave Search' : cfg.GOOGLE_CSE_KEY && cfg.GOOGLE_CSE_CX ? 'Google Programmable Search' : S.scholarEnabled() ? 'SerpApi (Google)' : null);
 const enabled = () => !!provider();
 
 /** Results for an exact phrase: { ok, results: [{ url, title }], error? } */
@@ -27,9 +30,14 @@ async function phraseSearch(phrase, n = 5, extra = '', { quoted = true } = {}) {
   // a fresh answer comes back as the provider sent it, a cached one as keepLinks kept it: both read the same way (fresh
   // answers were read as empty before 6 Nov 2026, so a passage was only found when it was searched a second time)
   const linksOf = (r, keep) => (Array.isArray(r.data?.results) ? r.data.results : keep(r.data).results);
-  if (cfg.BRAVE_API_KEY) {
+  if (braveOn()) {
     const keep = keepLinks(d => d?.web?.results, 'url', 'title', 'description');
     const r = await getJson(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=${n}`, { headers: { 'X-Subscription-Token': cfg.BRAVE_API_KEY, Accept: 'application/json' }, ttl: 30 * 86400, timeout: 20000, retries: 1, private: keep });
+    if ([401, 402, 403].includes(r.status) || (r.status === 429 && /quota|plan|credit/i.test(r.text || ''))) {
+      braveDeadUntil = Date.now() + 86400000;
+      console.warn(`Brave Search: the key was refused (HTTP ${r.status}); left off for 24 h`);
+      return provider() ? phraseSearch(phrase, n, extra, { quoted }) : { ok: false, error: 'skipped' };
+    }
     return r.ok ? { ok: true, results: linksOf(r, keep) } : { ok: false, error: r.error || `HTTP ${r.status}` };
   }
   if (cfg.GOOGLE_CSE_KEY && cfg.GOOGLE_CSE_CX) {

@@ -516,6 +516,44 @@ async function ericSearch(ref) {
   };
 }
 
+// ---------------------------------------------------------------- 12b. DOAJ (open-access journals; free, no key)
+// Article records deposited by the journals themselves, with volume, issue and pages: many regional journals (Pakistani
+// and other) have no DOI and are in no other database, so their references could only be verified by a Google search.
+
+function fromDoaj(x) {
+  const b = x.bibjson || {};
+  const doi = cleanDoi((b.identifier || []).find(i => i.type === 'doi')?.id);
+  const j = b.journal || {};
+  const pages = [b.start_page, b.end_page].filter(Boolean).join('-');
+  return {
+    source: 'DOAJ',
+    sourceId: x.id,
+    doi,
+    title: stripTags(b.title || ''),
+    authors: (b.author || []).map(a => splitName(a.name || '')).filter(a => a.family),
+    year: parseInt(b.year, 10) || null,
+    journal: j.title || '',
+    publisher: j.publisher || '',
+    issn: (j.issns || []).filter(s => /^\d{4}-?\d{3}[\dXx]$/.test(s)),
+    volume: j.volume || '', issue: j.number || '', pages,
+    type: 'article',
+    url: doi ? `https://doi.org/${doi}` : ((b.link || []).find(l => l.type === 'fulltext')?.url || `https://doaj.org/article/${x.id}`),
+    abstract: stripTags(b.abstract || ''),
+    retracted: false, notices: []
+  };
+}
+
+async function doajSearch(ref) {
+  // the title's six most distinctive words (an exact phrase misses "anti-inflammatory" / "antiinflammatory"); DOAJ does
+  // not match "tissue" to "tissues" and refuses wildcards, so each word is asked with its singular or plural form
+  const other = w => (/ies$/.test(w) ? w.replace(/ies$/, 'y') : /s$/.test(w) ? w.slice(0, -1) : /y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`);
+  const words = [...new Set(q(ref.title || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 5))].sort((a, b) => b.length - a.length).slice(0, 6);
+  if (words.length < 3) return { records: [] };
+  const r = await getJson(`https://doaj.org/api/search/articles/${enc(`bibjson.title:(${words.map(w => `(${w} OR ${other(w)})`).join(' AND ')})`)}?pageSize=4`, { ttl: 30 * 86400, timeout: 20000, retries: 1 });
+  if (!r.ok) return { error: r.error || r.status };
+  return { records: (r.data?.results || []).map(fromDoaj) };
+}
+
 // ---------------------------------------------------------------- 13. CORE (core.ac.uk) - open-access research outputs
 // 300+ million records from repositories and journals, with links to the open-access full text (PDF). Free; an API key
 // (core.ac.uk/services/api) raises the rate limit and unlocks the full-text field.
@@ -583,8 +621,11 @@ async function coreSearch(ref) {
 // credit, so it is asked last (only for references the free databases could not verify) and cached for 30 days.
 
 // The desktop holds no SerpApi key: it asks the web platform, which runs the search with its key (see /api/sync/serpapi)
-const scholarEnabled = () => !!cfg.SERPAPI_KEY || (cfg.DESKTOP && require('./desktop').serpViaPlatform());
-let scholarBlockedUntil = 0;   // after "out of searches" / invalid key, Google Scholar and Google are skipped for an hour
+// a key that is refused (invalid, expired, the month's searches used up) is left off for a day: Google Scholar is then
+// read directly (googleScholarDirect) and the web search falls to the next provider, as when no key is set
+let serpDeadUntil = 0;
+const scholarEnabled = () => serpDeadUntil <= Date.now() && (!!cfg.SERPAPI_KEY || (cfg.DESKTOP && require('./desktop').serpViaPlatform()));
+let scholarBlockedUntil = 0;   // after a rate limit, Google Scholar and Google are skipped for an hour
 
 /** One SerpApi search (engine google_scholar or google), cached 30 days; on the desktop through the web platform */
 // a private search (words of an unpublished manuscript) is cached under a hash with the results' links and titles only
@@ -594,7 +635,11 @@ async function serpSearch(engine, query, num = 5, { private: priv = false } = {}
   if (cfg.DESKTOP) return require('./desktop').remoteSerp(engine, query, num, { private: priv });
   return { ok: false, status: 0, data: { error: 'SerpApi is not configured' } };
 }
-const serpBlocked = r => r.status === 401 || r.status === 429 || /run out of searches|invalid api key/i.test(r.data?.error || '');
+const serpBlocked = r => {
+  const dead = r.status === 401 || r.status === 403 || /run out of searches|invalid api key|account|plan/i.test(r.data?.error || r.text || '');
+  if (dead && cfg.SERPAPI_KEY && serpDeadUntil <= Date.now()) { serpDeadUntil = Date.now() + 86400000; console.warn('SerpApi: the key was refused; Google Scholar is read directly for 24 h'); }
+  return dead || r.status === 429;
+};
 
 /**
  * "R Rahbari, L Francis, OJ Guy… - Pharmaceutics, 2023 - mdpi.com" -> authors, venue, year, host.
@@ -718,6 +763,8 @@ async function googleScholarSearch(ref) {
   // an exact phrase plus the author can be too strict (title variants, author spelled differently): one looser search
   if (r.ok && !(r.data?.organic_results || []).length && fam) r = await serpSearch('google_scholar', title);
   if (serpBlocked(r)) {
+    // the key is refused: the same search is made by reading Google Scholar directly
+    if (!scholarEnabled() && scholarDirectEnabled()) return googleScholarDirect(ref);
     scholarBlockedUntil = Date.now() + 3600000;
     return { error: r.data?.error || `SerpApi HTTP ${r.status}` };
   }
@@ -927,11 +974,11 @@ async function scholarAccount() {
 
 const DATABASES = [
   'Crossref', 'DOI Foundation (Handle)', 'DataCite', 'OpenAlex', 'PubMed', 'Europe PMC',
-  'Semantic Scholar', 'arXiv', 'DBLP', 'Open Library', 'Google Books', 'ERIC', 'CORE'
+  'Semantic Scholar', 'arXiv', 'DBLP', 'Open Library', 'Google Books', 'ERIC', 'DOAJ', 'CORE'
 ];
 const webSearchName = () => ({ 'SerpApi (Google)': 'Google', 'Google Programmable Search': 'Google Search' })[require('./webSearch').provider()] || 'Web search';
 // the web search and ResearchGate (searched through it: it has no API) are listed whichever provider runs the web search
-const databases = () => [...DATABASES, ...(scholarEnabled() ? ['Google Scholar (SerpApi)'] : []), ...(webSearchEnabled() ? [webSearchName(), 'ResearchGate'] : [])];
+const databases = () => [...DATABASES, ...(scholarEnabled() ? ['Google Scholar (SerpApi)'] : scholarDirectEnabled() ? ['Google Scholar'] : []), ...(webSearchEnabled() ? [webSearchName(), 'ResearchGate'] : [])];
 
 module.exports = {
   crossrefInJournal,
@@ -939,5 +986,5 @@ module.exports = {
   crossrefDoi, crossrefSearch, doiHandle, dataciteDoi, dataciteSearch,
   openalexDoi, openalexSearch, openalex, fromOpenAlex,
   pubmedPmid, pubmedSearch, europepmcSearch, s2Doi, s2Search,
-  arxivId, arxivSearch, dblpSearch, openLibrarySearch, googleBooksSearch, ericSearch, coreDoi, coreSearch, coreQuery, fromCore
+  arxivId, arxivSearch, dblpSearch, openLibrarySearch, googleBooksSearch, ericSearch, doajSearch, coreDoi, coreSearch, coreQuery, fromCore
 };

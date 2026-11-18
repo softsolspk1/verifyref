@@ -1,0 +1,224 @@
+PJPS INTEGRITY PORTAL - ACCURACY WITHOUT PAID APIs (IN-HOUSE ONLY)
+Date: 18 November 2026
+=====================================================================================
+
+SHORT ANSWER
+------------
+Most of the portal never depended on paid APIs. Modules 1, 2, 3A, 3C, 4 and 5 and the
+grammar part of Module 6 run on in-house code, in-house data, and free public databases.
+They keep the accuracy measured in our tests: those tests were run on the laptop with
+the paid keys switched off (since 10 November), so the figures below are already
+"without paid APIs" figures.
+
+What is lost when the paid services stop:
+  1. Similarity Report: web pages ("Internet sources") and paywalled full texts that
+     only the external similarity service held. (Reworded copying is still found
+     in-house, by meaning, in every source the engine compares.)
+  2. Module 3B: the AI second opinion on "is this claim supported by the source".
+  3. Module 6: the AI writing features (rewrite, paraphrase, summarise). Grammar,
+     spelling and style checks stay.
+  4. Module 5: reverse image search on the web and the AI-generated-image detector.
+  5. Fewer OpenAlex publisher full-text searches per day, and Google Scholar only
+     through direct reading (Google sometimes blocks it for an hour).
+
+Biggest effect: the Similarity Report. Expect the overall similarity percentage to
+read lower than Turnitin on manuscripts copied mainly from web pages or paywalled
+papers. Copying from open-access papers, PubMed Central, PubMed abstracts, earlier
+PJPS articles and reference lists is still found in-house.
+
+
+1. THE PAID SERVICES AND WHAT USED THEM
+---------------------------------------
+Service (paid)                 Used by                          What happens without it
+-----------------------------  -------------------------------  ---------------------------------
+External similarity service    Similarity Report, Module 5      Skipped. The in-house Similarity
+                               (web image search, AI-image      Index is the whole report.
+                               detector)
+Claude API (Anthropic)         Module 3B claim judge,           Skipped. The local claim model
+                               Module 6 AI writing features     decides alone (it always did
+                                                                before 10 November).
+OpenAlex key (paid top-up)     Similarity full-text passage     OpenAlex is still used without a
+                               search, journal list, reviewer   key at a lower daily limit; the
+                               finder, Module 1 lookups         full-text passage search and the
+                                                                full journal-list download need a
+                                                                key (a free key is enough).
+SerpApi (Google Scholar)       Module 1 last-resort check,      Google Scholar is read directly
+                               web search                       (free); when Google blocks it the
+                                                                check carries on without it.
+Brave Search (web search)      Similarity "Internet sources"    No web-page matches.
+
+
+2. MODULE BY MODULE - ACCURACY WITHOUT PAID APIs
+------------------------------------------------
+
+MODULE 1 - CHECK BIBLIOGRAPHY                                      Effect: very small
+  Free sources it uses: Crossref, DataCite, PubMed, Europe PMC, Semantic Scholar,
+  CORE, arXiv, DBLP, ERIC, Open Library, PubChem, OpenAlex (keyless), Retraction
+  Watch data (via Crossref), plus Google Scholar read directly.
+  Measured: 84-85 of 85 test references correct; on 120 real PJPS references
+  94 verified, 4 miscited, 22 unverified. Retractions: 294 of 300 retracted papers
+  found even with every registry offline (in-house Retraction Watch title index).
+  Loss: a few rare references (theses, local reports, old non-indexed journals) that
+  only Google Scholar via SerpApi could find may now show "unverified" instead of
+  "verified". They are not marked as wrong - only as needing a manual look.
+
+MODULE 2 - STYLE & PJPS CONVERTER                                  Effect: none
+  Entirely in-house. 14/14 planted style deviations found with no false alarms;
+  7/7 source styles converted; 76.3% compliance read correctly on published PJPS
+  articles.
+
+MODULE 3A - CITATIONS vs REFERENCE LIST                            Effect: none
+  Entirely in-house. Every planted problem found; 17/17 hard citation forms.
+
+MODULE 3B - IS THE CLAIM SUPPORTED BY THE SOURCE                   Effect: moderate
+  Without the Claude API the in-house model decides alone (a sentence-meaning model
+  and an entailment model that run on our own server, free).
+  Measured on the SciFact benchmark (expert-labelled claims), in-house only:
+    - 74% of supported claims recognised
+    - 41% of contradicting claims flagged
+    - 1% wrongly passed
+  The AI judge mainly helped with borderline wording. 3B was always a screening aid:
+  the editor reads the flagged sentences.
+
+MODULE 3C - CITATION PATTERNS                                      Effect: none
+  Entirely in-house. 6/6 planted patterns found; false "off-topic" flags cut to 0/25
+  in tests and 8 of 200 on published PJPS articles.
+
+MODULE 4 - PAPER MILL DETECTION                                    Effect: none
+  Entirely in-house: tortured phrases, AI-text leftovers, Retraction Watch author
+  matching, ethics/data checks, statistics checks and our trained mill model.
+  These benchmarks were run with ALL external APIs blocked:
+    - Real paper-mill papers flagged MEDIUM or HIGH: 45-50 of 150
+    - Ordinary papers wrongly flagged: 5 of 126 (about 4%)
+    - 200 genuine published PJPS articles: 185 LOW, 14 MEDIUM/HIGH
+  The "AI-written text" screening is also in-house (vocabulary and sentence patterns);
+  it never used a paid AI detector.
+
+MODULE 5 - IMAGE INTEGRITY                                         Effect: small
+  The comparison engine and the figure index (PMC, publisher papers, 7,596 retracted
+  papers) are in-house. Measured:
+    - Whole-figure copies: 125/125, no false alarms
+    - Duplicates between panels: 59%
+    - Cloned areas inside an image: about 50% (39 of 78)
+    - Spliced blots: 26 of 125 joins found by the trained model
+  Lost: the reverse image search on the open web and the AI-generated-image detector.
+  Re-used figures that exist only on websites (not in papers we indexed) will be missed.
+
+MODULE 6 - PJPS SCRIBE (LANGUAGE EDITING)                          Effect: partial
+  Grammar, spelling, style and pharmaceutical-writing rules: unchanged (in-house rules
+  plus our own LanguageTool server on Oracle Cloud, free).
+  Off: the AI buttons (rewrite, paraphrase, summarise, tone). The page tells the user
+  that the grammar checks still work.
+
+SIMILARITY REPORT                                                  Effect: largest
+  Still searched in-house, free:
+    - 2.22 million PubMed Central full texts (our own corpus on Cloudflare R2)
+    - PubMed abstracts, Europe PMC and open-access papers
+    - Wikipedia
+    - All published pjps.pk articles ("Already published" detection)
+    - Earlier PJPS submissions (optional "Submitted works")
+    - The reference list, matched entry by entry
+    - OpenAlex publisher passages, within the free daily allowance
+    - NEW 18 Nov: regional open-access journals (DOAJ) and repositories and theses
+      (CORE) - see section 5
+    - Reworded sentences, found by meaning (sentence model on our own server)
+  No longer covered:
+    - Ordinary web pages (Turnitin's "Internet sources")
+    - Paywalled papers' full text (only short 8-word passages through OpenAlex)
+    - Reworded copying from web pages or paywalled papers
+    - Turnitin's student-paper archive (no service ever sold this)
+  In tests the in-house Index reached about 26% where Turnitin showed 34% on the same
+  manuscript (before web sources were added). Use the in-house percentage as a
+  reliable lower bound: what it shows is real copying, but the true figure may be
+  higher on web-copied manuscripts.
+
+
+3. WHAT TO DO NOW (NO COST)
+---------------------------
+a) Remove the expired keys from Vercel (Settings > Environment Variables), then
+   redeploy. This matters: an expired key that is still set makes the service fail
+   instead of switching to the free route. Example: an expired SerpApi key stops the
+   free direct Google Scholar reading. Remove:
+     COPYLEAKS_EMAIL, COPYLEAKS_API_KEY, ANTHROPIC_API_KEY, SERPAPI_KEY,
+     BRAVE_API_KEY (if expired), and OPENALEX_API_KEY if it no longer works.
+b) Optional free keys that cost nothing and raise speed and coverage:
+     - OpenAlex: a free key (openalex.org/settings/api) gives a free daily allowance;
+       do not add funds. About 4-6 full screenings a day get publisher passages.
+     - NCBI_API_KEY (already set), S2_API_KEY (Semantic Scholar), CORE_API_KEY
+       (already set): free, no card.
+c) Keep the free background jobs running: the PMC corpus, the figure index and the
+   daily pjps.pk article load are what make the in-house checks accurate. Each one
+   added makes the Similarity Report and Module 5 better at no running cost.
+d) Turn on "compare with earlier PJPS submissions" by default (a journal policy
+   choice): the free equivalent of Turnitin's submitted-works archive.
+
+
+4. HOW TO EXPLAIN IT TO EDITORS
+-------------------------------
+- Reference checking, style, citation checks, paper-mill screening and image copy
+  detection are done by our own system and are as accurate as before.
+- The similarity percentage covers scientific literature, not general websites. A low
+  figure means "no copying found in the scientific literature we hold"; for a
+  suspicious manuscript the editor can still run it through Turnitin separately.
+- Claim checking (3B) and paper-mill / image checks are screening aids: they point the
+  editor to what to read; the editor makes the decision. This was true with the paid
+  services too.
+
+
+5. IMPROVEMENTS MADE ON 18 NOVEMBER 2026 (NO PAID SERVICE)
+----------------------------------------------------------
+a) Similarity Report - new free source: regional journals, repositories, theses
+   Passages that no other index finds are now searched in DOAJ (open-access journals,
+   including many Pakistani and regional journals that PubMed / Europe PMC do not
+   hold, and about 1,850 PJPS articles) and CORE (university repositories and theses).
+   Every paper found is compared word for word, so only real shared text is counted.
+   Measured: two abstracts from Pakistani journals outside Europe PMC planted in an
+   invented manuscript (56% of its text):
+       before: 27% found (one source missed entirely; the other found only through
+               OpenAlex's small free allowance, which runs out during the day)
+       after : 55.7% found, both journals named as sources
+   An original manuscript still scores 0% (no false matches); the existing planted-
+   copy test is unchanged (50.2% found of 48.3% planted).
+   Shown to editors as "Open-access journals" and "Repositories and theses".
+   Adds about 1 minute to a report. Test: node test/similarity-regional.js
+
+b) Module 1 - DOAJ added as the 13th free database
+   Regional journals without DOIs could only be verified by a Google search before.
+   DOAJ holds the journal's own record with volume, issue and pages.
+   Measured on 30 references to Pakistani open-access journals without DOIs:
+       before: 11 verified, 9 miscited, 10 unverified
+       after : 21 verified, 8 miscited, 1 unverified
+   (most remaining "miscited" come from author names stored as one string in DOAJ
+   and garbled by the test itself, not from the check)
+   On 182 references of four real PJPS manuscripts: 169 verified, 9 miscited,
+   3 unverified, 1 retracted - with no paid service at all, and unchanged by DOAJ
+   (their references were already found in the other databases).
+
+c) Expired keys no longer break the free routes
+   Before, an expired key left in Vercel made each check fail instead of falling back.
+   Now a refused key is left off for 24 hours automatically:
+     - SerpApi refused     -> Google Scholar is read directly (Module 1)
+     - OpenAlex refused    -> OpenAlex is used without the key (free allowance)
+     - Brave refused       -> next web search provider, or none
+     - Similarity service  -> reports and figure checks go on in-house at once
+       refused               (no waiting on the service for every report)
+     - Claude API refused  -> Module 3B's local model decides; Module 6 AI buttons
+                              say they are off; grammar checks continue
+   Removing the keys from Vercel (section 3a) is still the cleanest step.
+
+d) Checked and not changed
+   - Module 3B: a larger local model (DeBERTa-v3-base) was tested on 5 November and
+     did no better than the current one; there is no free model upgrade to make.
+   - Module 5: no free reverse image search exists; accuracy grows with the figure
+     index (the indexing job), at no running cost.
+   - Modules 2, 3A, 3C, 4: already fully in-house; no paid dependency to replace.
+
+e) Found during the tests: OpenAlex's free allowance WITHOUT a key ran out within
+   one test run (about 200 references). A free OpenAlex key (no money added) gives
+   ten times more. Strongly recommended - see section 3b.
+
+f) Next free step, needs one action from you: a free Semantic Scholar API key
+   (semanticscholar.org/product/api, "API key form"). With it the similarity report
+   can search inside the full text of papers (also paywalled ones), which is what
+   OpenAlex charged for. Without a key Semantic Scholar refuses every request, so it
+   could not be built and tested today.

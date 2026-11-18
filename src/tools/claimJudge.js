@@ -6,7 +6,10 @@
 const cfg = require('../config');
 
 const MODEL = process.env.PJPS_CLAIM_LLM_MODEL || 'claude-opus-5-5';
-const enabled = () => !!process.env.ANTHROPIC_API_KEY && process.env.PJPS_CLAIM_LLM === 'on' && !cfg.DESKTOP;
+// a refused key (invalid, expired, no credit left) switches the AI off for a day instead of failing on every request
+let refusedUntil = 0;
+const keyRefused = e => e?.status === 401 || e?.status === 403 || /credit balance|billing|api key/i.test(String(e?.message || ''));
+const enabled = () => !!process.env.ANTHROPIC_API_KEY && process.env.PJPS_CLAIM_LLM === 'on' && !cfg.DESKTOP && refusedUntil <= Date.now();
 
 let client = null;
 const clientOf = () => {
@@ -75,6 +78,7 @@ async function decide(claim, passages, { whole = '', deadline } = {}) {
     // one line per kind of failure (no credit, bad key, rate limit), then the local model decides
     const why = `${e.status || ''} ${String(e.message || e).slice(0, 160)}`;
     if (!warned.has(why)) { warned.add(why); console.warn(`[claimJudge] ${why}`); }
+    if (keyRefused(e)) refusedUntil = Date.now() + 86400000;
     return null;
   }
 }

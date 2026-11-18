@@ -144,12 +144,15 @@ async function loadRetractionWatch({ since = null, deadline = Infinity, log = co
   const hasPk = await db.one("SELECT 1 FROM pg_constraint WHERE conname = 'retractions_stage_pkey'").catch(() => null);
   if (!hasPk) await db.query(`ALTER TABLE ${STAGE} ADD CONSTRAINT retractions_stage_pkey PRIMARY KEY (doi)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_retractions_stage_journal ON ${STAGE}(journal_norm)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_retractions_stage_title_key ON ${STAGE} ((${RW_TITLE_SQL}))`);
   const trgm = !db.EMBEDDED && await db.query(`CREATE INDEX IF NOT EXISTS idx_retractions_stage_authors_trgm ON ${STAGE} USING gin (authors gin_trgm_ops)`).then(() => true).catch(e => { log(`Retraction Watch: author index not built (${e.message})`); return false; });
   await transaction(async client => {
     await client.query('DROP TABLE IF EXISTS retractions');
     await client.query(`ALTER TABLE ${STAGE} RENAME TO retractions`);
     await client.query('ALTER TABLE retractions RENAME CONSTRAINT retractions_stage_pkey TO retractions_pkey');
     await client.query('ALTER INDEX idx_retractions_stage_journal RENAME TO idx_retractions_journal');
+    await client.query('DROP INDEX IF EXISTS idx_retractions_title_key');
+    await client.query('ALTER INDEX idx_retractions_stage_title_key RENAME TO idx_retractions_title_key');
     if (trgm) await client.query('ALTER INDEX idx_retractions_stage_authors_trgm RENAME TO idx_retractions_authors_trgm');
   });
   await setMeta('rw_stage', '');
@@ -163,6 +166,23 @@ async function loadRetractionWatch({ since = null, deadline = Infinity, log = co
 async function retractionFor(doi) {
   if (!doi) return null;
   return db.one('SELECT * FROM retractions WHERE doi = $1', [doi.toLowerCase()]);
+}
+
+/** A title reduced to its letters and digits, as the title index of the retractions table holds it */
+const RW_TITLE_SQL = "regexp_replace(lower(title), '[^a-z0-9]+', '', 'g')";
+const titleKey = t => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+/**
+ * Retracted papers by their exact title (letters and digits only): Map(titleKey -> rows). A reference cited without a DOI
+ * whose registry record was not found (or is another paper) is still known to be retracted. Titles shorter than 30
+ * letters are not looked up (many papers share them).
+ */
+async function retractionsByTitle(titles) {
+  const keys = [...new Set(titles.map(titleKey).filter(k => k.length >= 30))];
+  if (!keys.length) return new Map();
+  const rows = await db.all(`SELECT *, ${RW_TITLE_SQL} AS tkey FROM retractions WHERE ${RW_TITLE_SQL} = ANY($1::text[])`, [keys]);
+  const out = new Map();
+  for (const r of rows) { if (!out.has(r.tkey)) out.set(r.tkey, []); out.get(r.tkey).push(r); }
+  return out;
 }
 
 /** Batch lookup: returns Map(doi -> retraction row) */
@@ -1891,7 +1911,7 @@ async function ensureDatasetsNow({ force = false, since = null, maxAgeDays = 7, 
 }
 
 module.exports = {
-  coreDatasetsReady, parseCsv, csvToObjects, eachCsvRow, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
+  retractionsByTitle, titleKey, coreDatasetsReady, parseCsv, csvToObjects, eachCsvRow, loadRetractionWatch, retractionFor, retractionsFor, retractionsByAuthor, journalRetractionCounts, MILL_REASON, MILL_REASON_RE, millJournals, millJournalFor, loadBeall, loadProblematicScreener, ppsFingerprints, predatoryMatches,
   loadFdaOrangeBook, fdaDrugLookup, fdaValidateDrug, loadNlmCatalog, parseNlmJournals, nlmJournal, dottedAbbrev, loadDoaj, doajLocal,
   loadLtwa, ltwaAbbreviate, loadCrossrefJournals, crossrefJournal, loadOpenAlexJournals, openalexJournal, loadPublisherJournals, publisherJournal, PUBLISHERS, datasetRows, DATASET_VIEWS, loadEmailDomains, warmEmailDomains, emailDomainKind, cellosaurusLookup, loadCelloProblematic, celloProblematicLocal,
   loadStopPredatory, loadDoajWithdrawn, loadMirbase, mirbaseSpecies, mirKey, loadJabrefAbbrevs, jabrefAbbrev, loadPmcJournals, loadWosWikidata, loadFlaggedPapers, flaggedFor,

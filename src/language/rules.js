@@ -53,7 +53,7 @@ const notAcademic = g => g.domain !== 'academic';
 
 // ------------------------------------------------------------------ correctness
 
-const AN_LETTERS = /^(?:[aeio]|u(?![nr]i|s[eu]|t[ie]|k|bi|ro|ra|fo)|hour|honest|honou?r|heir)/i;  // "an" words
+const AN_LETTERS = /^(?:[aeio]|u(?![nr]i|s[eu]|t[ie]|k|bi|ro|ra|fo)|hour|honest|honou?r|heir|x(?![aeiouy]))/i;   // "an Xterra column": X said "ex" before a consonant  // "an" words
 const ACRONYM_AN = /^[AEFHILMNORSX][A-Z0-9]*\b/;                                                     // an HPLC, an MRI, an FDA
 const A_EXCEPT = /^(?:one\b|once\b|eu|ewe|uni(?!n)|unanim|usu|use|user|usa|uti|ure|uro|ubiq|ukr|eucal)/i;
 
@@ -592,7 +592,7 @@ const determiners = [
     const s = m.index + m[0].length - m[1].length;
     return { start: s, message: 'A named pathway takes "the": "the PI3K/AKT pathway".', replacements: [`the ${m[1]}`] };
   }),
-  regexRule('determiner', 'correctness', 'Missing article', /\b(?:using|by|with|via|through)\s+([A-Za-z0-9.-]*[A-Z0-9Δ][A-Za-z0-9.Δ-]*)(?=\s+(?:method|assay|kit|technique|staining)\b)/g, (m) => {
+  regexRule('determiner', 'correctness', 'Missing article', /\b(?:using|by|with|via|through)\s+([A-Za-z0-9.-]*[A-Z0-9Δ][A-Za-z0-9.Δ-]*)(?=\s+(?:method|assay|kit|technique)\b)/g, (m) => {   // a stain takes no article: "by HE staining", "TUNEL staining\"
     if ((m[1].match(/[A-Z0-9Δ]/g) || []).length < 2) return null; // "Microbiological assay" is a kind, not a name
     const s = m.index + m[0].length - m[1].length;
     return { start: s, message: 'A named assay, method or kit takes "the": "by the MTT assay".', replacements: [`the ${m[1]}`] };
@@ -735,8 +735,11 @@ function spelling(p, opts) {
     if (S.check(x.w, { variant: opts.variant, personal: opts.personal, ctx: { midSentence, repeated, address } })) continue;
     const variantWord = S.otherVariant(x.w, opts.variant);
     const us = opts.variant !== 'en-GB' && S.usMedical(x.w);
-    const reps = us ? [us, ...S.suggest(x.w, opts.variant).filter(w => w !== us)] : S.suggest(x.w, opts.variant);
+    let reps = us ? [us, ...S.suggest(x.w, opts.variant).filter(w => w !== us)] : S.suggest(x.w, opts.variant);
     if (variantWord) {
+      // the same word in the other spelling first ("analyse" -> "analyze", not the nearest word "analyte")
+      const other = counterpart(x.w, opts.variant).find(w => S.check(w, { variant: opts.variant, personal: opts.personal }));
+      if (other) reps = [other, ...reps.filter(w => w !== other)];
       out.push(issue('variant-spelling', 'correctness', opts.variant === 'en-GB' ? 'US spelling' : 'British spelling', x.start, x.end, p,
         `"${x.w}" is the ${opts.variant === 'en-GB' ? 'American' : 'British'} spelling. This document is set to ${opts.variant === 'en-GB' ? 'British' : 'American'} English.`, reps, { spelling: true }));
     } else {
@@ -760,6 +763,17 @@ function checkParagraph(p, goals = {}, opts = {}) {
   for (const s of sentences(p)) out.push(...sentenceRules(p, s, g).filter(i => !disabled.has(i.rule)));
   if (!disabled.has('overused')) out.push(...engagementDoc(p, g));
   return out;
+}
+
+/** The other spelling of a British / American word, by the usual rules (keeping the case of the first letter) */
+function counterpart(w, variant) {
+  const lw = w.toLowerCase(), out = [];
+  const toUS = [[/yse(s|d)?$/, 'yze$1'], [/ysing$/, 'yzing'], [/ise(s|d|r|rs)?$/, 'ize$1'], [/ising$/, 'izing'], [/isation(s)?$/, 'ization$1'], [/our(s|ed|ing|ite|ites|able)?$/, 'or$1'], [/tre(s)?$/, 'ter$1'],
+    [/ence$/, 'ense'], [/ae/, 'e'], [/oe/, 'e'], [/ll(ed|ing|er|ers)$/, 'l$1'], [/ogue(s)?$/, 'og$1'], [/^sulph/, 'sulf']];
+  const toGB = [[/yze(s|d)?$/, 'yse$1'], [/yzing$/, 'ysing'], [/ize(s|d|r|rs)?$/, 'ise$1'], [/izing$/, 'ising'], [/ization(s)?$/, 'isation$1'], [/or(s|ed|ing)?$/, 'our$1'], [/ter(s)?$/, 'tre$1'],
+    [/ense$/, 'ence'], [/^sulf/, 'sulph'], [/l(ed|ing|er|ers)$/, 'll$1']];
+  for (const [re, to] of (variant === 'en-GB' ? toGB : toUS)) if (re.test(lw)) out.push(lw.replace(re, to));
+  return out.map(x => (/^[A-Z]/.test(w) ? x[0].toUpperCase() + x.slice(1) : x));
 }
 
 module.exports = { checkParagraph, THESAURUS, keepCase };

@@ -20,7 +20,8 @@ const END_HEADINGS = /^\s*(?:appendix|appendices|tables?|figure legends|figure c
 // A wrapped line that starts with the year ("2020. 46(11): p. 1819-1831.") is not a new numbered entry
 const YEAR_LINE = /^\s*(?:1[6-9]|20)\d{2}[a-z]?[.,;]\s/;
 // Back matter that runs on after the last reference when the list has no closing heading
-const BACK_MATTER = /\s+(?:Captions\b|List of (?:[Tt]ables|[Ff]igures)\b|(?:Table|Figure|Fig\.)\s*S?1\s*:\s)/;
+// any table or figure caption ("Table 4: ...", "Ta b l e 1:", "Fig. 6: ..."): a PDF puts them between and after references
+const BACK_MATTER = /\s+(?:Captions\b|List of (?:[Tt]ables|[Ff]igures)\b|(?:T\s?a\s?b\s?l\s?e|Figure|Fig\.)\s*S?\d{1,2}[A-Za-z]?\s*:\s)/;
 
 // ------------------------------------------------------------------ text repair
 
@@ -224,6 +225,12 @@ function splitInlineNumbered(line) {
     if (chain.length > best.length) best = chain;
   }
   if (best.length < 2 || (best[0].n !== 1 && best.length < 3)) return [line];
+  // "... Part 1. News Letter ... Chap 2. Taylor & Francis ..." inside a run of unnumbered author-year references (a PDF
+  // flattened to one line): a numbered list starts at the beginning, not after thousands of characters of other entries
+  const avg = (line.length - best[0].at) / best.length;
+  if (best.length < 5 && best[0].at > Math.max(300, 3 * avg)) return [line];
+  // ... or when the text before "1." is already a whole author-year reference ("Khan A (2016). Title. Journal, 4: 1-5.")
+  if (best.length < 5 && best[0].at > 0 && /\((?:1[6-9]|20)\d{2}[a-z]?\)\.\s+\S[^]{15,}?\d\s*[-–]\s*\d+\.\s/.test(line.slice(0, best[0].at))) return [line];
   const out = [];
   if (best[0].at > 0) out.push(line.slice(0, best[0].at).trim());
   best.forEach((m, k) => out.push(line.slice(m.at, k + 1 < best.length ? best[k + 1].at : line.length).trim()));
@@ -320,7 +327,27 @@ function splitInlineAuthorYear(line) {
   // PDF's running head stands between them ("... et al Farber JL (1994). ..."): a whole author list up to "(2006)." with
   // no sentence end inside it, never cut inside an author list (after a comma, "and" or initials) or an editors' list,
   // and only where the text before the cut is already a reference of its own (its "(2003)." and title)
-  parts = parts.flatMap(cutBeforeAuthorList);
+  parts = parts.flatMap(cutBeforeAuthorList).flatMap(cutAfterPages);
+  // a cut inside a surname of several words leaves its first words behind ("... 76: 593-595. Del" | "Rosario Espinoza Mora M,
+  // Bohm M ... (2014)"): they go back to the reference they begin
+  // ... and a cut at an initial just before the year ("... 5186. Das S and Ganesh E." | "A (2010). ...", "... Zahra G and Alma." |
+  // "UD (2011)", "... Xiang L and Huang et al." | "W (2004)"): everything after the page numbers of the reference before goes
+  // with the year
+  for (let i = 0; i + 1 < parts.length; i++) {
+    const m = parts[i].match(/(?<=[\d)]\.)\s+((?:[\p{Lu}][\p{L}'’-]*)(?:\s+[\p{Lu}][\p{L}'’-]*){0,2})\s*$/u);
+    if (m && /^[\p{Lu}]/u.test(parts[i + 1])) { parts[i] = parts[i].slice(0, m.index); parts[i + 1] = `${m[1]} ${parts[i + 1]}`; continue; }
+    if (/^[^()]{0,14}\((?:1[6-9]|20)\d{2}[a-z]?\)/.test(parts[i + 1]) && parts[i].length < 250 && !YEAR_RE.test(parts[i]) && i > 0) {
+      parts.splice(i, 2, `${parts[i].trim()} ${parts[i + 1]}`); i--; continue;   // "Das S and Ganesh E." | "A (2010). ..."
+    }
+    if (/^[^()]{0,14}\((?:1[6-9]|20)\d{2}[a-z]?\)/.test(parts[i + 1])) {
+      const ends = [...parts[i].matchAll(/(?:\d{1,6}\s?[-–—]\s?\d{1,6}|:\s?[eE]?\d{1,9})\.\s+(?=[\p{Lu}\p{Ll}])/gu)];
+      const last = ends[ends.length - 1];
+      const tail = last ? parts[i].slice(last.index + last[0].length) : '';
+      if (last && tail.length > 1 && tail.length < 250 && !/\((?:1[6-9]|20)\d{2}/.test(tail) && OPENED.test(parts[i].slice(0, last.index + last[0].length))) {
+        parts[i] = parts[i].slice(0, last.index + last[0].length).trim(); parts[i + 1] = `${tail.trim()} ${parts[i + 1]}`;
+      }
+    }
+  }
   if (parts.length < 2) return [line];
   const out = [];
   for (const p of parts) {
@@ -345,6 +372,24 @@ function cutBeforeAuthorList(p) {
   return out;
 }
 
+/**
+ * The reference before ends with its pages and a full stop ("76: 593-595.", "21(7):294–9.", "28: 53-63.") and the next one's
+ * "(2014)" follows within 250 characters: a new reference, whatever form its author list has ("Del Rosario Espinoza Mora M",
+ * "H Fukui, Saito H", "de Arriba SG1", "Ritch KRCEM", "Huang et al. W"; 240 published PJPS articles, 18 Nov 2026). Only
+ * where the text before the cut is already a reference of its own, and never after "In:" (a chapter's book and editors).
+ */
+const AFTER_PAGES = /(?<=(?:\b\d{1,6}\s?[-–—]\s?\d{1,6}|:\s?[a-zA-Z]{0,4}\d{1,9})\.)\s*(?=(?:(?:de|da|van|von|del|der|den|di|du|dos|la|le|el)\s)?[\p{Lu}][^()]{1,250}?\((?:1[6-9]|20)\d{2}[a-z]?\)\.?(?:\s|$))/gu;
+function cutAfterPages(p) {
+  const out = []; let from = 0;
+  for (const m of p.matchAll(AFTER_PAGES)) {
+    const head = p.slice(from, m.index);
+    if (!OPENED.test(head) || /\bIn:\s*[^.]*$/.test(head)) continue;
+    out.push(head); from = m.index + m[0].length;
+  }
+  out.push(p.slice(from));
+  return out.filter(s => s.trim());
+}
+
 /** Line-continuation heuristic for unnumbered author-year lists (each entry starts "Surname, X." or "Surname X,") */
 function splitContinuation(lines) {
   const entries = [];
@@ -361,8 +406,11 @@ function splitContinuation(lines) {
     if (midAuthors || yearOnly) { cur += ' ' + line; continue; }
     const curDone = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /[.)\d]$/.test(cur);
     const strongEnd = cur && (YEAR_RE.test(cur) || DOI_REGEX.test(cur)) && /(?:\d[.)]?|10\.\S+)$/.test(cur);
+    // an organisation as the author, on a line of its own after a finished entry: "World Health Organization (2013). ...",
+    // "Clinical and Laboratory Standards Institute (CLSI) (2011). ..." (was run into the entry before it)
+    const orgEntry = curDone && /^[\p{Lu}][\p{L}'’&.-]*(?:\s+(?:of|and|for|the|on|in|&|[\p{Lu}][\p{L}'’&.-]*|\([\p{Lu}]{2,10}\))){1,10},?\s*\(\s*(?:1[6-9]|20)\d{2}[a-z]?\s*\)/u.test(line);
     if (!cur) cur = line;
-    else if ((NUMBERED_PREFIX.test(line) && !YEAR_LINE.test(line)) || (startsEntry(line) && (curDone || cur.length > 60)) || (strongEnd && /^[\p{Lu}[]/u.test(line))) {
+    else if ((NUMBERED_PREFIX.test(line) && !YEAR_LINE.test(line)) || (startsEntry(line) && (curDone || cur.length > 60)) || (strongEnd && /^[\p{Lu}[]/u.test(line)) || orgEntry) {
       entries.push(cur);
       cur = line;
     } else cur += ' ' + line;
@@ -452,9 +500,16 @@ function parseReferenceEntry(raw, index) {
     core.match(/(?:vol\.?\s*)?(\d{1,4})\s*\(\s*([\w\-–/ ]{1,12})\s*\)\s*[:,]?\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,9}(?:\s*[-–—]\s*[A-Za-z]?\d{1,9})?)/i) ||
     core.match(/vol\.?\s*(\d{1,4}),?\s*(?:no\.?|issue)\s*([\w\-–]{1,8}),?\s*(?:pp?\.?\s*)([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)/i) ||
     core.match(/;\s*(\d{1,4})\s*:\s*()([A-Za-z]?\d{1,6}(?:\s*[-–—]\s*[A-Za-z]?\d{1,6})?)/) ||
-    core.match(/,\s*(?:vol\.?\s*)?(\d{1,4})\s*()[,:]\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,6}\s*[-–—]\s*[A-Za-z]?\d{1,6}|e\d{3,8}|\d{4,8})\b/i) ||
+    core.match(/,\s*(?:vol\.?\s*)?(\d{1,4})\s*()[,:]\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,6}[A-Za-z]?\s*[-–—]\s*[A-Za-z]?\d{1,6}[A-Za-z]?|e\d{3,8}|\d{4,8})(?![\w-])/i) ||
     // article-number locators: "372: n71"
-    core.match(/\b(\d{1,4})\s*()\s*:\s*([enE][A-Za-z]?\d{1,9})\b/);
+    core.match(/\b(\d{1,4})\s*()\s*:\s*([enE][A-Za-z]?\d{1,9})\b/) ||
+    // at the end of the entry (published PJPS references, 18 Nov 2026): an online journal's volume and article number
+    // ("BMC Pediatr., 11: 60."), "Article ID" / "ID" numbers ("2019: ID 5162687"), e-locators ("9(43): eadh0215"), and
+    // volume and pages after a journal name written without its comma ("Baghdad Sci. J. 20: 15-20.")
+    core.match(/(?:,|\.)\s*(\d{1,4})\s*()\s*:\s*(?:Article\s+)?(?:ID\s*)?(\d[\dX]{0,19})\s*\.?\s*$/i) ||
+    core.match(/(?:,|\.)\s*(\d{1,4})\s*(?:\(\s*([\w\-–/ ]{1,12})\s*\))?\s*:\s*(?:Article\s+)?ID\s*:?\s*(\d{3,9})\b/i) ||
+    core.match(/\b(\d{1,4})\s*\(\s*([\w\-–/ ]{1,12})\s*\)\s*:\s*([a-z]{1,4}\d{3,9})\s*\.?\s*$/i) ||
+    core.match(/\.\s*(\d{1,4})\s*()\s*:\s*(\d{1,6}\s*[-–—]\s*\d{1,6})\s*\.?\s*$/);
   if (vip) {
     ref.volume = vip[1];
     ref.issue = (vip[2] || '').trim();
@@ -569,7 +624,9 @@ function finishEntry(ref, core, accessed) {
     ref.title = ref.title.slice(lead[0].length).trim();
   }
   ref.firstAuthorSurname = ref.authors[0]?.family || null;
-  ref.looksLikeBook = !!ref.looksLikeBook || !!ref.isbn || (/\b(?:press|publisher|publishing|edition|ed\.|eds\.|books?)\b/i.test(core) && !ref.volume);
+  // books, theses and pharmacopoeias with no volume (published PJPS references: "CBS Publishers", "Ph.D. thesis",
+  // "British Pharmacopoeia (2016). Her Majesty's Stationery Office", "Springer Science & Business Media", "Bailliere Tindall")
+  ref.looksLikeBook = !!ref.looksLikeBook || !!ref.isbn || (/\b(?:press|publishers?|publishing|edition|edn|ed\.|eds\.|books?|thesis|dissertation|pharmacop[oe]{1,2}ia|formulary|handbook|textbook|monographs?|wiley|springer|elsevier|academic|tindall|saunders|lippincott|mcgraw|churchill|mosby|pergamon|crc|taylor\s*&\s*francis|stationery|stationary office|marcel dekker)\b/i.test(core) && !ref.volume);
   ref.looksLikeWeb = ref.urls.length > 0 && !ref.doi && !ref.volume;
   if (ref.looksLikeWeb) { ref.type = 'webpage'; ref.url = ref.urls[0]; if (accessed) ref.accessed = accessed[1].trim(); }
   // Edited-book chapter: "Title. In: Gilman AG, Goodman LS (eds.), Book title, 7th ed., Publisher, Place, pp. 446-472."
@@ -720,7 +777,7 @@ function journalFrom(rest) {
   return String(rest || '')
     .replace(/^[\s.,?!:]+/, '')
     .replace(/^In:?\s+/i, '')
-    .split(/,?\s*(?:vol\.?\s*)?\d{1,4}\s*\(|,\s*\d|;|\s(?:1[6-9]|20)\d{2}\b|,\s*(?:vol|no|pp)\b|\.\s+(?:In|Available|Retrieved|Accessed)\b/i)[0]
+    .split(/,?\s*(?:vol\.?\s*)?\d{1,4}\s*\(|,\s*\d|;|\s(?:1[6-9]|20)\d{2}\b|,\s*(?:vol|no|pp)\b|\.\s+(?:In|Available|Retrieved|Accessed)\b|(?<=\.)\s*\d{1,4}\s*:\s*\d/i)[0]
     .replace(/[.,:\s]+$/, '')
     .trim();
 }
@@ -898,7 +955,52 @@ function extractManuscriptMeta(text) {
   }
   const kw = head.match(/(?:key\s*words?|index terms)\s*[:\-–]\s*([^\n]+)/i);
   if (kw) meta.keywords = kw[1].split(/[;,•·]/).map(s => s.trim().replace(/\.$/, '')).filter(Boolean).slice(0, 12);
+  if (!meta.title || !meta.abstract) flatMeta(head, meta);
   return meta;
+}
+
+/**
+ * A title page flattened to one line (a PDF copied as text, the corpus store): "Pak. J. Pharm. Sci., Vol.27, No.3, May 2014,
+ * pp.703-711 703 Identification of a helicase-like protein ... phage 4 gene Qi Zhang 1 , Qiupeng Li 1 , ... Abstract: DNA
+ * helicases ... Keywords: ...". The abstract is what stands between "Abstract" and "Keywords" / "Introduction"; the title is
+ * what follows the journal's running head, up to the first author with an affiliation mark ("Chi Ma 1 *,"). Measured on 200
+ * published PJPS articles (18 Nov 2026): none had a title or abstract read before.
+ */
+function flatMeta(head, meta) {
+  if ((head.slice(0, 3000).match(/\n/g) || []).length > 6) return;   // a normal title page: the line reader has done its best
+  if (!meta.abstract) {
+    const ab = head.match(/\b(?:abstract|summary)\b\s*[:.]?\s*([\s\S]{150,3500}?)\s*(?:\bkey\s*words?\b|\bindex terms\b|\bintroduction\b)/i);
+    if (ab) meta.abstract = ab[1].replace(/\s+/g, ' ').trim();
+  }
+  if (!meta.keywords.length) {
+    const kw = head.match(/\bkey\s*words?\s*[:\-–]\s*(.{3,400}?)\s*(?:\bintroduction\b|$)/i);
+    if (kw) meta.keywords = kw[1].split(/[;,•·]/).map(s => s.trim().replace(/\.$/, '')).filter(w => w && w.length < 60).slice(0, 12);
+  }
+  if (!meta.title) {
+    const absAt = head.search(/\b(?:abstract|summary)\b\s*[:.]?/i);
+    let front = (absAt > 0 ? head.slice(0, absAt) : head.slice(0, 1500)).replace(/\s+/g, ' ');
+    // the journal's running head: "Pak. J. Pharm. Sci., Vol.31, No.3(Special), May 2018, pp.1151-1156 1151"
+    front = front.replace(/^.{0,160}?\bpp\.?\s*\d+\s*[-–]\s*\d+\s+\d+\s+/i, '').replace(/^.{0,120}?\bdoi\.org\/\S+\s+/i, '');
+    // the first author written "Name Surname 1 ," / "Name Surname1*," / "Name Surname 1, 2 *"
+    // ("Jie Zhu 1 △ ,"), one name with a mark ("Alamgeer 1 *,"), or in capitals ("LATEEF SAKA KASIM, 1*")
+    const au = front.match(/\s(?=[\p{Lu}][\p{L}'’-]+(?:[\s-][\p{Lu}](?:[\p{L}'’-]+|\.)?){1,3}\s?(?:[*†#△▲]\s?)?[\d¹²³⁴⁵⁶⁷⁸⁹]{1,2}(?:\s?,\s?\d{1,2})*\s?(?:[*†#△▲]\s?){0,3}(?:,|and\b)|[\p{Lu}][\p{Ll}'’-]+\s?\d{1,2}\s?[*†#△▲]\s?,|(?:[\p{Lu}]{2,}\s){1,3}[\p{Lu}]{2,},\s?\d{1,2}\s?\*?)/u);
+    const t = au ? front.slice(0, au.index).trim() : '';
+    if (t.length >= 20 && t.length <= 300 && !/\b(?:abstract|department|university)\b/i.test(t)) meta.title = t.replace(/[.\s]+$/, '');
+    // the authors ("Qi Zhang 1 , Qiupeng Li 1 , ... and Lianbing Lin 1 *") up to the first affiliation ("1 Biotechnology
+    // Research Center, ..."), then the affiliations, each after its number
+    if (au && !meta.authors.length) {
+      const rest = front.slice(au.index).trim();
+      const affAt = rest.search(/\s[*†#]?\s?\d{1,2}\s?[*†#]?\s?(?=(?:[\p{Lu}][\p{L}.&'’-]*\s){0,6}(?:Department|Dept\.?|Faculty|College|School|Institute|Laboratory|Center|Centre|University|Hospital|Division|Key Laboratory|Research)\b)|\s(?=(?:Department|Dept\.?|Faculty|College|School|Institute)\s+of\b)/u);
+      const names = (affAt > 0 ? rest.slice(0, affAt) : '').replace(/[\d¹²³⁴⁵⁶⁷⁸⁹*†#△▲]+/g, ' ').split(/\s*,\s*|\s+and\s+|\s*&\s*/)
+        .map(s => s.replace(/\s+/g, ' ').trim()).filter(s => /^[\p{Lu}][\p{L}'’.-]*(?:\s[\p{L}'’.-]+){0,4}$/u.test(s) && s.length <= 60);
+      if (names.length && names.length <= 30) meta.authors = names.map(n => ({ name: n }));
+      // (the line reader may have taken the whole one-line page for one affiliation)
+      if (affAt > 0 && (!meta.affiliations.length || meta.affiliations.some(a => a.length > 400))) {
+        meta.affiliations = rest.slice(affAt).split(/\s[*†#]?\s?\d{1,2}\s?[*†#]?\s?(?=[\p{Lu}])/u).map(s => s.replace(/\s+/g, ' ').trim())
+          .filter(s => s.length > 8 && AFFIL_RE.test(s)).slice(0, 15);
+      }
+    }
+  }
 }
 
 // affiliation and role marks written after (or between) author names: 1, ¹, [2], [1,3], 2,*, 1#, ⁎, †, [] ...
@@ -997,7 +1099,13 @@ function extractAuthorYearCitations(body) {
       const part = normalizeCitation(raw.replace(/^(?:e\.g\.,?|see|cf\.|also|i\.e\.,?)\s+/i, ''));
       const pm = part.match(new RegExp(`^${parenAuthor}(,\\s*|\\s+)${yearList}`, 'u'));
       // an acronym followed by an old "year" is a product or strain number: (RPMI 1640), (MT 1631), (ATCC 1911), (Shimadzu UV-1700)
-      if (pm && !(/^[\p{Lu}\d\s-]+$/u.test(pm[1]) && !pm[2].includes(',') && +pm[3].slice(0, 4) < 1950) && !/-$/.test(pm[1])) { addAuthorYear(cites, pm[1], pm[3], m, body); lastAuthor = pm[1]; continue; }
+      // an instrument and its model with the maker or country: (Shimadzu 1601, Japan), (UV 2000, Hitachi) - no comma before
+      // the number and no other year in the brackets
+      const model = pm && !pm[2].includes(',') && m[1].trim().startsWith(pm[0]) && /^\s*,\s*\p{Lu}[^\d;]*$/u.test(m[1].trim().slice(pm[0].length));
+      // the author of a species name: "Genus : Acanthaster (Gervais, 1841)", "Nigella sativa (Linnaeus, 1753)"
+      const before = body.slice(Math.max(0, m.index - 40), m.index);
+      const taxon = pm && +pm[3].slice(0, 4) < 1900 && (/\b(?:genus|species|family|order)\s*:?\s*\p{Lu}\p{Ll}+\s*$/iu.test(before) || /\b\p{Lu}(?:\p{Ll}+|\.)\s+\p{Ll}{3,}\s*$/u.test(before));
+      if (pm && !model && !taxon && !(/^[\p{Lu}\d\s-]+$/u.test(pm[1]) && !pm[2].includes(',') && +pm[3].slice(0, 4) < 1950) && !/-$/.test(pm[1])) { addAuthorYear(cites, pm[1], pm[3], m, body); lastAuthor = pm[1]; continue; }
       // more years of the same authors after a semicolon: (Wanxi et al., 2013a; 2013b; 2012a)
       const ym = lastAuthor && part.match(onlyYears);
       if (ym) addAuthorYear(cites, lastAuthor, ym[1], m, body);

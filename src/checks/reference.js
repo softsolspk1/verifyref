@@ -2,7 +2,7 @@
 const S = require('../sources');
 const { request, isOnline } = require('../http');
 const { titleSimilarity, titleContains, nameMatch, journalSimilarity, normalize, normalizeJournal } = require('../text');
-const { retractionsFor, flaggedFor } = require('../datasets');
+const { retractionsFor, retractionsByTitle, titleKey, flaggedFor } = require('../datasets');
 const { formatReference, detectStyle } = require('../format');
 const { resolveJournal } = require('./journal');
 
@@ -117,14 +117,23 @@ function compare(ref, rec, s) {
   const shortRecord = rec.title && flatT(rec.title).split(' ').length <= 3 && flatT(ref.title).startsWith(flatT(rec.title));
   if (extra.invented >= 4 && !shortRecord) add('title-extra', 'medium', `The cited title has words that are not in the registered title (“${extra.extras.slice(0, 8).join(' ')}”)`, ref.title, rec.title);
   else if (s.tSim < 0.85 && ref.title) add('title', s.tSim < 0.65 ? 'medium' : 'low', 'Title differs from the registered record', ref.title, rec.title);
-  if (s.authorScore === 0) add('author', 'medium', 'First author does not appear in the registered author list', ref.authors.map(a => a.family).join(', '), rec.authors.slice(0, 6).map(a => a.family).join(', '));
+  // a book is reprinted and re-edited: another year or the pages cited from it are not errors of the citation (published PJPS
+  // references, 18 Nov 2026: "The Pharmacology of Chinese Herbs, 2nd ed.", Katzung's "Basic & Clinical Pharmacology")
+  const bookRec = /^(?:book|monograph|edited-book|reference-book|book-set|book-series)$/i.test(rec.type || '') || (greyRef(ref) && /book|chapter|monograph|reference-entry/i.test(rec.type || ''));
+  // the registry's "author" is an affiliation ("Deparment of Botany, Govt. Girls College, Jhunjhunu"), or the reference names
+  // the editors of a book: the author comparison says nothing
+  const badAuthor = /\b(?:department|deparment|dept|college|university|institute|faculty|school|hospital|laboratory)\b|\d/i.test(`${rec.authors?.[0]?.family || ''} ${rec.authors?.[0]?.given || ''}`)
+    || (/\(\s*eds?\.?\s*\)|\beditors?\b/i.test(ref.raw || '') && bookRec);
+  if (badAuthor) { /* not compared */ }
+  else if (s.authorScore === 0) add('author', 'medium', 'First author does not appear in the registered author list', ref.authors.map(a => a.family).join(', '), rec.authors.slice(0, 6).map(a => a.family).join(', '));
   // the cited first author is a later author of the record ("Olson and Trott" for Trott and Olson): the citation itself
   // (author-year, place in an alphabetical list) is wrong, not just the order further down
   else if (s.authorScore === 0.7) add('author-first', 'medium', `First author is wrong: the registered first author is ${rec.authors[0]?.family}`, ref.authors.slice(0, 3).map(a => a.family).join(', '), rec.authors.slice(0, 3).map(a => a.family).join(', '));
   else if (s.authorScore !== null && s.authorScore < 1) add('author-order', 'low', 'Author order differs from the registered record', ref.authors[0]?.family, rec.authors[0]?.family);
   if (ref.year && rec.year && ref.year !== rec.year) {
     const d = Math.abs(ref.year - rec.year);
-    add('year', d === 1 ? 'low' : 'medium', d === 1 ? 'Year differs by one (often online-first vs print year)' : 'Publication year is wrong', ref.year, rec.year);
+    if (bookRec) add('year', 'low', 'Year differs from the registered edition: give the year of the edition used', ref.year, rec.year);
+    else add('year', d === 1 ? 'low' : 'medium', d === 1 ? 'Year differs by one (often online-first vs print year)' : 'Publication year is wrong', ref.year, rec.year);
   }
   // a chapter matched to its book, or a book to a series, is not a wrong journal
   if (s.journalScore !== null && s.journalScore < 0.5 && !greyRef(ref) && !/book|chapter|monograph|reference-entry/i.test(rec.type || '')) {
@@ -141,7 +150,7 @@ function compare(ref, rec, s) {
   const vol = v => (String(v).match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, '');
   if (ref.volume && rec.volume && vol(rec.volume) && vol(ref.volume) !== vol(rec.volume)) add('volume', 'medium', 'Volume number is wrong', ref.volume, rec.volume);
   if (ref.issue && rec.issue && normalize(ref.issue) !== normalize(rec.issue) && !String(rec.issue).includes(ref.issue)) add('issue', 'low', 'Issue number differs', ref.issue, rec.issue);
-  if (ref.pages && rec.pages) {
+  if (ref.pages && rec.pages && !(bookRec && !/chapter/i.test(rec.type || ''))) {
     const fp = firstPage(ref.pages), rfp = firstPage(rec.pages);
     // an online journal's article number on one side and its page count ("1-8") on the other is the same article: cited
     // "263897" for BioMed Res. Int. (DOI 10.1155/2014/263897, registered "1-8"), cited "1-7" for article 16
@@ -514,6 +523,10 @@ async function classify(v, retraction) {
   } else if (anyFound && (record.retracted || (retraction && /retraction/i.test(retraction.nature)))) {
     status = 'retracted';
     reason = 'This work has been retracted';
+  } else if (!anyFound && retraction && /retraction/i.test(retraction.nature)) {
+    // no registry record, but Retraction Watch holds this exact title with the cited first author
+    status = 'retracted';
+    reason = 'This work has been retracted (Retraction Watch: same title and first author; no registry record was found for the citation)';
   } else if (!anyFound && v.web?.length) {
     // Google found a page with this title: the work exists. For a web page, report, book or thesis that is the check;
     // for a journal article it is not a bibliographic match, so it stays unverified, but it is not a sign of fabrication
@@ -660,13 +673,26 @@ async function checkReferences(refs, opts = {}) {
 
   // Retraction Watch (local dataset), batched
   const rw = await retractionsFor(results.map(r => r.record?.doi || r.ref.doi));
+  // a retracted paper cited without a DOI, whose registry record was not found: its title in Retraction Watch, confirmed by
+  // the first author's surname (or the year, where Retraction Watch gives no authors)
+  const noRw = results.filter(r => !rw.get((r.record?.doi || r.ref.doi || '').toLowerCase()) && !r.record?.retracted);
+  const byTitle = await retractionsByTitle(noRw.flatMap(r => [r.ref.title, r.record?.title].filter(Boolean))).catch(() => new Map());
+  const titleRetraction = v => {
+    const fam = String(v.ref.authors?.[0]?.family || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    for (const t of [v.ref.title, v.record?.title]) for (const row of byTitle.get(titleKey(t)) || []) {
+      const names = String(row.authors || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const ry = parseInt((String(row.retraction_date || '').match(/\b(?:19|20)\d\d\b/) || [])[0], 10);
+      if ((fam.length >= 2 && names && new RegExp('(?:^|[^a-z])' + fam.replace(/[^a-z]/g, '.') + '(?:[^a-z]|$)').test(names)) || (!names && v.ref.year && ry && ry >= v.ref.year - 1)) return row;
+    }
+    return null;
+  };
   // papers with major problems documented in published integrity audits (not retracted)
   const flags = await flaggedFor(results.map(r => r.record?.doi || r.ref.doi)).catch(() => new Map());
 
   const year = new Date().getFullYear();
   const out = [];
   for (const v of results) {
-    const retraction = rw.get((v.record?.doi || v.ref.doi || '').toLowerCase()) || null;
+    const retraction = rw.get((v.record?.doi || v.ref.doi || '').toLowerCase()) || (v.record?.retracted ? null : titleRetraction(v)) || null;
     const flagged = retraction ? null : flags.get((v.record?.doi || v.ref.doi || '').toLowerCase()) || null;
     const { status, reason } = await classify(v, retraction);
     const rec = v.record;

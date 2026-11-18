@@ -111,7 +111,14 @@ function checkAuthorYear(body, refs) {
   // a surname of several words is also cited by its last one ("Ricardo da Silva JM" as "da Silva"; a PDF's running head
   // run into the entry, "Bacillus Mouafi FE", as "Mouafi")
   const lastWord = r => { const f = r.authors?.[0]; const w = !f?.corporate && String(f?.family || '').trim().split(/\s+/); return w && w.length > 1 ? key(w[w.length - 1]) : null; };
-  const refKeys = refs.map(r => ({ ref: r, authors: refAuthorKeys(r), last: lastWord(r), year: r.year, suffix: r.yearSuffix || '' }));
+  // an organisation cited by its acronym: "CLSI, 2011" for "Clinical Laboratory Standards Institute (2011)", "WHO" for "World
+  // Health Organization", "NRC" for "National Research Council" (the capitalised words of the name, before the year)
+  const acronym = r => {
+    const name = r.authors?.[0]?.corporate ? r.authors[0].family : (String(r.raw || '').replace(/^\s*(?:\[?\d{1,3}[.)\]]\s*)?/, '').match(/^([^(.,:]{8,120}?)\s*\(\s*(?:1[6-9]|20)\d{2}/) || [])[1];
+    const words = String(name || '').split(/[\s-]+/).filter(w => /^\p{Lu}/u.test(w));
+    return words.length >= 2 && words.length <= 8 ? words.map(w => w[0]).join('').toLowerCase() : null;
+  };
+  const refKeys = refs.map(r => ({ ref: r, authors: refAuthorKeys(r), last: lastWord(r), acr: acronym(r), year: r.year, suffix: r.yearSuffix || '' }));
   const citedCount = new Map();
   const missing = [];
   const ambiguous = [];
@@ -124,6 +131,10 @@ function checkAuthorYear(body, refs) {
     const second = c.authors[1] ? key(c.authors[1]) : null;
     let sameAuthor = refKeys.filter(k => k.authors[0] === first || (k.ref.authors?.[0]?.corporate && key(k.ref.authors[0].family).startsWith(first)));
     if (!sameAuthor.some(k => k.year === c.year) && first.length >= 3) sameAuthor = sameAuthor.concat(refKeys.filter(k => k.last === first && k.year === c.year));
+    // "von Elm et al., 2014" for the entry "Elm E, Altman DG ..." (the particle left out of the reference list), and back
+    const bare = key(String(c.authors[0]).replace(/^(?:von|van|de|da|du|del|der|den|di|la|le|dos|das)\s+/i, ''));
+    if (!sameAuthor.some(k => k.year === c.year) && bare.length >= 3) sameAuthor = sameAuthor.concat(refKeys.filter(k => k.year === c.year && !sameAuthor.includes(k) && (k.authors[0] === bare || key(String(k.ref.authors?.[0]?.family || '').replace(/^(?:von|van|de|da|du|del|der|den|di|la|le|dos|das)\s+/i, '')) === bare)));
+    if (!sameAuthor.some(k => k.year === c.year) && /^\p{Lu}{2,8}$/u.test(c.authors[0]) && !second) sameAuthor = sameAuthor.concat(refKeys.filter(k => k.acr === c.authors[0].toLowerCase() && k.year === c.year));
     let cands = sameAuthor.filter(k => k.year === c.year);
     if (second) {
       const narrowed = cands.filter(k => k.authors[1] === second);

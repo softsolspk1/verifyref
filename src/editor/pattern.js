@@ -113,7 +113,10 @@ function analyzeCitationPattern(meta, results, opts = {}) {
     const initialsShare = words.length ? words.filter(w => /^[A-Z]{1,3}[,.;]?$/.test(w)).length / words.length : 0;
     // ... or a book chapter's publisher details ("InLiposomes; Humana Press: New York, NY, USA, 2010; pp. 29-50")
     const judgeable = terms.length >= 3 && initialsShare < 0.25 && !/^\(?[A-H]\)\s|scale bar|for peer review|^\[?crossref\]?$/i.test(title)
-      && !/\b(?:Press|Publishers?|Springer|Elsevier|Wiley)\b[^.]*[:;,]|\bEds?\.\s*[;:,]|\bpp\.\s*\d/.test(title);
+      && !/\b(?:Press|Publishers?|Springer|Elsevier|Wiley)\b[^.]*[:;,]|\bEds?\.\s*[;:,]|\bpp\.\s*\d/.test(title)
+      // a book, pharmacopoeia or web page is general background, not a topical source ("Physician Desk Reference", "Her
+      // Majesty's Stationery Office"; published PJPS articles, 18 Nov 2026)
+      && !r.parsed?.looksLikeBook && r.parsed?.type !== 'webpage' && !/\b(?:pharmacop[oe]{1,2}ia|stationa?ery office|formulary|desk reference|handbook)\b/i.test(r.raw || '');
     const coverage = terms.length ? terms.filter(t => msTerms.has(t)).length / terms.length : 0;
     const topicHits = terms.filter(t => topicTerms.has(t)).length;
     const level = scores[i] === null || !judgeable ? 'unknown'
@@ -224,7 +227,9 @@ function analyzeCitationPattern(meta, results, opts = {}) {
   // with the manuscript text: 2 or more (no real PJPS manuscript of 25 had more than 1; 3 sources on other subjects
   // added to them were flagged in 23 of 25, 5 in 25 of 25 - 8 Nov 2026). From the title / abstract alone: 20% as before
   const offTopicFlag = hasBody ? offTopic.length >= 2 : offTopic.length >= Math.max(3, total * 0.2);
-  if (offTopicFlag && basis) flags.push({ severity: hasBody && offTopic.length >= Math.max(5, total * 0.15) ? 'high' : 'medium', code: 'off-topic', message: `${offTopic.length} references look unrelated to the manuscript topic: ${offTopic.slice(0, 6).map(o => `[${o.index}]`).join(', ')}${offTopic.length > 6 ? ' ...' : ''}`, guidance: hasBody ? 'Fewer than a quarter of the words of these reference titles occur anywhere in the manuscript. Ask the authors what each one supports; a source that supports no statement pads the reference list.' : 'Weak relevance is estimated from the title, abstract and keywords only (the manuscript text was not available); a methods or statistics reference can be legitimately “off-topic”.' });
+  // exactly two with the text: a low note (on 200 published PJPS articles two came up in 14, mostly honest background
+  // sources; three or more in 8). Noting from two on still finds 152 of 198 articles given three planted unrelated sources
+  if (offTopicFlag && basis) flags.push({ severity: hasBody && offTopic.length >= Math.max(5, total * 0.15) ? 'high' : hasBody && offTopic.length < 3 ? 'low' : 'medium', code: 'off-topic', message: `${offTopic.length} references look unrelated to the manuscript topic: ${offTopic.slice(0, 6).map(o => `[${o.index}]`).join(', ')}${offTopic.length > 6 ? ' ...' : ''}`, guidance: hasBody ? 'Fewer than a quarter of the words of these reference titles occur anywhere in the manuscript. Ask the authors what each one supports; a source that supports no statement pads the reference list.' : 'Weak relevance is estimated from the title, abstract and keywords only (the manuscript text was not available); a methods or statistics reference can be legitimately “off-topic”.' });
 
   return {
     basis,

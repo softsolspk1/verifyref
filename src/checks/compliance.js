@@ -79,7 +79,8 @@ function checkEntry(ref, record, nlm = null) {
   // ---- title
   const title = p?.title || ref.title || '';
   if (title) {
-    if (titleCaseRatio(title) > 0.6) add('title', 'Title in sentence case (only the first word and proper nouns capitalised)', title.slice(0, 90), null);
+    // the sentence-case rule is for article titles: a book's title keeps its capitals ("Practical Pharmaceutical Chemistry")
+    if (!book && !/\b(?:thesis|dissertation)\b/i.test(text) && titleCaseRatio(title) > 0.6) add('title', 'Title in sentence case (only the first word and proper nouns capitalised)', title.slice(0, 90), null);
     if (p && !/[.?!]$/.test(title)) add('title', 'Title ends with a full stop', title.slice(-20), null, 'low');
     // without its full stop the title runs into the journal name ("…dye binding Anal. Biochem.,") and the split above
     // cannot see it; the matched record knows where the title ends: the reference's own words of it, then a capital

@@ -278,6 +278,12 @@ const AFF_STOP = new Set(['university', 'universit', 'department', 'faculty', 'c
   // address words, generic departments and countries (author benchmark, 17 Nov 2026: "korea", "post", "army" and "business
   // administration" were the only institution words in common on HIGH matches of ordinary papers)
   'anesthesiology', 'anaesthesiology', 'anesthesia', 'anaesthesia', 'dermatology', 'ophthalmology', 'otolaryngology', 'gastroenterology', 'endocrinology', 'hematology', 'haematology', 'rheumatology', 'geriatrics', 'geriatric', 'psychiatry', 'immunology', 'genetics', 'nutrition', 'rehabilitation', 'stomatology', 'pulmonology', 'hepatology', 'neurosurgery', 'thoracic', 'cardiothoracic', 'vascular', 'plastic', 'trauma', 'maternal', 'maternity', 'child', 'pediatric', 'paediatric', 'ultrasound', 'imaging', 'nuclear', 'transfusion', 'blood', 'infection', 'control', 'prevention',
+  // subjects and words of personal names inside institution names ("Abdul Wali Khan University", "Prince Sattam"): the
+  // only words in common on false high matches in the 990-author audit (18 Nov 2026)
+  'food', 'foods', 'marine', 'plant', 'plants', 'biological', 'practice', 'crop', 'crops', 'soil', 'water', 'energy', 'materials', 'textile', 'textiles',
+  'academy', 'academic', 'union', 'hepatobiliary', 'pancreatic', 'horticulture', 'orthopedic', 'orthopaedic', 'cardiovascular', 'neonatology', 'gastroenterology', 'hematology', 'nephrology',
+  'universiti', 'universitas', 'universite', 'universitat', 'teknologi', 'industry', 'industrial', 'polytechnic', 'home',
+  'abdul', 'abdullah', 'khan', 'ali', 'ahmad', 'ahmed', 'muhammad', 'mohammad', 'shah', 'hussain', 'prince', 'bin', 'sultan',
   'post', 'postal', 'office', 'road', 'street', 'avenue', 'avda', 'avenida', 'calle', 'block', 'sector', 'floor', 'building', 'army', 'navy', 'military', 'administration', 'business', 'commerce', 'affairs', 'services', 'service', 'social',
   'korea', 'japan', 'turkey', 'turkiye', 'malaysia', 'indonesia', 'thailand', 'vietnam', 'nigeria', 'ethiopia', 'kenya', 'ghana', 'iraq', 'jordan', 'lebanon', 'syria', 'yemen', 'oman', 'qatar', 'bahrain', 'emirates', 'algeria', 'morocco', 'tunisia', 'libya', 'sudan', 'bangladesh', 'nepal', 'lanka', 'afghanistan', 'russia', 'brazil', 'mexico', 'chile', 'argentina', 'colombia', 'peru', 'spain', 'italy', 'france', 'germany', 'poland', 'romania', 'greece', 'portugal', 'canada', 'australia', 'zealand', 'america', 'england', 'taiwan', 'hong', 'kong', 'singapore', 'philippines']);
 // Cities: a shared city is a weak hint only ("Multan" covers several universities and hospitals)
@@ -298,7 +304,8 @@ const PAIR_SKIP = new Set(['the', 'and', 'of', 'for', 'department', 'faculty', '
 const PAIR_GENERIC = new Set(['sciences', 'science', 'medical', 'dental', 'health', 'research', 'studies', 'technology', 'engineering', 'hospital', 'medicine', 'pharmaceutical', 'pharmacy', 'clinical', 'national', 'international', 'applied', 'natural', 'life', 'basic', 'allied', 'general', 'teaching', 'government', 'public', 'state', 'key', 'laboratory',
   // country names: "Saudi Arabia" or "People's Republic of China" in common says nothing about the institution
   'saudi', 'arabia', 'republic', 'china', 'people', 'peoples', 'kingdom', 'united', 'states', 'india', 'iran', 'egypt', 'japan', 'korea', 'turkey', 'malaysia', 'nigeria', 'pakistan', 'tamil', 'nadu', 'academy', 'affiliated', 'first', 'second', 'third', 'chinese',
-  'business', 'administration', 'army', 'post', 'office', 'box', 'road', 'street', 'avenue', 'avda', 'avenida']);
+  'business', 'administration', 'army', 'post', 'office', 'box', 'road', 'street', 'avenue', 'avda', 'avenida',
+  'nursing', 'surgical', 'marine', 'environmental', 'food', 'biological', 'plant', 'education']);
 const affPairs = s => {
   const out = new Set();
   for (const part of String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[;,]/)) {
@@ -336,6 +343,7 @@ async function authorRetractions(authors, affiliations = []) {
   const myOffField = NON_BIOMED.test((affiliations || []).join(' '));
   // the first word of the first name, when it is a name and not an initial ("M. A." gives none)
   const firstWord = g => { const w = String(g || '').toLowerCase().split(/[\s.]+/).filter(Boolean)[0] || ''; return w.replace(/-/g, '').length > 1 ? w.replace(/-/g, '') : ''; };
+  const per = [];
   for (const a of authors.slice(0, 15)) {
     if (!a.family || a.family.length < 2 || (a.family.length < 3 && String(a.given || '').replace(/[.\s-]/g, '').length < 2)) continue;
     const rows = await D.retractionsByAuthor(a.family, a.given).catch(() => []);
@@ -362,16 +370,30 @@ async function authorRetractions(authors, affiliations = []) {
       const offField = !myOffField && !!r.institution && String(r.institution).split(/\s*;\s*/).filter(Boolean).every(x => NON_BIOMED.test(x));
       hits.push({ r, fullFirst, coauthors, offField, distinctive: [...shared.filter(t => !AFF_PLACES.has(t)), ...pairs], places: shared.filter(t => AFF_PLACES.has(t)) });
     }
-    const common = new Set(hits.filter(h => h.fullFirst && h.r.institution).map(h => instKey(h.r.institution))).size >= COMMON_NAME_PLACES;
+    const common = new Set(hits.filter(h => h.fullFirst && h.r.institution).map(h => instKey(h.r.institution))).size >= COMMON_NAME_PLACES
+      || /^(?:muhammad|mohammad|mohammed|syed|ghulam)\b/i.test(String(a.given || ''));   // "Muhammad Akram", "Syed Ali Shah": thousands of people
+    per.push({ a, hits, common });
+  }
+  const commonOf = name => per.find(x => `${x.a.given} ${x.a.family}`.trim() === name)?.common ?? true;
+  // Audit of 990 authors of 168 published PJPS articles (18 Nov 2026): 280 high / medium matches, most of them other people.
+  //   - a retraction from mathematics, computing, engineering or textiles is another person even when a co-author's name
+  //     recurs ("Muhammad Akram" with "Syed Muhammad Ali Shah", Department of Mathematics, for a pharmacy paper)
+  //   - one co-author counts only with a word of the institution in common or when neither name is common ("Jie Zhu" with
+  //     "Chang Liu" on a textile paper); two or more co-authors on the same retracted paper identify the group
+  //   - a city or province alone ("Lahore", "Zhengzhou") is not the same institution: medium at most
+  //   - medium (a full name, nothing else in common) is no longer counted in the risk (see detectPaperMill)
+  for (const { a, hits, common } of per) {
     for (const { r, fullFirst, coauthors, offField, distinctive, places } of hits) {
       const sameCountry = myPk && /pakistan/i.test(r.country || '');
+      const strongGroup = coauthors.length >= 2 || (coauthors.length === 1 && (distinctive.length >= 1 || (!common && !commonOf(coauthors[0]))));
       const confidence = !fullFirst ? 'low'
-        : coauthors.length ? 'high'
         : offField ? 'low'
+        : strongGroup ? 'high'
         // a common name needs two distinctive words of the institution in common: one ward or hospital name is not enough
-        : distinctive.length >= (common ? 2 : 1) ? 'high'
+        // ... two different words: "saud" and the pair "king saud" are one institution, not two
+        : new Set(distinctive.flatMap(w => w.split(' ')).filter(w => !AFF_STOP.has(w) && !PAIR_SKIP.has(w))).size >= (common ? 2 : 1) ? 'high'
         : common ? 'low'
-        : (places.length || (sameCountry && !r.institution)) ? 'high' : 'medium';
+        : 'medium';
       out.push({ confidence, commonName: common, offField, coauthors, institutionMatch: [...distinctive, ...places].slice(0, 3), sameCountry, institution: (r.institution || '').slice(0, 160), author: `${a.given} ${a.family}`.trim(), title: r.title, journal: r.journal, date: r.retraction_date, doi: r.doi, reason: r.reason, mill: D.MILL_REASON_RE.test(r.reason || '') });
     }
   }
@@ -391,7 +413,7 @@ async function crossrefAuthorOrcid(doi, a) {
 }
 const orcidDigits = o => String(o || '').replace(/[^\dX]/gi, '').toUpperCase().slice(-16);
 
-const NON_BIOMED = /\b(?:mechanical|electrical|civil|chemical engineering|computer science|software|business|management sciences|economics|commerce|mathematics|physics|english|law|architecture|mass communication|islamic studies)\b/i;
+const NON_BIOMED = /\b(?:mechanical|electrical|civil|chemical engineering|computer science|software|business|management sciences|economics|commerce|mathematics|physics|english|law|architecture|mass communication|islamic studies|textiles?|education|transportation|information technology|electronics?|geosciences|agricultural engineering|artificial intelligence)\b/i;
 
 // ------------------------------------------------------------------ duplicate submissions (text fingerprints)
 
@@ -853,7 +875,7 @@ async function detectPaperMill(input, update = () => {}) {
     if (orcidDigits(theirs) === orcidDigits(mine)) { r.confidence = 'high'; r.orcidConfirmed = theirs; }
     else { r.confidence = 'low'; r.orcidDifferent = theirs; }
   }
-  const sure = r => r.confidence !== 'low';
+  const sure = r => r.confidence === 'high';
   // the high signal needs the institution to match as well: a name alone, even a full first name, is shared by many people
   // (benchmark of 6 Nov 2026: name-only hits fired on 4 in 10 ordinary papers with Chinese or Arabic author names)
   const millRetr = retr.filter(r => r.mill && r.confidence === 'high');

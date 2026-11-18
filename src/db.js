@@ -453,6 +453,8 @@ CREATE TABLE IF NOT EXISTS community_conferences (
 ALTER TABLE retractions ADD COLUMN IF NOT EXISTS authors TEXT;
 ALTER TABLE retractions ADD COLUMN IF NOT EXISTS institution TEXT;
 ALTER TABLE retractions ADD COLUMN IF NOT EXISTS country TEXT;
+-- retracted papers looked up by title (references cited without a DOI)
+CREATE INDEX IF NOT EXISTS idx_retractions_title_key ON retractions ((regexp_replace(lower(title), '[^a-z0-9]+', '', 'g')));
 
 -- PJPS v4: fingerprints of every screened manuscript (duplicate submissions, re-used figures)
 CREATE TABLE IF NOT EXISTS fingerprints (

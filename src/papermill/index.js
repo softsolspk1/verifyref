@@ -53,6 +53,11 @@ function findWhole(lower, term) {
  * Problematic Paper Screener fingerprints (tortured phrases, SCIgen text): every phrase of a fingerprint must occur.
  * Returns { tortured: [{phrase, correct, count, examples}], scigen: [{phrase, examples}] }
  */
+// Screener fingerprints that are ordinary English in a pharmacy paper ("traditional medicine against liver ailments", "the
+// most vital determinant of skin colour"): found in genuine published PJPS articles (2,000 scanned, 17 Nov 2026), never
+// in the benchmark's 150 paper-mill retractions
+const SCREENER_IGNORE = new Set(['liver ailments', 'heart ailments', 'kidney ailments', 'eye ailments', 'skin ailments', 'stomach ailments', 'vital predictor', 'vital determinant', 'grouping methods + classification']);
+
 async function screenerMatches(text) {
   const out = { tortured: [], scigen: [], suspect: [] };
   const fps = await D.ppsFingerprints().catch(() => []);
@@ -68,6 +73,7 @@ async function screenerMatches(text) {
     const at = terms.map(t => findWhole(lower, t));
     if (at.some(i => i === -1)) continue;
     const phrase = fp.terms.join(' + ');
+    if (SCREENER_IGNORE.has(phrase.toLowerCase())) continue;
     const example = ctx(lower, at[0], fp.terms[0].length);
     // Mathgen writes mathematics papers the way SCIgen writes computer-science ones: same signal
     if (fp.kind === 'scigen' || fp.kind === 'mathgen') out.scigen.push({ phrase, examples: [example] });
@@ -268,7 +274,12 @@ const AFF_STOP = new Set(['university', 'universit', 'department', 'faculty', 'c
   'affiliated', 'people', 'peoples', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'chinese', 'traditional', 'integrated', 'western', 'municipal', 'central', 'normal', 'region', 'regional', 'autonomous', 'county', 'district', 'king', 'computer', 'technical', 'surgical', 'intensive', 'care', 'emergency', 'oncology', 'cancer', 'cardiology', 'neurology', 'radiology', 'orthopedics', 'orthopaedics', 'pediatrics', 'paediatrics', 'obstetrics', 'gynecology', 'urology', 'nephrology', 'respiratory', 'infectious', 'diseases', 'disease', 'biomedical', 'center', 'centers', 'key', 'joint', 'south', 'north', 'east', 'west', 'southern', 'northern', 'eastern', 'medical',
   // fields and generic words of other departments and languages ("Ministry of Education", "Facultad de Ciencias de la Salud")
   'ministry', 'education', 'electronic', 'electronics', 'electrical', 'mechanical', 'mathematics', 'mathematical', 'business', 'economics', 'management', 'computing', 'artificial', 'intelligence', 'development', 'deemed', 'egypt',
-  'universidad', 'universidade', 'universita', 'facultad', 'faculdade', 'ciencias', 'ciencia', 'salud', 'saude', 'instituto', 'departamento', 'escuela', 'nacional']);
+  'universidad', 'universidade', 'universita', 'facultad', 'faculdade', 'ciencias', 'ciencia', 'salud', 'saude', 'instituto', 'departamento', 'escuela', 'nacional',
+  // address words, generic departments and countries (author benchmark, 17 Nov 2026: "korea", "post", "army" and "business
+  // administration" were the only institution words in common on HIGH matches of ordinary papers)
+  'anesthesiology', 'anaesthesiology', 'anesthesia', 'anaesthesia', 'dermatology', 'ophthalmology', 'otolaryngology', 'gastroenterology', 'endocrinology', 'hematology', 'haematology', 'rheumatology', 'geriatrics', 'geriatric', 'psychiatry', 'immunology', 'genetics', 'nutrition', 'rehabilitation', 'stomatology', 'pulmonology', 'hepatology', 'neurosurgery', 'thoracic', 'cardiothoracic', 'vascular', 'plastic', 'trauma', 'maternal', 'maternity', 'child', 'pediatric', 'paediatric', 'ultrasound', 'imaging', 'nuclear', 'transfusion', 'blood', 'infection', 'control', 'prevention',
+  'post', 'postal', 'office', 'road', 'street', 'avenue', 'avda', 'avenida', 'calle', 'block', 'sector', 'floor', 'building', 'army', 'navy', 'military', 'administration', 'business', 'commerce', 'affairs', 'services', 'service', 'social',
+  'korea', 'japan', 'turkey', 'turkiye', 'malaysia', 'indonesia', 'thailand', 'vietnam', 'nigeria', 'ethiopia', 'kenya', 'ghana', 'iraq', 'jordan', 'lebanon', 'syria', 'yemen', 'oman', 'qatar', 'bahrain', 'emirates', 'algeria', 'morocco', 'tunisia', 'libya', 'sudan', 'bangladesh', 'nepal', 'lanka', 'afghanistan', 'russia', 'brazil', 'mexico', 'chile', 'argentina', 'colombia', 'peru', 'spain', 'italy', 'france', 'germany', 'poland', 'romania', 'greece', 'portugal', 'canada', 'australia', 'zealand', 'america', 'england', 'taiwan', 'hong', 'kong', 'singapore', 'philippines']);
 // Cities: a shared city is a weak hint only ("Multan" covers several universities and hospitals)
 const AFF_PLACES = new Set(['karachi', 'lahore', 'islamabad', 'rawalpindi', 'multan', 'faisalabad', 'peshawar', 'quetta', 'hyderabad', 'bahawalpur', 'sialkot', 'gujranwala', 'abbottabad', 'jamshoro', 'sargodha', 'larkana', 'sukkur', 'nawabshah', 'mardan', 'gujrat', 'sahiwal', 'kohat', 'dera', 'ismail', 'punjab', 'sindh', 'khyber', 'pakhtunkhwa', 'balochistan', 'lyari',
   // China (provinces and large cities), the Gulf, India, Iran, Egypt: where most name-matched retractions come from
@@ -286,7 +297,8 @@ const PAIR_SKIP = new Set(['the', 'and', 'of', 'for', 'department', 'faculty', '
 // a pair with one of these words is generic ("health sciences", "medical dental" name hundreds of institutions)
 const PAIR_GENERIC = new Set(['sciences', 'science', 'medical', 'dental', 'health', 'research', 'studies', 'technology', 'engineering', 'hospital', 'medicine', 'pharmaceutical', 'pharmacy', 'clinical', 'national', 'international', 'applied', 'natural', 'life', 'basic', 'allied', 'general', 'teaching', 'government', 'public', 'state', 'key', 'laboratory',
   // country names: "Saudi Arabia" or "People's Republic of China" in common says nothing about the institution
-  'saudi', 'arabia', 'republic', 'china', 'people', 'peoples', 'kingdom', 'united', 'states', 'india', 'iran', 'egypt', 'japan', 'korea', 'turkey', 'malaysia', 'nigeria', 'pakistan', 'tamil', 'nadu', 'academy', 'affiliated', 'first', 'second', 'third', 'chinese']);
+  'saudi', 'arabia', 'republic', 'china', 'people', 'peoples', 'kingdom', 'united', 'states', 'india', 'iran', 'egypt', 'japan', 'korea', 'turkey', 'malaysia', 'nigeria', 'pakistan', 'tamil', 'nadu', 'academy', 'affiliated', 'first', 'second', 'third', 'chinese',
+  'business', 'administration', 'army', 'post', 'office', 'box', 'road', 'street', 'avenue', 'avda', 'avenida']);
 const affPairs = s => {
   const out = new Set();
   for (const part of String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[;,]/)) {
@@ -493,7 +505,12 @@ function imagesSignal(images) {
 function riskLevel(signals) {
   const score = signals.reduce((a, s) => a + s.weight, 0);
   const highs = signals.filter(s => s.severity === 'high').length;
-  let level = score >= 8 || highs >= 2 ? 'HIGH' : score >= 4 || highs === 1 ? 'MEDIUM' : 'LOW';
+  // HIGH also when moderate signals alone add up to 6 (several checks agreeing; no single signal weighs more than 4).
+  // Benchmark of 150 paper-mill retractions vs 126 ordinary papers, with the author signals (17 Nov 2026): HIGH for 32
+  // mill papers (was 16) and 2 ordinary papers (was 0), the same in both halves; no published PJPS article scored above 4.
+  // One strong signal plus a note (an author's earlier retraction + one weak sign) stays MEDIUM: that put 5 ordinary papers at HIGH.
+  const moderate = signals.filter(s => s.severity !== 'high').reduce((a, s) => a + s.weight, 0);
+  let level = score >= 8 || highs >= 2 || moderate >= 6 ? 'HIGH' : score >= 4 || highs === 1 ? 'MEDIUM' : 'LOW';
   return { level, score, highSignals: highs };
 }
 
@@ -791,7 +808,9 @@ async function detectPaperMill(input, update = () => {}) {
   const orcids = [...new Set([...authors.map(a => String(a.orcid || '').replace(/^https?:\/\/orcid\.org\//i, '').trim().toUpperCase()).filter(id => /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(id)),
     ...[...text.slice(0, 15000).matchAll(ORCID_RE)].map(m => m[1].toUpperCase())])];
   const orcidResults = [];
-  if (!orcids.length) sig('authors', 'no-orcid', 'No ORCID iD given for any author', 'low', 1);
+  // shown, not counted: no ORCID iD for any author was as common in ordinary papers as in paper-mill retractions (benchmark,
+  // 103/150 vs 76/126) and is usual in PJPS submissions; with free-mail it lifted any one weak signal to MEDIUM (17 Nov 2026)
+  if (!orcids.length) sig('authors', 'no-orcid', 'No ORCID iD given for any author', 'low', 0, [], 'Not counted in the risk: common in ordinary submissions. Ask for ORCID iDs if other signals point to a problem.');
   for (const id of orcids.slice(0, 10)) {
     if (!orcidValid(id)) { orcidResults.push({ id, valid: false }); continue; }
     const p = await orcidProfile(id).catch(e => ({ id, error: e.message }));
@@ -857,7 +876,9 @@ async function detectPaperMill(input, update = () => {}) {
   const disposable = emails.filter(e => DISPOSABLE_MAIL.test(e));
   if (disposable.length) sig('authors', 'disposable-mail', `Disposable (throw-away) e-mail address(es) given for authors (${disposable.length})`, 'medium', 2, disposable.map(e => ({ text: e })), 'Throw-away mailboxes expire after minutes or days, so the author cannot be reached later. Domain listed in the disposable-email-domains register.');
   const free = emails.filter(e => FREE_MAIL.test(e));
-  if (emails.length && free.length === emails.length) sig('authors', 'free-mail', `All author e-mail addresses are free-mail accounts (${free.length})`, 'low', 1, free.map(e => ({ text: e })), 'Common and often legitimate in Pakistan; counts only together with other signals.');
+  // shown, not counted: all-free-mail was 35/150 paper-mill retractions vs 36/126 ordinary papers (benchmark), and 72% of
+  // 176 published PJPS articles give only free-mail addresses
+  if (emails.length && free.length === emails.length) sig('authors', 'free-mail', `All author e-mail addresses are free-mail accounts (${free.length})`, 'low', 0, free.map(e => ({ text: e })), 'Not counted in the risk: common and usually legitimate in PJPS submissions. Look at it together with the other signals.');
 
   // the editorial office's watchlist of e-mails, domains, names, ORCID iDs, institutions, phones and phrases from
   // earlier paper-mill submissions (as the STM Integrity Hub's shared watchlists)

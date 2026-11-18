@@ -22,6 +22,7 @@ const TORTURED = [
   ['factual examination', 'statistical analysis'], ['measurable investigation', 'statistical analysis'], ['measurable examination', 'statistical analysis'], ['factual investigation', 'statistical analysis'],
   ['factual importance', 'statistical significance'], ['measurably critical', 'statistically significant'], ['genuinely huge', 'statistically significant'], ['measurably huge', 'statistically significant'],
   ['information base', 'database'], ['mistake rate', 'error rate'],
+  ['frame temperature', 'body temperature'], ['hostile assault', 'adversarial attack'], ['carbon impression', 'carbon footprint'], ['unthinkable pursuit', 'tabu search'],
   // medicine / pharmacy / biology
   ['bosom peril', 'breast cancer'], ['bosom malignant growth', 'breast cancer'], ['bosom disease', 'breast cancer'], ['lung malignant growth', 'lung cancer'], ['liver malignant growth', 'liver cancer'],
   ['colon malignant growth', 'colon cancer'], ['prostate malignant growth', 'prostate cancer'], ['gastric malignant growth', 'gastric cancer'], ['malignant growth cells', 'cancer cells'],
@@ -30,18 +31,16 @@ const TORTURED = [
   ['insulin obstruction', 'insulin resistance'], ['safe framework', 'immune system'], ['resistant framework', 'immune system'], ['invulnerable framework', 'immune system'],
   ['oxidative pressure', 'oxidative stress'], ['receptive oxygen species', 'reactive oxygen species'], ['responsive oxygen species', 'reactive oxygen species'], ['cell reinforcement', 'antioxidant'],
   ['medication conveyance', 'drug delivery'], ['drug conveyance', 'drug delivery'], ['medication opposition', 'drug resistance'], ['anti-infection opposition', 'antibiotic resistance'],
-  ['anti-toxin obstruction', 'antibiotic resistance'], ['anti-microbial obstruction', 'antimicrobial resistance'], ['quality articulation', 'gene expression'], ['quality expression', 'gene expression'],
-  ['protein articulation', 'protein expression'], ['articulation level', 'expression level'], ['irresistible illness', 'infectious disease'], ['persistent kidney illness', 'chronic kidney disease'],
+  ['anti-toxin obstruction', 'antibiotic resistance'], ['anti-microbial obstruction', 'antimicrobial resistance'], ['quality articulation', 'gene expression'], ['protein articulation', 'protein expression'], ['articulation level', 'expression level'], ['irresistible illness', 'infectious disease'], ['persistent kidney illness', 'chronic kidney disease'],
   ['ceaseless kidney illness', 'chronic kidney disease'], ['constant obstructive aspiratory illness', 'chronic obstructive pulmonary disease'], ['aspiratory fibrosis', 'pulmonary fibrosis'],
   ['cerebrum tumor', 'brain tumour'], ['mind tumor', 'brain tumour'], ['undifferentiated organism', 'stem cell'], ['foundational microorganisms', 'stem cells'], ['intellectual hindrance', 'cognitive impairment'],
   ['mental imbalance', 'autism'], ['attractive reverberation imaging', 'magnetic resonance imaging'], ['figured tomography', 'computed tomography'], ['registered tomography', 'computed tomography'],
-  ['positron discharge tomography', 'positron emission tomography'], ['urinary lot contamination', 'urinary tract infection'], ['sort 2 diabetes', 'type 2 diabetes'], ['lipid digestion', 'lipid metabolism'],
-  ['glucose digestion', 'glucose metabolism'], ['sound volunteers', 'healthy volunteers'], ['solid controls', 'healthy controls'], ['rejuvenating balm', 'essential oil'],
+  ['positron discharge tomography', 'positron emission tomography'], ['urinary lot contamination', 'urinary tract infection'], ['sort 2 diabetes', 'type 2 diabetes'], ['glucose digestion', 'glucose metabolism'], ['sound volunteers', 'healthy volunteers'], ['solid controls', 'healthy controls'], ['rejuvenating balm', 'essential oil'],
   ['fundamental oil', 'essential oil'], ['restorative plants', 'medicinal plants'], ['home grown medication', 'herbal medicine'], ['hostile to bacterial', 'antibacterial'],
-  ['against bacterial', 'antibacterial'], ['hostile to parasitic', 'antifungal'], ['hostile to oxidant', 'antioxidant'], ['against oxidant', 'antioxidant'], ['hostile to inflammatory', 'anti-inflammatory'],
-  ['against inflammatory', 'anti-inflammatory'], ['least inhibitory focus', 'minimum inhibitory concentration'], ['least inhibitory fixation', 'minimum inhibitory concentration'],
+  ['hostile to parasitic', 'antifungal'], ['hostile to oxidant', 'antioxidant'], ['hostile to inflammatory', 'anti-inflammatory'],
+  ['least inhibitory focus', 'minimum inhibitory concentration'], ['least inhibitory fixation', 'minimum inhibitory concentration'],
   ['zone of hindrance', 'zone of inhibition'], ['high-execution fluid chromatography', 'high-performance liquid chromatography'], ['superior fluid chromatography', 'high-performance liquid chromatography'],
-  ['elite fluid chromatography', 'high-performance liquid chromatography'], ['fluid chromatography', 'liquid chromatography'], ['atomic docking', 'molecular docking'], ['sub-atomic docking', 'molecular docking'],
+  ['elite fluid chromatography', 'high-performance liquid chromatography'], ['atomic docking', 'molecular docking'], ['sub-atomic docking', 'molecular docking'],
   ['atomic elements', 'molecular dynamics'], ['sub-atomic elements', 'molecular dynamics'], ['sub-atomic weight', 'molecular weight'], ['sub-atomic component', 'molecular mechanism'],
   ['flagging pathway', 'signalling pathway'], ['motioning pathway', 'signalling pathway'], ['record factor', 'transcription factor'], ['western smudge', 'western blot'], ['western blotch', 'western blot'],
   ['polymerase chain response', 'polymerase chain reaction'], ['stream cytometry', 'flow cytometry'], ['creature model', 'animal model'], ['test creatures', 'experimental animals'],
@@ -55,7 +54,7 @@ const TORTURED = [
   ['bright noticeable', 'ultraviolet-visible'], ['UV-noticeable', 'UV-visible'], ['disintegration rate', 'dissolution rate'], ['bioavailability upgrade', 'bioavailability enhancement'],
   ['clinical preliminary', 'clinical trial'], ['randomized controlled preliminary', 'randomised controlled trial'], ['twofold visually impaired', 'double-blind'], ['fake treatment', 'placebo'],
   ['unfavorable impacts', 'adverse effects'], ['antagonistic impacts', 'adverse effects'], ['unfriendly occasions', 'adverse events'], ['antagonistic occasions', 'adverse events'],
-  ['medication communication', 'drug interaction'], ['tranquilize', 'drug'], ['sedate conveyance', 'drug delivery'], ['sedate obstruction', 'drug resistance']
+  ['medication communication', 'drug interaction'], ['sedate conveyance', 'drug delivery'], ['sedate obstruction', 'drug resistance']
 ].map(([phrase, correct]) => ({ phrase, correct }));
 
 // Clear traces of AI text generators / unfinished templates (flagged only on exact matches)

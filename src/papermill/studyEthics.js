@@ -25,7 +25,7 @@ function studyType(text) {
 }
 
 // ethics approval statements
-const APPROVAL = /\b(ethic(?:s|al)?\s+(?:review\s+)?(?:committees?|boards?|approvals?|clearance|permission|commissions?)|institutional review boards?|\bIRB\b|\bIACUC\b|animal (?:care|ethics|welfare|experimentation)(?:\s+and use)?\s+committees?|\b(?:ERC|IREB|IEC|REC|AEC|BEC|IAEC|IBC|ASRB|ADVSR|BASR)\b|bioethic(?:s|al) committee|research ethics|approved by the\b[^.]{0,80}\bcommittee)\b/i;
+const APPROVAL = /\b(ethic(?:s|al)?\s+(?:review\s+)?(?:committees?|boards?|approvals?|clearance|permission|commissions?)|institutional review boards?|\bIRB\b|\bIACUC\b|animal (?:care|ethics|welfare|experimentation)(?:\s+and use)?\s+committees?|\b(?:ERC|IREB|IEC|REC|AEC|BEC|IAEC|IBC|ASRB|ADVSR|BASR)\b|bioethic(?:s|al) committee|(?:research|medical|animal) ethics|ethics (?:association|council|office)|animal care (?:and use )?(?:council|board)|institutional (?:ethic(?:s|al) )?approval|approved by the\b[^.]{0,80}\b(?:committee|council|board|commission))\b/i;
 // an identifier: "No. 123", "Ref # KU/ERC/22", "Approval ID: 2021-34", "AEC/2021/45", "IRB-00123", "(12/2021)", "vide letter No."
 const IDENTIFIER = [
   // after a keyword: any code with a digit in it ("No. SKZ-X200325LS", "Ref. No. KU/ERC/22", "ID: 2021-34")

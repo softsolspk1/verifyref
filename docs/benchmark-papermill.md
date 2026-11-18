@@ -1,6 +1,6 @@
 # Paper Mill Detection - text-signal benchmark
 
-Generated 2026-11-06. 150 papers retracted for paper-mill reasons (Retraction Watch) against 126 ordinary papers from the same journals and years (Europe PMC open access, not in Retraction Watch). Only the offline text signals were scored: the same `textSignals` function the live tool uses.
+Generated 2026-11-17. 150 papers retracted for paper-mill reasons (Retraction Watch) against 126 ordinary papers from the same journals and years (Europe PMC open access, not in Retraction Watch). Only the offline text signals were scored: the same `textSignals` function the live tool uses.
 
 ## Flag rates
 

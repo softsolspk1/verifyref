@@ -1369,6 +1369,9 @@ const FREEMAIL_URL = 'https://raw.githubusercontent.com/Kikobeats/free-email-dom
 const DISPOSABLE_URL = 'https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/main/disposable_email_blocklist.conf';
 // Never treat academic or government domains as free-mail, whatever a third-party list says
 const INSTITUTIONAL = /(?:^|\.)(?:edu|ac|gov|gob|govt|mil|nhs|res)(?:\.[a-z]{2})?$|\.edu\.[a-z]{2}$/;
+// Long-running public webmail services that the disposable blocklist lists anyway: ordinary free-mail, not throw-away
+// (gawab.com was Egypt's webmail, used for years by a Karachi PJPS author; sify.com is an Indian ISP, 21cn.com a Chinese portal)
+const NOT_DISPOSABLE = new Set(['gawab.com', 'sify.com', '21cn.com']);
 
 async function loadEmailDomains() {
   const [f, d] = await Promise.all([
@@ -1378,7 +1381,7 @@ async function loadEmailDomains() {
   if (!f && !d) throw new Error('E-mail domain lists download failed');
   const kind = new Map();
   if (f) { try { for (const x of JSON.parse(f)) kind.set(String(x).trim().toLowerCase(), 'freemail'); } catch (e) { /* fall through to the size check */ } }
-  if (d) for (const x of d.split(/\r?\n/)) { const dom = x.trim().toLowerCase(); if (dom && !dom.startsWith('#')) kind.set(dom, 'disposable'); }
+  if (d) for (const x of d.split(/\r?\n/)) { const dom = x.trim().toLowerCase(); if (dom && !dom.startsWith('#')) kind.set(dom, NOT_DISPOSABLE.has(dom) ? 'freemail' : 'disposable'); }
   const rows = [...kind].filter(([dom]) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(dom) && !INSTITUTIONAL.test(dom));
   if (rows.length < 1000) throw new Error('E-mail domain lists parse returned too few domains');
   await transaction(async client => {
@@ -1405,7 +1408,8 @@ async function warmEmailDomains() {
 function emailDomainKind(emailOrDomain) {
   const dom = String(emailOrDomain || '').toLowerCase().split('@').pop().trim();
   if (!dom || !emailDomainCache) return null;
-  return emailDomainCache.map.get(dom) || null;
+  const k = emailDomainCache.map.get(dom) || null;
+  return k === 'disposable' && NOT_DISPOSABLE.has(dom) ? 'freemail' : k;   // lists loaded before the exception was added
 }
 
 // ------------------------------------------------------------------ Cellosaurus problematic cell lines (bulk, offline)

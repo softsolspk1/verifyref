@@ -95,7 +95,8 @@ async function extraSignals(p, xml) {
 
 const level = sigs => {
   const score = sigs.reduce((a, s) => a + s.weight, 0), highs = sigs.filter(s => s.severity === 'high').length;
-  return { level: score >= 8 || highs >= 2 ? 'HIGH' : score >= 4 || highs === 1 ? 'MEDIUM' : 'LOW', score };
+  const moderate = sigs.filter(s => s.severity !== 'high').reduce((a, s) => a + s.weight, 0);   // as riskLevel in src/papermill
+  return { level: score >= 8 || highs >= 2 || moderate >= 6 ? 'HIGH' : score >= 4 || highs === 1 ? 'MEDIUM' : 'LOW', score };
 };
 
 (async () => {

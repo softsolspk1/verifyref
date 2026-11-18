@@ -186,7 +186,8 @@ function impossibleValues(text) {
     return /^\s*(?:[eE]\s*[-−–+]?\s*\d|[×x*·]\s*10\b|[×x*·/+-]\s*[a-z(\d])/.test(after) || /\b[A-Za-z]\s$/.test(before);
   };
   for (const m of t.matchAll(/\bp\s*[=<>]\s*(\d*\.?\d+)(?![\d.])/gi)) if (parseFloat(m[1]) > 1 && !proportion(m) && !notPValue(m)) out.push({ kind: 'impossible', gross: true, reported: m[0], recalculated: 'a probability cannot exceed 1', quote: ctx(t, m.index, m[0].length) });
-  for (const m of t.matchAll(/(?:±|\bSD\b\s*=?)\s*-\s*\d/g)) out.push({ kind: 'impossible', gross: true, reported: m[0], recalculated: 'a standard deviation cannot be negative', quote: ctx(t, m.index, m[0].length) });
+  // "SD-101" (a TLR9 agonist), "SD-1" are product codes: after "SD" the minus needs "=", ":" or a space before it
+  for (const m of t.matchAll(/±\s*-\s*\d|\bSD\s*[=:]\s*-\s*\d|\bSD\s+-\s*\d/g)) out.push({ kind: 'impossible', gross: true, reported: m[0], recalculated: 'a standard deviation cannot be negative', quote: ctx(t, m.index, m[0].length) });
   return out.slice(0, 5);
 }
 

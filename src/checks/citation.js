@@ -131,6 +131,8 @@ function checkAuthorYear(body, refs) {
     const second = c.authors[1] ? key(c.authors[1]) : null;
     let sameAuthor = refKeys.filter(k => k.authors[0] === first || (k.ref.authors?.[0]?.corporate && key(k.ref.authors[0].family).startsWith(first)));
     if (!sameAuthor.some(k => k.year === c.year) && first.length >= 3) sameAuthor = sameAuthor.concat(refKeys.filter(k => k.last === first && k.year === c.year));
+    // one part of a double-barrelled surname: "Loh et al., 2010" for "Manyi-Loh CE ... (2010)"
+    if (!sameAuthor.some(k => k.year === c.year) && first.length >= 3) sameAuthor = sameAuthor.concat(refKeys.filter(k => k.year === c.year && !sameAuthor.includes(k) && String(k.ref.authors?.[0]?.family || '').split('-').length > 1 && String(k.ref.authors[0].family).split('-').some(p => key(p) === first)));
     // "von Elm et al., 2014" for the entry "Elm E, Altman DG ..." (the particle left out of the reference list), and back
     const bare = key(String(c.authors[0]).replace(/^(?:von|van|de|da|du|del|der|den|di|la|le|dos|das)\s+/i, ''));
     if (!sameAuthor.some(k => k.year === c.year) && bare.length >= 3) sameAuthor = sameAuthor.concat(refKeys.filter(k => k.year === c.year && !sameAuthor.includes(k) && (k.authors[0] === bare || key(String(k.ref.authors?.[0]?.family || '').replace(/^(?:von|van|de|da|du|del|der|den|di|la|le|dos|das)\s+/i, '')) === bare)));
@@ -191,7 +193,10 @@ function checkAuthorYear(body, refs) {
       const head = flat(raw), word = flat(raw.split(/[\s,]/)[0]);
       const fam = flat(k.ref.authors?.[0]?.family);
       // the cited name begins the entry (a whole first word, or at least 4 letters of it), or the entry's surname begins the cited one
-      return (head.startsWith(cited) && (cited === word || cited.length >= Math.min(4, head.length))) || (fam.length >= 4 && cited.startsWith(fam));
+      // or an organisation or book of two words or more named before the year ("British Pharmacopoeia, 2004" for
+      // "Method 2.2.24, British Pharmacopoeia (2004)")
+      const org = c.authors.length === 1 && /\s/.test(String(c.authors[0]).trim()) && cited.length >= 10 && head.includes(cited);
+      return (head.startsWith(cited) && (cited === word || cited.length >= Math.min(4, head.length))) || (fam.length >= 4 && cited.startsWith(fam)) || org;
     })());
     if (pair.length !== 1) continue;
     const k = pair[0];

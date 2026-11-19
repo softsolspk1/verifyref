@@ -108,7 +108,9 @@ function checkEntry(ref, record, nlm = null) {
     if (/^[A-Za-z][^,\d]*[A-Za-z.]\s+\d+\s*(?:\(|:)/.test(source)) add('journal', 'Comma after the journal name (J. Pharm. Sci., 85(5): 511-517)', source.match(/^[^,\d]*[A-Za-z.]\s+\d+/)[0], null, 'low');
     if (/\bpp?\.\s*\d/i.test(source)) add('pages', 'No “pp.” before page numbers', 'pp.', null, 'low');
     if (/\b(?:vol|volume|no|issue)\.?\s*\d/i.test(source)) add('volume', 'Write volume and issue as 32(1), without “Vol.” or “No.”', source.match(/\b(?:vol|volume|no|issue)\.?\s*\d+/i)[0], null, 'low');
-    if (/\d\s*[–—]\s*\d/.test(source)) add('pages', 'Page range with a hyphen (1-5), not a dash', source.match(/\d+\s*[–—]\s*\d+/)[0], null, 'low');
+    // shown, not counted: PJPS's own typeset references use the dash ("21: 827–831"), and production sets it either way
+    // (the commonest "deviation" of 54 articles PJPS published in 2022-2026: 217 of 635, 19 Nov 2026)
+    if (/\d\s*[–—]\s*\d/.test(source)) add('pages', 'Page range with a hyphen (1-5), not a dash', source.match(/\d+\s*[–—]\s*\d+/)[0], null, 'info');
     if (/\d+\s*\(\s*[\w-]+\s*\)\s*[,;]\s*\d/.test(source) || /\d+\s*\(\s*[\w-]+\s*\)\s+\d/.test(source)) add('volume', 'Colon between issue and pages: 32(1): 1-5', source.match(/\d+\s*\(\s*[\w-]+\s*\)\s*[,;]?\s*\d+/)[0], null, 'low');
     if (/;\s*\d+\s*\(/.test(text)) add('volume', 'Vancouver punctuation found (Year;Vol(Issue):pages) — use the PJPS order', text.match(/\d{4}\s*;\s*\d+\s*\([^)]*\)/)?.[0] || null);
     if (!ref.volume && !record?.volume) add('missing', 'Volume missing', null, record?.volume || null, 'medium');

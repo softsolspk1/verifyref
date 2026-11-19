@@ -485,13 +485,14 @@ function parseReferenceEntry(raw, index) {
     .replace(/\s+/g, ' ').trim();
 
   // Year: prefer "(2020)" then ";2020" / ", 2020."
-  const yParen = core.match(/\(\s*(1[6-9]\d{2}|20\d{2})[a-z]?(?:,\s*[A-Za-z]+\.?(?:\s+\d{1,2})?)?\s*\)/);
+  const yParen = core.match(/\(\s*(1[6-9]\d{2}|20\d{2})\s?[a-z]?(?:,\s*[A-Za-z]+\.?(?:\s+\d{1,2})?)?\s*\)/);
   const yAny = core.match(/(?:^|[\s,;.])(1[6-9]\d{2}|20\d{2})([a-z])?(?=[\s;:,.)]|$)/);
   const yearM = yParen || yAny;
   if (yearM) {
     const y = parseInt(yearM[1], 10);
     if (y <= new Date().getFullYear() + 1) ref.year = y;
-    const suf = core.match(new RegExp(`${yearM[1]}([a-z])\\b`));
+    // "(2010a)", and "(2010 a )" as a PDF spaces it (cited "2010a": a missing reference on published PJPS articles)
+    const suf = core.match(new RegExp(`${yearM[1]}([a-z])\\b`)) || core.match(new RegExp(`\\(\\s*${yearM[1]}\\s([a-z])\\s*\\)`));
     if (suf) ref.yearSuffix = suf[1];
   }
 

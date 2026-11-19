@@ -24,7 +24,6 @@ const BAD = [
   ['Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Analytical Biochemistry, 72(1-2): 248-254.', 'journal', 'full journal name'],
   ['Korsmeyer RW, Gurny R, Doelker E, Buri P and Peppas NA (1983). Mechanisms of solute release from porous hydrophilic polymers. International Journal of Pharmaceutics, 15(1): 25-35.', 'journal', 'full journal name'],
   ['Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Anal. Biochem., 72(1-2): pp. 248-254.', 'pages', 'pp.'],
-  ['Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Anal. Biochem., 72(1-2): 248–254.', 'pages', 'en dash'],
   ['Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Anal. Biochem., Vol. 72, No. 1-2: 248-254.', 'volume', 'Vol./No.'],
   ['Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Anal. Biochem., 72(1-2), 248-254.', 'volume', 'comma instead of colon'],
   ['Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Anal. Biochem., 248-254.', 'missing', 'no volume'],
@@ -52,5 +51,8 @@ for (const [t, recTitle, missing] of STOP) {
 }
 for (const t of GOOD) { n++; const c = checkEntry(P.parseReferenceEntry(t, 1), null); const bad = c.deviations.filter(d => d.severity !== 'info'); if (!bad.length) ok++; else console.log('FALSE ALARM', t.slice(0, 60), '|', bad.map(d => d.message).join('; ')); }
 for (const [t, rule, what] of BAD) { n++; const c = checkEntry(P.parseReferenceEntry(t, 1), null); const hit = c.deviations.filter(d => d.severity !== 'info'); if (hit.some(d => d.rule === rule)) ok++; else console.log('MISSED', what.padEnd(28), '| got:', hit.map(d => `${d.rule}: ${d.message}`).join('; ') || 'compliant'); }
+// an en dash in the page range is shown as a note, not counted: PJPS's own typeset references use it (19 Nov 2026)
+{ n++; const c = checkEntry(P.parseReferenceEntry('Bradford MM (1976). A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Anal. Biochem., 72(1-2): 248–254.', 1), null);
+  if (c.compliant && c.deviations.some(d => d.rule === 'pages' && d.severity === 'info')) ok++; else console.log('en dash: expected a note, not a deviation'); }
 console.log(`style-errors test: ${ok}/${n}`);
 if (ok !== n) process.exit(1);

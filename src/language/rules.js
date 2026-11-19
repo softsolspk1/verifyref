@@ -384,8 +384,11 @@ const delivery = [
 // ------------------------------------------------------------------ style: academic and journal conventions
 
 const style = [
-  regexRule('unit-space', 'style', 'Number and unit', /\b(\d+(?:\.\d+)?)(mg|g|kg|µg|μg|ng|mL|ml|L|µL|μL|mM|µM|μM|nM|mol|mmol|cm|mm|nm|µm|μm|km|h|hr|hrs|min|sec|s|kDa|Da|rpm|°C|K|Hz|kHz|MHz|V|mV|W|kcal|IU)\b(?!\/?\d)/g, (m) => {
+  regexRule('unit-space', 'style', 'Number and unit', /\b(\d+(?:\.\d+)?)(mg|g|kg|µg|μg|ng|mL|ml|L|µL|μL|mM|µM|μM|nM|mol|mmol|cm|mm|nm|µm|μm|km|h|hr|hrs|min|sec|s|kDa|Da|rpm|°C|K|Hz|kHz|MHz|V|mV|W|kcal|IU)\b(?!\/?\d)/g, (m, p) => {
     if (/^(?:s|h|K|V|W|L|g)$/.test(m[2]) && /^\d{4}$/.test(m[1])) return null; // years and model numbers
+    // compound labels ("pyrazolines 2a-2h", "2f ... 2g" in a table): a one-letter "unit" among numbered letters that are no
+    // unit (2a, 3b, 4f) is a label (published PJPS articles, 19 Nov 2026)
+    if (/^(?:g|h|s|L|K|V|W)$/.test(m[2]) && /\b\d{1,2}[a-fA-F]\b/.test(p)) return null;
     return { message: 'Put a space between a number and its unit (SI convention).', replacements: [`${m[1]} ${m[2]}`] };
   }, { when: g => g.domain === 'academic' }),
   regexRule('percent-space', 'style', 'Number and unit', /\b(\d+(?:\.\d+)?)\s+%/g, (m) => ({ message: 'No space between a number and the percent sign.', replacements: [`${m[1]}%`] }), { when: g => g.domain === 'academic' }),

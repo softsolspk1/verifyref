@@ -1,6 +1,7 @@
 // language/text.js - Module 6 text helpers: sentences and words with their positions, syllables, readability.
 
-const ABBR = /(?:\b(?:e\.g|i\.e|et al|etc|vs|approx|ca|cf|Fig|Figs|Eq|Eqs|Ref|Refs|No|Nos|Vol|pp|Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|Inc|Ltd|Co|Corp|Dept|Univ|resp|viz|al|min|max|sp|spp|var|subsp|cv)|\b[A-Z])\.$/;
+// "Cat. No. MBS017508)": a catalogue number is not two sentences (it was read as an unclosed bracket, report 221)
+const ABBR = /(?:\b(?:e\.g|i\.e|et al|etc|vs|approx|ca|cf|Fig|Figs|Eq|Eqs|Ref|Refs|No|Nos|Vol|pp|Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|Inc|Ltd|Co|Corp|Dept|Univ|resp|viz|al|min|max|sp|spp|var|subsp|ssp|cv|Cat|cat|no|Suppl)|\b[A-Z])\.$/;
 
 /** Sentences of a paragraph: [{ start, end, text }] (end exclusive, trailing spaces excluded) */
 function sentences(p) {

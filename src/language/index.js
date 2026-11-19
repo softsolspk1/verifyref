@@ -19,7 +19,11 @@ const ltWrong = (i, p) => (i.rule === 'lt:EN_WORD_COHERENCY' && /^analyses$/i.te
   (i.rule === 'lt:THE_SUPERLATIVE' && /^least\s+absolute\s+shrinkage/i.test(p.slice(i.offset))) ||
   (i.rule === 'lt:MISSING_PERIOD_AFTER_ABBREVIATION' && /^vs$/i.test(i.text)) ||
   (i.rule === 'lt:MULTIPLICATION_SIGN' && /[⁰¹²³⁴⁵⁶⁷⁸⁹a-z]\*/i.test(i.text) && !/\d\s*\*\s*\d/.test(i.text)) ||
-  (i.spelling && /[&#*§†‡]/.test(i.text));
+  (i.spelling && /[&#*§†‡]/.test(i.text)) ||
+  // a species name after its abbreviated genus or rank ("J. regia", "var. trichocarpa", "ssp. hirtum"), a catalogue number
+  // ("Cat. No. ...") and a unit after a line break of the PDF ("0.45 / μm") are not a sentence starting in lower case (report 221)
+  (i.rule === 'lt:UPPERCASE_SENTENCE_START' && (/(?:\b[A-Z]|\b(?:var|ssp|subsp|sp|spp|cv|cat|no|nos|vs|ca|approx|fig|figs|al|e\.g|i\.e))\.\s*$/i.test(p.slice(0, i.offset)) ||
+    /^(?:[µμnmpk]?(?:m|g|l|L|mol|M|s)|°C|kDa|mmHg|mmol|rpm)$/.test(i.text)));
 const overlaps = (a, b) => a.offset < b.offset + b.length && b.offset < a.offset + a.length;
 
 /** One suggestion per place: the first found wins (LanguageTool, then in-house rules); whole-sentence notes never block */
@@ -81,4 +85,4 @@ function checkDocument(text, { goals = {}, disabled = [], counts = {} } = {}) {
   return { issues: docIssues, structure, stats: st, tone: DOC.tone(text), score: DOC.score(all, st, goals) };
 }
 
-module.exports = { checkParagraphs, checkDocument, merge, AI, LT };
+module.exports = { checkParagraphs, checkDocument, merge, AI, LT, _ltWrong: ltWrong };

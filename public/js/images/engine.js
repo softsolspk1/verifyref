@@ -126,9 +126,26 @@ function background(img) {
   for (let y = 0; y < h; y++) { add(0, y); add(w - 1, y); }
   const [best] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
   const [r, g, b] = best[0].split(',').map(v => (parseInt(v, 10) << 4) + 8);
-  // A mid-grey border is the picture itself (blots and photos reaching the edge), not a margin
+  // A mid-grey border is the picture itself (blots and photos reaching the edge), not a margin - unless it is a drawn canvas:
+  // one light colour over most of the border with no pixel noise (a slide's grey background between micrographs, report 217)
   const lum = (r + g + b) / 3;
-  if (lum > 30 && lum < 232) return { r: 255, g: 255, b: 255 };
+  if (lum > 30 && lum < 232) {
+    if (lum >= 170 && best[1] >= (w + h) * 2 * 0.45) {
+      let n = 0, s2 = 0;
+      const sum = [0, 0, 0];
+      const take = (x, y) => {
+        const j = (y * w + x) * 4;
+        if (`${data[j] >> 4},${data[j + 1] >> 4},${data[j + 2] >> 4}` !== best[0]) return;
+        n++; sum[0] += data[j]; sum[1] += data[j + 1]; sum[2] += data[j + 2];
+        const v = (data[j] + data[j + 1] + data[j + 2]) / 3; s2 += v * v;
+      };
+      for (let x = 0; x < w; x++) { take(x, 0); take(x, h - 1); }
+      for (let y = 0; y < h; y++) { take(0, y); take(w - 1, y); }
+      const m = (sum[0] + sum[1] + sum[2]) / 3 / n;
+      if (Math.sqrt(Math.max(0, s2 / n - m * m)) < 1.5) return { r: Math.round(sum[0] / n), g: Math.round(sum[1] / n), b: Math.round(sum[2] / n) };
+    }
+    return { r: 255, g: 255, b: 255 };
+  }
   return { r, g, b };
 }
 

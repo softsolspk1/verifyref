@@ -326,6 +326,19 @@ References
   const whole = sug.find(s => s.rule === 'ai-paragraph');
   assert.ok(whole && whole.whole && whole.ai && whole.length === aiPara.length && whole.title === 'Paragraph can be improved', 'the paragraph revised as one suggestion');
 
+  // Report 221: medical and laboratory terms the editor marked as errors
+  const SP = require('../src/language/spell');
+  for (const w of ['ATPases', 'GTPases', 'thiolating', 'thiomeric', '%EE', '%entrapment', 'ssp', 'doi', 'PEGylation']) assert.ok(SP.check(w, { ctx: { midSentence: true } }), `"${w}" is not a misspelling`);
+  for (const w of ['prevalance', 'recieve', 'antibacterail', 'hypertention']) assert.ok(!SP.check(w, { ctx: { midSentence: true } }), `"${w}" is still a misspelling`);
+  assert.ok(SP.check('Rojas-Pirela', { personal: new Set(['rojas', 'pirela']) }), 'a double-barrelled cited surname is a name');
+  const cat = require('../src/language/rules').checkParagraph('FSH was measured with a Rat FSH ELISA kit (MyBioSource, USA; Cat. No. MBS017508) according to the instructions.', {}, { variant: 'en-US' });
+  assert.ok(!cat.some(i => i.rule === 'brackets'), '"Cat. No." does not end the sentence (no unbalanced bracket)');
+  const ltLike = (text, para) => ({ rule: 'lt:UPPERCASE_SENTENCE_START', text, offset: para.indexOf(text), length: text.length });
+  const L6 = require('../src/language');
+  const genus = 'Compared with ethanol-treated rats, J. regia oil-treated rats had higher counts. The walnuts (Paeonia lactiflora var. trichocarpa) were used.';
+  assert.ok(L6._ltWrong(ltLike('regia', genus), genus) && L6._ltWrong(ltLike('trichocarpa', genus), genus), 'a species name after its abbreviated genus or rank is not a sentence start');
+  assert.ok(!L6._ltWrong(ltLike('the', 'It was done. the results'), 'It was done. the results'), 'a real lower-case sentence start is still reported');
+
   console.log('language: all checks passed');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

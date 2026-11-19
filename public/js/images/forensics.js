@@ -513,9 +513,11 @@ export function analysePanel(img, gray, box, type, blank) {
   if (type === 'blot' || type === 'grayscale') res.alterations.push(...(SPLICE_MODEL ? spliceModelFindings(gray, box) : blotFindings(gray, box)));
   res.alterations.push(...histogramFindings(img, box, type));
   res.aiHints = aiStatistics(gray, box, noise.N);
-  // two independent methods on the same area raise the level
+  // two independent methods on the same area raise the level ("noise" and "smooth" both read the one noise grid: not independent,
+  // a smooth tissue lumen or a flat figure canvas was counted twice and made two strong findings - report 217)
+  const method = c => (c === 'smooth' ? 'noise' : c);
   for (const a of res.alterations) {
-    const overlap = res.alterations.some(o => o !== a && o.code !== a.code && !(o.box.x > a.box.x + a.box.w || a.box.x > o.box.x + o.box.w || o.box.y > a.box.y + a.box.h || a.box.y > o.box.y + o.box.h));
+    const overlap = res.alterations.some(o => o !== a && method(o.code) !== method(a.code) && !(o.box.x > a.box.x + a.box.w || a.box.x > o.box.x + o.box.w || o.box.y > a.box.y + a.box.h || a.box.y > o.box.y + o.box.h));
     if (overlap) a.level = 'high';
   }
   return res;

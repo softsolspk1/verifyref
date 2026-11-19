@@ -50,7 +50,8 @@ hyperglycemia hyperglycaemia hypoglycemia hypoglycaemia dyslipidemia dyslipidaem
 pre paracetamol acetaminophen diclofenac ibuprofen indomethacin dexamethasone carrageenan formalin Wistar Sprague Dawley
 covariate covariates multivariate univariate multivariable regression heterogeneity meta-analysis meta-analyses
 preprint preprints dataset datasets workflow workflows curcumin quercetin rutin kaempferol resveratrol gallic catechin catechins
-anthocyanin anthocyanins carotenoid carotenoids lycopene berberine silymarin thymoquinone eugenol carvacrol thymol menthol limonene`.split(/\s+/).filter(Boolean);
+anthocyanin anthocyanins carotenoid carotenoids lycopene berberine silymarin thymoquinone eugenol carvacrol thymol menthol limonene
+ssp subsp spp doi biosorbable GTPase GTPases NTPase NTPases ATPase ATPases`.split(/\s+/).filter(Boolean);
 
 // Prefixes that build valid technical words from a dictionary word ("nanoformulated", "immunomodulatory")
 const PREFIXES = ['syn', 'hetero', 'anti', 'bio', 'cyto', 'hepato', 'nephro', 'neuro', 'cardio', 'immuno', 'hydro', 'hyper', 'hypo', 'micro', 'nano', 'macro', 'multi', 'poly',
@@ -86,6 +87,11 @@ function correctAny(sp, w) {
   if (lower !== w && sp.correct(lower)) return true;
   // hyphenated words: each part valid (an abbreviation, a prefix, a term or name: "LNG-IUS-containing", "non-absorbable", "Kaplan-Meier")
   if (w.includes('-')) return w.split('-').every(p => !p || /\d/.test(p) || p.length < 3 || /^[A-Z]+s?$/.test(p) || PREFIXES.includes(p.toLowerCase()) || sp.correct(p) || sp.correct(p.toLowerCase()) || sp.correct(cap(p)));
+  // another form of a vocabulary term: "thiolating" (thiolated, thiolation), "thiomeric" (thiomer), "sulfonating" (sulfonated)
+  const forms = [];
+  if (/[a-z]{4}ating$/.test(lower)) forms.push(lower.replace(/ating$/, 'ated'), lower.replace(/ating$/, 'ation'), lower.replace(/ating$/, 'ate'));
+  if (/[a-z]{5}ic$/.test(lower) && !/ical$/.test(lower)) forms.push(lower.replace(/ic$/, ''), lower.replace(/ic$/, 's'));
+  if (forms.some(f => sp.correct(f) || sp.correct(cap(f)))) return true;
   // prefixed technical words and drug/chemical name endings
   for (const p of PREFIXES) {
     if (lower.startsWith(p) && lower.length - p.length >= (p.length <= 3 ? 5 : 4)) {
@@ -98,7 +104,12 @@ function correctAny(sp, w) {
 
 /** Is the word spelled correctly for this variant? personal: Set of the user's own dictionary (lower case) */
 function check(word, { variant = 'en-US', personal = null, ctx = {} } = {}) {
+  // a percent or comparison sign written against the word ("%EE", "%entrapment", "≥95") is not part of its spelling
+  word = String(word).replace(/^[%#~±≈≤≥<>+]+/, '');
+  if (!word) return true;
   if (personal && personal.has(word.toLowerCase())) return true;
+  // a double-barrelled surname the manuscript cites ("Rojas-Pirela et al., 2020"): its parts are the cited names
+  if (personal && word.includes('-') && word.split('-').every(x => !x || personal.has(x.toLowerCase()) || isName(x))) return true;
   // a known misspelling is wrong even when its parts are words ("prevalance" = pre + valance)
   const t = TYPOS[word.toLowerCase()];
   if (t && t !== word.toLowerCase() && word.length >= 3 && !/\d/.test(word)) return false;
@@ -108,8 +119,9 @@ function check(word, { variant = 'en-US', personal = null, ctx = {} } = {}) {
   if (isName(word)) return true;
   const sp = load(variant);
   if (sp.correct(word) || sp.correct(word.toLowerCase())) return true;
-  // a name learned from published papers written here in lower case ("kaplan-meier" curves)
-  if (/^[a-z]+$/.test(word) && sp.correct(cap(word))) return true;
+  // a name learned from published papers written here in lower case ("kaplan-meier" curves), and a term the research
+  // vocabulary holds in sentence case written with its acronym ("ATPases" learned as "Atpases", "PEGylated")
+  if ((/^[a-z]+$/.test(word) || /^[A-Z]{2,}[a-z]{2,}$/.test(word)) && sp.correct(cap(word))) return true;
   // the other variety's spelling ("colour" in a US document) is reported as such, not built from prefixes
   if (otherVariant(word, variant)) return false;
   if (correctAny(sp, word)) return true;

@@ -913,12 +913,15 @@ function extractManuscriptMeta(text) {
   const LABEL = /^(manuscript (?:id|no\.?|number|code)|paper id|submission id|authors?|corresponding authors?|correspondence|e-?mails?|running (?:head|title)|short title|received|accepted|revised|article type|orcid(?: ids?)?)\s*[:\-–]\s*(.*)$/i;
   // Title: first substantial line(s) not looking like authors/affiliations
   let i = 0;
-  const titleParts = [];
+  const titleParts = [], labelled = [];
   while (i < headLines.length && titleParts.join(' ').length < 250) {
     const l = headLines[i].replace(/^title:\s*/i, '');
     // a title can name a department ("... in the Emergency Department"): an affiliation line starts with its mark or lists
     // places with commas
     const affiliation = AFFIL_RE.test(l) && (/^(?:\[\s*\d|[\d¹²³⁴⁵⁶⁷⁸⁹*#⁎†])/.test(l) || (l.match(/,/g) || []).length >= 2 || titleParts.length > 0);
+    // a labelled line above the title ("Running Title: J. regia Attenuates Ethanol Damage", "Manuscript ID: ...") is read with
+    // the other labels below; it ended the search and left the title empty (report 217: novelty not assessed)
+    if (!titleParts.length && LABEL.test(l) && !/^(?:authors?|corresponding|correspondence|e-?mail)/i.test(l)) { labelled.push(l); i++; continue; }
     if (LABEL.test(l) || affiliation || (titleParts.length && looksLikeAuthorLine(l))) break;
     if (l.split(' ').length >= 3 || titleParts.length) titleParts.push(l);
     i++;
@@ -926,8 +929,9 @@ function extractManuscriptMeta(text) {
   }
   meta.title = titleParts.join(' ').replace(/\s+/g, ' ').trim();
 
-  for (; i < headLines.length; i++) {
-    const l = headLines[i];
+  for (const raw of [...labelled, ...headLines.slice(i)]) {
+    // "* Corresponding Author:": the role mark before a label
+    const l = raw.replace(/^[*#†‡]+\s*(?=[A-Za-z][A-Za-z -]{0,30}:)/, '');
     const lab = l.match(LABEL);
     if (lab) {
       const k = lab[1].toLowerCase();
@@ -1000,7 +1004,66 @@ function flatMeta(head, meta) {
           .filter(s => s.length > 8 && AFFIL_RE.test(s)).slice(0, 15);
       }
     }
+    if (!meta.title) unmarkedAuthors(front, meta);
   }
+}
+
+/**
+ * A one-line title page whose authors carry no numbered marks: "... flower extract Ampai Phrutivorapongkul, Kanokwan
+ * Kiattisin, ... and Pimporn Leelapornpisid* Department of ...", or all in capitals ("... METHOD RABIA BUSHRA, NOUSHEEN
+ * ASLAM AND MASUD-UR-REHMAN* Department ..."). The author list is read back from the first affiliation: the names after
+ * the first are separated by commas and "and"; the first one has as many words as the others usually have, and the title
+ * is what comes before it. 90 of 250 published PJPS articles had no title read (19 Nov 2026).
+ */
+function unmarkedAuthors(front, meta) {
+  const AFF = /\b(?:Department|Dept\.|Faculty|College|School|Institute|Laboratory|Laboratoire|Centre|Center|University|Universit[éy]|Hospital|Division|Ministry|Graduate|State Key|Key Laboratory)\b/u;
+  const at = front.search(AFF);
+  if (at < 30) return;
+  let seg = front.slice(0, at);
+  // the corresponding author's mark ends the list ("Leelapornpisid* State Key ...", "BOGDADY HH ** Protein Research")
+  const mark = seg.search(/[*†#]+\s*(?:[\p{Lu}][\p{L}]*\s*){0,3}$/u);
+  if (mark > 0) seg = seg.slice(0, mark);
+  seg = seg.replace(/[*†#\d¹²³⁴⁵⁶⁷⁸⁹]+/g, ' ').replace(/\s+/g, ' ').trim()
+    // an old running head whose numbers the text lost: "Pakistan Journal of Pharmaceutical Sciences Vol. , No. , July , pp. - "
+    .replace(/^.{0,80}?\b(?:Sciences?|Sci\.)\s*(?:,\s*)?(?:Vol\.?\s*)?[\s,.():;-]*(?:No\.?[\s,.()-]*)?(?:(?:January|February|March|April|May|June|July|August|September|October|November|December)\b[\s,.]*)?(?:pp\.?\s*[\w.]*\s*-\s*)?/i, m => (/pakistan|pak\./i.test(m) ? '' : m))
+    .replace(/^Vol\.?[\s,.():;-]*/, '').replace(/^(?:ORIGINAL ARTICLE|REVIEW(?: ARTICLE)?|REPORT|SHORT COMMUNICATION|CASE REPORT)\s+/, '');
+  // affiliation words just before the keyword ("Hongjie Gao Pharmacy Department", "Analytical Chemistry Laboratory")
+  const AFF_WORD = /^(?:Pharmacy|Pharmaceutical|Pharmacology|Chemistry|Analytical|Research|Section|Unit|Care|Intensive|Technology|Sciences?|Medicine|Medical|Clinical|Biology|Biochemistry|Microbiology|Agricultural|Protein|Food|Health|National|Engineering|Nursing|Surgery|General|Central|Public|Applied|Molecular|Environmental|Cyprus|Bahcesehir|Lanzhou)$/i;
+  let w = seg.split(' ');
+  while (w.length > 3 && AFF_WORD.test(w[w.length - 1])) w.pop();
+  seg = w.join(' ');
+  // a name: capitalised words, none of them a title word ("ROLE OF NA-K-ATPASE") or an affiliation word
+  const isName = s => /^(?:[\p{Lu}][\p{L}'’.-]*)(?:\s[\p{Lu}][\p{L}'’.-]*){0,4}$/u.test(s) && s.length <= 50 &&
+    !s.split(' ').some(x => /^(?:OF|IN|THE|FOR|ON|TO|WITH|BY|FROM|AS|AT|ITS|INTO|VIA|A|AN)$/i.test(x) || AFF_WORD.test(x));
+  // the pieces between commas and "and", with where each starts, so the title keeps its own "and" and commas
+  const parts = [];
+  let from = 0;
+  for (const m of seg.matchAll(/\s*,\s*|\s+(?:and|AND|&)\s+/g)) { parts.push({ s: seg.slice(from, m.index), at: from }); from = m.index + m[0].length; }
+  parts.push({ s: seg.slice(from), at: from });
+  const names = [];
+  let firstKnown = false;
+  while (parts.length > 1 && isName(parts[parts.length - 1].s)) {
+    const p = parts[parts.length - 1], ws = p.s.split(' ');
+    // in capitals a title's last words run into the first name after its "AND" ("... AND FEMALE RATS NAJMA SHAHEEN"):
+    // four words or more in capitals end the list, their last two being the first author, the rest the title's end
+    if (ws.length >= 4 && p.s === p.s.toUpperCase() && names.length) { names.unshift(ws.slice(-2).join(' ')); p.s = ws.slice(0, -2).join(' '); firstKnown = true; break; }
+    names.unshift(parts.pop().s);
+  }
+  const head = seg.slice(0, parts[parts.length - 1].at + parts[parts.length - 1].s.length).trim();
+  if (firstKnown) {
+    if (head.length >= 20 && head.length <= 300) { meta.title = head.replace(/[.\s,]+$/, ''); if (!meta.authors.length) meta.authors = names.map(n => ({ name: n })); }
+    return;
+  }
+  const words = head.split(' ');
+  let k = 2;
+  if (names.length) { const n = names.map(s => s.split(' ').length).sort((a, b) => a - b); k = Math.min(3, Math.max(2, n[Math.floor(n.length / 2)])); }
+  // the first author: its last k words, all capitalised ("Ampai Phrutivorapongkul", "RABIA BUSHRA", "Gujun Yan")
+  const first = words.slice(-k);
+  if (!first.every(w => /^[\p{Lu}][\p{L}'’.-]*$/u.test(w))) return;
+  const title = words.slice(0, -k).join(' ').replace(/[.\s,]+$/, '');
+  if (title.length < 20 || title.length > 300 || /\b(?:abstract|department|university)\b/i.test(title)) return;
+  meta.title = title;
+  if (!meta.authors.length) meta.authors = [first.join(' '), ...names].map(n => ({ name: n }));
 }
 
 // affiliation and role marks written after (or between) author names: 1, ¹, [2], [1,3], 2,*, 1#, ⁎, †, [] ...
@@ -1008,9 +1071,14 @@ const AUTHOR_MARK = /(?:\[\s*[\d,\s–-]*\]|[\d⁰¹²³⁴⁵⁶⁷⁸⁹*#⁎�
 // degrees and titles that follow or precede a name on a title page
 const DEGREE = /^(?:ph\.?\s?d|m\.?\s?d|m\.?\s?phil|m\.?\s?sc|b\.?\s?sc|m\.?\s?pharm|pharm\.?\s?d|mbbs|fcps|frcp|professor|prof|dr|associate professor|assistant professor|lecturer)\.?$/i;
 /** The names of a title-page author line, the marks between them read as separators: ['Lei Wang', 'Fareeha Majid', ...] */
+// a degree after a name, with a letter affiliation mark glued on: "Sadia Suri Kashif Ph.D.,a#", "Muhammad Naveed Ph.D.d,"
+// (initials such as "M. D. Smith" are not taken: a degree here is never followed by a letter)
+const DEGREE_AFTER = /\s*\b(?:Ph\.?\s?D|M\.?\s?Phil|M\.?\s?Sc|B\.?\s?Sc|M\.?\s?Pharm|Pharm\.?\s?D|MBBS|FCPS|FRCP)\b\.?(?:[a-h](?![A-Za-z]))?(?![A-Za-z])/g;
 function authorNames(l) {
-  return String(l).replace(AUTHOR_MARK, ',').split(/\s*(?:,|;|\band\b|&)\s*/)
-    .map(n => n.trim().replace(/^(?:dr|prof|professor)\.?\s+/i, '').replace(/\s+/g, ' ')).filter(n => n && !DEGREE.test(n));
+  return String(l).replace(DEGREE_AFTER, ',').replace(AUTHOR_MARK, ',').split(/\s*(?:,|;|\band\b|&)\s*/)
+    .map(n => n.trim().replace(/^[a-h]\s+(?=\p{Lu})/u, '').replace(/^(?:dr|prof|professor)\.?\s+/i, '').replace(/\s+/g, ' '))
+    // a lone letter left over from the affiliation marks "a", "b#*" ("Ph.D.,c Muhammad Naveed": the mark before the next name)
+    .filter(n => n && !DEGREE.test(n) && !/^[a-h]$/.test(n));
 }
 // a person's name: 2-5 capitalised words (or initials + surname); one word or all capitals is not taken ("SELUMETINIB",
 // "FOR PEER REVIEW"), nor a place, institution or heading word

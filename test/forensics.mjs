@@ -93,4 +93,22 @@ assert.ok(!cf.some(f => f.kind === 'chart' && [f.a.panel, f.b.panel].includes('c
 const cR = analyse(chart(vals, { order: -1, colors: [[30, 160, 60]] }), 'c4');
 assert.ok(F.forensicFindings([cA, cR], {}).some(f => f.kind === 'chart'), 'reversed order found');
 
+// Report 217: four micrographs on a flat grey slide canvas are separate panels, and the plain canvas between them is not an
+// "unnaturally smooth" area; "smoother noise" and "smooth" read one noise grid, so together they are not a strong finding
+{
+  const W2 = 600, H2 = 400, d2 = new Uint8ClampedArray(W2 * H2 * 4);
+  let sd = 7; const rn = () => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd / 0x7fffffff; };
+  for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+    const j = (y * W2 + x) * 4, inPanel = (x % 300 >= 12 && x % 300 < 288) && (y % 200 >= 12 && y % 200 < 170);
+    const v = inPanel ? [200 + 40 * Math.sin(x / 5) * Math.cos(y / 7) + 30 * (rn() - 0.5), 120 + 50 * (rn() - 0.5), 150] : [216, 215, 209];
+    d2[j] = v[0]; d2[j + 1] = v[1]; d2[j + 2] = v[2]; d2[j + 3] = 255;
+  }
+  const slide = { width: W2, height: H2, data: d2 };
+  const boxes = E.splitPanels(slide);
+  assert.strictEqual(boxes.length, 4, `grey slide canvas: four panels (got ${boxes.length})`);
+  const gray = E.toGray(slide);
+  const alt = boxes.flatMap(b => F.analysePanel(slide, gray, b, 'photo', false).alterations);
+  assert.ok(!alt.some(a => a.code === 'smooth'), 'the canvas between panels is not a smooth (retouched) area');
+}
+
 console.log('forensics test: all assertions passed');

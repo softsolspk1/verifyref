@@ -35,6 +35,12 @@ const { checkEntry } = require('../src/checks/compliance');
   assert.ok(m.abstract.startsWith('With the continuous progress'), 'abstract');
   assert.deepStrictEqual(m.authors.map(a => a.name), ['Chi Ma', 'Chengtao Zhang', 'Xin Li']);
   assert.ok(m.affiliations[0].startsWith('College of Sports Science'), 'affiliations');
+  // authors without numbered marks (19 Nov 2026: 90 of 250 published articles had no title, so no novelty assessment)
+  const um = P.extractManuscriptMeta('Appraisal of biological activities and identification of phenolic compound of African marigold (Tagetes erecta) flower extract Ampai Phrutivorapongkul, Kanokwan Kiattisin, Pensak Jantrawut and Pimporn Leelapornpisid* Department of Pharmaceutical Sciences, Faculty of Pharmacy, Chiang Mai University, Chiang Mai, Thailand Abstract: The flowers of African marigold (Tagetes erecta L), a medicinal plant widely cultivated in Thailand, were subjected to evaluation for total phenolics, DPPH scavenging and thiobarbituric acid-reactive substance assays as well as tyrosinase inhibitory activity. Keywords: Tagetes erecta, antioxidant INTRODUCTION Marigold is common.');
+  assert.strictEqual(um.title, 'Appraisal of biological activities and identification of phenolic compound of African marigold (Tagetes erecta) flower extract');
+  assert.deepStrictEqual(um.authors.map(a => a.name), ['Ampai Phrutivorapongkul', 'Kanokwan Kiattisin', 'Pensak Jantrawut', 'Pimporn Leelapornpisid']);
+  const caps = P.extractManuscriptMeta('Pak. J. Pharm. Sci., Vol.21, No.2, April 2008, pp.113-120 113 FORMULATION DEVELOPMENT AND OPTIMIZATION OF IBUPROFEN TABLETS BY DIRECT COMPRESSION METHOD RABIA BUSHRA, MUHAMMAD HARRIS SHOAIB, NOUSHEEN ASLAM AND MASUD-UR-REHMAN* Department of Pharmaceutics, Faculty of Pharmacy, University of Karachi, Karachi, Pakistan ABSTRACT Ibuprofen is widely used as a prescription and non-prescription medicine, and the aim of this study is to prepare ibuprofen tablets using direct compression which is now considered a cost effective and simple method. Keywords: ibuprofen INTRODUCTION Tablets.');
+  assert.strictEqual(caps.title, 'FORMULATION DEVELOPMENT AND OPTIMIZATION OF IBUPROFEN TABLETS BY DIRECT COMPRESSION METHOD', 'a title page in capitals');
 
   // ---- citations
   const cites = (body, refsText) => { const { refs } = prepare({ referencesText: refsText, bodyText: body }); return checkCitations(body, refs); };

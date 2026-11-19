@@ -241,11 +241,13 @@ async function checkNovelty({ meta = {}, journal = {} }, update = () => {}) {
     Promise.all(concepts.map(c => countWorks(`title_and_abstract.search:${esc(c)}`))),
     Promise.all(pairs.map(([a, b]) => countWorks(`title_and_abstract.search:${esc(a)} ${esc(b)}`)))
   ]);
-  // OpenAlex unavailable: the same counts in Europe PMC
+  // OpenAlex unavailable or answering only part of the counts (keyless, rate-limited: 5 of 10 lost on report 221, so no
+  // rarity): the same counts in Europe PMC, taken whole when more complete (one database, so the ratios compare)
   let countedIn = 'OpenAlex';
-  if (!single.some(Number.isFinite)) {
-    countedIn = 'Europe PMC';
-    [allCount, single, pairCounts] = await Promise.all([countEpmc(concepts), Promise.all(concepts.map(c => countEpmc([c]))), Promise.all(pairs.map(pair => countEpmc(pair)))]);
+  const answered = (s, p) => s.filter(Number.isFinite).length + p.filter(Number.isFinite).length;
+  if (answered(single, pairCounts) < concepts.length + pairs.length) {
+    const ep = await Promise.all([countEpmc(concepts), Promise.all(concepts.map(c => countEpmc([c]))), Promise.all(pairs.map(pair => countEpmc(pair)))]);
+    if (answered(ep[1], ep[2]) > answered(single, pairCounts)) { countedIn = 'Europe PMC'; [allCount, single, pairCounts] = ep; }
   }
   const pairRarity = pairs.map(([a, b], k) => {
     const n = pairCounts[k], m = Math.min(single[concepts.indexOf(a)], single[concepts.indexOf(b)]);

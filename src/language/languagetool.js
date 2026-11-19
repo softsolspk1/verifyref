@@ -86,10 +86,14 @@ async function check(paragraphs, variant) {
       const p = paragraphs[batch[k]], off = m.offset - starts[k];
       if (off < 0 || off + m.length > p.length) continue;
       const cat = m.rule?.category?.id;
+      // a suggestion the server returns in the case of the text ("Kg" -> "Kg" from the unit rule): the form its message names
+      const said = p.slice(off, off + m.length);
+      let reps = (m.replacements || []).map(r => r.value).filter(v => v !== said);
+      if (!reps.length && m.replacements?.length) reps = [...String(m.message || '').matchAll(/[“"]([^”"]+)[”"]/g)].map(x => x[1]).filter(v => v !== said).slice(-1);
       out[batch[k]].push({
         rule: ruleOf(m.rule?.id), category: CATEGORY[cat] || 'correctness', title: m.shortMessage || m.rule?.category?.name || 'Grammar',
         offset: off, length: m.length, text: p.slice(off, off + m.length), message: m.message,
-        replacements: (m.replacements || []).slice(0, 4).map(r => r.value), spelling: m.rule?.issueType === 'misspelling', engine: 'languagetool'
+        replacements: reps.slice(0, 4), spelling: m.rule?.issueType === 'misspelling', engine: 'languagetool'
       });
     }
   };

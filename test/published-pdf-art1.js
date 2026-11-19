@@ -33,4 +33,17 @@ assert.strictEqual(middleConflict('Hosam O.', 'Hosam O.'), false);
 assert.strictEqual(middleConflict('Hosam', 'Hosam O.'), false, 'no middle initial on one side: not a conflict');
 assert.strictEqual(middleConflict('M. A.', 'M. F.'), false, 'initials only: decided by the other rules');
 
+// Report 217: a running title above the title, degrees with letter affiliation marks after each author, "* Corresponding Author:"
+const m217 = P.extractManuscriptMeta(['Running Title: J. regia Attenuates Ethanol Damage',
+  'Juglans regia Oil Attenuates Ethanol-Associated Changes in Male Reproductive Parameters in Rats',
+  'Sadia Suri Kashif Ph.D.,a# Saira Saeed Khan Ph.D.,b#* Sadaf Naeem Ph.D.,c Muhammad Naveed Ph.D.d, Jennifer W. Hill Ph.D.d, Rahela Ikram Ph.D.b',
+  'a. Department of Pharmacology, Faculty of Pharmacy and Pharmaceutical Sciences, Ziauddin University, Karachi, Pakistan',
+  'b. Department of Pharmacology, Faculty of Pharmacy and Pharmaceutical Sciences, University of Karachi, Pakistan',
+  '# These co-authors contributed equally to this work', '* Corresponding Author: ', 'Saira Saeed Khan', 'University of Karachi',
+  'E-mail: saira.khan@uok.edu.pk', 'Abstract', 'Male reproductive dysfunction is frequently associated with hormonal imbalance.'].join('\n'));
+assert.strictEqual(m217.title, 'Juglans regia Oil Attenuates Ethanol-Associated Changes in Male Reproductive Parameters in Rats', 'title below a running title');
+assert.deepStrictEqual(m217.authors.map(a => a.name), ['Sadia Suri Kashif', 'Saira Saeed Khan', 'Sadaf Naeem', 'Muhammad Naveed', 'Jennifer W. Hill', 'Rahela Ikram'], 'six authors, degrees and letter marks removed');
+assert.ok(!m217.affiliations.some(a => /corresponding/i.test(a)), '"Corresponding Author:" is not an affiliation');
+assert.deepStrictEqual(P.extractManuscriptMeta('Effects of a drug on rats in a trial\nM. D. Smith, A. B. Jones\nAbstract\nText.').authors.map(a => a.name), ['M. D. Smith', 'A. B. Jones'], 'initials "M. D." are not a degree');
+
 console.log('published-pdf-art1: all checks passed');

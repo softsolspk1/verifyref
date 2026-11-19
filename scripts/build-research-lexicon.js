@@ -214,8 +214,12 @@ function build(t0, drugs = [], mesh = []) {
   let meshAdded = 0;
   for (const [k, lower] of mesh) {
     if (have.has(k) || known(k) || garbled(k) || S.TYPOS[k]) continue;
-    if (GLUE.some(g => k.startsWith(g) && k.length - g.length >= 3 && known(k.slice(g.length)))) continue;
     const n = df.get(k) || 0;
+    // a NLM heading that many published papers use in lower case is a term, whatever it looks like: "indole" (in + dole,
+    // 1,458 papers), "ascites" (as + cites), "urate" (one letter from "rate"); the paper-word rules below left them out
+    // (19 Nov 2026: PJPS Scribe marked them as misspellings)
+    if (n >= 100 && (lowerDf.get(k) || 0) >= n * 0.5 && k.length >= 4) { terms.push(k); have.add(k); meshAdded++; continue; }
+    if (GLUE.some(g => k.startsWith(g) && k.length - g.length >= 3 && known(k.slice(g.length)))) continue;
     // short MeSH words are mostly gene symbols and pieces of chemical names (aaap, acety, abch): the published papers
     // decide those (a short word they support is in the list already)
     if (k.length < 7) continue;

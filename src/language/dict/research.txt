@@ -1,4 +1,4 @@
-# PJPS Scribe research vocabulary, built 2026-11-15 by scripts/build-research-lexicon.js from 64921 published papers (PJPS articles and PubMed Central open access), the FDA Orange Book drug names and the NLM Medical Subject Headings (MeSH). One word per line.
+# PJPS Scribe research vocabulary, built 2026-11-19 by scripts/build-research-lexicon.js from 64921 published papers (PJPS articles and PubMed Central open access), the FDA Orange Book drug names and the NLM Medical Subject Headings (MeSH). One word per line.
 A'court
 aaaa
 aaac
@@ -1831,7 +1831,6 @@ acetomercuri
 acetomethoxy
 acetomethyl
 Acetomicrobium
-Acetominophen
 acetomycin
 acetonaphthone
 acetonate
@@ -10360,6 +10359,7 @@ Allman
 Allmedicus
 Allnortoxiferine
 Allnutt
+allo
 Alloactinosynnema
 alloactivated
 alloafzelii
@@ -16742,6 +16742,7 @@ animais
 Animalcare
 Animalerie
 Animalia
+animalis
 Animalium
 animaloris
 animata
@@ -17689,6 +17690,7 @@ Anthrogon
 anthroic
 anthrolysin
 Anthron
+anthrone
 anthropi
 Anthropic
 anthropization
@@ -22135,8 +22137,6 @@ Arruebo
 Arruga
 Arruti
 Arruzazabala
-arrythmia
-arrythmias
 arsabenzene
 arsacetyl
 Arsalan
@@ -23028,6 +23028,7 @@ Ascierto
 asciminib
 Ascione
 Ascitendus
+ascites
 ascitic
 ascitis
 Ascl
@@ -24634,6 +24635,7 @@ atinine
 atinocyte
 atinocytes
 Atinomyces
+ation
 atipamezol
 atipamezole
 atiprimod
@@ -58003,7 +58005,6 @@ Centrifree
 centrifu
 centrifuga
 centrifugate
-centrifugated
 centrifugating
 centrifugation
 centrifugationat
@@ -87669,7 +87670,6 @@ dexametha
 dexamethasone
 dexamethasonedisodium
 dexamethasoneinduced
-dexamethazone
 dexamfetamine
 dexaminoglutethimide
 dexamisole
@@ -121379,9 +121379,7 @@ flavane
 flavanes
 flavangenol
 flavanhexanol
-flavanoid
 flavanoidal
-flavanoids
 flavanol
 flavanolignans
 flavanols
@@ -124052,6 +124050,7 @@ fopurin
 Foradil
 Foraker
 foralumab
+foramen
 Foramens
 foramidocillin
 foramina
@@ -124207,6 +124206,7 @@ formaminoantipyrine
 formance
 formanilide
 Formanowicz
+formate
 formatexigens
 formational
 formatotetraammineruthenium
@@ -124533,6 +124533,7 @@ fornices
 fornicin
 Fornier
 Fornito
+fornix
 Forno
 Fornoni
 Forny
@@ -134280,7 +134281,6 @@ glial
 glialblastoma
 Glianimon
 gliarin
-glibenclamid
 glibenclamide
 glibornuride
 glic
@@ -138094,7 +138094,6 @@ Grammatikakis
 Grammatikopoulos
 grammatoides
 gramme
-Grammer
 grammes
 grammica
 grammicospora
@@ -162953,6 +162952,7 @@ Increlex
 incrementation
 increpan
 increta
+incretin
 Incrucipulum
 Incruse
 incrustans
@@ -163252,6 +163252,7 @@ indolal
 indolamine
 Indolapril
 indolcarbohydrazone
+indole
 indoleacetaldehyde
 indoleacetamide
 indoleacetate
@@ -163283,6 +163284,7 @@ indolepropionyl
 indolepyruvate
 indolequinone
 indolequinones
+indoles
 indolesmethane
 indolethiocarboxamide
 indolethyl
@@ -163486,6 +163488,7 @@ indumentum
 Indumentums
 Induracin
 indurated
+induration
 indurations
 Indurativa
 Induratum
@@ -165513,8 +165516,10 @@ introgressions
 introgressive
 introitus
 intromission
+intron
 intronic
 intronless
+introns
 Intropin
 Introvale
 intrudens
@@ -200039,7 +200044,6 @@ Mainous
 Mainsia
 mainsiana
 mainstem
-maintainance
 maintainence
 Maintena
 maintenanceof
@@ -202278,6 +202282,7 @@ Mantzana
 Mantzaris
 Mantzoros
 Mantzourani
+manu
 manualized
 Manubolu
 manubrium
@@ -240313,7 +240318,6 @@ Occup
 occupa
 occupancies
 occurance
-occuring
 occurrent
 oceanalin
 oceanapamine
@@ -241065,6 +241069,7 @@ octazethrene
 octaziridinocyclotetraphosphazene
 Octbeta
 Octegra
+octen
 octenal
 octenamide
 octene
@@ -243389,7 +243394,6 @@ omentin
 omentum
 Omentums
 omephine
-omeprazol
 omeprazole
 Omer
 Omeroglu
@@ -244417,7 +244421,6 @@ Optazine
 Opteron
 opth
 opthalmia
-Opthalmology
 Opthavir
 opthiole
 Opti
@@ -274298,6 +274301,7 @@ prolifer
 prolifera
 proliferans
 proliferata
+proliferations
 proliferative
 proliferatively
 proliferator
@@ -286258,6 +286262,7 @@ Reginatto
 regineus
 reginin
 Reginster
+regio
 regiochemical
 regiochemistry
 regiocontrol
@@ -301172,6 +301177,7 @@ scichilone
 Sciclone
 Scicluna
 Scicons
+scid
 scidraw
 sciellin
 scielo
@@ -304291,6 +304297,7 @@ serinamido
 serinate
 serinedens
 serinellus
+serines
 serinesulphate
 Serinibacter
 Serinicoccus
@@ -310988,6 +310995,7 @@ Softron
 softshell
 Softspar
 softtissue
+softwares
 Sofuni
 Sofya
 Sofyan
@@ -321942,7 +321950,6 @@ supernants
 supernatant
 supernatants
 supernate
-supernatent
 supernates
 supernormal
 supernula
@@ -348066,6 +348073,7 @@ Urasaki
 Urashima
 urashimae
 Urata
+urate
 urativorans
 uratovorans
 uratoxydans
@@ -349137,7 +349145,6 @@ vaccinology
 vaccinomics
 vaccinostercus
 Vaccinum
-vaccum
 Vacek
 vacekii
 vaceletii

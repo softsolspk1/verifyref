@@ -53,6 +53,30 @@ const has = (list, rule, text) => list.some(i => i.rule === rule && (text === un
   // slips seen in published papers and drug names in another language's form, with the right word first
   const { paragraphs: [ps] } = await L.checkParagraphs(['The postive control and metformine were given; malodialdehyde rose.'], { goals: { domain: 'academic' } });
   for (const [w, fix] of [['postive', 'positive'], ['metformine', 'metformin'], ['malodialdehyde', 'malondialdehyde']]) assert.ok(ps.find(i => i.spelling && i.text === w)?.replacements[0] === fix, `${w} -> ${fix}`);
+  // the 25 PJPS subject areas (dict/subjects.txt): their terms are words; a slip that reads as a prefix and a word, a drug
+  // ending or a form of a term is still a slip; real prefixed words stay ("replated", "coingestion", "polyacrylamides")
+  const subj = 'Levigation, dextrates, aquasomes and codrugs were studied with Kjeldahl, Ussing chambers, sclereids, macroscopy and gliflozins; ' +
+    'samples were replated, coingestion was recorded and polyacrylamides, perifused islets and prewarmed media were used.';
+  const { paragraphs: [psub] } = await L.checkParagraphs([subj], { goals: { domain: 'academic' } });
+  assert.deepStrictEqual(psub.filter(i => i.spelling).map(i => i.text), [], 'no false spelling alarms on subject terms');
+  const slipText = 'The diintegrant, a nanofire mat, pytomedicine, the musarinic receptor, intergrated data, unstability, napthoquinone, diadzein, crosspovidone and recrystalized product.';
+  const { paragraphs: [pslip] } = await L.checkParagraphs([slipText], { goals: { domain: 'academic' } });
+  for (const [w, fix] of [['diintegrant', 'disintegrant'], ['nanofire', 'nanofibre'], ['pytomedicine', 'phytomedicine'], ['musarinic', 'muscarinic'], ['intergrated', 'integrated'],
+    ['unstability', 'instability'], ['napthoquinone', 'naphthoquinone'], ['diadzein', 'daidzein'], ['crosspovidone', 'crospovidone'], ['recrystalized', 'recrystallized']]) {
+    const hit = pslip.find(i => i.spelling && i.text === w);
+    assert.ok(hit, `subject slip "${w}" reported`);
+    assert.ok(hit.replacements.includes(fix), `subject slip ${w} -> ${fix} (got ${hit.replacements.join(', ')})`);
+  }
+  // subject rules: confused words, eponyms and named methods, compound terms
+  const subjRules = 'The entrapment efficacy was high and the Hixon Crowell and Korsmeyer Peppas models fitted zero order release; the mixture was heated under reflex, ' +
+    'the half life was short, intestinal adsorption was low, the areal parts were coarsely powered and the Kirby Bauer method on Mac Conkey agar with SwissAdme and Autodock was used.';
+  const { paragraphs: [psr] } = await L.checkParagraphs([subjRules], { goals: { domain: 'academic' } });
+  for (const [rule, text] of [['medical-confusion', 'efficacy'], ['medical-term', 'Hixon Crowell'], ['medical-term', 'Korsmeyer Peppas'], ['medical-term', 'zero order'], ['medical-confusion', 'reflex'],
+    ['medical-term', 'half life'], ['medical-confusion', 'adsorption'], ['medical-confusion', 'areal'], ['medical-confusion', 'powered'], ['medical-term', 'Kirby Bauer'], ['medical-term', 'Mac Conkey'],
+    ['medical-term', 'SwissAdme'], ['medical-term', 'Autodock']]) assert.ok(has(psr, rule, text), `subject rule ${rule} on "${text}"`);
+  // left alone: an IR maximum written "v max" and a subscript a PDF spaced out ("IC 50", "C max"), NF-kappa B (MeSH), "broad spectrum of"
+  const { paragraphs: [pok] } = await L.checkParagraphs(['IR (KBr) v max 3408; the IC 50 and C max were found; NF-kappa B rose; a broad spectrum of activity was seen.'], { goals: { domain: 'academic' } });
+  assert.deepStrictEqual(pok.filter(i => ['medical-term', 'medical-confusion'].includes(i.rule)).map(i => i.text), [], 'subject rules leave correct forms alone');
   // medical confusions, prepositions, second-language forms, terms and species (Grammarly-style areas, research focus)
   const gram = 'The MTT essay was used and samples were purchased form Sigma. The drug could not calculated and did not showed effects; the plant have mild activity. ' +
     'Rats were treated for 5 week, one of the most important factor is diet, and each patients consented. Patients had underwent surgery for prostrate cancer. ' +

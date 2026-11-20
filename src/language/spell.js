@@ -14,7 +14,12 @@ const FILES = {
 const RESEARCH = path.join(__dirname, 'dict', 'research.txt');
 const RESEARCH_COMMON_FILE = path.join(__dirname, 'dict', 'research-common.txt');
 const NAMES_FILE = path.join(__dirname, 'dict', 'names.txt');
+// terms of the 25 PJPS subject areas chosen by hand (pharmaceutics to molecular modelling)
+const SUBJECTS_FILE = path.join(__dirname, 'dict', 'subjects.txt');
 const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').map(w => w.trim()).filter(w => w && !w.startsWith('#')); } catch { return []; } };
+const SUBJECTS = lines(SUBJECTS_FILE);
+// the subject terms long enough to be told from their slips ("disintegrant", "nanofibre", "multiparticulate")
+const SUBJECT_TERMS = new Set(SUBJECTS.map(w => w.toLowerCase()).filter(w => w.length >= 7));
 // author surnames learned from published papers (scripts/build-names-lexicon.js): Liu, Gao, Mlinac, Leasure, Arayne
 let NAMES = null;
 const isName = w => /^[A-Z][a-z']+$/.test(w) && (NAMES || (NAMES = new Set(lines(NAMES_FILE)))).has(w);
@@ -27,6 +32,7 @@ function load(variant) {
     cache[v] = nspell(fs.readFileSync(FILES[v][0]), fs.readFileSync(FILES[v][1]));
     for (const w of SCIENCE) cache[v].add(w);
     for (const w of lines(RESEARCH)) cache[v].add(w);
+    for (const w of SUBJECTS) cache[v].add(w);
   }
   return cache[v];
 }
@@ -91,16 +97,55 @@ function correctAny(sp, w) {
   const forms = [];
   if (/[a-z]{4}ating$/.test(lower)) forms.push(lower.replace(/ating$/, 'ated'), lower.replace(/ating$/, 'ation'), lower.replace(/ating$/, 'ate'));
   if (/[a-z]{5}ic$/.test(lower) && !/ical$/.test(lower)) forms.push(lower.replace(/ic$/, ''), lower.replace(/ic$/, 's'));
-  if (forms.some(f => sp.correct(f) || sp.correct(cap(f)))) return true;
+  // the base of an -ic form is a term, not a name or an abbreviation ("duretic" from Duret, "ophthalic" from ophthal.)
+  if (forms.some(f => sp.correct(f) || /ating$/.test(lower) && sp.correct(cap(f))) && !nearTerm(sp, lower)) return true;
   // prefixed technical words and drug/chemical name endings
   for (const p of PREFIXES) {
     if (lower.startsWith(p) && lower.length - p.length >= (p.length <= 3 ? 5 : 4)) {
       const rest = lower.slice(p.length);
-      if (sp.correct(rest) || sp.correct(rest.replace(/^-/, ''))) return true;
+      if ((sp.correct(rest) || sp.correct(rest.replace(/^-/, ''))) && !prefixSlip(sp, lower, p.length)) return true;
     }
   }
   return false;
 }
+
+const builtFromPrefix = (sp, w) => PREFIXES.some(p => w.startsWith(p) && w.length - p.length >= 4 && sp.correct(w.slice(p.length)));
+/**
+ * A prefix and a word that is really a slip of one term (20 Nov 2026, 25 PJPS subject areas): "diintegrant" (di + integrant
+ * for disintegrant), "nanofire" (nanofibre), "coactor" (cofactor) - one letter from a subject term; or "intergrated"
+ * (inter + grated), "devided" (de + vided) - one letter at the seam from a dictionary word that has lost the prefix
+ * ("integrated", "divided"). Real prefixed words stay: "replated" (related keeps re-), "coingestion", "multipole", and a
+ * plural or tense of a term ("polyacrylamides", "isotyped"); checked on the words of 64,921 published papers.
+ */
+function prefixSlip(sp, w, seam) {
+  const prefix = w.slice(0, seam), stem = w.slice(seam);
+  // "un" for "in": "unstability", "uncomplete", "unsignificant", "unconclusive"
+  if (prefix === 'un' && plainWord(`in${stem}`)) return true;
+  for (const e of edits1(w)) {
+    if (e.length < 7 || !sp.correct(e)) continue;
+    const i = slipAt(w, e);
+    // a plural or tense ("polyacrylamides"), or the same stem under another prefix ("dialkylation" / "dealkylation")
+    if (i >= Math.min(w.length, e.length) - 1 || e.endsWith(stem) && PREFIXES.includes(e.slice(0, -stem.length))) continue;
+    if (SUBJECT_TERMS.has(e)) return true;
+    // at the seam, with a stem no English word ("de" + "vided"): "re" + "posted" is not "riposted"
+    if (i >= seam - 1 && i <= seam && !e.startsWith(prefix) && plainWord(e) && !plainWord(stem) && !builtFromPrefix(sp, e)) return true;
+  }
+  return false;
+}
+// the general English dictionaries alone: the research vocabulary holds glued and garbled words of old PDFs
+// ("nostaining" would make "costaining" a slip)
+let PLAIN = null;
+function plainWord(w) {
+  if (!PLAIN) {
+    const nspell = require('nspell');
+    PLAIN = Object.values(FILES).map(([aff, dic]) => nspell(fs.readFileSync(aff), fs.readFileSync(dic)));
+  }
+  return PLAIN.some(d => d.correct(w));
+}
+/** Where two words first differ */
+const slipAt = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return i; };
+/** One letter from a subject term, not at its ending ("musarinic" for muscarinic, "homeopatic" for homeopathic) */
+const nearTerm = (sp, w) => edits1(w).some(e => SUBJECT_TERMS.has(e) && slipAt(w, e) < Math.min(w.length, e.length) - 1);
 
 /** Is the word spelled correctly for this variant? personal: Set of the user's own dictionary (lower case) */
 function check(word, { variant = 'en-US', personal = null, ctx = {} } = {}) {
@@ -188,6 +233,30 @@ const HAND_TYPOS = {
   flavanoids: 'flavonoids', flavanoid: 'flavonoid', alkaloides: 'alkaloids', saponines: 'saponins',
   chromatograpy: 'chromatography', chromotography: 'chromatography', spectrophotmeter: 'spectrophotometer', spectrophotomter: 'spectrophotometer', centrifugated: 'centrifuged',
   supernatent: 'supernatant', homogenete: 'homogenate', incubeted: 'incubated', aliqout: 'aliquot', aliqouts: 'aliquots',
+  // the 25 PJPS subject areas (20 Nov 2026): slips the learned vocabulary holds because enough published papers repeat them
+  // ("napthoquinone", "diadzein", "crosspovidone"), or that came out a valid prefix word or a poor suggestion
+  pharmacoviligance: 'pharmacovigilance', bioavailibility: 'bioavailability', bioavailabilty: 'bioavailability', excepients: 'excipients', nanoparticals: 'nanoparticles',
+  polidispersity: 'polydispersity', formulaton: 'formulation', lyophylized: 'lyophilized', palletization: 'pelletization', crosspovidone: 'crospovidone', crosscarmellose: 'croscarmellose',
+  pharmacopoeal: 'pharmacopoeial', pharmacopiea: 'pharmacopoeia', parentral: 'parenteral', dispersable: 'dispersible', lecitin: 'lecithin', visocity: 'viscosity',
+  thiossemicarbazone: 'thiosemicarbazone', bezimidazole: 'benzimidazole', benzimidazol: 'benzimidazole', benzmidazole: 'benzimidazole', isoquinolene: 'isoquinoline', cumarin: 'coumarin', cumarins: 'coumarins',
+  recrystalized: 'recrystallized', recrystalization: 'recrystallization', recrystalised: 'recrystallised', recrystalisation: 'recrystallisation', stigmaterol: 'stigmasterol', cardanolides: 'cardenolides',
+  antraquinone: 'anthraquinone', antraquinones: 'anthraquinones', napthoquinone: 'naphthoquinone', napthoquinones: 'naphthoquinones', naphtoquinone: 'naphthoquinone', naphthaquinone: 'naphthoquinone',
+  narigenin: 'naringenin', hesperedin: 'hesperidin', genestein: 'genistein', diadzein: 'daidzein', daizein: 'daidzein', isohamnetin: 'isorhamnetin', isoramnetin: 'isorhamnetin', isorhamentin: 'isorhamnetin',
+  quercitin: 'quercetin', kaempherol: 'kaempferol', kempferol: 'kaempferol', luteoline: 'luteolin', triterpens: 'triterpenes', monoterpens: 'monoterpenes', phytoconstitutes: 'phytoconstituents',
+  voltametry: 'voltammetry', voltametric: 'voltammetric', flourimetric: 'fluorimetric', specifity: 'specificity', specificty: 'specificity', absorbace: 'absorbance', inhibiton: 'inhibition', simulaton: 'simulation',
+  mutagenecity: 'mutagenicity', vaculation: 'vacuolation', hepatotoxity: 'hepatotoxicity', nephrotoxity: 'nephrotoxicity', cardiotoxity: 'cardiotoxicity', genotoxity: 'genotoxicity',
+  gluthathione: 'glutathione', glutathion: 'glutathione', antinociceptic: 'antinociceptive', antiinflamatory: 'anti-inflammatory', antiinflammatry: 'anti-inflammatory', sacrified: 'sacrificed', anesthesized: 'anesthetized',
+  innocula: 'inocula', carbapenamase: 'carbapenemase', bacteriocidal: 'bactericidal', pathogenecity: 'pathogenicity', pseudomonus: 'Pseudomonas', candidia: 'Candida', salmonela: 'Salmonella', saboraud: 'Sabouraud',
+  polyacrilamide: 'polyacrylamide', immunobloting: 'immunoblotting', immunogenecity: 'immunogenicity', haemaglutination: 'haemagglutination', hemaglutination: 'hemagglutination', citometry: 'cytometry',
+  immunoglobin: 'immunoglobulin', immunoglobins: 'immunoglobulins', interleucin: 'interleukin', interleukine: 'interleukin', cytokins: 'cytokines', macrophags: 'macrophages', neutrophills: 'neutrophils', antibodes: 'antibodies',
+  taupathy: 'tauopathy', neuroaminidase: 'neuraminidase', antidiabatic: 'antidiabetic', anthelmentic: 'anthelmintic', antihelmentic: 'anthelmintic', biphosphonate: 'bisphosphonate', biphosphonates: 'bisphosphonates',
+  glucoronide: 'glucuronide', cytochrom: 'cytochrome', allels: 'alleles', phospatase: 'phosphatase', amilase: 'amylase', triglicerides: 'triglycerides', triglycerids: 'triglycerides', tromboxane: 'thromboxane',
+  lipolysaccharide: 'lipopolysaccharide', metaloproteinase: 'metalloproteinase', metaloproteinases: 'metalloproteinases', intergrin: 'integrin', isothiocynate: 'isothiocyanate', biocarbonate: 'bicarbonate',
+  oncogeneic: 'oncogenic', angiogeneic: 'angiogenic', metastaic: 'metastatic', neoplasic: 'neoplastic', tetracyclins: 'tetracyclines', oxymetry: 'oximetry', metanolic: 'methanolic', tanins: 'tannins',
+  electrospining: 'electrospinning', coploymer: 'copolymer', wetability: 'wettability', carboxymetyl: 'carboxymethyl', crystaline: 'crystalline', parrafin: 'paraffin', metalic: 'metallic', nutraceuticles: 'nutraceuticals',
+  soxlet: 'Soxhlet', soxhelt: 'Soxhlet', whatmann: 'Whatman', dessicator: 'desiccator', dessicated: 'desiccated', desicator: 'desiccator', pharmacophor: 'pharmacophore',
+  exogeneous: 'exogenous', endogeneous: 'endogenous', intergrated: 'integrated', intergration: 'integration', resistent: 'resistant', devided: 'divided', oxydative: 'oxidative', oxydation: 'oxidation',
+  distruction: 'destruction', dimention: 'dimension', dimentions: 'dimensions', colateral: 'collateral', uncomplete: 'incomplete', precentages: 'percentages', polynominal: 'polynomial', transfering: 'transferring',
   histopathalogy: 'histopathology', histopathalogical: 'histopathological', immunohistochemestry: 'immunohistochemistry', apoptois: 'apoptosis', necroisis: 'necrosis', infiltaration: 'infiltration',
   questionaire: 'questionnaire', questionaires: 'questionnaires', questionnair: 'questionnaire', particpants: 'participants', partcipants: 'participants', respondants: 'respondents',
   significanly: 'significantly', signficantly: 'significantly', statistcally: 'statistically', statistially: 'statistically', corelation: 'correlation', corellation: 'correlation',

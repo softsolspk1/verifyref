@@ -210,8 +210,8 @@ function writeLt(rules) {
 ${body}
 </rules>
 `);
-  // the research vocabulary and author names for the server's spelling (LanguageTool's own list stays as it is)
-  const words = new Set([...lines(path.join(DICT, 'research.txt')), ...lines(path.join(DICT, 'names.txt'))].filter(w => /^[A-Za-z][A-Za-z'-]*$/.test(w)));
+  // the research vocabulary, the subject-area terms and author names for the server's spelling (LanguageTool's own list stays as it is)
+  const words = new Set([...lines(path.join(DICT, 'research.txt')), ...lines(path.join(DICT, 'subjects.txt')), ...lines(path.join(DICT, 'names.txt'))].filter(w => /^[A-Za-z][A-Za-z'-]*$/.test(w)));
   fs.writeFileSync(path.join(OUT, 'spelling_custom.txt'), `# Add terms here that should be accepted by the LanguageTool spell checker, one word or phrase per line\n# PJPS Scribe research vocabulary and author names (${words.size}), from scripts/build-scribe-rules.js\n${[...words].join('\n')}\n`);
   const counts = {};
   for (const r of rules) counts[r.group] = (counts[r.group] || 0) + 1;

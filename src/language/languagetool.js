@@ -1,5 +1,5 @@
 // language/languagetool.js - Module 6 optional grammar engine: a LanguageTool server (open source, self-hosted) adds its
-// ~6,100 English grammar rules, its n-gram model of confused words and the ~5,000 PJPS Scribe rules for medical and
+// ~6,100 English grammar rules, its n-gram model of confused words and the ~6,300 PJPS Scribe rules for medical and
 // pharmaceutical writing (scripts/build-scribe-rules.js) when LANGUAGETOOL_URL is set (e.g. http://our-server:8081).
 // Without it, or when it does not answer, the in-house rules work alone. Paragraphs are sent together in requests of at most ~18 KB.
 // Standby: LANGUAGETOOL_STANDBY_URL (with LANGUAGETOOL_STANDBY_TOKEN when it has its own) is used when the main server does

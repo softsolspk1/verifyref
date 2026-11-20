@@ -1,4 +1,4 @@
-# PJPS Scribe typing slips (typo, word, source), built 2026-11-16 by scripts/build-scribe-rules.js: "published" = seen in published papers next to the word they meant (64921 papers), "drug" = a drug name in another language's form. One per line.
+# PJPS Scribe typing slips (typo, word, source), built 2026-11-20 by scripts/build-scribe-rules.js: "published" = seen in published papers next to the word they meant (64921 papers), "drug" = a drug name in another language's form. One per line.
 abandance	abundance	published
 aberant	aberrant	published
 abnomal	abnormal	published
@@ -1204,7 +1204,6 @@ mesures	measures	published
 metablic	metabolic	published
 metabolsim	metabolism	published
 metalloprotienases	metalloproteinases	published
-metaloproteinases	metalloproteinases	published
 metanol	methanol	published
 methacholin	methacholine	drug
 methacrylamid	methacrylamide	drug

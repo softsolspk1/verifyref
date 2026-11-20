@@ -168,6 +168,17 @@ function ruleXml(id, e) {
 </rule>`;
 }
 
+/** the typos of typos.txt and the slips spell.js lists by hand (HAND_TYPOS), each typo once */
+function allTypos() {
+  const out = [...B.typoList()], seen = new Set(out.map(t => t.typo.toLowerCase()));
+  for (const [typo, word] of Object.entries(require('../src/language/spell').HAND_TYPOS || {})) {
+    if (seen.has(typo.toLowerCase()) || !/^[A-Za-z][A-Za-z'-]*$/.test(typo)) continue;
+    seen.add(typo.toLowerCase());
+    out.push({ typo, word, kind: 'published' });
+  }
+  return out;
+}
+
 /** [{ id, xml, check: { bad, good, offset, length } }] for the bank and the typos; `drop` ids are left out */
 function ltRules(drop = new Set()) {
   const out = [];
@@ -178,7 +189,7 @@ function ltRules(drop = new Set()) {
     out.push({ id, group: e.rule, xml: ruleXml(id, e), check: { bad: e.example.bad, good: e.example.good, offset: e.example.offset, length: e.find.length } });
   }
   let n = 0;
-  for (const { typo, word, kind } of B.typoList()) {
+  for (const { typo, word, kind } of allTypos()) {
     const id = `PJPS_TYPO_${++n}`;
     if (drop.has(id)) continue;
     const msg = kind === 'drug' ? `"${typo}" is how the name is spelled in another language; in English it is "${word}".` : `"${typo}" is a common slip for "${word}".`;
@@ -205,13 +216,15 @@ function writeLt(rules) {
   }).join('\n');
   fs.writeFileSync(path.join(OUT, 'grammar_custom.xml'), `<?xml version="1.0" encoding="UTF-8"?>
 <!-- PJPS Scribe rules for medical and pharmaceutical manuscripts: made by scripts/build-scribe-rules.js from
-     src/language/bank.js and src/language/dict/typos.txt (${rules.length} rules). Do not edit here. -->
+     src/language/bank.js, src/language/dict/typos.txt and HAND_TYPOS in src/language/spell.js (${rules.length} rules). Do not edit here. -->
 <rules lang="en" xsi:noNamespaceSchemaLocation="../rules.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 ${body}
 </rules>
 `);
   // the research vocabulary, the subject-area terms and author names for the server's spelling (LanguageTool's own list stays as it is)
-  const words = new Set([...lines(path.join(DICT, 'research.txt')), ...lines(path.join(DICT, 'subjects.txt')), ...lines(path.join(DICT, 'names.txt'))].filter(w => /^[A-Za-z][A-Za-z'-]*$/.test(w)));
+  // known slips stay out of it, so the server's spelling flags them as well as the typo rules
+  const slips = new Set(allTypos().map(t => t.typo.toLowerCase()));
+  const words = new Set([...lines(path.join(DICT, 'research.txt')), ...lines(path.join(DICT, 'subjects.txt')), ...lines(path.join(DICT, 'names.txt'))].filter(w => /^[A-Za-z][A-Za-z'-]*$/.test(w) && !slips.has(w.toLowerCase())));
   fs.writeFileSync(path.join(OUT, 'spelling_custom.txt'), `# Add terms here that should be accepted by the LanguageTool spell checker, one word or phrase per line\n# PJPS Scribe research vocabulary and author names (${words.size}), from scripts/build-scribe-rules.js\n${[...words].join('\n')}\n`);
   const counts = {};
   for (const r of rules) counts[r.group] = (counts[r.group] || 0) + 1;

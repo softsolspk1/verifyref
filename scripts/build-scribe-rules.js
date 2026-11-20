@@ -281,7 +281,9 @@ async function ltCheck(url, text, categories) {
   return (await r.json()).matches || [];
 }
 
-/** every rule's examples on the server -> ids of the rules that failed */
+const xmlText = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+
+/** every rule's examples on the server -> ids of the rules that failed, or that a twin rule covers ("covered by ID") */
 async function verify(url, rules) {
   const cats = Object.values(CATEGORY).map(c => c[0]);
   const items = [];
@@ -298,7 +300,13 @@ async function verify(url, rules) {
     const matches = await ltCheck(url, batch.map(b => b.text).join(SEP), cats);
     batch.forEach((it, k) => {
       const mine = matches.filter(m => m.rule.id === it.r.id && m.offset >= starts[k] && m.offset < starts[k] + it.text.length);
-      if (it.bad && !mine.some(m => m.offset - starts[k] === it.r.check.offset)) failed.set(it.r.id, 'not found in its example');
+      if (it.bad && !mine.some(m => m.offset - starts[k] === it.r.check.offset)) {
+        // LanguageTool shows one match per span: a twin rule with the same fix there makes this one redundant on the server
+        // (it reads curly apostrophes as straight ones and ignores spacing the in-house matcher needs a rule for)
+        const fix = it.r.xml.match(/<suggestion>([^<]*)</);
+        const twin = matches.find(m => m.rule.id !== it.r.id && m.rule.id.startsWith('PJPS_') && m.offset - starts[k] === it.r.check.offset && m.length === it.r.check.length && fix && m.replacements.some(x => x.value === xmlText(fix[1])));
+        failed.set(it.r.id, twin ? `covered by ${twin.rule.id}` : 'not found in its example');
+      }
       if (!it.bad && mine.length) failed.set(it.r.id, 'found in the corrected sentence');
     });
     process.stdout.write(`\rchecked ${Math.min(i + 200, items.length)}/${items.length} examples, ${failed.size} rules failed`);
@@ -322,6 +330,7 @@ async function timing(url) {
 
 async function deploy() {
   let drop = new Set();
+  const twins = new Set();
   let rules = ltRules(drop);
   for (let round = 1; round <= 3; round++) {
     writeLt(rules);
@@ -337,15 +346,18 @@ async function deploy() {
       }
     } finally { t.kill(); }
     if (!failed.size) break;
-    for (const [id, why] of failed) console.log(`  left out ${id}: ${why}`);
+    for (const [id, why] of failed) console.log(`  ${why.startsWith('covered') ? 'not needed' : 'left out'} ${id}: ${why}`);
+    for (const [id, why] of failed) if (why.startsWith('covered')) twins.add(id);
     drop = new Set([...drop, ...failed.keys()]);
     rules = ltRules(drop);
     if (round === 3) throw new Error('rules still failing after 3 rounds; nothing installed');
   }
-  fs.writeFileSync(path.join(OUT, 'left-out.json'), JSON.stringify([...drop], null, 1));
+  // rules a twin covers on the server are not failures; left-out.json lists the ones that really failed
+  fs.writeFileSync(path.join(OUT, 'left-out.json'), JSON.stringify([...drop].filter(id => !twins.has(id)), null, 1));
+  if (twins.size) console.log(`${twins.size} rules not installed: a twin rule gives the same fix on the server`);
   if (argv.includes('--stage-only')) {
     ssh(`[ -f /tmp/lt-stage.pid ] && kill $(cat /tmp/lt-stage.pid) 2>/dev/null; rm -f /tmp/lt-stage.pid; true; sudo rm -rf /opt/lt-stage`);
-    console.log(`staging passed with ${rules.length} PJPS rules (${drop.size} left out); live server not changed`);
+    console.log(`staging passed with ${rules.length} PJPS rules (${drop.size - twins.size} left out, ${twins.size} covered by twins); live server not changed`);
     return;
   }
   console.log(`== installing ${rules.length} PJPS rules on the live server`);

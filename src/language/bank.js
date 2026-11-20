@@ -210,7 +210,7 @@ G('preposition', 'correctness', 'Preposition', (f, t) => `The usual expression i
   ['Author declare', 'Authors declare', { cs: true }], ['Authors declares', 'Authors declare', { cs: true }],
   // comparison with Grammarly on document 8
   ['the highest number of', 'the most', { a: '[a-z]+s', xa: 'reports' }], ['the lowest number of', 'the fewest', { a: '[a-z]+s', xa: 'reports' }],
-  ['re-uptake', 'reuptake'], ['publishment', 'publication'], ['MySQ', 'MySQL', { cs: true }],
+  ['re-uptake', 'reuptake'], ['MySQ', 'MySQL', { cs: true }],
   ['The dataset generated', 'The datasets generated', { cs: true, a: 'during|and|or' , xa: 'during' }], ['The data set generated', 'The datasets generated', { cs: true, a: 'during|and|or', xa: 'during' }],
   ...['strong', 'high', 'low', 'small', 'large', 'weak', 'rare', 'severe', 'important', 'significant', 'sensitive', 'toxic', 'potent', 'difficult', 'useful', 'effective', 'dangerous', 'variable', 'heterogeneous', 'limited'].map(a => [`extreme ${a}`, `extremely ${a}`]),
   ['Linkert scale', 'Likert scale'], ['Linkert-type', 'Likert-type'], ['Lickert scale', 'Likert scale'], ['Lickert-type', 'Likert-type'],
@@ -422,7 +422,7 @@ TERMS.push(
   ['spray dried', 'spray-dried', { a: 'powder|powders|particles|microparticles|formulation|formulations|dispersion|dispersions|extract|samples' }],
   ['freeze dried', 'freeze-dried', { a: 'powder|powders|samples|formulation|formulations|extract|extracts|product|cake|nanoparticles|liposomes' }],
   ['co crystal', 'cocrystal|co-crystal'], ['co crystals', 'cocrystals|co-crystals'], ['beta cyclodextrin', 'β-cyclodextrin|beta-cyclodextrin'], ['hydroxypropyl beta cyclodextrin', 'hydroxypropyl-β-cyclodextrin|hydroxypropyl-beta-cyclodextrin'],
-  ['Biopharmaceutical Classification System', 'Biopharmaceutics Classification System', { cs: true }], ['biopharmaceutical classification system', 'Biopharmaceutics Classification System'],
+  ['biopharmaceutical classification system', 'Biopharmaceutics Classification System'],
   ['in vitro in vivo correlation', 'in vitro-in vivo correlation'], ...FORMS('Caco-2', 'Caco 2', 'CaCo-2', 'CACO-2', 'caco-2', 'CaCo2'), ['ussing chamber', 'Ussing chamber'], ['ussing chambers', 'Ussing chambers'],
   ['micro crystalline cellulose', 'microcrystalline cellulose'], ['micro-crystalline cellulose', 'microcrystalline cellulose'], ['sodium starch glycollate', 'sodium starch glycolate'],
   ['cross povidone', 'crospovidone'], ['cross-povidone', 'crospovidone'], ['cross carmellose', 'croscarmellose'], ['cross-carmellose', 'croscarmellose'], ['magnesium sterate', 'magnesium stearate'],
@@ -468,8 +468,8 @@ TERMS.push(
   ['peri-portal', 'periportal'], ['centri-lobular', 'centrilobular'], ['thio barbituric acid', 'thiobarbituric acid'], ['thio-barbituric acid', 'thiobarbituric acid'],
   ['ames test', 'Ames test'], ['micro nucleus', 'micronucleus'], ['micro-nucleus', 'micronucleus'],
   // pharmaceutical analysis
-  ...FORMS('HPLC', 'hplc', 'Hplc'), ...FORMS('HPTLC', 'hptlc', 'Hptlc'), ...FORMS('UPLC', 'uplc'), ...FORMS('GC-MS', 'gc-ms', 'Gc-ms', 'GC-ms', 'Gc-Ms'), ...FORMS('LC-MS', 'lc-ms', 'Lc-ms', 'LC-ms'),
-  ...FORMS('LC-MS/MS', 'lc-ms/ms'), ...FORMS('FTIR', 'ftir', 'Ftir'), ...FORMS('NMR', 'nmr', 'Nmr'), ...FORMS('XRD', 'xrd', 'Xrd'), ...FORMS('LOD', 'lod'), ...FORMS('LOQ', 'loq', 'Loq'),
+  ...FORMS('HPTLC', 'Hptlc'), ...FORMS('UPLC', 'uplc'), ...FORMS('GC-MS', 'gc-ms', 'Gc-ms', 'GC-ms', 'Gc-Ms'), ...FORMS('LC-MS', 'lc-ms', 'Lc-ms', 'LC-ms'),
+  ...FORMS('LC-MS/MS', 'lc-ms/ms'), ...FORMS('NMR', 'Nmr'), ...FORMS('XRD', 'xrd', 'Xrd'), ...FORMS('LOD', 'lod'), ...FORMS('LOQ', 'loq', 'Loq'),
   ...FORMS('PDI', 'pdi', 'Pdi'), ...FORMS('DLS', 'dls'), ['ich guidelines', 'ICH guidelines'], ['Ich guidelines', 'ICH guidelines', { cs: true }],
   ['RF value', 'Rf value', { cs: true }], ['RF values', 'Rf values', { cs: true }], ['rf value', 'Rf value'], ['rf values', 'Rf values'],
   ['Karl Fisher', 'Karl Fischer'], ['Karl-Fischer', 'Karl Fischer'], ['karl fischer', 'Karl Fischer'], ...FORMS('Kjeldahl', 'kjeldahl', 'Kjeldhal', 'Kjedahl', 'Kjeldal'),
@@ -556,7 +556,7 @@ TERMS.push(
   ['michael addition', 'Michael addition'], ['grignard reagent', 'Grignard reagent'], ['grignard reaction', 'Grignard reaction'], ['wittig reaction', 'Wittig reaction'], ['williamson ether synthesis', 'Williamson ether synthesis'],
   ...FORMS('Hantzsch', 'hantzsch', 'Hantzch', 'Hantsch'), ...FORMS('Biginelli', 'biginelli', 'Biginelly'), ...FORMS('Sonogashira', 'sonogashira'), ...FORMS('Huisgen', 'huisgen'),
   ['re-crystallized', 'recrystallized'], ['re-crystallised', 'recrystallised'], ['re-crystallization', 'recrystallization'], ['re-crystallisation', 'recrystallisation'], ['re crystallized', 'recrystallized'], ['re-fluxed', 'refluxed'],
-  ...FORMS('TLC', 'tlc', 'Tlc'), ['microwave assisted', 'microwave-assisted', { a: ASSISTED_OF }], ['ultrasound assisted', 'ultrasound-assisted', { a: ASSISTED_OF }],
+  ...FORMS('TLC', 'Tlc'), ['microwave assisted', 'microwave-assisted', { a: ASSISTED_OF }], ['ultrasound assisted', 'ultrasound-assisted', { a: ASSISTED_OF }],
   ['one pot', 'one-pot', { a: 'synthesis|reaction|procedure|method|three-component|multicomponent|approach|condensation|protocol' }], ['multi component', 'multicomponent'],
   ['stereo selective', 'stereoselective'], ['stereo-selective', 'stereoselective'], ['regio selective', 'regioselective'], ['regio-selective', 'regioselective'], ['enantio selective', 'enantioselective'],
   ...FORMS('1H NMR', 'H1 NMR'), ...FORMS('1H-NMR', 'H1-NMR'), ...FORMS('13C NMR', 'C13 NMR'), ...FORMS('13C-NMR', 'C13-NMR')

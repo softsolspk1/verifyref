@@ -218,13 +218,26 @@ function splitInlineNumbered(line) {
   if (line.length < 60) return [line];
   const marks = [...line.matchAll(/(?:^|\s)\[?(\d{1,3})[.)\]]\s+(?=\p{Lu})/gu)].map(m => ({ n: +m[1], at: m.index + (m[0].startsWith(' ') ? 1 : 0) }));
   // the longest chain of consecutive numbers (1, 2, 3 ...) among the marks
-  let best = [];
-  for (let i = 0; i < marks.length; i++) {
-    const chain = [marks[i]];
-    for (let j = i + 1; j < marks.length; j++) if (marks[j].n === chain[chain.length - 1].n + 1) chain.push(marks[j]);
-    if (chain.length > best.length) best = chain;
+  const chainOf = marks => {
+    let best = [];
+    for (let i = 0; i < marks.length; i++) {
+      const chain = [marks[i]];
+      for (let j = i + 1; j < marks.length; j++) if (marks[j].n === chain[chain.length - 1].n + 1) chain.push(marks[j]);
+      if (chain.length > best.length) best = chain;
+    }
+    return best;
+  };
+  let best = chainOf(marks);
+  if (best.length < 2) {
+    // numbers with no full stop, each before a surname and initials: "1 Zhong H, Pan R ... 2 Gottlieb E, Vousden K H. ..."
+    // (report 237: 42 references read as one). Taken only as a chain from 1 at the start, each entry of reference length;
+    // the entries are written "1. ", so the numbered reader below takes them
+    const bare = [...line.matchAll(/(?:^|\s)(\d{1,3})\s+(?=\p{L}[\p{L}'’-]+(?:\s[\p{L}'’-]+){0,2}\s\p{Lu}(?:\s?\p{Lu}){0,2}[\s,.])/gu)].map(m => ({ n: +m[1], at: m.index + (m[0].startsWith(' ') ? 1 : 0), bare: true }));
+    const chain = chainOf(bare);
+    if (chain.length >= 3 && chain[0].n === 1 && chain[0].at === 0 && (line.length / chain.length) >= 60) best = chain;
   }
   if (best.length < 2 || (best[0].n !== 1 && best.length < 3)) return [line];
+  if (best[0].bare) return best.map((m, k) => line.slice(m.at, k + 1 < best.length ? best[k + 1].at : line.length).trim().replace(/^(\d{1,3})\s+/, '$1. '));
   // "... Part 1. News Letter ... Chap 2. Taylor & Francis ..." inside a run of unnumbered author-year references (a PDF
   // flattened to one line): a numbered list starts at the beginning, not after thousands of characters of other entries
   const avg = (line.length - best[0].at) / best.length;
@@ -896,7 +909,8 @@ function extractManuscriptMeta(text) {
   // a PDF title page puts each affiliation mark, and the comma or "AND" after it, on a line of its own:
   // "HOSAM O. ELANSARY¹, KHALID F. ALMUTAIRI" / "1" / ", ADEL M. AL-SAIF" ... "AND" / "ABDULLAH ALEBIDI": one author line
   for (const raw of head.split('\n')) {
-    const l = raw.trim();
+    // full-width commas between names (Chinese title pages): "QiuYue Li，XiaoYi Duan，YeRong Li" (report 238: read into the title)
+    const l = raw.trim().replace(/\s*[，、]\s*/g, ', ');
     if (!l) continue;
     const prev = lines[lines.length - 1];
     if (prev && !/^(?:abstract|summary)\b/i.test(l) && (/^[\d⁰¹²³⁴⁵⁶⁷⁸⁹*#†‡,\s]{1,8}$/.test(l) || /^,/.test(l) || /(?:,|\s(?:AND|and|&))$/.test(prev) && /^[\p{Lu}]/u.test(l) && l.length < 200 && !AFFIL_RE.test(l))) lines[lines.length - 1] = `${prev} ${l}`.replace(/\s+,/g, ',');

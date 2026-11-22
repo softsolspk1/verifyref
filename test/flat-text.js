@@ -41,4 +41,16 @@ assert.deepStrictEqual(notes, ['Abu, 2017', 'ESCOP, 2003'], 'differently written
 const word = P.findReferenceSection('Introduction\nText (Khan, 2019).\nReferences\nKhan A (2019). A title of the paper. J. Pharm. Sci., 1(1): 1-5.\n');
 assert.ok(word.found && !word.flattened && /^Khan A/.test(word.references), 'heading on its own line still used');
 
+// numbered references run together with no full stop after the number (report 237, 22 Nov 2026: 42 references read as one)
+const bare = P.splitReferences('1 Zhong H, Pan R, Ouyang Y et al. (2026) Targeting mitochondrial homeostasis as a cancer treatment strategy. Mol Cancer 25: 38. ' +
+  '2 Gottlieb E, Vousden K H. (2017) One carbon, many roads. Cell Death Differ 24: 193-194. ' +
+  '3 van Wagensveld L, Van Nyen T, Annibali D et al. (2024) High expression of phosphoglycerate dehydrogenase predicts poor outcome. Oncologist 29: e1231-e1234. ' +
+  '4 Carrer A, Wellen K E. (2015) Metabolism and epigenetics: a link cancer cells exploit. Curr Opin Biotechnol 34: 23-29.');
+assert.deepStrictEqual(bare.entries.map(e => e.split(' (')[0]), ['1. Zhong H, Pan R, Ouyang Y et al.', '2. Gottlieb E, Vousden K H.', '3. van Wagensveld L, Van Nyen T, Annibali D et al.', '4. Carrer A, Wellen K E.'], 'bare-numbered run-on list split');
+
+// authors separated by full-width commas are authors, not the end of the title (report 238)
+const cn = P.extractManuscriptMeta('Tailoring dienogest therapy in pelvic endometriosis: phenotype-specific efficacy in a retrospective cohort\nQiuYue Li，XiaoYi Duan，RuiDong Wang\nDepartment of Obstetrics and Gynaecology, Nanjing Medical University，Nanjing 210004，China\nAbstract\nBackground: text.\nKeywords: dienogest');
+assert.strictEqual(cn.title, 'Tailoring dienogest therapy in pelvic endometriosis: phenotype-specific efficacy in a retrospective cohort');
+assert.deepStrictEqual(cn.authors.map(a => a.name), ['QiuYue Li', 'XiaoYi Duan', 'RuiDong Wang']);
+
 console.log('flat-text: all checks passed');

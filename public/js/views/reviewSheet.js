@@ -109,7 +109,7 @@ export async function renderReviewSheet(view, id) {
 
         <h3>Please check that the above article is within the scope/domain of the journal</h3>
         <table class="t rs-t"><tr><th>Within the scope</th><th>Possesses Novelty</th><th>Suitable</th></tr>
-          <tr><td>${choice('scope', s.scope)}${ev(s.scope)}</td><td>${choice('novelty', s.novelty)}${ev(s.novelty)}</td><td>${choice('suitable', s.suitable)}${ev(s.suitable)}</td></tr></table>
+          <tr><td>${choice('scope', s.scope)}${s.scope?.areas?.length ? `<div style="margin-top:4px">${s.scope.areas.map(a => `<span class="badge b-info">${esc(a)}</span>`).join(' ')}</div>` : ''}${ev(s.scope)}</td><td>${choice('novelty', s.novelty)}${ev(s.novelty)}</td><td>${choice('suitable', s.suitable)}${ev(s.suitable)}</td></tr></table>
 
         <h3>Article type and reporting guideline</h3>
         <table class="t rs-t"><tr><th>Article type</th><th>Guideline</th><th>Relevant guidelines followed</th><th>Guidelines checklist included</th><th>Guidelines flow diagram included</th></tr>

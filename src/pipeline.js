@@ -210,7 +210,8 @@ function reviewSheetLine(rs) {
   if (!rs || rs.error) return rs?.error || 'not filled';
   const no = (rs.items || []).filter(i => i.value === 'no').map(i => i.label);
   const head = { 'peer-review': 'Can be processed for peer review', resubmit: 'Within the scope; resubmission after correction', reject: 'Outside the scope / not suitable' }[rs.outcome] || rs.outcome;
-  return `${head}${rs.type?.label ? ` · ${rs.type.label}${rs.type.guideline ? ` (${rs.type.guideline}${rs.type.followed === 'yes' ? ' followed' : ' not named'})` : ''}` : ''}${no.length ? ` · to correct: ${no.join(', ')}` : ''}`;
+  const areas = rs.scopeAreas?.length ? ` · Scope: ${rs.scopeAreas.join(', ')}` : '';
+  return `${head}${areas}${rs.type?.label ? ` · ${rs.type.label}${rs.type.guideline ? ` (${rs.type.guideline}${rs.type.followed === 'yes' ? ' followed' : ' not named'})` : ''}` : ''}${no.length ? ` · to correct: ${no.join(', ')}` : ''}`;
 }
 
 /**

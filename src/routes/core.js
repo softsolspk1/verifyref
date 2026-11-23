@@ -212,6 +212,8 @@ router.get('/checks/:id', user, wrap(async (req, res) => {
   // image findings explained in plain words with the current wording (earlier reports included)
   if (c.row.kind === 'images') require('../imageExplain').explainReport(c.result);
   else if (c.row.kind === 'screening' && c.result.images?.report) require('../imageExplain').explainReport(c.result.images.report);
+  // a Preliminary Review Sheet filled before the journal's scope areas: its scope read again (earlier reports included)
+  else if (c.row.kind === 'manuscript') await require('../review/sheet').upgradeReport(c.result, c.row.id).catch(() => false);
   res.json({ success: true, kind: c.row.kind, result: c.result, readOnly: c.row.user_id !== req.user.id });
 }));
 

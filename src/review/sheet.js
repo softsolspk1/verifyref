@@ -8,7 +8,6 @@ const fs = require('fs');
 const path = require('path');
 const JSZip = require('jszip');
 const P = require('../parse');
-const { SUBJECTS } = require('../subjects');
 const { titleSimilarity } = require('../text');
 
 const TEMPLATE = path.join(__dirname, 'preliminary-review-sheet.docx');
@@ -146,16 +145,72 @@ function articleType(title, abstract, body) {
   return { key: 'other', specify: other ? other[1] : 'Laboratory / other study', evidence: other ? ev(other[0], head) : null };
 }
 
-/** Within the scope: the PJPS subject areas the title, abstract and keywords fall under */
-function scope(title, abstract, keywords) {
-  const src = `${title}\n${abstract}\n${(keywords || []).join(', ')}`;
-  const toRe = t => {
-    const parts = t.split(' AND ').map(p => p.replace(/"/g, '').replace(/\*/g, '\\w*').replace(/[-\s]+/g, '[-\\s]+'));
-    return parts.map(p => new RegExp(`\\b${p}\\b`, 'i'));
-  };
-  const subjects = SUBJECTS.filter(s => s.terms.some(t => toRe(t).every(re => re.test(src)))).map(s => s.name);
-  const pharma = /\bpharma\w*|\bdrugs?\b|\bmedicin\w*|\bclinical\b|\bpatients?\b|\btherap\w*|\bplant\b|\bextracts?\b|\bformulation\w*|\bantibacterial|\bantimicrobial|\bantioxidant|\btoxic\w*|\bdisease/i;
-  return { yes: subjects.length > 0 || pharma.test(src), subjects };
+// the journal's scope: a manuscript is within the scope when it falls under at least one of these areas
+// (re: case-insensitive words; cs: case-sensitive acronyms)
+const SCOPE_AREAS = [
+  { name: 'Drug Delivery Systems', re: /\bdrug delivery\b|\b(?:controlled|sustained|extended|modified|targeted)[- ]release\b|\bformulat\w*|\btablets?\b|\bcapsules?\b|\bhydrogels?\b|\bmicrospheres?\b|\btransdermal\b|\bmucoadhesive\b|\bliposom\w*|\bniosom\w*|\b(?:nano|micro)?emulsions?\b|\bexcipients?\b|\bdosage forms?\b|\bpatch(?:es)?\b|\bgels?\b|\binsitu gel|\bin situ gel/gi },
+  { name: 'Drug Design & Synthesis', re: /\bsynthes[ie]s\b|\bsynthesi[sz]ed\b|\bderivatives?\b|\bmedicinal chemistry\b|\bdrug design\b|\bstructure[- ]activity\b|\blead compounds?\b|\bnovel compounds?\b|\banalogu?es\b|\bschiff bases?\b|\bheterocycl\w*|\bcomplexes\b/gi, cs: /\bSAR\b/g },
+  { name: 'Clinical Pharmacology', re: /\bclinical (?:trials?|stud(?:y|ies)|pharmacology|outcomes?)\b|\bpatients?\b|\brandomi[sz]ed\b|\badverse drug\b|\bdrug[- ]drug interactions?\b|\bdrug interactions?\b|\bprescri\w*|\bpharmacovigilance\b|\bdrug utili[sz]ation\b|\bpharmacist\w*|\bpharmacy practice\b|\bhospitali[sz]ed\b/gi },
+  { name: 'Pharmacokinetics', re: /\bpharmacokinetic\w*|\bbioavailability\b|\bhalf[- ]life\b|\bplasma concentrations?\b|\babsorption,? distribution\b|\btoxicokinetic\w*/gi, cs: /\bC ?max\b|\bAUC\b|\bADME\b|\bT ?max\b/g },
+  { name: 'Natural Products', re: /\bnatural products?\b|\bplant extracts?\b|\bextracts?\b|\bessential oils?\b|\bphytochemicals?\b|\bherbal\b|\bmedicinal plants?\b|\bflavonoids?\b|\balkaloids?\b|\bpolyphenol\w*|\bsaponins?\b|\bterpen\w*|\btraditional medicine\b|\bfolk medicine\b|\bhoney\b|\bseeds?\b|\bleaves\b|\broots?\b/gi },
+  { name: 'Pharmaceutical Analysis', re: /\bchromatograph\w*|\bspectrophotometr\w*|\bmethod validation\b|\bvalidated (?:method|assay)\b|\bstability[- ]indicating\b|\bimpurit\w*|\bquantification\b|\bquantitative (?:analysis|determination)\b|\bsimultaneous (?:determination|estimation)\b|\bdissolution testing\b|\bquality control\b|\bpharmacopoei\w*|\blimit of (?:detection|quantification)\b/gi, cs: /\b(?:U?HPLC|UPLC|HPTLC|TLC|LC-MS(?:\/MS)?|GC-MS|NMR|ICH)\b/g },
+  { name: 'Toxicology', re: /\btoxic\w*|\bacute toxicity\b|\bsub-?(?:acute|chronic) toxicity\b|\bgenotoxic\w*|\bhepatotoxic\w*|\bnephrotoxic\w*|\bcytotoxic\w*|\bsafety (?:evaluation|profile|assessment)\b|\bpoison\w*|\bteratogen\w*/gi, cs: /\bLD ?50\b/g },
+  { name: 'Microbiology', re: /\bantibacterial\b|\bantimicrobial\b|\bantifungal\b|\bantiviral\b|\bbacteri\w*|\bmicrob\w*|\bstaphylococc\w*|\bescherichia\b|\bpseudomonas\b|\bcandida\b|\bbiofilms?\b|\bpathogens?\b|\binfections?\b|\bantibiotics?\b|\bmulti-?drug resistan\w*|\bfung(?:i|al)\b|\bzone of inhibition\b/gi, cs: /\bMIC\b|\bMRSA\b|\bE\. ?coli\b|\bS\. ?aureus\b/g },
+  { name: 'Biotechnology', re: /\bbiotechnolog\w*|\brecombinant\b|\bfermentation\b|\bgene expression\b|\bcloning\b|\bcloned\b|\benzyme production\b|\btransgenic\b|\bbioprocess\w*|\bbiosimilar\w*|\bmonoclonal\b|\bcell culture\b|\bprobiotic\w*|\bbiosynthes\w*/gi, cs: /\b(?:RT-)?q?PCR\b|\bCRISPR\b|\bDNA\b|\bRNA\b/g },
+  { name: 'Pharmacognosy', re: /\bpharmacogno\w*|\bcrude drugs?\b|\bherbal drugs?\b|\bstandardi[sz]ation\b|\bmacroscop\w*|\bpowder microscopy\b|\bethnobotan\w*|\bethnopharmacolog\w*|\bethnomedicin\w*|\bphytochemical (?:screening|analysis|investigation|profiling)\b|\bphysicochemical (?:parameters|evaluation)\b|\bash values?\b|\bfingerprint\w*/gi },
+  { name: 'Immunology', re: /\bimmun\w*|\bcytokines?\b|\binflammat\w*|\banti-?inflammatory\b|\binterleukin\w*|\bantibod\w*|\bvaccin\w*|\blymphocytes?\b|\bmacrophages?\b|\ballerg\w*|\bautoimmun\w*|\btumou?r necrosis factor\b/gi, cs: /\bIL-\d+|\bTNF-?α|\bTNF\b|\bIgE\b|\bIgG\b/g },
+  { name: 'Neuroscience', re: /\bneur\w*|\bbrain\b|\banxi\w*|\bdepress\w*|\bepilep\w*|\banticonvulsant\b|\bconvuls\w*|\bcognit\w*|\bmemory\b|\balzheimer\w*|\bparkinson\w*|\banalges\w*|\bnocicept\w*|\bsedat\w*|\bhippocamp\w*|\bschizophren\w*|\bstroke\b|\bmigraine\b/gi, cs: /\bCNS\b/g },
+  { name: 'Pharmacotherapeutics', re: /\bpharmacotherap\w*|\btherapeutic\w*|\btreatment\b|\btherapy\b|\befficacy\b|\bdrug therapy\b|\bmanagement of\b|\bantihypertensive\b|\bantidiabetic\b|\bhypoglyc\w*|\bchemotherap\w*|\banticancer\b|\bantitumou?r\b|\bhepatoprotective\b|\bcardioprotective\b|\bnephroprotective\b|\bwound healing\b|\bgastroprotective\b|\banti-?ulcer\b|\bdiabet\w*|\bhypertens\w*/gi },
+  { name: 'Nanotechnology', re: /\bnano\w*/gi },
+  { name: 'Biopharmaceutics', re: /\bbiopharmaceutic\w*|\bdissolution\b|\bbioequivalen\w*|\bpermeability\b|\bpermeation\b|\bsolubility\b|\b(?:in vitro|drug) release\b|\brelease kinetics\b|\bbiowaiver\b|\binterchangeab\w*/gi, cs: /\bBCS\b/g },
+  { name: 'Pharmacogenomics', re: /\bpharmacogen\w*|\bpolymorphisms?\b|\bgenotyp\w*|\bgenetic variants?\b|\ballele\w*|\bgenome-wide\b|\bpersonali[sz]ed medicine\b|\bprecision medicine\b/gi, cs: /\bCYP2[A-Z]\d+|\bSNPs?\b/g },
+  { name: 'Biochemistry', re: /\bbiochemi\w*|\benzym\w*|\bantioxidants?\b|\boxidative stress\b|\blipid profile\b|\bglucose\b|\bproteins?\b|\bmetabol\w*|\bserum (?:levels?|markers?)\b|\bliver enzymes?\b|\bmalondialdehyde\b|\bglutathione\b|\bsuperoxide dismutase\b|\bcatalase\b|\bcholesterol\b|\binsulin\b|\bhormon\w*|\bbiomarkers?\b|\bfree radicals?\b/gi, cs: /\bALT\b|\bAST\b|\bMDA\b|\bSOD\b|\bGSH\b|\bDPPH\b/g },
+  { name: 'Materials Science', re: /\bpolymer\w*|\bbiomaterials?\b|\bmaterials? science\b|\bcrystallin\w*|\bcomposites?\b|\bchitosan\b|\bcellulose\b|\bco-?crystals?\b|\bsolid dispersions?\b|\bscaffolds?\b|\bthermal analysis\b|\bmorpholog\w*|\bparticle size\b|\bzeta potential\b|\bmechanical properties\b/gi, cs: /\bFTIR\b|\bFT-IR\b|\bXRD\b|\bPXRD\b|\bSEM\b|\bTEM\b|\bDSC\b|\bTGA\b/g },
+  { name: 'Molecular Modeling', re: /\bmolecular (?:docking|dynamics|modell?ing)\b|\bdocking\b|\bdocked\b|\bin[- ]silico\b|\bhomology model\w*|\bcomputational\b|\bvirtual screening\b|\bbinding (?:energy|affinity|pocket|site)\b|\bpharmacophore\b|\bnetwork pharmacology\b/gi, cs: /\bQSAR\b|\bDFT\b|\bADMET\b|\bMD simulations?\b/g }
+];
+const SCOPE_NAMES = SCOPE_AREAS.map(a => a.name);
+const hits = (a, s) => (s ? (s.match(a.re) || []).length + (a.cs ? (s.match(a.cs) || []).length : 0) : 0);
+
+/** Within the scope: the journal's scope areas the manuscript falls under, read from its title (weighted most), keywords
+ *  and abstract, else the first part of its text -> { yes, areas: [name], subjects } */
+function scope(title, abstract, keywords, body = '') {
+  const kw = (keywords || []).join(', ');
+  let scored = SCOPE_AREAS.map(a => ({ name: a.name, score: hits(a, title) * 3 + hits(a, kw) * 2 + hits(a, abstract) }));
+  // no abstract or keywords read: the opening of the text (Introduction and Methods) counts at half weight
+  if (!abstract && !kw && body) scored = scored.map((x, i) => ({ ...x, score: x.score + Math.floor(hits(SCOPE_AREAS[i], body.slice(0, 15000)) / 2) }));
+  scored = scored.filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+  // the clear areas (two or more mentions), or the one area mentioned once
+  const areas = (scored.filter(x => x.score >= 2).length ? scored.filter(x => x.score >= 2) : scored.slice(0, 1)).slice(0, 5).map(x => x.name);
+  return { yes: areas.length > 0, areas, subjects: areas };
+}
+
+/** The scope answer of a sheet: the areas found are shown; within the scope only under one of them */
+function scopeAnswer(sc) {
+  return ans(sc.yes ? 'yes' : 'no', sc.yes ? `Scope: ${sc.areas.join(', ')}` : `Not under any of the journal's scope areas (${SCOPE_NAMES.join(', ')})`, { areas: sc.areas });
+}
+
+/**
+ * A sheet filled before the scope areas: its scope read again (from the manuscript text when it is kept, else the title)
+ * and, unless the editor changed the answer, set by the areas; the outcome follows. Returns true when it changed.
+ */
+function upgradeScope(sheet, text = '') {
+  if (!sheet?.scope || Array.isArray(sheet.scope.areas)) return false;
+  let sc;
+  if (text) {
+    const t = String(text).replace(/\r\n?/g, '\n');
+    const sec = P.findReferenceSection(t);
+    const body = sec.found ? sec.body : t;
+    const meta = P.extractManuscriptMeta(body);
+    sc = scope(sheet.title || meta.title || '', abstractOf(t, headings(t), meta), meta.keywords, body);
+  } else {
+    sc = scope(sheet.title || '', '', []);
+    if (!sc.yes) return false;     // the title alone is not enough to say the manuscript is outside the scope
+  }
+  const edited = sheet.scope.value !== sheet.scope.auto;
+  const a = scopeAnswer(sc);
+  sheet.scope = edited ? { ...sheet.scope, evidence: a.evidence, areas: a.areas } : a;
+  finish(sheet);
+  return true;
 }
 
 // ------------------------------------------------------------------ figures: separate files, TIFF, 600 dpi
@@ -233,10 +288,41 @@ async function fromScreening(result, { text, userId = null, save = true } = {}) 
       [userId, sheet.msNo, sheet.title, meta.fileName || null, sheet.outcome, JSON.stringify({ ...sheet, screeningId: result.id || null })]).catch(() => null);
     id = row?.id || null;
   }
+  return summaryOf(sheet, id);
+}
+
+/** The manuscript text a saved Full Screening Report keeps (its similarity report's text and the reference list), or '' */
+function reportText(result) {
+  const bodyText = (result?.plagiarism?.document || []).map(d => d.t).join('');
+  if (bodyText.split(/\s+/).length < 200) return '';
+  return [bodyText, (result.references?.results || []).map(x => x.raw).join('\n')].join('\n');
+}
+
+/**
+ * A saved report filled before the scope areas (opened from the report or from the review sheets): its sheet's scope
+ * read again and saved. result: the Full Screening Report (its reviewSheet summary is replaced) -> true when changed
+ */
+async function upgradeReport(result, checkId) {
+  const rs = result?.reviewSheet;
+  if (!rs || rs.error || Array.isArray(rs.scopeAreas)) return false;
+  const db = require('../db');
+  const row = rs.id ? await db.one('SELECT id, data FROM review_sheets WHERE id = $1', [rs.id]) : null;
+  const sheet = row ? (typeof row.data === 'string' ? JSON.parse(row.data) : row.data) : rs.sheet;
+  if (!sheet || !upgradeScope(sheet, reportText(result))) return false;
+  if (row) await db.query('UPDATE review_sheets SET outcome = $2, data = $3 WHERE id = $1', [row.id, sheet.outcome, JSON.stringify(sheet)]);
+  result.reviewSheet = summaryOf(sheet, row ? row.id : null);
+  if (result.screening?.lines) result.screening.lines.reviewSheet = require('../pipeline').reviewSheetLine(result.reviewSheet);
+  await db.query('UPDATE checks SET result = $1 WHERE id = $2', [JSON.stringify(result), checkId]);
+  await require('../reportStore').offload(checkId, result);
+  return true;
+}
+
+/** What the Full Screening Report keeps of its sheet (the whole sheet only when it was not saved) */
+function summaryOf(sheet, id = null) {
   const yes = a => a?.value;
   return {
     id, outcome: sheet.outcome, outcomeNote: sheet.outcomeNote, msNo: sheet.msNo,
-    scope: yes(sheet.scope), novelty: yes(sheet.novelty), suitable: yes(sheet.suitable),
+    scope: yes(sheet.scope), scopeAreas: sheet.scope.areas || [], novelty: yes(sheet.novelty), suitable: yes(sheet.suitable),
     type: { key: sheet.type.key, label: (TYPES.find(t => t.key === sheet.type.key) || {}).label, specify: sheet.type.specify, guideline: (TYPES.find(t => t.key === sheet.type.key) || {}).guideline,
       followed: yes(sheet.type.guideline.followed), checklist: yes(sheet.type.guideline.checklist), flow: yes(sheet.type.guideline.flow) },
     items: ITEMS.map(i => ({ key: i.key, label: i.short, value: yes(sheet.items[i.key]), evidence: sheet.items[i.key]?.evidence || '' })),
@@ -262,7 +348,7 @@ async function analyse(text, { filename = '', buffer = null, figures = [], manus
   const msNo = manuscriptNo || (String(filename).match(/(?:G\.?P|PJPS|MS)[-_\s.]*(\d{4,6})/i) || String(filename).match(/\b(\d{5})\b/) || text.slice(0, 3000).match(/\b(?:MS|Manuscript)\s*(?:No\.?|ID|Number)\s*[:#]?\s*([A-Z]*-?\d{4,6})/i) || [])[1] || '';
 
   // scope, novelty, suitability
-  const sc = scope(title, abstract, meta.keywords);
+  const sc = scope(title, abstract, meta.keywords, body);
   const samePjps = pjpsTitles.map(t => ({ t, s: titleSimilarity(title, t) })).filter(x => x.s >= 0.85).sort((a, b) => b.s - a.s)[0] || null;
   const type = articleType(title, abstract, body);
   const T = TYPES.find(t => t.key === type.key);
@@ -366,7 +452,7 @@ async function analyse(text, { filename = '', buffer = null, figures = [], manus
   } else { figVal = 'na'; figNote = 'The manuscript has no figures'; }
   items.figures = ans(figVal, figNote, { files: figInfo, embedded });
 
-  const scopeAns = ans(sc.yes ? 'yes' : 'no', sc.subjects.length ? `PJPS subject areas: ${sc.subjects.slice(0, 4).join(', ')}` : sc.yes ? 'Pharmaceutical / medical research' : 'No PJPS subject area found in the title, abstract or keywords');
+  const scopeAns = scopeAnswer(sc);
   // novelty: an already published PJPS article (the similarity report's full-text match in the Full Screening, else the
   // same title), then the Full Screening's novelty assessment against the literature
   const pub = S.publishedOnPjps || null, nv = S.novelty && !S.novelty.error && !S.novelty.pending ? S.novelty.summary : null;
@@ -505,7 +591,7 @@ async function toDocx(sheet) {
     return cells;
   }));
   // the editor's comments and what to correct, after the outcome
-  const notes = [sheet.outcome === 'reject' ? 'Outside the scope or not suitable for PJPS.' : null, sheet.comments || null,
+  const notes = [sheet.scope?.areas?.length ? `Scope: ${sheet.scope.areas.join(', ')}` : null, sheet.outcome === 'reject' ? 'Outside the scope or not suitable for PJPS.' : null, sheet.comments || null,
     ...ITEMS.filter(i => sheet.items[i.key]?.value === 'no').map(i => `${i.short}: ${sheet.items[i.key].evidence || ''}`)].filter(Boolean);
   if (notes.length) {
     const para = t => `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>${RUN(t, false)}</w:p>`;
@@ -517,4 +603,4 @@ async function toDocx(sheet) {
   return z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-module.exports = { analyse, applyEdits, finish, toDocx, imageInfo, headings, articleType, pjpsTitles, fromScreening, TYPES, ITEMS };
+module.exports = { analyse, applyEdits, finish, toDocx, imageInfo, headings, articleType, pjpsTitles, fromScreening, scope, upgradeScope, upgradeReport, reportText, summaryOf, TYPES, ITEMS, SCOPE_AREAS };

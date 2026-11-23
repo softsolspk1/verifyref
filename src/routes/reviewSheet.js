@@ -37,8 +37,16 @@ router.get('/review-sheets', mod, wrap(async (req, res) => {
 const mine = (req, id) => db.one('SELECT * FROM review_sheets WHERE id = $1 AND user_id = $2', [id, req.user.id]);
 
 router.get('/review-sheet/:id', mod, wrap(async (req, res) => {
-  const r = await mine(req, req.params.id);
+  let r = await mine(req, req.params.id);
   if (!r) return res.status(404).json({ success: false, message: 'Review sheet not found.' });
+  // filled before the journal's scope areas: the scope read again, from the Full Screening's text when it has one
+  const sheet = out(r).sheet;
+  if (sheet?.scope && !Array.isArray(sheet.scope.areas)) {
+    const c = sheet.screeningId ? await db.one("SELECT id, result FROM checks WHERE id = $1 AND user_id = $2 AND kind = 'manuscript'", [sheet.screeningId, req.user.id]).catch(() => null) : null;
+    const result = c?.result ? await require('../reportStore').load(c.result).catch(() => null) : null;
+    if (result?.reviewSheet?.id === r.id && await R.upgradeReport(result, c.id).catch(() => false)) r = await mine(req, req.params.id);
+    else if (R.upgradeScope(sheet, result ? R.reportText(result) : '')) r = await db.one('UPDATE review_sheets SET outcome = $3, data = $4 WHERE id = $1 AND user_id = $2 RETURNING *', [r.id, req.user.id, sheet.outcome, JSON.stringify(sheet)]);
+  }
   res.json({ success: true, ...out(r) });
 }));
 

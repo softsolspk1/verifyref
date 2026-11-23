@@ -50,6 +50,15 @@ const MS = [
   assert.strictEqual(s.msNo, '16692', 'MS No from the file name');
   assert.ok(/randomized controlled trial/.test(s.title), 'title');
   assert.strictEqual(s.scope.value, 'yes', 'within the scope');
+  assert.ok(s.scope.areas.includes('Clinical Pharmacology') && /^Scope: /.test(s.scope.evidence), `scope areas shown (${s.scope.evidence})`);
+  assert.ok(s.scope.areas.every(a => R.SCOPE_AREAS.some(x => x.name === a)), 'only the journal\'s scope areas');
+  // within the scope only under one of the journal's areas; a sheet filled before the areas gets them when opened
+  assert.deepStrictEqual(R.scope('Customer loyalty in football clubs', 'Supporters of football clubs were surveyed about ticket prices.', ['marketing']).areas, [], 'outside every scope area');
+  assert.deepStrictEqual(R.scope('Molecular docking of quercetin against COX-2', '', ['in silico', 'docking']).areas[0], 'Molecular Modeling', 'molecular modeling');
+  const old = JSON.parse(JSON.stringify(s));
+  delete old.scope.areas;
+  old.scope.evidence = 'PJPS subject areas: Diabetes';
+  assert.ok(R.upgradeScope(old, MS) && old.scope.areas.length && old.scope.value === 'yes', 'earlier sheet upgraded');
   assert.strictEqual(s.novelty.value, 'yes', 'no same-title PJPS article');
   assert.strictEqual(s.type.key, 'rct', 'article type: RCT');
   assert.deepStrictEqual(['followed', 'checklist', 'flow'].map(k => s.type.guideline[k].value), ['yes', 'yes', 'yes'], 'CONSORT followed, checklist and flow diagram');

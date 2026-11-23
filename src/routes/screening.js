@@ -255,9 +255,8 @@ router.post('/checks/:id/review-sheet', mod('review-sheet'), wrap(async (req, re
   if (!row?.result) return res.status(404).json({ success: false, message: 'Report not found.' });
   if (row.kind !== 'manuscript') return res.status(400).json({ success: false, message: 'Only a Full Screening Report has a review sheet.' });
   const r = await require('../reportStore').load(row.result);
-  const bodyText = (r.plagiarism?.document || []).map(d => d.t).join('');
-  if (bodyText.split(/\s+/).length < 200) return res.status(409).json({ success: false, message: 'This report does not keep the manuscript text, so the review sheet cannot be filled again. Upload the manuscript on the Preliminary Review Sheet page.' });
-  const text = [bodyText, (r.references?.results || []).map(x => x.raw).join('\n')].join('\n');
+  const text = require('../review/sheet').reportText(r);
+  if (!text) return res.status(409).json({ success: false, message: 'This report does not keep the manuscript text, so the review sheet cannot be filled again. Upload the manuscript on the Preliminary Review Sheet page.' });
   const before = r.reviewSheet?.id || null;
   r.reviewSheet = await require('../review/sheet').fromScreening({ ...r, id: row.id }, { text, userId: req.user.id });
   if (r.screening?.lines) r.screening.lines.reviewSheet = reviewSheetLine(r.reviewSheet);

@@ -123,7 +123,7 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
     else if (k === 'novelty') noveltyTab(body, result.novelty);
     else if (k === 'authors') authorsTab(body, result.authorIdentity);
     else if (k === 'language') languageTab(body, result.language);
-    else if (k === 'review-sheet') reviewSheetTab(body, result.reviewSheet);
+    else if (k === 'review-sheet') reviewSheetTab(body, result, id);
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
   $$('.kpi.clickable', el).forEach(k => (k.onclick = () => { show('references'); const f = $(`.filter[data-f="${k.dataset.f}"]`, el); if (f) f.click(); }));
@@ -361,15 +361,32 @@ function languageTab(body, lg) {
 
 // the Preliminary Review Sheet filled by the Full Screening: the outcome, each answer with its evidence, and the sheet to
 // open, correct and download as the journal's Word form
-function reviewSheetTab(body, rs) {
-  if (rs.error) { body.innerHTML = `<div class="card"><h3>Preliminary Review Sheet</h3><p class="muted">${esc(rs.error)}</p></div>`; return; }
+function reviewSheetTab(body, result, checkId) {
+  const rs = result.reviewSheet;
+  // filled again with the current rules from the manuscript text kept in the report; the earlier sheet is replaced
+  const regen = () => {
+    const b = $('#rs-regen', body);
+    if (!b) return;
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Filling the review sheet again…';
+      try {
+        const d = await api(`/api/checks/${checkId}/review-sheet`, { body: {} });
+        result.reviewSheet = d.reviewSheet;
+        if (d.line && result.screening?.lines) result.screening.lines.reviewSheet = d.line;
+        reviewSheetTab(body, result, checkId);
+        toast('Review sheet regenerated');
+      } catch (e) { toast(e.message, 'error'); b.disabled = false; b.textContent = 'Regenerate the review sheet'; }
+    };
+  };
+  const regenBtn = checkId && hasModule('review-sheet') ? '<button class="btn btn-sm" id="rs-regen">Regenerate the review sheet</button>' : '';
+  if (rs.error) { body.innerHTML = `<div class="card"><h3>Preliminary Review Sheet</h3><p class="muted">${esc(rs.error)}</p>${regenBtn ? `<div class="row no-print">${regenBtn}</div>` : ''}</div>`; regen(); return; }
   const yn = v => (v === 'yes' ? badge('Yes', 'good') : v === 'no' ? badge('No', 'bad') : v === 'na' ? badge('N/A', 'neutral') : badge('—', 'neutral'));
   const head = { 'peer-review': ['The article can be processed for Peer Review', 'low', '✓'], resubmit: ['Lies in the Scope but requires resubmission after correction as per PJPS Author’s Guidelines', 'medium', '↩'], reject: ['Outside the scope / not suitable for PJPS', 'high', '!'] }[rs.outcome] || ['—', 'medium', '?'];
   const canOpen = rs.id && hasModule('review-sheet');
   const t = rs.type || {};
   body.innerHTML = `
     <div class="risk-banner risk-${head[1]}"><div class="risk-level">${head[2]}</div><div><b>${esc(head[0])}</b><div class="muted">${esc(rs.outcomeNote || '')} Filled from the manuscript and the Full Screening; the editor decides.</div></div></div>
-    ${canOpen ? `<div class="row no-print" style="gap:8px;margin:8px 0 12px"><a class="btn btn-primary btn-sm" href="#/review-sheet/${rs.id}">Open and edit the review sheet</a><button class="btn btn-sm" id="rs-dl">Download the Word form</button></div>` : ''}
+    ${canOpen ? `<div class="row no-print" style="gap:8px;margin:8px 0 12px"><a class="btn btn-primary btn-sm" href="#/review-sheet/${rs.id}">Open and edit the review sheet</a><button class="btn btn-sm" id="rs-dl">Download the Word form</button>${regenBtn}</div>` : regenBtn ? `<div class="row no-print" style="gap:8px;margin:8px 0 12px">${regenBtn}</div>` : ''}
     <div class="card"><h3>Scope</h3><table class="t"><tr><th>Within the scope</th><th>Possesses Novelty</th><th>Suitable</th></tr><tr><td>${yn(rs.scope)}</td><td>${yn(rs.novelty)}</td><td>${yn(rs.suitable)}</td></tr></table></div>
     <div class="card"><h3>Article type</h3><p><b>${esc(t.label || '—')}</b>${t.specify ? ` — ${esc(t.specify)}` : ''}</p>
       ${t.guideline ? `<table class="t"><tr><th>Guideline</th><th>Followed</th><th>Checklist included</th><th>Flow diagram included</th></tr><tr><td>${esc(t.guideline)}</td><td>${yn(t.followed)}</td><td>${yn(t.checklist)}</td><td>${yn(t.flow)}</td></tr></table>` : '<p class="muted">No reporting guideline applies to this article type.</p>'}</div>
@@ -377,6 +394,7 @@ function reviewSheetTab(body, rs) {
       ${(rs.items || []).map(i => `<tr><td><b>${esc(i.label)}</b></td><td>${yn(i.value)}</td><td class="muted">${esc(i.evidence)}</td></tr>`).join('')}</table></div>`;
   const dl = $('#rs-dl', body);
   if (dl) dl.onclick = () => download(`/api/review-sheet/${rs.id}/docx`).catch(e => toast(e.message, 'error'));
+  regen();
 }
 
 function styleTab(body, cp) {

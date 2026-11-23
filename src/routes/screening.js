@@ -7,7 +7,7 @@ const auth = require('../auth');
 const P = require('../parse');
 const W = require('../docx');
 const { defineJob, createJob } = require('../jobs');
-const { prepare, normalizeMeta, saveResult, loadCheck, loadShared, screeningSummary } = require('../pipeline');
+const { prepare, normalizeMeta, saveResult, loadCheck, loadShared, screeningSummary, reviewSheetLine } = require('../pipeline');
 const { checkReferences } = require('../checks/reference');
 const { analyzeCitationPattern } = require('../editor/pattern');
 const { detectPaperMill, storeFingerprint, papermillProblems } = require('../papermill');
@@ -246,6 +246,26 @@ router.put('/checks/:id/decision', auth.requireUser, wrap(async (req, res) => {
   await require('../reportStore').offload(row.id, r);
   await auth.audit(req, 'decision', `check ${row.id}`, { kind: row.kind, decision: entry?.decision || null });
   res.json({ success: true, decision: entry });
+}));
+
+/** The Preliminary Review Sheet of a saved Full Screening filled again with the current rules, from the manuscript text
+ *  kept in the report (its similarity report's text) and the reference list; the earlier sheet is replaced */
+router.post('/checks/:id/review-sheet', mod('review-sheet'), wrap(async (req, res) => {
+  const row = await db.one("SELECT id, kind, result FROM checks WHERE id = $1 AND user_id = $2", [req.params.id, req.user.id]);
+  if (!row?.result) return res.status(404).json({ success: false, message: 'Report not found.' });
+  if (row.kind !== 'manuscript') return res.status(400).json({ success: false, message: 'Only a Full Screening Report has a review sheet.' });
+  const r = await require('../reportStore').load(row.result);
+  const bodyText = (r.plagiarism?.document || []).map(d => d.t).join('');
+  if (bodyText.split(/\s+/).length < 200) return res.status(409).json({ success: false, message: 'This report does not keep the manuscript text, so the review sheet cannot be filled again. Upload the manuscript on the Preliminary Review Sheet page.' });
+  const text = [bodyText, (r.references?.results || []).map(x => x.raw).join('\n')].join('\n');
+  const before = r.reviewSheet?.id || null;
+  r.reviewSheet = await require('../review/sheet').fromScreening({ ...r, id: row.id }, { text, userId: req.user.id });
+  if (r.screening?.lines) r.screening.lines.reviewSheet = reviewSheetLine(r.reviewSheet);
+  await db.query('UPDATE checks SET result = $1 WHERE id = $2', [JSON.stringify(r), row.id]);
+  await require('../reportStore').offload(row.id, r);
+  if (before && r.reviewSheet.id) await db.query('DELETE FROM review_sheets WHERE id = $1 AND user_id = $2', [before, req.user.id]).catch(() => null);
+  await auth.audit(req, 'review-sheet', `check ${row.id}`, { regenerated: true, outcome: r.reviewSheet.outcome }).catch(() => null);
+  res.json({ success: true, reviewSheet: r.reviewSheet, line: r.screening?.lines?.reviewSheet || null });
 }));
 
 const confidentialBlocks = async (c, userId) => (c.row.kind === 'papermill' ? W.papermillBlocks(c.result) : c.row.kind === 'images' ? W.imagesBlocks(await IMG.withExportThumbs(c.result, userId)) : c.row.kind === 'integrity' ? require('../integrity/reports').integrityBlocks(c.result)

@@ -478,13 +478,28 @@ function finish(sheet) {
   const failed = ITEMS.filter(i => sheet.items[i.key] && sheet.items[i.key].value === 'no').map(i => i.short);
   const scopeOk = sheet.scope.value === 'yes';
   const autoSuitable = scopeOk && sheet.novelty.value !== 'no' ? 'yes' : 'no';
-  if (!sheet.suitable || sheet.suitable.auto === sheet.suitable.value || sheet.suitable.value == null) sheet.suitable = { ...sheet.suitable, value: autoSuitable, auto: autoSuitable, evidence: autoSuitable === 'yes' ? 'Within the scope and no same-title PJPS article' : !scopeOk ? 'Outside the scope of PJPS' : 'Already published in PJPS' };
+  if (!sheet.suitable || sheet.suitable.auto === sheet.suitable.value || sheet.suitable.value == null) sheet.suitable = { ...sheet.suitable, value: autoSuitable, auto: autoSuitable, evidence: autoSuitable === 'yes' ? 'Within the scope and no same-title PJPS article' : !scopeOk ? 'Outside the scope of PJPS' : noveltyReason(sheet.novelty) };
   const peer = scopeOk && sheet.novelty.value !== 'no' && sheet.suitable.value === 'yes' && need.every(a => a.value === 'yes');
   sheet.outcome = scopeOk && sheet.suitable.value === 'yes' ? (peer ? 'peer-review' : 'resubmit') : 'reject';
   sheet.outcomeNote = sheet.outcome === 'peer-review' ? 'All checks are met: the article can be processed for peer review.'
     : sheet.outcome === 'resubmit' ? `Within the scope; to correct before peer review: ${failed.join('; ') || 'the reporting guideline items'}.`
-    : 'Outside the scope or not suitable for PJPS.';
+    : rejectNote(sheet);
   return sheet;
+}
+
+/** Why the novelty answer is no: an already published PJPS article, the novelty score, or the editor's answer */
+function noveltyReason(nv) {
+  if (nv.value !== nv.auto) return 'Novelty not accepted by the editor';
+  const ev = nv.evidence || '', score = ev.match(/^Novelty (\d+)\/100/);
+  return score ? `Low novelty score (${score[1]}/100) in the Full Screening novelty assessment` : /^(Already published|A PJPS article with the same title)/.test(ev) ? 'Already published in PJPS' : 'Novelty not accepted';
+}
+
+/** The reject outcome with its actual reason: outside the scope, or within the scope but not suitable (and why) */
+function rejectNote(sheet) {
+  if (sheet.scope.value !== 'yes') return 'Outside the scope of PJPS: not under any of the journal’s scope areas.';
+  const areas = sheet.scope.areas?.length ? ` (${sheet.scope.areas.join(', ')})` : '';
+  const why = sheet.suitable.value === sheet.suitable.auto ? sheet.suitable.evidence : 'marked not suitable by the editor';
+  return `Within the scope${areas}; not suitable for PJPS: ${why ? why.charAt(0).toLowerCase() + why.slice(1) : 'see the answers above'}.`;
 }
 
 /** The editor's changes: { scope, novelty, suitable, typeKey, specify, guideline: { followed, checklist, flow }, items: { key: value }, msNo, title, comments } */
@@ -591,7 +606,7 @@ async function toDocx(sheet) {
     return cells;
   }));
   // the editor's comments and what to correct, after the outcome
-  const notes = [sheet.scope?.areas?.length ? `Scope: ${sheet.scope.areas.join(', ')}` : null, sheet.outcome === 'reject' ? 'Outside the scope or not suitable for PJPS.' : null, sheet.comments || null,
+  const notes = [sheet.scope?.areas?.length ? `Scope: ${sheet.scope.areas.join(', ')}` : null, sheet.outcome === 'reject' ? sheet.outcomeNote : null, sheet.comments || null,
     ...ITEMS.filter(i => sheet.items[i.key]?.value === 'no').map(i => `${i.short}: ${sheet.items[i.key].evidence || ''}`)].filter(Boolean);
   if (notes.length) {
     const para = t => `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>${RUN(t, false)}</w:p>`;

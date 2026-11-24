@@ -214,7 +214,15 @@ router.get('/checks/:id', user, wrap(async (req, res) => {
   else if (c.row.kind === 'screening' && c.result.images?.report) require('../imageExplain').explainReport(c.result.images.report);
   // a Preliminary Review Sheet filled before the journal's scope areas: its scope read again (earlier reports included)
   else if (c.row.kind === 'manuscript') await require('../review/sheet').upgradeReport(c.result, c.row.id).catch(() => false);
-  res.json({ success: true, kind: c.row.kind, result: c.result, readOnly: c.row.user_id !== req.user.id });
+  // the Module 5 report of a Full Screening that has not finished (the page was closed while it ran, so nothing polled it):
+  // the screening is named so the report page can resume it and show the complete report
+  let screeningJob;
+  if (c.row.kind === 'images' && c.row.user_id === req.user.id) {
+    const j = await db.one(`SELECT id FROM jobs WHERE user_id = $1 AND kind = 'check' AND status IN ('queued', 'running')
+      AND input->>'imagesCheckId' = $2 ORDER BY created_at DESC LIMIT 1`, [req.user.id, String(c.row.id)]).catch(() => null);
+    if (j) screeningJob = j.id;
+  }
+  res.json({ success: true, kind: c.row.kind, result: c.result, readOnly: c.row.user_id !== req.user.id, ...(screeningJob ? { screeningJob } : {}), ...(c.row.embedded_in ? { screeningOf: c.row.embedded_in } : {}) });
 }));
 
 router.patch('/checks/:id', user, wrap(async (req, res) => {

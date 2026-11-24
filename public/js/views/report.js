@@ -22,14 +22,37 @@ export async function renderSavedReport(view, id) {
     renderReviewerReportResult($('#rr', view), d.result);
     return;
   }
+  // the Module 5 report of a Full Screening whose page was closed before it finished: resumed here, then the complete report
+  if (kind === 'images' && d.screeningJob) return resumeScreening(view, d.screeningJob);
   const other = KIND_VIEWS[kind];
   if (other) {
     const mod = await import(other[0]);
-    view.innerHTML = `<p class="muted no-print"><a href="#/activity">← My Activity</a> · saved ${fmtDate(d.result.createdAt)}</p><div id="saved"></div>`;
+    const part = kind === 'images' && d.screeningOf ? `<div class="alert alert-info no-print">This image report is part of a Full Screening Report. <a href="#/check/${d.screeningOf}">Open the complete Full Screening Report →</a></div>` : '';
+    view.innerHTML = `<p class="muted no-print"><a href="#/activity">← My Activity</a> · saved ${fmtDate(d.result.createdAt)}</p>${part}<div id="saved"></div>`;
     mod[other[1]]($('#saved', view), d.result, {});
     return;
   }
   renderReport(view, d.result, { kind, saved: true });
+}
+
+/** A Full Screening that stopped when its page was closed: resumed (each poll continues it), shown provisionally, then opened saved */
+async function resumeScreening(view, jobId) {
+  view.innerHTML = `<p class="muted no-print"><a href="#/activity">← My Activity</a></p>
+    <div class="alert alert-info no-print">This is the image report of a Full Screening Report that had not finished (its page was closed while it ran). The screening is continuing now — keep this page open and the complete report opens when it is done.</div>
+    <div id="rs-progress"></div><div id="rs-result"></div>`;
+  const out = $('#rs-result', view);
+  let shown = false;
+  const keep = () => (shown ? { tab: $('.tab.active', out)?.dataset.tab, y: window.scrollY } : {});
+  const onPreview = r => { const k = keep(); renderReport(out, r, { kind: 'manuscript', tab: k.tab }); if (k.y !== undefined) window.scrollTo(0, k.y); shown = true; };
+  try {
+    const result = await runJob(jobId, $('#rs-progress', view), 'Finishing the Full Screening Report', { onPreview });
+    if (!view.isConnected) return;
+    if (result?.id) { location.replace(`#/check/${result.id}`); return; }
+    renderReport(out, result, { kind: 'manuscript' });
+  } catch (e) {
+    if (!view.isConnected) return;
+    $('#rs-progress', view).innerHTML = `<div class="alert alert-warn">The Full Screening Report could not be finished: ${esc(e.message)}</div>`;
+  }
 }
 
 // Saved results of the other tools are shown with that tool's own result view

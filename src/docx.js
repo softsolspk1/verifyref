@@ -654,7 +654,7 @@ function screeningScorecard(r) {
   if (r.language) rows.push({ module: '6. PJPS Scribe (language)', result: r.language.error || sc.lines.language || `language score ${r.language.summary.score}/100`, level: r.language.error ? 'na' : r.language.summary.level });
   if (r.plagiarism) rows.push({ module: '7. Plagiarism (text overlap)', result: r.plagiarism.error || sc.lines.plagiarism || `${r.plagiarism.summary.similarity}% overlap`, level: r.plagiarism.error ? 'na' : r.plagiarism.summary.level });
   if (r.novelty) rows.push({ module: '8. Novelty & citation outlook', result: r.novelty.error || sc.lines.novelty || `novelty ${r.novelty.summary.score}/100`, level: r.novelty.error ? 'na' : r.novelty.summary.level, verdict: r.novelty.error ? null : `${r.novelty.summary.band[0].toUpperCase()}${r.novelty.summary.band.slice(1)}` });
-  if (r.reviewSheet && !r.reviewSheet.error) rows.push({ module: '10. Preliminary Review Sheet', result: sc.lines.reviewSheet || r.reviewSheet.outcome, level: { 'peer-review': 'ok', resubmit: 'warn', reject: 'bad' }[r.reviewSheet.outcome] || 'na' });
+  if (r.reviewSheet && !r.reviewSheet.error) rows.push({ module: '10. Preliminary Review Sheet', result: require('./pipeline').reviewSheetLine(require('./review/sheet').refreshSummary(r.reviewSheet)), level: { 'peer-review': 'ok', resubmit: 'warn', reject: 'bad' }[r.reviewSheet.outcome] || 'na' });
   if (r.authorIdentity) rows.push({ module: '9. Author identity (ORCID)', result: r.authorIdentity.error || sc.lines.authors || '', level: r.authorIdentity.error ? 'na' : r.authorIdentity.summary.level });
   return rows;
 }
@@ -809,7 +809,9 @@ function reviewSheetBlocks(rs) {
   const blocks = [{ h2: '10. Preliminary Review Sheet' }];
   if (!rs || rs.error) return [...blocks, { p: rs?.error || 'Not filled.' }];
   const yn = v => ({ yes: 'Yes', no: 'No', na: 'N/A' }[v] || '-');
-  const head = { 'peer-review': 'The article can be processed for Peer Review', resubmit: "Lies in the Scope but requires resubmission after correction as per PJPS Author's Guidelines", reject: 'Outside the scope / not suitable for PJPS' }[rs.outcome] || rs.outcome;
+  const R = require('./review/sheet');
+  R.refreshSummary(rs);
+  const head = R.OUTCOMES[R.decision(rs.outcome, rs.scope)] || rs.outcome;
   const t = rs.type || {};
   blocks.push({ callout: { level: { 'peer-review': 'ok', resubmit: 'warn', reject: 'bad' }[rs.outcome] || 'na', title: head, text: rs.outcomeNote || '' } },
     { kv: [['MS No', rs.msNo || '-'], ['Within the scope', yn(rs.scope)], ['Possesses novelty', yn(rs.novelty)], ['Suitable', yn(rs.suitable)],

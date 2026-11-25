@@ -47,7 +47,10 @@ router.get('/review-sheet/:id', mod, wrap(async (req, res) => {
     if (result?.reviewSheet?.id === r.id && await R.upgradeReport(result, c.id).catch(() => false)) r = await mine(req, req.params.id);
     else if (R.upgradeScope(sheet, result ? R.reportText(result) : '')) r = await db.one('UPDATE review_sheets SET outcome = $3, data = $4 WHERE id = $1 AND user_id = $2 RETURNING *', [r.id, req.user.id, sheet.outcome, JSON.stringify(sheet)]);
   }
-  res.json({ success: true, ...out(r) });
+  // the outcome note in the current wording (outside the scope, or within the scope but not suitable and why)
+  const o = out(r);
+  if (o.sheet?.scope && o.sheet.items) R.finish(o.sheet);
+  res.json({ success: true, ...o });
 }));
 
 router.put('/review-sheet/:id', mod, wrap(async (req, res) => {

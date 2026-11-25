@@ -233,6 +233,13 @@ async function init() {
   $('#menu-btn').onclick = () => $('#sidebar').classList.toggle('open');
   window.addEventListener('hashchange', route);
   window.addEventListener('notifications-changed', refreshUnread);
+  // Print / PDF: the page's title (the manuscript title on a report) names the PDF and heads the printed pages
+  let shownTitle = null;
+  window.addEventListener('beforeprint', () => {
+    const h = $('.content .page-head h1')?.textContent.trim();
+    if (h) { shownTitle = document.title; document.title = h.slice(0, 180); }
+  });
+  window.addEventListener('afterprint', () => { if (shownTitle !== null) { document.title = shownTitle; shownTitle = null; } });
   route();
   refreshUnread();
   refreshConnection();

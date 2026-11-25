@@ -298,6 +298,57 @@ defineJob('publisher-journals', async (input, { update }) => {
   return { count };
 });
 
+// ------------------------------------------------------------------ research-record datasets (theses, preprints, trials, dossiers, chemicals, grants, patents)
+
+const RR = require('../researchRecords');
+
+/** Load one dataset from its free source (continues where the last load stopped, up to RR.SOURCE_MAX records) */
+router.post('/admin/research-records/:kind/load', webOnly, wrap(async (req, res) => {
+  if (!RR.KINDS[req.params.kind]) return res.status(400).json({ success: false, message: 'Unknown dataset.' });
+  const running = await db.one("SELECT id FROM jobs WHERE kind = 'research-records' AND status IN ('queued', 'running') AND input->>'kind' = $1 AND created_at > now() - interval '3 hours' ORDER BY created_at DESC LIMIT 1", [req.params.kind]);
+  if (running) return res.json({ success: true, jobId: running.id, alreadyRunning: true });
+  const job = await createJob(req.user.id, 'research-records', { kind: req.params.kind, restart: !!req.body?.restart });
+  await auth.audit(req, 'dataset-load', RR.KINDS[req.params.kind].label);
+  res.json({ success: true, jobId: job.id });
+}));
+defineJob('research-records', async (input, { update, deadline, attempt }) => {
+  const out = await RR.loadKind(input.kind, { restart: input.restart && attempt === 1, budgetMs: Number.isFinite(deadline) ? deadline - Date.now() - 15000 : 240000, log: update });
+  if (!out.done) throw new ResumeLater(`${out.label}: ${out.count.toLocaleString('en-US')} records, continuing`);
+  return out;
+});
+
+/** Upload a CSV file of records into one dataset (local sources: HEC theses, DRAP dossiers, funder grant lists …) */
+router.post('/admin/research-records/:kind/upload', webOnly, upload.single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: 'Choose a CSV file.' });
+  if (/\.xlsx?$/i.test(req.file.originalname)) return res.status(400).json({ success: false, message: 'Please save the spreadsheet as CSV (File → Save As → CSV UTF-8) and upload that.' });
+  const out = await RR.importCsv(req.params.kind, req.file.originalname, req.file.buffer.toString('utf8')).catch(e => ({ error: e.message }));
+  if (out.error) return res.status(400).json({ success: false, message: out.error });
+  await auth.audit(req, 'dataset-upload', out.label, { file: req.file.originalname, rows: out.added });
+  res.json({ success: true, ...out });
+}));
+
+/** Remove the records of one dataset (?source= one upload only) */
+router.delete('/admin/research-records/:kind', webOnly, wrap(async (req, res) => {
+  const out = await RR.clearKind(req.params.kind, { source: req.query.source ? String(req.query.source) : null }).catch(e => ({ error: e.message }));
+  if (out.error) return res.status(400).json({ success: false, message: out.error });
+  await auth.audit(req, 'dataset-cleared', req.params.kind, { source: req.query.source || 'all' });
+  res.json({ success: true, ...out });
+}));
+
+/** Check a manuscript (file, or title and text) against the seven research-record datasets: any signed-in user */
+router.post('/research-records/check', auth.requireUser, upload.single('file'), wrap(async (req, res) => {
+  let title = String(req.body?.title || '').trim().slice(0, 600), text = String(req.body?.text || '').slice(0, 400000);
+  if (req.file) {
+    const P = require('../parse');
+    text = (await P.extractDocument(req.file.buffer, req.file.originalname, req.file.mimetype)).text || '';
+    if (!title) title = P.extractManuscriptMeta(text).title || '';
+  }
+  if (!title && text.trim().length < 20) return res.status(400).json({ success: false, message: 'Upload the manuscript, or enter its title (and paste its text to match the identifiers in it).' });
+  const out = await RR.check({ title, text }, { online: require('../http').isOnline() });
+  await auth.audit(req, 'research-records-check', title.slice(0, 120), { found: out.datasets.filter(d => d.matches.length).map(d => d.key) }).catch(() => null);
+  res.json({ success: true, ...out });
+}));
+
 router.post('/admin/datasets/refresh', wrap(async (req, res) => {
   // one refresh at a time: four started together on 6 Nov downloaded the same pages side by side (duplicates, paid
   // OpenAlex requests four times) and kept each other from finishing; a second click follows the running one

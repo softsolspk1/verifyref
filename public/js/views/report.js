@@ -87,7 +87,7 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
   if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', pend(result.novelty) ? '…' : result.novelty.error ? null : result.novelty.summary.score]);
   if (result.authorIdentity) tabs.push(['authors', 'Authors (ORCID)', pend(result.authorIdentity) ? '…' : result.authorIdentity.error ? null : `${result.authorIdentity.summary.verified}/${result.authorIdentity.summary.authors}`]);
   if (result.language) tabs.push(['language', 'PJPS Scribe', pend(result.language) ? '…' : result.language.error ? null : result.language.summary.score]);
-  if (result.reviewSheet) tabs.push(['review-sheet', 'Review sheet', result.reviewSheet.error ? null : { 'peer-review': 'peer review', resubmit: 'resubmit', reject: 'not suitable' }[result.reviewSheet.outcome] || null]);
+  if (result.reviewSheet) tabs.push(['review-sheet', 'Review sheet', result.reviewSheet.error ? null : { 'peer-review': 'peer review', resubmit: 'resubmit', reject: result.reviewSheet.scope === 'yes' ? 'not suitable' : 'outside scope' }[result.reviewSheet.outcome] || null]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
 
   el.innerHTML = `
@@ -404,7 +404,7 @@ function reviewSheetTab(body, result, checkId) {
   const regenBtn = checkId && hasModule('review-sheet') ? '<button class="btn btn-sm" id="rs-regen">Regenerate the review sheet</button>' : '';
   if (rs.error) { body.innerHTML = `<div class="card"><h3>Preliminary Review Sheet</h3><p class="muted">${esc(rs.error)}</p>${regenBtn ? `<div class="row no-print">${regenBtn}</div>` : ''}</div>`; regen(); return; }
   const yn = v => (v === 'yes' ? badge('Yes', 'good') : v === 'no' ? badge('No', 'bad') : v === 'na' ? badge('N/A', 'neutral') : badge('—', 'neutral'));
-  const head = { 'peer-review': ['The article can be processed for Peer Review', 'low', '✓'], resubmit: ['Lies in the Scope but requires resubmission after correction as per PJPS Author’s Guidelines', 'medium', '↩'], reject: ['Outside the scope / not suitable for PJPS', 'high', '!'] }[rs.outcome] || ['—', 'medium', '?'];
+  const head = { 'peer-review': ['The article can be processed for Peer Review', 'low', '✓'], resubmit: ['Lies in the Scope but requires resubmission after correction as per PJPS Author’s Guidelines', 'medium', '↩'], 'out-of-scope': ['Outside the scope of PJPS', 'high', '!'], 'not-suitable': ['Within the scope but not suitable for PJPS', 'high', '!'] }[rs.outcome === 'reject' ? (rs.scope === 'yes' ? 'not-suitable' : 'out-of-scope') : rs.outcome] || ['—', 'medium', '?'];
   const canOpen = rs.id && hasModule('review-sheet');
   const t = rs.type || {};
   body.innerHTML = `

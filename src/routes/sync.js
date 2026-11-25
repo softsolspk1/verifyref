@@ -70,7 +70,7 @@ const TABLE_ORDER = {
   nlm_journals: 'nlm_id', doaj_journals: 'title_norm, issn, eissn', ltwa_words: 'word, prefix, abbrev', crossref_journals: 'title_norm, crossref_id, issn', email_domains: 'domain',
   openalex_journals: 'openalex_id', publisher_journals: 'publisher_key, title_norm, issns', cello_problematic: 'name_key, accession',
   journal_abbrevs: 'title_norm, list', flagged_papers: 'doi, source', mirbase: 'mir_key',
-  pjps_articles: 'article_id'
+  pjps_articles: 'article_id', research_records: 'kind, record_id'
 };
 // wide rows: smaller pages keep each response under the 4.5 MB Vercel limit (the desktop pages by what it receives)
 const PAGE_MAX = { openalex_journals: 3000, pjps_articles: 1000 };

@@ -293,6 +293,24 @@ CREATE TABLE IF NOT EXISTS mirbase (
   species TEXT NOT NULL
 );
 
+-- research-record datasets (src/researchRecords.js): theses, preprints, clinical trials, regulatory dossiers, chemical &
+-- biological records, grant records and patents, from free sources or uploaded CSV files; titles and identifiers only
+CREATE TABLE IF NOT EXISTS research_records (
+  kind TEXT NOT NULL,                    -- thesis | preprint | clinical_trial | regulatory | chem_bio | grant | patent
+  record_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  title TEXT NOT NULL,
+  title_norm TEXT NOT NULL,
+  authors TEXT,                          -- authors, sponsor, investigator, applicant or inventor
+  year TEXT,
+  identifier TEXT,                       -- DOI, NCT number, application, patent or grant number, InChIKey
+  url TEXT,
+  details TEXT,
+  loaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (kind, record_id)
+);
+CREATE INDEX IF NOT EXISTS idx_rrec_identifier ON research_records(identifier);
+
 -- PJPS dataset: every article published on pjps.pk (issues and Article in Press), one row per article page
 -- (single-article?id=). Its full text (or abstract when there is no PDF) is in the PJPS text repository as pjps:<id>
 CREATE TABLE IF NOT EXISTS pjps_articles (

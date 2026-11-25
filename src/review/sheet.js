@@ -50,7 +50,18 @@ const clip = (s, n = 160) => { s = String(s || '').replace(/\s+/g, ' ').trim(); 
 /** The sentence around a match, as evidence */
 function around(text, re) {
   const m = re.exec(text);
-  if (!m) return null;
+  return m ? aroundAt(text, m) : null;
+}
+
+/** Every sentence a pattern is found in (at most 30), in the order of the text */
+function allAround(text, re) {
+  const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  const out = [];
+  for (const m of text.matchAll(g)) { const s = aroundAt(text, m); if (!out.includes(s)) out.push(s); if (out.length >= 30) break; }
+  return out;
+}
+
+function aroundAt(text, m) {
   // a sentence ends at a full stop followed by a capital (not "ClinicalTrials.gov", "et al.", "Fig. 1")
   const before = text.slice(Math.max(0, m.index - 140), m.index);
   let cut = before.lastIndexOf('\n') + 1;
@@ -386,25 +397,45 @@ async function analyse(text, { filename = '', buffer = null, figures = [], manus
   items.methods = ans(has('methods') ? 'yes' : 'no', has('methods') ? `Heading “${hd('methods').line}”` : 'No Materials and Methods heading was found');
   const human = T.human || (/\bpatients?\b|\bparticipants?\b|\bvolunteers?\b|\bsubjects were\b|\binformed consent\b/i.test(body.slice(0, 60000)) && type.key !== 'animal' && !/\bin vitro\b/i.test(title));
   const animal = T.animal || /\b(?:rats|mice|rabbits|animals were)\b/i.test(body.slice(0, 60000));
-  const clinical = !!T.clinical;
-  const reg = around(text, /\b(?:NCT\d{8}|ISRCTN\d{6,}|ChiCTR[-\w]{6,}|CTRI\/\d{4}\/\d{2,3}\/\d+|IRCT\w{8,}|ACTRN\d{10,}|PACTR\d{10,}|DRKS\d{6,}|jRCT\w{6,}|UMIN\d{6,}|KCT\d{6,}|TCTR\d{6,}|SLCTR\/\d{4}\/\d+|NCT\s?\d{8})\b|\b(?:trial|study) (?:was )?registered\b|\bregistration (?:no|number)\b/i);
-  // the date is in the registration sentence or right beside it
-  const regAt = reg ? text.indexOf(reg.slice(0, 40)) : -1;
-  const regNear = reg ? `${reg} ${regAt >= 0 ? text.slice(regAt, regAt + reg.length + 160) : ''}` : '';
-  const regDate = reg && /\b(?:\d{1,2}[\s/.-](?:\d{1,2}|jan\w*|feb\w*|mar\w*|apr\w*|may|jun\w*|jul\w*|aug\w*|sep\w*|oct\w*|nov\w*|dec\w*)[\s/.-]\d{2,4}|(?:jan\w*|feb\w*|mar\w*|apr\w*|may|jun\w*|jul\w*|aug\w*|sep\w*|oct\w*|nov\w*|dec\w*)\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2}|(?:19|20)\d{2})\b/i.test(regNear);
+  // trial registration: a registry number in the text makes it a registered clinical study whatever the article type
+  const REGISTRY = /\b(?:NCT\s?\d{8}|ISRCTN\d{6,}|ChiCTR[-\w]{6,}|CTRI\/\d{4}\/\d{2,3}\/\d+|IRCT\w{8,}|ACTRN\d{10,}|PACTR\d{10,}|DRKS\d{6,}|jRCT\w{6,}|UMIN\d{6,}|KCT\d{6,}|TCTR\d{6,}|SLCTR\/\d{4}\/\d+)\b/i;
+  const regId = (text.match(REGISTRY) || [])[0] || null;
+  const clinical = !!T.clinical || !!regId || /\b(?:the|this) (?:clinical )?trial was registered\b|\bclinical trial registration\b/i.test(text);
+  const DATE = /\b(?:\d{1,2}(?:st|nd|rd|th)?[\s/.-](?:\d{1,2}|jan\w*|feb\w*|mar\w*|apr\w*|may|jun\w*|jul\w*|aug\w*|sep\w*|oct\w*|nov\w*|dec\w*)[\s/.,-]+\d{2,4}|(?:jan\w*|feb\w*|mar\w*|apr\w*|may|jun\w*|jul\w*|aug\w*|sep\w*|oct\w*|nov\w*|dec\w*)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\b/i;
+  // the sentences about the registration: the one with the number and the date is the evidence ("registered ... on
+  // April 07, 2023, under the registration number NCT05804071"), else the one with the number, else the first
+  const regs = allAround(text, new RegExp(`${REGISTRY.source}|\\b(?:trial|study) (?:was )?registered\\b|\\bregistration (?:no|number|date)\\b|\\bregistered (?:at|with|in|on)\\b`, 'i'));
+  const regNear = s => { const at = text.indexOf(s.replace(/…$/, '').slice(0, 40)); return at >= 0 ? text.slice(at, at + s.length + 160) : s; };
+  const reg = regs.find(s => REGISTRY.test(s) && DATE.test(regNear(s))) || regs.find(s => REGISTRY.test(s)) || regs[0] || null;
+  const regDateM = reg ? regNear(reg).match(DATE) : null;
+  const regLabel = [regId ? `Registration number ${regId.replace(/\s+/g, '')}` : null, regDateM ? `registered ${regDateM[0]}` : null].filter(Boolean).join(', ');
   items.registration = clinical
-    ? ans(reg && regDate ? 'yes' : 'no', reg ? `${reg}${regDate ? '' : ' (no registration date found)'}` : 'Clinical study: no trial registration number was found')
+    ? ans(reg && regId && regDateM ? 'yes' : 'no', reg ? `${regLabel ? `${regLabel}: ` : ''}“${reg}”${regId ? '' : ' (no registration number found)'}${regDateM ? '' : ' (no registration date found)'}` : 'Clinical study: no trial registration number was found')
     : ans('na', 'Not a clinical trial: registration does not apply');
-  let eth = around(text,/\bethic(?:s|al)(?: review)? (?:committee|board|approval|clearance)\b|\binstitutional (?:review board|animal care|ethics)\b|\bIRB\b|\bIACUC\b|\bapproval (?:no|number|ref)\b|\bethical (?:approval|permission)\b|\bERC\b|\bbioethic\w* committee\b/i);
-  // a heading alone ("Ethical approval"): the statement under it is the evidence
-  if (eth && eth.length < 40) {
-    const at = text.indexOf(eth);
-    const next = at >= 0 ? text.slice(at + eth.length).replace(/^[\s:.]+/, '') : '';
-    if (next) eth = clip(`${eth}: ${next.split('\n')[0]}`, 240);
-  }
-  if (eth && /\bnot applicable\b|\bnot required\b|\bN\/A\b/i.test(eth) && !(human || animal)) eth = null;
+  const ETH = /\bethic(?:s|al)(?: review)? (?:committee|board|approval|clearance)\b|\binstitutional (?:review board|animal care|ethics)\b|\bIRB\b|\bIACUC\b|\bapproval (?:no|number|ref|code)\b|\bethical (?:approval|permission)\b|\bERC\b|\bbioethic\w* committee\b|\bwas (?:granted|given) (?:ethical )?approval\b|\bapproved by the\b[^.\n]{0,80}\b(?:committee|board)\b/i;
+  // an approval number: a reference code with a digit beside the approval ("YXLL-KY-2023(006)", "No. 45/IRB/2024")
+  const APPROVAL_NO = /\b(?:(?:[Nn]o\.?|[Nn]umber|[Rr]ef(?:erence)?\.?|[Cc]ode|ID)\s*[:#.]?\s*)+([A-Z0-9][\w/().-]*\d[\w/().-]*)|\(([A-Z][A-Z0-9]*[-/][\w/().-]*\d[\w/()-]*)\)|\b([A-Z]{2,}[-/][\w/-]*\d{2,}[\w/()-]*)/;
+  const withHeading = s => {
+    // a heading alone ("Ethical approval"): the statement under it is the evidence
+    if (s.length >= 40) return s;
+    const at = text.indexOf(s);
+    const next = at >= 0 ? text.slice(at + s.length).replace(/^[\s:.]+/, '') : '';
+    return next ? clip(`${s}: ${next.split('\n')[0]}`, 240) : s;
+  };
+  const eths = allAround(text, ETH).map(withHeading).filter(s => !/\bnot applicable\b|\bnot required\b|\bN\/A\b/i.test(s) || human || animal);
+  const approvalNo = s => {
+    const m = s.match(APPROVAL_NO);
+    let v = m && (m[1] || m[2] || m[3]);
+    if (!v || REGISTRY.test(v) || /^(?:19|20)\d{2}$/.test(v)) return null;
+    v = v.replace(/[.,;]+$/, '');
+    // the closing bracket of the sentence, not of the number ("(Ref. No. GCUF/ERC/408)")
+    while (v.endsWith(')') && (v.match(/\)/g) || []).length > (v.match(/\(/g) || []).length) v = v.slice(0, -1);
+    return v;
+  };
+  const eth = eths.find(s => !/\bnot applicable\b|\bnot required\b/i.test(s) && approvalNo(s)) || eths.find(s => !/\bnot applicable\b|\bnot required\b/i.test(s)) || eths[0] || null;
+  const ethNo = eth ? approvalNo(eth) : null;
   items.ethics = human || animal
-    ? ans(eth && !/\bnot applicable\b|\bnot required\b/i.test(eth) ? 'yes' : 'no', eth || `${animal && !human ? 'Animal' : 'Human'} study: no ethical approval statement was found`)
+    ? ans(eth && !/\bnot applicable\b|\bnot required\b/i.test(eth) ? 'yes' : 'no', eth ? `${ethNo ? `Approval number ${ethNo}: ` : ''}“${eth}”${ethNo || /\bnot applicable\b|\bnot required\b/i.test(eth) ? '' : ' (no approval number found)'}` : `${animal && !human ? 'Animal' : 'Human'} study: no ethical approval statement was found`)
     : ans('na', 'No human participants or animals: ethical approval does not apply');
   const res = hd('results');
   const combined = res && /discussion/i.test(res.heading);
@@ -496,10 +527,28 @@ function noveltyReason(nv) {
 
 /** The reject outcome with its actual reason: outside the scope, or within the scope but not suitable (and why) */
 function rejectNote(sheet) {
-  if (sheet.scope.value !== 'yes') return 'Outside the scope of PJPS: not under any of the journal’s scope areas.';
-  const areas = sheet.scope.areas?.length ? ` (${sheet.scope.areas.join(', ')})` : '';
+  if (sheet.scope.value !== 'yes') return 'Not under any of the journal’s scope areas.';
+  const areas = sheet.scope.areas?.length ? `Scope: ${sheet.scope.areas.join(', ')}. ` : '';
   const why = sheet.suitable.value === sheet.suitable.auto ? sheet.suitable.evidence : 'marked not suitable by the editor';
-  return `Within the scope${areas}; not suitable for PJPS: ${why ? why.charAt(0).toLowerCase() + why.slice(1) : 'see the answers above'}.`;
+  return `${areas}Not suitable because: ${why ? why.charAt(0).toLowerCase() + why.slice(1) : 'see the answers above'}.`;
+}
+
+/** The outcome as the editor reads it: a reject is either outside the scope, or within the scope but not suitable */
+const OUTCOMES = {
+  'peer-review': 'The article can be processed for Peer Review',
+  resubmit: 'Lies in the Scope but requires resubmission after correction as per PJPS Author’s Guidelines',
+  'out-of-scope': 'Outside the scope of PJPS',
+  'not-suitable': 'Within the scope but not suitable for PJPS'
+};
+const decision = (outcome, scope) => (outcome === 'reject' ? (scope === 'yes' ? 'not-suitable' : 'out-of-scope') : outcome);
+
+/** A report's sheet summary filled before the two reject decisions: its note in the current wording (in memory) */
+function refreshSummary(rs) {
+  if (!rs || rs.error || rs.outcome !== 'reject' || !rs.outcomeNote) return rs;
+  const m = rs.outcomeNote.match(/^Within the scope(?: \(([^)]*)\))?; not suitable for PJPS: (.*?)\.?$/);
+  if (m) rs.outcomeNote = `${m[1] ? `Scope: ${m[1]}. ` : ''}Not suitable because: ${m[2]}.`;
+  else if (/^Outside the scope of PJPS: /.test(rs.outcomeNote)) rs.outcomeNote = 'Not under any of the journal’s scope areas.';
+  return rs;
 }
 
 /** The editor's changes: { scope, novelty, suitable, typeKey, specify, guideline: { followed, checklist, flow }, items: { key: value }, msNo, title, comments } */
@@ -606,7 +655,7 @@ async function toDocx(sheet) {
     return cells;
   }));
   // the editor's comments and what to correct, after the outcome
-  const notes = [sheet.scope?.areas?.length ? `Scope: ${sheet.scope.areas.join(', ')}` : null, sheet.outcome === 'reject' ? sheet.outcomeNote : null, sheet.comments || null,
+  const notes = [sheet.scope?.areas?.length ? `Scope: ${sheet.scope.areas.join(', ')}` : null, sheet.outcome === 'reject' ? `${OUTCOMES[decision('reject', sheet.scope?.value)]}: ${sheet.outcomeNote.replace(/^Scope: [^.]*\. /, '')}` : null, sheet.comments || null,
     ...ITEMS.filter(i => sheet.items[i.key]?.value === 'no').map(i => `${i.short}: ${sheet.items[i.key].evidence || ''}`)].filter(Boolean);
   if (notes.length) {
     const para = t => `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>${RUN(t, false)}</w:p>`;
@@ -618,4 +667,4 @@ async function toDocx(sheet) {
   return z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-module.exports = { analyse, applyEdits, finish, toDocx, imageInfo, headings, articleType, pjpsTitles, fromScreening, scope, upgradeScope, upgradeReport, reportText, summaryOf, TYPES, ITEMS, SCOPE_AREAS };
+module.exports = { OUTCOMES, decision, refreshSummary, analyse, applyEdits, finish, toDocx, imageInfo, headings, articleType, pjpsTitles, fromScreening, scope, upgradeScope, upgradeReport, reportText, summaryOf, TYPES, ITEMS, SCOPE_AREAS };

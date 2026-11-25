@@ -236,6 +236,8 @@ table.t tr:hover td { background: var(--surface-2); }
   .card { box-shadow: none; border: none; padding: 0; }
   body { background: #fff; }
   .ref-body { display: block !important; }
+  /* the page title is gradient text on screen; printers drop the gradient, so it would print invisible */
+  .page-head h1 { background: none; color: #000; -webkit-text-fill-color: #000; }
 }
 
 @media (max-width: 900px) {

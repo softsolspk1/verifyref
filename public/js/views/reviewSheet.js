@@ -6,9 +6,11 @@ import { api, esc, $, $$, toast, download, dropzone, shareManuscript, fmtDate } 
 const OUTCOME = {
   'peer-review': ['The article can be processed for Peer Review', 'good'],
   resubmit: ['Lies in the Scope but requires resubmission after correction as per PJPS Author’s Guidelines', 'warn'],
-  reject: ['Outside the scope / not suitable for PJPS', 'bad']
+  'out-of-scope': ['Outside the scope of PJPS', 'bad'],
+  'not-suitable': ['Within the scope but not suitable for PJPS', 'bad']
 };
-const badgeOf = o => `<span class="badge b-${OUTCOME[o]?.[1] || 'neutral'}">${esc(o === 'peer-review' ? 'Peer review' : o === 'resubmit' ? 'Resubmit after correction' : o === 'reject' ? 'Not suitable' : '—')}</span>`;
+const decision = (o, scope) => (o === 'reject' ? (scope === 'yes' ? 'not-suitable' : 'out-of-scope') : o);
+const badgeOf = o => `<span class="badge b-${OUTCOME[o]?.[1] || 'neutral'}">${esc(o === 'peer-review' ? 'Peer review' : o === 'resubmit' ? 'Resubmit after correction' : o === 'reject' ? 'Rejected' : '—')}</span>`;
 
 export async function renderReviewSheets(view) {
   view.innerHTML = `
@@ -97,7 +99,7 @@ export async function renderReviewSheet(view, id) {
   function paint() {
     const s = d.sheet;
     const g = s.type.guideline;
-    const [olabel, otone] = OUTCOME[s.outcome] || ['—', 'neutral'];
+    const [olabel, otone] = OUTCOME[decision(s.outcome, s.scope?.value)] || ['—', 'neutral'];
     view.innerHTML = `
       <div class="page-head"><div><h1>Preliminary Review Sheet</h1><p>${esc(d.filename || '')} · filled ${esc(fmtDate(d.createdAt))}${d.updatedAt !== d.createdAt ? ` · edited ${esc(fmtDate(d.updatedAt))}` : ''}</p></div>
         <div class="row no-print" style="gap:8px"><a class="btn btn-sm" href="#/review-sheet">← All sheets</a><button class="btn btn-sm" onclick="window.print()">Print</button><button class="btn btn-sm btn-primary" id="rs-dl">Download Word form</button></div></div>

@@ -209,9 +209,10 @@ async function screening(result, { input, body, refs, meta, update, side, sideDo
 function reviewSheetLine(rs) {
   if (!rs || rs.error) return rs?.error || 'not filled';
   const no = (rs.items || []).filter(i => i.value === 'no').map(i => i.label);
-  const head = { 'peer-review': 'Can be processed for peer review', resubmit: 'Within the scope; resubmission after correction', reject: 'Outside the scope / not suitable' }[rs.outcome] || rs.outcome;
+  const head = { 'peer-review': 'Can be processed for peer review', resubmit: 'Within the scope; resubmission after correction', 'out-of-scope': 'Outside the scope of PJPS', 'not-suitable': 'Within the scope but not suitable for PJPS' }[require('./review/sheet').decision(rs.outcome, rs.scope)] || rs.outcome;
   const areas = rs.scopeAreas?.length ? ` · Scope: ${rs.scopeAreas.join(', ')}` : '';
-  return `${head}${areas}${rs.type?.label ? ` · ${rs.type.label}${rs.type.guideline ? ` (${rs.type.guideline}${rs.type.followed === 'yes' ? ' followed' : ' not named'})` : ''}` : ''}${no.length ? ` · to correct: ${no.join(', ')}` : ''}`;
+  const why = rs.outcome === 'reject' && rs.scope === 'yes' ? (rs.outcomeNote || '').replace(/^Scope: [^.]*\. /, '').replace(/\.$/, '') : '';
+  return `${head}${areas}${why ? ` · ${why}` : ''}${rs.type?.label ? ` · ${rs.type.label}${rs.type.guideline ? ` (${rs.type.guideline}${rs.type.followed === 'yes' ? ' followed' : ' not named'})` : ''}` : ''}${no.length ? ` · to correct: ${no.join(', ')}` : ''}`;
 }
 
 /**

@@ -171,6 +171,8 @@ export async function renderAdmin(view) {
       <div id="refresh-progress"></div>
     </div>
 
+    ${researchRecordsCard(ds.researchRecords, desk)}
+
     <div class="card" id="image-sources">
       <div class="card-head"><h2>Image Integrity sources</h2><span class="muted">Used by Module 5</span></div>
       <div class="muted">Loading…</div>
@@ -314,6 +316,7 @@ export async function renderAdmin(view) {
     } catch (e) { toast(e.message, 'error'); renderAdmin(view); }
   };
   $$('[data-dsview]', view).forEach(b => (b.onclick = () => viewDataset(b.dataset.dsview, b.dataset.pub || '')));
+  wireResearchRecords(view);
   if ($('#pubj-load', view)) $('#pubj-load', view).onclick = async () => {
     try {
       const { jobId } = await api('/api/admin/datasets/publishers/load', { body: {} });
@@ -321,6 +324,103 @@ export async function renderAdmin(view) {
       toast(`${Number(r.count).toLocaleString()} journals loaded`);
       renderAdmin(view);
     } catch (e) { toast(e.message, 'error'); }
+  };
+}
+
+// ------------------------------------------------------------------ research-record datasets
+
+const RR_ORDER = ['thesis', 'preprint', 'clinical_trial', 'regulatory', 'chem_bio', 'grant', 'patent'];
+
+/** Theses, preprints, clinical trials, regulatory dossiers, chemical & biological records, grants and patents, with the check */
+function researchRecordsCard(rr, desk) {
+  const kinds = rr?.kinds || {};
+  return `<div class="card" id="rr-card">
+      <div class="card-head"><div><h2>Research record datasets</h2>
+        <p class="muted" style="margin:4px 0 0">Theses, preprints, clinical trials, regulatory dossiers, chemical and biological records, grant records and patents. Each is loaded from a free public source in the PJPS subject areas (up to ${Number(Object.values(kinds)[0]?.max || 5000).toLocaleString()} records each; titles and identifiers only)${desk ? '' : ', and CSV files of local sources (HEC theses, DRAP dossiers, HEC / PSF grants …) can be uploaded beside them: a <b>Title</b> column is needed; ID / number, authors, year, DOI or URL columns are found by their names'}. Check a manuscript against all seven below.</p></div></div>
+      <div class="table-wrap"><table class="t">
+        <thead><tr><th>Dataset Name</th><th>Source</th><th class="num">Rows</th><th>Loaded date</th><th>Status</th></tr></thead>
+        <tbody>${RR_ORDER.map(k => kinds[k]).filter(Boolean).map(d => `<tr>
+          <td><b>${esc(d.label)}</b><div class="muted">${esc(d.about)}</div></td>
+          <td>${esc(d.source)}${d.sources.filter(s => /^Upload: /.test(s.source)).map(s => `<div class="muted">${esc(s.source)} · ${Number(s.count).toLocaleString()}${desk ? '' : ` <a href="#" data-rr-clear="${d.key}" data-src="${esc(s.source)}" title="Remove the rows of this upload">remove</a>`}</div>`).join('')}</td>
+          <td class="num">${Number(d.count || 0).toLocaleString()}${d.sourceTotal ? `<div class="muted">of ${Number(d.sourceTotal).toLocaleString()} at the source</div>` : ''}</td>
+          <td>${d.loadedAt ? fmtDate(d.loadedAt) : badge('not loaded', 'warn')}</td>
+          <td>${d.count ? badge('active', 'good') : badge('pending', 'warn')}${d.count ? ` <button class="btn btn-sm" data-dsview="rr_${d.key}">View</button>` : ''}
+            ${desk ? '' : `<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
+              <button class="btn btn-sm" data-rr-load="${d.key}" data-restart="${d.complete || d.count >= d.max ? '1' : ''}">${!d.count ? 'Load from source' : d.complete || d.count >= d.max ? 'Reload' : 'Continue loading'}</button>
+              <label class="btn btn-sm">Upload CSV<input type="file" accept=".csv,.txt" data-rr-upload="${d.key}" hidden></label>
+              ${d.count ? `<button class="btn btn-sm btn-ghost" data-rr-clear="${d.key}" title="Remove every record of this dataset">Clear</button>` : ''}</div>`}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      <div id="rr-progress"></div>
+      <h3 style="margin-top:18px">Check a manuscript against these datasets</h3>
+      <p class="muted" style="margin:0 0 8px">Upload the manuscript (or enter its title and paste its text). The trial registration, patent, grant and FDA application numbers, preprint DOIs and InChIKeys written in it are looked up, and its title is compared with every record${desk ? ' (the live sources are asked too when this computer is online)' : ', in the stored records and live at the sources'}.</p>
+      <div class="row" style="gap:12px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0;min-width:240px"><label for="rr-file">Manuscript file (optional)</label><input type="file" id="rr-file" accept=".docx,.doc,.pdf,.odt,.rtf,.txt"></div>
+        <div class="field" style="margin:0;flex:1;min-width:280px"><label for="rr-title">Title</label><input id="rr-title" placeholder="Manuscript title"></div>
+      </div>
+      <div class="field" style="margin-top:10px"><label for="rr-text">Text (optional: abstract, methods, funding and ethics statements)</label><textarea id="rr-text" rows="3" placeholder="e.g. The trial was registered at ClinicalTrials.gov (NCT05804071) … funded by NIH grant R01 GM123456"></textarea></div>
+      <div class="row" style="gap:8px"><button class="btn btn-primary btn-sm" id="rr-check">Check against the seven datasets</button></div>
+      <div id="rr-result" style="margin-top:12px"></div>
+    </div>`;
+}
+
+function rrResult(d) {
+  const row = m => (m.missing
+    ? `<tr><td colspan="5">${badge('not found', 'bad')} ${esc(m.note)}</td></tr>`
+    : `<tr><td>${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener"><b>${esc(m.title)}</b></a>` : `<b>${esc(m.title)}</b>`}<div class="muted">${esc([m.authors, m.details].filter(Boolean).join(' · '))}</div></td>
+        <td>${esc(m.identifier || m.record_id || '')}</td><td>${esc(m.year || '')}</td>
+        <td>${m.basis === 'identifier' ? badge('same identifier', 'bad') : badge(`title ${Math.round((m.score || 0) * 100)}%`, m.score >= 0.8 ? 'bad' : 'warn')}</td>
+        <td>${m.live ? badge(m.source || 'live', 'info') : `<span class="muted">${esc(m.source || 'stored')}</span>`}</td></tr>`);
+  const shown = d.datasets.filter(x => x.matches.length || x.identifiers.length);
+  return `<div class="alert ${d.datasets.some(x => x.matches.some(m => !m.missing)) ? 'alert-warn' : 'alert-good'}"><b>${esc(d.summary)}</b>${d.online ? '' : ' Offline: only the stored records were searched.'}</div>
+    ${shown.map(x => `<div style="margin-top:12px"><h4 style="margin:0 0 6px">${esc(x.label)}${x.identifiers.length ? ` <span class="muted" style="font-weight:400">— in the manuscript: ${x.identifiers.map(esc).join(', ')}</span>` : ''}</h4>
+      ${x.matches.length ? `<div class="table-wrap"><table class="t"><tr><th>Record</th><th>Identifier</th><th>Year</th><th>Match</th><th>Source</th></tr>${x.matches.map(row).join('')}</table></div>` : '<p class="muted" style="margin:0">No record found for these identifiers.</p>'}</div>`).join('')}`;
+}
+
+function wireResearchRecords(view) {
+  const card = $('#rr-card', view);
+  if (!card) return;
+  $$('[data-rr-load]', card).forEach(b => (b.onclick = async () => {
+    try {
+      const { jobId } = await api(`/api/admin/research-records/${b.dataset.rrLoad}/load`, { body: { restart: !!b.dataset.restart } });
+      const r = await runJob(jobId, $('#rr-progress', card), `Loading the ${b.closest('tr').querySelector('b').textContent} from its free source (a few minutes)`);
+      toast(`${r.label}: ${Number(r.count).toLocaleString()} records`);
+      renderAdmin(view);
+    } catch (e) { toast(e.message, 'error'); }
+  }));
+  $$('[data-rr-upload]', card).forEach(inp => (inp.onchange = async () => {
+    const f = inp.files[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append('file', f);
+    toast(`Uploading ${f.name}…`);
+    try {
+      const d = await api(`/api/admin/research-records/${inp.dataset.rrUpload}/upload`, { form: fd });
+      toast(`${d.label}: ${d.added.toLocaleString()} records added`);
+      renderAdmin(view);
+    } catch (e) { toast(e.message, 'error'); }
+  }));
+  $$('[data-rr-clear]', card).forEach(b => (b.onclick = async e => {
+    e.preventDefault();
+    const src = b.dataset.src || '';
+    if (!window.confirm(src ? `Remove the records of “${src}”?` : 'Remove every record of this dataset?')) return;
+    try {
+      await api(`/api/admin/research-records/${b.dataset.rrClear}${src ? `?source=${encodeURIComponent(src)}` : ''}`, { method: 'DELETE' });
+      renderAdmin(view);
+    } catch (err) { toast(err.message, 'error'); }
+  }));
+  $('#rr-check', card).onclick = async () => {
+    const out = $('#rr-result', card), btn = $('#rr-check', card);
+    const fd = new FormData();
+    const f = $('#rr-file', card).files[0];
+    if (f) fd.append('file', f);
+    fd.append('title', $('#rr-title', card).value.trim());
+    fd.append('text', $('#rr-text', card).value);
+    btn.disabled = true;
+    out.innerHTML = '<div class="muted">Checking the seven datasets…</div>';
+    try { out.innerHTML = rrResult(await api('/api/research-records/check', { form: fd })); }
+    catch (e) { out.innerHTML = ''; toast(e.message, 'error'); }
+    finally { btn.disabled = false; }
   };
 }
 

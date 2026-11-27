@@ -3,6 +3,7 @@
 // ClinicalTrials.gov, openFDA, ChEMBL, NIH RePORTER); no paid key is used.
 //   node scripts/load-research-records.js                 load every dataset not yet full; reload (refresh) the full ones
 //   node scripts/load-research-records.js rsc cochrane    only these datasets
+//   node scripts/load-research-records.js --reload        every dataset read again from the start (after a change of source)
 //   node scripts/load-research-records.js --status        counts only
 require('../src/config');
 const db = require('../src/db');
@@ -20,7 +21,8 @@ async function main() {
     if (!RR.KINDS[kind]) { console.log(`${kind}: unknown dataset`); continue; }
     const st = (await RR.status()).kinds[kind];
     // a full dataset is read again from its source (newest records), a partial one continues where it stopped
-    const restart = (st.count >= RR.SOURCE_MAX || st.complete) && !(await db.getMeta(`rrec_${kind}_since`));
+    // --reload: every dataset read again from the start (a reload already under way continues)
+    const restart = (args.includes('--reload') || st.count >= RR.SOURCE_MAX || st.complete) && !(await db.getMeta(`rrec_${kind}_since`));
     const t = Date.now();
     try {
       const out = await RR.loadKind(kind, { restart, log: s => process.stdout.write(`\r${s}                `) });

@@ -14,9 +14,11 @@ const cfg = require('./config');
 
 // the PJPS subject areas, for the sources that are searched by words
 const PHARMA_WORDS = ['pharmaceutical', 'pharmacology', 'pharmacy', 'drug', 'pharmacokinetics', 'phytochemical', 'medicinal plant', 'antimicrobial', 'formulation', 'toxicology'];
+// more subject words, after the PJPS ones, for the sources that hold fewer than SOURCE_MAX records on those alone
+const WIDE_WORDS = [...PHARMA_WORDS, 'medicine', 'clinical', 'cancer', 'antioxidant', 'plant', 'health', 'disease', 'medical', 'biology', 'physiology', 'infection', 'diabetes', 'chemistry', 'toxicity', 'nanoparticles'];
 const EPMC_SUBJECT = `(${PHARMA_WORDS.map(w => (w.includes(' ') ? `"${w}"` : w)).join(' OR ')})`;
 // rows kept per dataset from a free source (the database stays small: titles and identifiers only); uploads up to UPLOAD_MAX
-const SOURCE_MAX = 5000;
+const SOURCE_MAX = 20000;
 const UPLOAD_MAX = 50000;
 const PAGE = 500;
 
@@ -94,19 +96,21 @@ function fdaRows(results) {
 }
 
 /** ChEMBL (EMBL-EBI): approved drugs (max phase 4) with their structure keys - the chemical and biological records */
+/** ChEMBL (EMBL-EBI): approved drugs (max phase 4), then the clinical-stage compounds (phase 3, 2, 1); cursor "<phase>:<offset>" */
 async function chemblPage(cursor) {
-  const offset = parseInt(cursor || '0', 10) || 0;
-  const r = await getJson(`https://www.ebi.ac.uk/chembl/api/data/molecule.json?max_phase=4&limit=${PAGE}&offset=${offset}&only=molecule_chembl_id,pref_name,molecule_type,first_approval,molecule_structures,molecule_properties,therapeutic_flag`, { ttl: 0, timeout: 90000, retries: 2 });
+  const [ph, o] = String(cursor || '4:0').split(':');
+  const phase = parseInt(ph, 10) || 4, offset = parseInt(o, 10) || 0;
+  const r = await getJson(`https://www.ebi.ac.uk/chembl/api/data/molecule.json?max_phase=${phase}&limit=${PAGE}&offset=${offset}&only=molecule_chembl_id,pref_name,molecule_type,max_phase,first_approval,molecule_structures,molecule_properties,therapeutic_flag`, { ttl: 0, timeout: 90000, retries: 2 });
   if (!r.ok) throw new Error(`ChEMBL: ${r.error || `HTTP ${r.status}`}`);
   const rows = (r.data?.molecules || []).filter(m => m.pref_name || m.molecule_chembl_id).map(m => ({
     kind: 'chem_bio', record_id: m.molecule_chembl_id, source: 'ChEMBL',
     title: m.pref_name || m.molecule_chembl_id, authors: null, year: m.first_approval ? String(m.first_approval) : null,
     identifier: m.molecule_structures?.standard_inchi_key || m.molecule_chembl_id,
     url: `https://www.ebi.ac.uk/chembl/compound_report_card/${m.molecule_chembl_id}/`,
-    details: [m.molecule_type, m.molecule_properties?.full_molformula, m.molecule_properties?.full_mwt ? `MW ${m.molecule_properties.full_mwt}` : null, m.molecule_chembl_id].filter(Boolean).join(' · ')
+    details: [m.molecule_type, m.max_phase != null ? (Number(m.max_phase) >= 4 ? 'approved' : `clinical phase ${Math.floor(m.max_phase)}`) : null, m.molecule_properties?.full_molformula, m.molecule_properties?.full_mwt ? `MW ${m.molecule_properties.full_mwt}` : null, m.molecule_chembl_id].filter(Boolean).join(' · ')
   }));
   const meta = r.data?.page_meta || {};
-  return { rows, next: meta.next ? String(offset + PAGE) : null, total: meta.total_count ?? null };
+  return { rows, next: meta.next ? `${phase}:${offset + PAGE}` : phase > 1 ? `${phase - 1}:0` : null, total: null };
 }
 
 /** NIH RePORTER: funded research projects in the subject areas - the grant records */
@@ -125,13 +129,16 @@ const grantRow = p => ({
   url: p.project_detail_url || `https://reporter.nih.gov/project-details/${p.appl_id}`,
   details: [p.organization?.org_name, p.organization?.org_country, p.agency_ic_admin?.abbreviation, p.award_amount ? `US$ ${Number(p.award_amount).toLocaleString('en-US')}` : null].filter(Boolean).join(' · ')
 });
+// RePORTER pages no further than 15,000 records of a search: one fiscal year at a time, newest first (cursor "<year>:<offset>")
+const FIRST_YEAR = 1990;
 async function grantsPage(cursor) {
-  const offset = parseInt(cursor || '0', 10) || 0;
-  const d = await nihSearch({ advanced_text_search: { operator: 'or', search_field: 'projecttitle,terms', search_text: PHARMA_WORDS.filter(w => !w.includes(' ')).join(' ') } }, offset);
+  const [y, o] = String(cursor || '').split(':');
+  const year = parseInt(y, 10) || new Date().getFullYear() + 1, offset = parseInt(o, 10) || 0;
+  const d = await nihSearch({ fiscal_years: [year], advanced_text_search: { operator: 'or', search_field: 'projecttitle,terms', search_text: PHARMA_WORDS.filter(w => !w.includes(' ')).join(' ') } }, offset);
   const rows = (d.results || []).map(grantRow);
-  const total = d.meta?.total ?? null;
-  // RePORTER pages no further than 15,000 records
-  return { rows, next: rows.length === PAGE && offset + PAGE < Math.min(total || Infinity, 15000) ? String(offset + PAGE) : null, total };
+  const inYear = d.meta?.total ?? 0;
+  const more = rows.length === PAGE && offset + PAGE < Math.min(inYear, 15000);
+  return { rows, next: more ? `${year}:${offset + PAGE}` : year > FIRST_YEAR ? `${year - 1}:0` : null, total: null };
 }
 
 /** Crossref works (RSC: member 292, Cochrane Database of Systematic Reviews: ISSN 1465-1858, JSTOR: prefix 10.2307, dissertations) */
@@ -159,8 +166,8 @@ async function crossrefPage(kind, cursor, { filter, query = null, source }) {
 async function crossrefByWords(kind, cursor, { filter, source }) {
   const [i, token] = String(cursor || '0|').split(/\|(.*)/s);
   const n = parseInt(i, 10) || 0;
-  const p = await crossrefPage(kind, token || null, { filter, query: PHARMA_WORDS[n], source });
-  return { ...p, next: p.next ? `${n}|${p.next}` : n + 1 < PHARMA_WORDS.length ? `${n + 1}|` : null };
+  const p = await crossrefPage(kind, token || null, { filter, query: WIDE_WORDS[n], source });
+  return { ...p, next: p.next ? `${n}|${p.next}` : n + 1 < WIDE_WORDS.length ? `${n + 1}|` : null, total: null };
 }
 
 /** DataCite dissertations (university repositories) in the subject areas; url: the next page DataCite gave */
@@ -191,13 +198,22 @@ async function dissertationsPage(cursor) {
 /** PubMed (NCBI E-utilities): the records of a search, newest first, as dataset `kind` */
 const ncbiKey = () => (cfg.NCBI_API_KEY ? `&api_key=${encodeURIComponent(cfg.NCBI_API_KEY)}` : '');
 const EUTILS = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
+// E-utilities page no further than 10,000 records of a search: one publication year at a time, newest first
+// (cursor "<year>:<start>"; the whole search is counted once, on its first page)
 async function pubmedPage(kind, term, cursor, source) {
-  const start = parseInt(cursor || '0', 10) || 0;
-  const s = await getJson(`${EUTILS}/esearch.fcgi?db=pubmed&retmode=json&sort=pub_date&retstart=${start}&retmax=${PAGE}&term=${encodeURIComponent(term)}${ncbiKey()}`, { ttl: 0, timeout: 60000, retries: 2 });
+  const [y, st] = String(cursor || '').split(':');
+  const year = parseInt(y, 10) || new Date().getFullYear(), start = parseInt(st, 10) || 0;
+  let total = null;
+  if (!cursor) {
+    const c = await getJson(`${EUTILS}/esearch.fcgi?db=pubmed&retmode=json&retmax=0&term=${encodeURIComponent(term)}${ncbiKey()}`, { ttl: 0, timeout: 60000, retries: 2 });
+    total = parseInt(c.data?.esearchresult?.count || '0', 10) || null;
+  }
+  const s = await getJson(`${EUTILS}/esearch.fcgi?db=pubmed&retmode=json&sort=pub_date&retstart=${start}&retmax=${PAGE}&term=${encodeURIComponent(`(${term}) AND ${year}[dp]`)}${ncbiKey()}`, { ttl: 0, timeout: 60000, retries: 2 });
   if (!s.ok) throw new Error(`PubMed: ${s.error || `HTTP ${s.status}`}`);
   const ids = s.data?.esearchresult?.idlist || [];
-  const total = parseInt(s.data?.esearchresult?.count || '0', 10) || null;
-  if (!ids.length) return { rows: [], next: null, total };
+  const inYear = parseInt(s.data?.esearchresult?.count || '0', 10) || 0;
+  const nextYear = year > FIRST_YEAR ? `${year - 1}:0` : null;
+  if (!ids.length) return { rows: [], next: nextYear, total };
   const r = await request(`${EUTILS}/esummary.fcgi`, { method: 'POST', json: true, ttl: 0, timeout: 90000, retries: 2, headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `db=pubmed&retmode=json&id=${ids.join(',')}${ncbiKey()}` });
   if (!r.ok) throw new Error(`PubMed: ${r.error || `HTTP ${r.status}`}`);
@@ -209,15 +225,14 @@ async function pubmedPage(kind, term, cursor, source) {
       year: (String(x.pubdate || '').match(/(?:19|20)\d{2}/) || [])[0] || null, identifier: doi || `PMID ${x.uid}`, url: `https://pubmed.ncbi.nlm.nih.gov/${x.uid}/`,
       details: [x.fulljournalname || x.source, x.pubdate, `PMID ${x.uid}`].filter(Boolean).join(' · ') };
   });
-  // E-utilities pages no further than 10,000 records
-  return { rows, next: ids.length === PAGE && start + PAGE < Math.min(total || Infinity, 9999) ? String(start + PAGE) : null, total };
+  return { rows, next: ids.length === PAGE && start + PAGE < Math.min(inYear, 9999) ? `${year}:${start + PAGE}` : nextYear, total };
 }
 
 // the subscription databases: their records come from the free index named as the source
 const SUBSCRIPTION_NOTE = 'The subscription database itself has no free API: these records come from the free index named as the source; export records from your subscription as CSV and upload them to add its own.';
 
 const KINDS = {
-  thesis: { label: 'Thesis Dataset', short: 'Theses', source: 'Europe PMC (EThOS doctoral theses)', page: c => epmcPage('ETH', c, 'thesis'),
+  thesis: { label: 'Thesis Dataset', short: 'Theses', source: 'Europe PMC (EThOS doctoral theses)', page: c => epmcPage('ETH', c, 'thesis', { query: `SRC:ETH AND (${WIDE_WORDS.map(w => (w.includes(' ') ? `"${w}"` : w)).join(' OR ')})` }),
     about: 'Doctoral theses in pharmacy, pharmacology and the drug sciences (EThOS via Europe PMC), plus uploaded thesis lists (e.g. the HEC Pakistan research repository). A manuscript that is a thesis already deposited, or copies one, is named.' },
   preprint: { label: 'Preprint Dataset', short: 'Preprints', source: 'Europe PMC (bioRxiv, medRxiv, Research Square, SSRN, Preprints.org …)', page: c => epmcPage('PPR', c, 'preprint'),
     about: 'Preprints in the PJPS subject areas from the preprint servers indexed by Europe PMC. A manuscript posted as a preprint first (its DOI or the same title) is named, so the editor can check the preprint policy and prior publication.' },
@@ -225,8 +240,8 @@ const KINDS = {
     about: 'Registered clinical trials: title, registration number and date, status, sponsor, conditions and interventions. The trial registration numbers in a manuscript are looked up (here and live in ClinicalTrials.gov) and its title compared with the registered trials.' },
   regulatory: { label: 'Regulatory Dossier Dataset', short: 'Regulatory dossiers', source: 'Drugs@FDA (openFDA): NDA, ANDA and BLA applications', page: fdaPage,
     about: 'Drug applications (regulatory dossiers): application number, sponsor, products, dosage forms and approval history; uploaded national dossiers (e.g. DRAP registrations) beside them. NDA / ANDA / BLA numbers and the products named in a manuscript are matched.' },
-  chem_bio: { label: 'Chemical and Biological Database', short: 'Chemical & biological', source: 'ChEMBL approved drugs (with live PubChem look-ups)', page: chemblPage,
-    about: 'Approved small molecules and biologics with their type, formula and InChIKey (ChEMBL); InChIKeys in a manuscript are matched here and live in PubChem, and the compounds in its title are identified.' },
+  chem_bio: { label: 'Chemical and Biological Database', short: 'Chemical & biological', source: 'ChEMBL approved and clinical-stage drugs (with live PubChem look-ups)', page: chemblPage,
+    about: 'Approved and clinical-stage (phase 1-3) small molecules and biologics with their type, formula and InChIKey (ChEMBL); InChIKeys in a manuscript are matched here and live in PubChem, and the compounds in its title are identified.' },
   grant: { label: 'Grant Record Dataset', short: 'Grant records', source: 'NIH RePORTER (funded projects in the subject areas)', page: grantsPage,
     about: 'Funded research projects: grant number, title, principal investigator, organisation and amount; uploaded funder lists (e.g. HEC NRPU grants) beside them. Grant numbers in the funding statement are matched and the title compared with funded projects.' },
   patent: { label: 'Patent Dataset', short: 'Patents', source: 'Europe PMC patents (European Patent Office)', // over 4 million patents: the subject words in the title only (the whole-record search times out at Europe PMC)
@@ -239,19 +254,19 @@ const KINDS = {
     page: dissertationsPage,
     about: `Doctoral and master's dissertations in the PJPS subject areas that universities register with DOIs (Crossref, DataCite). A manuscript that is a thesis already deposited, or copies one, is named. ${SUBSCRIPTION_NOTE}` },
   cochrane: { label: 'Cochrane Library', short: 'Cochrane', literature: true, source: 'Crossref (Cochrane Database of Systematic Reviews, ISSN 1465-1858)',
-    page: c => crossrefPage('cochrane', c, { filter: 'issn:1465-1858,from-pub-date:2015-01-01', source: 'Crossref (Cochrane Database of Systematic Reviews)' }),
-    about: 'Cochrane systematic reviews and protocols published since 2015. Cochrane DOIs (10.1002/14651858.CD…) written in the manuscript are matched, and a review whose question Cochrane has already answered (same title) is named.' },
+    page: c => crossrefPage('cochrane', c, { filter: 'issn:1465-1858', source: 'Crossref (Cochrane Database of Systematic Reviews)' }),
+    about: 'Every Cochrane systematic review and protocol (each version). Cochrane DOIs (10.1002/14651858.CD…) written in the manuscript are matched, and a review whose question Cochrane has already answered (same title) is named.' },
   jstor: { label: 'JSTOR', short: 'JSTOR', literature: true, source: 'Crossref (JSTOR, prefix 10.2307)',
     page: c => crossrefByWords('jstor', c, { filter: 'prefix:10.2307,type:journal-article', source: 'Crossref (JSTOR)' }),
     about: 'Journal articles in the PJPS subject areas that JSTOR registers with Crossref (DOI 10.2307). JSTOR DOIs and stable links in the manuscript are matched, and a manuscript already in JSTOR (same title) is named.' },
   cinahl: { label: 'CINAHL', short: 'CINAHL', literature: true, source: 'PubMed (nursing and allied-health records on medicines and pharmacology)',
-    page: c => pubmedPage('cinahl', '(nursing[mh] OR nursing[sh] OR nurses[mh] OR nursing care[mh] OR allied health personnel[mh]) AND (medication*[ti] OR drug*[ti] OR pharmac*[ti] OR prescrib*[ti])', c, 'PubMed (nursing & allied health)'),
+    page: c => pubmedPage('cinahl', '(nursing[mh] OR nursing[sh] OR nurses[mh] OR nursing care[mh] OR allied health personnel[mh]) AND (medication*[tiab] OR drug*[tiab] OR pharmac*[tiab] OR prescrib*[tiab])', c, 'PubMed (nursing & allied health)'),
     about: `Nursing and allied-health research on medicines, medication safety and pharmaceutical care (the CINAHL subject area). A manuscript already published there (same title) is named. ${SUBSCRIPTION_NOTE}` },
   biosis: { label: 'BIOSIS', short: 'BIOSIS', literature: true, source: 'Europe PMC (AGRICOLA life-science records)',
     page: c => epmcPage('AGR', c, 'biosis', { query: 'SRC:AGR AND ("medicinal plant" OR phytochemical OR antimicrobial OR pharmacology OR "plant extract" OR antioxidant OR toxicity OR ethnobotany)', size: 250 }),
     about: `Life-science research (botany, microbiology, plant extracts, pharmacology, toxicology; the BIOSIS Previews subject area) from the AGRICOLA records in Europe PMC. A manuscript already published there (same title) is named. ${SUBSCRIPTION_NOTE}` },
   sportdiscus: { label: 'SPORTDiscus', short: 'SPORTDiscus', literature: true, source: 'PubMed (sports and exercise records on drugs, supplements and doping)',
-    page: c => pubmedPage('sportdiscus', '(sports[mh] OR sports medicine[mh] OR athletic performance[mh] OR athletes[mh] OR doping in sports[mh] OR performance-enhancing substances[mh]) AND (drug*[tiab] OR supplement*[tiab] OR doping[tiab] OR pharmac*[tiab] OR ergogenic[tiab])', c, 'PubMed (sports & exercise)'),
+    page: c => pubmedPage('sportdiscus', '(sports[mh] OR sports medicine[mh] OR athletic performance[mh] OR athletes[mh] OR doping in sports[mh] OR performance-enhancing substances[mh] OR exercise[mh] OR physical fitness[mh]) AND (drug*[tiab] OR supplement*[tiab] OR doping[tiab] OR pharmac*[tiab] OR ergogenic[tiab])', c, 'PubMed (sports & exercise)'),
     about: `Sports and exercise science on drugs, dietary supplements, doping and pharmacology (the SPORTDiscus subject area). A manuscript already published there (same title) is named. ${SUBSCRIPTION_NOTE}` }
 };
 
@@ -316,10 +331,10 @@ async function loadKind(kind, { budgetMs = Infinity, restart = false, log = () =
     if ((since ? fetched : count) >= SOURCE_MAX) { done = true; break; }
     const page = await k.page(cursor);
     total = page.total ?? total;
-    const n = await upsert(page.rows);
-    added += n;
-    fetched += n;
+    added += await upsert(page.rows);
     count = await countOf(kind);
+    // a reload counts the records it brought back (a record found again under another subject word counts once)
+    if (since) fetched = (await db.one("SELECT COUNT(*)::int AS n FROM research_records WHERE kind = $1 AND source NOT LIKE 'Upload:%' AND loaded_at >= $2", [kind, since])).n;
     const shown = since ? fetched : count;
     log(`${k.label}: ${shown.toLocaleString('en-US')} records${since ? ' refreshed' : ''}${total ? ` (the source has ${Number(total).toLocaleString('en-US')})` : ''}`, Math.min(95, Math.round(shown / SOURCE_MAX * 100)));
     cursor = page.next;

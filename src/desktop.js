@@ -123,7 +123,7 @@ const TABLES = {
   journal_abbrevs: { status: 'jabrefAbbrevs', meta: 'jabref', label: 'JabRef journal abbreviations' },
   flagged_papers: { status: 'flaggedPapers', meta: 'flag', label: 'papers flagged in integrity audits' },
   mirbase: { status: 'mirbase', meta: 'mirbase', label: 'miRBase microRNAs' },
-  research_records: { status: 'researchRecords', meta: 'rrec', label: 'research-record datasets (theses, preprints, trials, dossiers, chemicals, grants, patents)' },
+  research_records: { status: 'researchRecords', meta: 'rrec', label: 'research-record datasets (theses, preprints, trials, dossiers, chemicals, grants, patents, RSC, ProQuest, Cochrane, JSTOR, CINAHL, BIOSIS, SPORTDiscus)' },
   pjps_articles: { status: 'pjpsArticles', meta: 'pjpsa', label: 'PJPS articles' },
   journal_list_entries: { label: 'journal index lists' }
 };

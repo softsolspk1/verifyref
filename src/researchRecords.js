@@ -1,12 +1,16 @@
-// researchRecords.js - seven research-record datasets beside the journal and integrity lists: theses, preprints, clinical
-// trials, regulatory dossiers, chemical & biological records, grant records and patents. Each is loaded from a free public
-// source (no API key) in the PJPS subject areas, or from a CSV file the Super Admin uploads (local sources such as the HEC
-// thesis repository or DRAP dossiers), and a manuscript is checked against all seven: the identifiers written in it
-// (trial registration, patent, grant and application numbers, preprint DOIs, InChIKeys) and its title.
+// researchRecords.js - research-record datasets beside the journal and integrity lists: theses, preprints, clinical
+// trials, regulatory dossiers, chemical & biological records, grant records and patents, and the bibliographic databases
+// Royal Society of Chemistry, ProQuest Dissertations & Theses, Cochrane, JSTOR, CINAHL, BIOSIS and SPORTDiscus. Each is
+// loaded from a free public source (no API key) in the PJPS subject areas - the subscription databases have no free API,
+// so their records come from the free indexes that hold the same content (Crossref, DataCite, PubMed, Europe PMC) - or from
+// a CSV file the Super Admin uploads (an export from the subscription database, the HEC thesis repository, DRAP dossiers).
+// A manuscript is checked against all of them (Admin > Data and the Full Screening): the identifiers written in it (trial
+// registration, patent, grant and application numbers, preprint, RSC, Cochrane and JSTOR DOIs, InChIKeys) and its title.
 const db = require('./db');
 const { getMeta, setMeta } = db;
 const { getJson, request } = require('./http');
 const { normalize } = require('./text');
+const cfg = require('./config');
 
 // the PJPS subject areas, for the sources that are searched by words
 const PHARMA_WORDS = ['pharmaceutical', 'pharmacology', 'pharmacy', 'drug', 'pharmacokinetics', 'phytochemical', 'medicinal plant', 'antimicrobial', 'formulation', 'toxicology'];
@@ -130,6 +134,88 @@ async function grantsPage(cursor) {
   return { rows, next: rows.length === PAGE && offset + PAGE < Math.min(total || Infinity, 15000) ? String(offset + PAGE) : null, total };
 }
 
+/** Crossref works (RSC: member 292, Cochrane Database of Systematic Reviews: ISSN 1465-1858, JSTOR: prefix 10.2307, dissertations) */
+const CROSSREF_SELECT = 'DOI,title,author,issued,container-title,type,publisher';
+function crossrefRow(kind, w, source) {
+  const doi = String(w.DOI || '').toLowerCase();
+  const authors = (w.author || []).slice(0, 6).map(a => [a.family, a.given ? a.given.split(/[\s.-]+/).filter(Boolean).map(x => x[0]).join('') : ''].filter(Boolean).join(' ') || a.name).filter(Boolean);
+  return {
+    kind, record_id: doi, source, title: (w.title || [])[0] || null,
+    authors: authors.length ? `${authors.join(', ')}${(w.author || []).length > 6 ? ' et al.' : ''}` : null,
+    year: w.issued?.['date-parts']?.[0]?.[0] ? String(w.issued['date-parts'][0][0]) : null, identifier: doi, url: doi ? `https://doi.org/${doi}` : null,
+    details: [(w['container-title'] || [])[0], w.type === 'dissertation' ? 'Dissertation / thesis' : null, w.publisher].filter(Boolean).join(' · ')
+  };
+}
+async function crossrefPage(kind, cursor, { filter, query = null, source }) {
+  const r = await getJson(`https://api.crossref.org/works?filter=${encodeURIComponent(filter)}${query ? `&query=${encodeURIComponent(query)}` : ''}&rows=${PAGE}&select=${CROSSREF_SELECT}&cursor=${encodeURIComponent(cursor || '*')}&mailto=${encodeURIComponent(cfg.CONTACT_EMAIL)}`, { ttl: 0, timeout: 90000, retries: 2 });
+  if (!r.ok) throw new Error(`Crossref: ${r.error || `HTTP ${r.status}`}`);
+  const m = r.data?.message || {};
+  const items = m.items || [];
+  const rows = items.map(w => crossrefRow(kind, w, source)).filter(x => x.record_id && x.title);
+  const next = m['next-cursor'];
+  return { rows, next: items.length && next && next !== cursor ? next : null, total: m['total-results'] ?? null };
+}
+// Crossref finds few records for a query of many words: one subject word at a time (cursor "<word index>|<Crossref cursor>")
+async function crossrefByWords(kind, cursor, { filter, source }) {
+  const [i, token] = String(cursor || '0|').split(/\|(.*)/s);
+  const n = parseInt(i, 10) || 0;
+  const p = await crossrefPage(kind, token || null, { filter, query: PHARMA_WORDS[n], source });
+  return { ...p, next: p.next ? `${n}|${p.next}` : n + 1 < PHARMA_WORDS.length ? `${n + 1}|` : null };
+}
+
+/** DataCite dissertations (university repositories) in the subject areas; url: the next page DataCite gave */
+async function dataciteThesesPage(url) {
+  const q = PHARMA_WORDS.map(w => (w.includes(' ') ? `"${w}"` : w)).join(' OR ');
+  const r = await getJson(url || `https://api.datacite.org/dois?resource-type-id=dissertation&query=${encodeURIComponent(q)}&page%5Bsize%5D=${PAGE}&page%5Bcursor%5D=1`, { ttl: 0, timeout: 90000, retries: 2 });
+  if (!r.ok) throw new Error(`DataCite: ${r.error || `HTTP ${r.status}`}`);
+  const rows = (r.data?.data || []).map(d => {
+    const a = d.attributes || {}, doi = String(a.doi || d.id || '').toLowerCase();
+    const publisher = typeof a.publisher === 'string' ? a.publisher : a.publisher?.name;
+    return { kind: 'proquest', record_id: doi, source: 'DataCite (university repositories)', title: a.titles?.[0]?.title || null,
+      authors: (a.creators || []).slice(0, 4).map(c => c.name).filter(Boolean).join('; ') || null,
+      year: a.publicationYear ? String(a.publicationYear) : null, identifier: doi, url: `https://doi.org/${doi}`, details: ['Dissertation / thesis', publisher].filter(Boolean).join(' · ') };
+  }).filter(x => x.record_id && x.title);
+  return { rows, next: rows.length && r.data?.links?.next ? r.data.links.next : null, total: r.data?.meta?.total ?? null };
+}
+/** Dissertations and theses: Crossref's dissertation records, then DataCite's (ProQuest itself has no free API) */
+async function dissertationsPage(cursor) {
+  const [phase, token] = String(cursor || 'cr:').split(/:(.*)/s);
+  if (phase === 'cr') {
+    const p = await crossrefByWords('proquest', token || null, { filter: 'type:dissertation', source: 'Crossref (dissertations)' });
+    return { ...p, next: p.next ? `cr:${p.next}` : 'dc:' };
+  }
+  const p = await dataciteThesesPage(token || null);
+  return { ...p, next: p.next ? `dc:${p.next}` : null };
+}
+
+/** PubMed (NCBI E-utilities): the records of a search, newest first, as dataset `kind` */
+const ncbiKey = () => (cfg.NCBI_API_KEY ? `&api_key=${encodeURIComponent(cfg.NCBI_API_KEY)}` : '');
+const EUTILS = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
+async function pubmedPage(kind, term, cursor, source) {
+  const start = parseInt(cursor || '0', 10) || 0;
+  const s = await getJson(`${EUTILS}/esearch.fcgi?db=pubmed&retmode=json&sort=pub_date&retstart=${start}&retmax=${PAGE}&term=${encodeURIComponent(term)}${ncbiKey()}`, { ttl: 0, timeout: 60000, retries: 2 });
+  if (!s.ok) throw new Error(`PubMed: ${s.error || `HTTP ${s.status}`}`);
+  const ids = s.data?.esearchresult?.idlist || [];
+  const total = parseInt(s.data?.esearchresult?.count || '0', 10) || null;
+  if (!ids.length) return { rows: [], next: null, total };
+  const r = await request(`${EUTILS}/esummary.fcgi`, { method: 'POST', json: true, ttl: 0, timeout: 90000, retries: 2, headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `db=pubmed&retmode=json&id=${ids.join(',')}${ncbiKey()}` });
+  if (!r.ok) throw new Error(`PubMed: ${r.error || `HTTP ${r.status}`}`);
+  const res = r.data?.result || {};
+  const rows = ids.map(id => res[id]).filter(x => x?.title).map(x => {
+    const doi = (x.articleids || []).find(a => a.idtype === 'doi')?.value || null;
+    const authors = (x.authors || []).slice(0, 6).map(a => a.name);
+    return { kind, record_id: `PMID:${x.uid}`, source, title: x.title.replace(/\.$/, ''), authors: authors.length ? `${authors.join(', ')}${(x.authors || []).length > 6 ? ' et al.' : ''}` : null,
+      year: (String(x.pubdate || '').match(/(?:19|20)\d{2}/) || [])[0] || null, identifier: doi || `PMID ${x.uid}`, url: `https://pubmed.ncbi.nlm.nih.gov/${x.uid}/`,
+      details: [x.fulljournalname || x.source, x.pubdate, `PMID ${x.uid}`].filter(Boolean).join(' · ') };
+  });
+  // E-utilities pages no further than 10,000 records
+  return { rows, next: ids.length === PAGE && start + PAGE < Math.min(total || Infinity, 9999) ? String(start + PAGE) : null, total };
+}
+
+// the subscription databases: their records come from the free index named as the source
+const SUBSCRIPTION_NOTE = 'The subscription database itself has no free API: these records come from the free index named as the source; export records from your subscription as CSV and upload them to add its own.';
+
 const KINDS = {
   thesis: { label: 'Thesis Dataset', short: 'Theses', source: 'Europe PMC (EThOS doctoral theses)', page: c => epmcPage('ETH', c, 'thesis'),
     about: 'Doctoral theses in pharmacy, pharmacology and the drug sciences (EThOS via Europe PMC), plus uploaded thesis lists (e.g. the HEC Pakistan research repository). A manuscript that is a thesis already deposited, or copies one, is named.' },
@@ -145,7 +231,28 @@ const KINDS = {
     about: 'Funded research projects: grant number, title, principal investigator, organisation and amount; uploaded funder lists (e.g. HEC NRPU grants) beside them. Grant numbers in the funding statement are matched and the title compared with funded projects.' },
   patent: { label: 'Patent Dataset', short: 'Patents', source: 'Europe PMC patents (European Patent Office)', // over 4 million patents: the subject words in the title only (the whole-record search times out at Europe PMC)
     page: c => epmcPage('PAT', c, 'patent', { query: 'SRC:PAT AND TITLE:(pharmaceutical OR "pharmaceutical composition" OR formulation OR "herbal" OR "plant extract" OR antimicrobial)' }),
-    about: 'Patents in the drug and pharmaceutical sciences (EPO via Europe PMC). Patent numbers in a manuscript are matched, and a manuscript that reports work already patented (same title) is named.' }
+    about: 'Patents in the drug and pharmaceutical sciences (EPO via Europe PMC). Patent numbers in a manuscript are matched, and a manuscript that reports work already patented (same title) is named.' },
+  rsc: { label: 'Royal Society of Chemistry', short: 'Royal Society of Chemistry', literature: true, source: 'Crossref (RSC journals, member 292, DOI 10.1039)',
+    page: c => crossrefByWords('rsc', c, { filter: 'member:292,type:journal-article', source: 'Crossref (RSC)' }),
+    about: 'Articles in the Royal Society of Chemistry journals (RSC Advances, Analyst, RSC Medicinal Chemistry, Food & Function …) in the PJPS subject areas, from the DOIs RSC registers with Crossref. RSC DOIs written in the manuscript are matched, and a manuscript already published by RSC (same title) is named.' },
+  proquest: { label: 'ProQuest Dissertations and Theses', short: 'Dissertations & theses', literature: true, source: 'Crossref and DataCite dissertation records (university repositories)',
+    page: dissertationsPage,
+    about: `Doctoral and master's dissertations in the PJPS subject areas that universities register with DOIs (Crossref, DataCite). A manuscript that is a thesis already deposited, or copies one, is named. ${SUBSCRIPTION_NOTE}` },
+  cochrane: { label: 'Cochrane Library', short: 'Cochrane', literature: true, source: 'Crossref (Cochrane Database of Systematic Reviews, ISSN 1465-1858)',
+    page: c => crossrefPage('cochrane', c, { filter: 'issn:1465-1858,from-pub-date:2015-01-01', source: 'Crossref (Cochrane Database of Systematic Reviews)' }),
+    about: 'Cochrane systematic reviews and protocols published since 2015. Cochrane DOIs (10.1002/14651858.CD…) written in the manuscript are matched, and a review whose question Cochrane has already answered (same title) is named.' },
+  jstor: { label: 'JSTOR', short: 'JSTOR', literature: true, source: 'Crossref (JSTOR, prefix 10.2307)',
+    page: c => crossrefByWords('jstor', c, { filter: 'prefix:10.2307,type:journal-article', source: 'Crossref (JSTOR)' }),
+    about: 'Journal articles in the PJPS subject areas that JSTOR registers with Crossref (DOI 10.2307). JSTOR DOIs and stable links in the manuscript are matched, and a manuscript already in JSTOR (same title) is named.' },
+  cinahl: { label: 'CINAHL', short: 'CINAHL', literature: true, source: 'PubMed (nursing and allied-health records on medicines and pharmacology)',
+    page: c => pubmedPage('cinahl', '(nursing[mh] OR nursing[sh] OR nurses[mh] OR nursing care[mh] OR allied health personnel[mh]) AND (medication*[ti] OR drug*[ti] OR pharmac*[ti] OR prescrib*[ti])', c, 'PubMed (nursing & allied health)'),
+    about: `Nursing and allied-health research on medicines, medication safety and pharmaceutical care (the CINAHL subject area). A manuscript already published there (same title) is named. ${SUBSCRIPTION_NOTE}` },
+  biosis: { label: 'BIOSIS', short: 'BIOSIS', literature: true, source: 'Europe PMC (AGRICOLA life-science records)',
+    page: c => epmcPage('AGR', c, 'biosis', { query: 'SRC:AGR AND ("medicinal plant" OR phytochemical OR antimicrobial OR pharmacology OR "plant extract" OR antioxidant OR toxicity OR ethnobotany)', size: 250 }),
+    about: `Life-science research (botany, microbiology, plant extracts, pharmacology, toxicology; the BIOSIS Previews subject area) from the AGRICOLA records in Europe PMC. A manuscript already published there (same title) is named. ${SUBSCRIPTION_NOTE}` },
+  sportdiscus: { label: 'SPORTDiscus', short: 'SPORTDiscus', literature: true, source: 'PubMed (sports and exercise records on drugs, supplements and doping)',
+    page: c => pubmedPage('sportdiscus', '(sports[mh] OR sports medicine[mh] OR athletic performance[mh] OR athletes[mh] OR doping in sports[mh] OR performance-enhancing substances[mh]) AND (drug*[tiab] OR supplement*[tiab] OR doping[tiab] OR pharmac*[tiab] OR ergogenic[tiab])', c, 'PubMed (sports & exercise)'),
+    about: `Sports and exercise science on drugs, dietary supplements, doping and pharmacology (the SPORTDiscus subject area). A manuscript already published there (same title) is named. ${SUBSCRIPTION_NOTE}` }
 };
 
 // ------------------------------------------------------------------ storing
@@ -195,20 +302,35 @@ async function loadKind(kind, { budgetMs = Infinity, restart = false, log = () =
   const k = KINDS[kind];
   if (!k) throw new Error('Unknown dataset.');
   const start = Date.now();
-  let cursor = restart ? null : await getMeta(`rrec_${kind}_next`);
+  // a reload (restart) reads the source again from the start: SOURCE_MAX records fetched afresh, then the records it
+  // did not bring back again are removed (uploads kept), so the dataset stays current and no larger (it used to stop at
+  // once: the dataset was already full)
+  if (restart) { await setMeta(`rrec_${kind}_since`, new Date().toISOString()); await setMeta(`rrec_${kind}_fetched`, 0); await setMeta(`rrec_${kind}_next`, ''); }
+  const since = await getMeta(`rrec_${kind}_since`) || null;
+  let fetched = parseInt((await getMeta(`rrec_${kind}_fetched`)) || '0', 10) || 0;
+  let cursor = await getMeta(`rrec_${kind}_next`) || null;
   if (cursor === 'done') cursor = null;
   let added = 0, total = null, done = false;
   let count = await countOf(kind);
   while (Date.now() - start < budgetMs - 20000) {
-    if (count >= SOURCE_MAX) { done = true; break; }
+    if ((since ? fetched : count) >= SOURCE_MAX) { done = true; break; }
     const page = await k.page(cursor);
     total = page.total ?? total;
-    added += await upsert(page.rows);
+    const n = await upsert(page.rows);
+    added += n;
+    fetched += n;
     count = await countOf(kind);
-    log(`${k.label}: ${count.toLocaleString('en-US')} records${total ? ` (the source has ${Number(total).toLocaleString('en-US')})` : ''}`, Math.min(95, Math.round(count / SOURCE_MAX * 100)));
+    const shown = since ? fetched : count;
+    log(`${k.label}: ${shown.toLocaleString('en-US')} records${since ? ' refreshed' : ''}${total ? ` (the source has ${Number(total).toLocaleString('en-US')})` : ''}`, Math.min(95, Math.round(shown / SOURCE_MAX * 100)));
     cursor = page.next;
     await setMeta(`rrec_${kind}_next`, cursor || 'done');
+    if (since) await setMeta(`rrec_${kind}_fetched`, fetched);
     if (!cursor) { done = true; break; }
+  }
+  if (done && since) {
+    await db.query("DELETE FROM research_records WHERE kind = $1 AND source NOT LIKE 'Upload:%' AND loaded_at < $2", [kind, since]);
+    await setMeta(`rrec_${kind}_since`, '');
+    await setMeta(`rrec_${kind}_next`, 'done');
   }
   if (total != null) await setMeta(`rrec_${kind}_total`, total);
   count = await stamp(kind);
@@ -277,8 +399,9 @@ async function status() {
   return { kinds: out, loadedAt: await getMeta('rrec_loaded_at'), count: parseInt((await getMeta('rrec_count')) || '0', 10) };
 }
 
-// ------------------------------------------------------------------ checking a manuscript against the seven datasets
+// ------------------------------------------------------------------ checking a manuscript against every dataset
 
+const LIVE_MS = 45000;
 const STOP = new Set('the and for with from into among between through using based study effect effects evaluation analysis role patients their its this that are was were which have has after during against versus under over than other new novel potential activity activities assessment comparative clinical'.split(' '));
 const words = t => [...new Set(normalize(t).split(' ').filter(w => w.length > 3 && !STOP.has(w) && !/^\d+$/.test(w)))];
 /** How much of the manuscript title the record's title holds, and the other way round (0-1) */
@@ -296,7 +419,10 @@ const IDS = {
   preprint: [/\b10\.(?:1101|21203|20944|31219|26434|22541|2139\/ssrn|14293|36227|31234|32942|1002\/essoar)\/[^\s"<>)\]]+/gi],
   grant: [/\b[RKUPFTDS]\d{2}\s?[A-Z]{2}\d{6}(?:-\d{2})?\b/g, /\b(?:NRPU|TDF|SRGP|LCF)[-\s/]?(?:No\.?\s*)?\d[\w/-]{2,}\b/g],
   regulatory: [/\b(?:NDA|ANDA|BLA)\s?#?-?\s?\d{5,6}\b/g, /\bReg(?:istration)?\.?\s?No\.?\s?\d{5,6}\b/g],
-  chem_bio: [/\b[A-Z]{14}-[A-Z]{10}-[A-Z]\b/g, /\bCHEMBL\d+\b/g]
+  chem_bio: [/\b[A-Z]{14}-[A-Z]{10}-[A-Z]\b/g, /\bCHEMBL\d+\b/g],
+  rsc: [/\b10\.1039\/[A-Za-z0-9.]+/g],
+  cochrane: [/\b10\.1002\/14651858\.[A-Za-z0-9.]+/gi],
+  jstor: [/\b10\.2307\/[A-Za-z0-9.]+/g, /\bjstor\.org\/stable\/\d+/gi]
 };
 function identifiersIn(text) {
   const out = {};
@@ -313,6 +439,8 @@ const canon = (kind, id) => {
   if (kind === 'regulatory') { const m = id.match(/(NDA|ANDA|BLA)\D*(\d{5,6})/i); return m ? `${m[1].toUpperCase()}${m[2].padStart(6, '0')}` : id; }
   if (kind === 'patent') return idKey(id);
   if (kind === 'grant') return id.replace(/\s+/g, '').toUpperCase();
+  if (kind === 'jstor') { const m = id.match(/stable\/(\d+)/i); return m ? `10.2307/${m[1]}` : id.toLowerCase(); }
+  if (kind === 'rsc' || kind === 'cochrane') return id.toLowerCase();
   return id;
 };
 
@@ -343,6 +471,15 @@ async function liveByTitle(title) {
     (async () => {
       const p = await epmcPage(null, '*', null, { query: `(SRC:ETH OR SRC:PPR OR SRC:PAT) AND TITLE:(${w.join(' AND ')})`, size: 50 });
       for (const r of p.rows) { const src = r.record_id.split(':')[0]; out.push({ ...r, kind: { ETH: 'thesis', PPR: 'preprint', PAT: 'patent' }[src], identifier: src === 'PAT' ? r.record_id.split(':')[1] : r.identifier }); }
+    })(),
+    // one Crossref search, sorted into the datasets by DOI prefix (RSC, Cochrane, JSTOR) or type (dissertations)
+    (async () => {
+      const r = await getJson(`https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(title.slice(0, 300))}&rows=20&select=${CROSSREF_SELECT}&mailto=${encodeURIComponent(cfg.CONTACT_EMAIL)}`, { ttl: 7 * 86400, timeout: 20000, retries: 1 });
+      for (const w of (r.ok ? r.data?.message?.items : null) || []) {
+        const doi = String(w.DOI || '').toLowerCase();
+        const kind = doi.startsWith('10.1039/') ? 'rsc' : doi.startsWith('10.1002/14651858') ? 'cochrane' : doi.startsWith('10.2307/') ? 'jstor' : w.type === 'dissertation' ? 'proquest' : null;
+        if (kind) out.push(crossrefRow(kind, w, 'Crossref'));
+      }
     })(),
     (async () => {
       const r = await getJson(`${CTGOV}?query.titles=${encodeURIComponent(w.join(' AND '))}&pageSize=20&fields=${CT_FIELDS}`, { ttl: 7 * 86400, timeout: 20000, retries: 1 });
@@ -386,6 +523,13 @@ async function liveById(kind, ids) {
       const d = await nihSearch({ project_nums: nih.map(x => `*${x.replace(/\s+/g, '')}*`) }, 0, 20).catch(() => null);
       if (d?.results) out.push(...d.results.map(p => ({ ...grantRow(p), live: true })));
     }
+  } else if (kind === 'rsc' || kind === 'cochrane' || kind === 'jstor') {
+    for (const id of ids.slice(0, 5)) {
+      const doi = canon(kind, id);
+      const r = await getJson(`https://api.crossref.org/works/${encodeURIComponent(doi)}?mailto=${encodeURIComponent(cfg.CONTACT_EMAIL)}`, { ttl: 30 * 86400, timeout: 15000, retries: 1 });
+      if (r.ok && r.data?.message) out.push({ ...crossrefRow(kind, r.data.message, 'Crossref'), live: true });
+      else if (r.status === 404) out.push({ kind, identifier: doi, missing: true, note: `DOI ${doi} is not registered (Crossref): a typing error or an invented DOI` });
+    }
   } else if (kind === 'regulatory') {
     for (const id of ids.slice(0, 5)) {
       const c = canon(kind, id);
@@ -399,7 +543,7 @@ async function liveById(kind, ids) {
   return out;
 }
 /**
- * A manuscript checked against the seven datasets: { title, text } -> { identifiers, datasets: [{ key, label, matches }],
+ * A manuscript checked against every research-record dataset: { title, text } -> { identifiers, datasets: [{ key, label, matches }],
  * summary }. Stored records first, then the live sources (when online) for what the stored ones do not hold.
  */
 async function check({ title = '', text = '' } = {}, { online = true } = {}) {
@@ -409,12 +553,16 @@ async function check({ title = '', text = '' } = {}, { online = true } = {}) {
   for (const [kind, list] of Object.entries(ids)) for (const r of await localById(kind, list)) add({ ...r, basis: 'identifier', score: 1 });
   if (title) for (const r of await localByTitle(title)) add({ ...r, basis: 'title' });
   if (online) {
-    for (const [kind, list] of Object.entries(ids)) {
+    // a slow source is left out rather than holding up the screening (LIVE_MS for all the live look-ups together)
+    const within = p => Promise.race([p.catch(() => []), new Promise(r => setTimeout(() => r([]), LIVE_MS).unref?.())]);
+    const byId = Object.entries(ids).map(async ([kind, list]) => {
       const have = new Set(byKind[kind].filter(r => r.basis === 'identifier').map(r => idKey(r.identifier)));
       const rest = list.filter(i => !have.has(idKey(canon(kind, i))));
-      if (rest.length) for (const r of await liveById(kind, rest).catch(() => [])) add({ ...r, basis: 'identifier', score: r.missing ? 0 : 1 });
-    }
-    if (title) for (const r of await liveByTitle(title).catch(() => [])) add({ ...r, basis: 'title' });
+      return rest.length ? (await within(liveById(kind, rest))).map(r => ({ ...r, basis: 'identifier', score: r.missing ? 0 : 1 })) : [];
+    });
+    const [idRows, titleRows] = await Promise.all([Promise.all(byId), title ? within(liveByTitle(title)) : []]);
+    for (const r of idRows.flat()) add(r);
+    for (const r of titleRows) add({ ...r, basis: 'title' });
   }
   const datasets = Object.entries(KINDS).map(([key, k]) => ({
     key, label: k.label, identifiers: ids[key] || [],
@@ -422,9 +570,23 @@ async function check({ title = '', text = '' } = {}, { online = true } = {}) {
   }));
   const found = datasets.filter(d => d.matches.some(m => !m.missing));
   const missing = datasets.flatMap(d => d.matches.filter(m => m.missing).map(m => m.note));
+  // what the editor should look at: a work already published, deposited or patented under nearly the same title (a
+  // registered trial or a funded grant with the manuscript's title is expected; a preprint is a prior posting), and
+  // identifiers their source does not know
+  const flags = [];
+  for (const d of datasets) {
+    const k = KINDS[d.key];
+    const prior = k.literature || d.key === 'thesis' || d.key === 'patent' ? d.matches.filter(m => !m.missing && title && titleScore(title, m.title) >= 0.9) : [];
+    if (prior.length) flags.push({ severity: 'high', dataset: d.key, text: `${k.short}: a record with nearly the same title, “${clip(prior[0].title, 140)}”${prior[0].year ? ` (${prior[0].year})` : ''}; check for prior publication` });
+    const pre = d.key === 'preprint' ? d.matches.filter(m => !m.missing && (m.basis === 'identifier' || m.score >= 0.9)) : [];
+    if (pre.length) flags.push({ severity: 'low', dataset: d.key, text: `Posted as a preprint: “${clip(pre[0].title, 140)}”; check the preprint policy` });
+  }
+  for (const note of missing) flags.push({ severity: 'high', text: note });
+  const n = Object.keys(KINDS).length;
   return {
-    title, identifiers: ids, datasets, online,
-    summary: `${found.length ? `Found in ${found.map(d => `${KINDS[d.key].short} (${d.matches.filter(m => !m.missing).length})`).join(', ')}` : 'No matching record in the seven datasets'}${missing.length ? `; ${missing.length} identifier(s) not found at the source` : ''}.`
+    kind: 'research-records', title, identifiers: ids, datasets, online, flags, searched: n,
+    level: flags.some(f => f.severity === 'high') ? 'bad' : flags.length ? 'warn' : 'ok',
+    summary: `${found.length ? `Found in ${found.map(d => `${KINDS[d.key].short} (${d.matches.filter(m => !m.missing).length})`).join(', ')}` : `No matching record in the ${n} datasets`}${missing.length ? `; ${missing.length} identifier(s) not found at the source` : ''}.`
   };
 }
 

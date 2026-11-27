@@ -335,7 +335,7 @@ router.delete('/admin/research-records/:kind', webOnly, wrap(async (req, res) =>
   res.json({ success: true, ...out });
 }));
 
-/** Check a manuscript (file, or title and text) against the seven research-record datasets: any signed-in user */
+/** Check a manuscript (file, or title and text) against every research-record dataset: any signed-in user */
 router.post('/research-records/check', auth.requireUser, upload.single('file'), wrap(async (req, res) => {
   let title = String(req.body?.title || '').trim().slice(0, 600), text = String(req.body?.text || '').slice(0, 400000);
   if (req.file) {

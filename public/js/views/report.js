@@ -87,6 +87,7 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
   if (result.novelty) tabs.push(['novelty', 'Novelty & outlook', pend(result.novelty) ? '…' : result.novelty.error ? null : result.novelty.summary.score]);
   if (result.authorIdentity) tabs.push(['authors', 'Authors (ORCID)', pend(result.authorIdentity) ? '…' : result.authorIdentity.error ? null : `${result.authorIdentity.summary.verified}/${result.authorIdentity.summary.authors}`]);
   if (result.language) tabs.push(['language', 'PJPS Scribe', pend(result.language) ? '…' : result.language.error ? null : result.language.summary.score]);
+  if (result.researchRecords) tabs.push(['records', 'Research records', pend(result.researchRecords) ? '…' : result.researchRecords.error ? null : result.researchRecords.datasets.filter(d => d.matches.some(m => !m.missing)).length]);
   if (result.reviewSheet) tabs.push(['review-sheet', 'Review sheet', result.reviewSheet.error ? null : { 'peer-review': 'peer review', resubmit: 'resubmit', reject: result.reviewSheet.scope === 'yes' ? 'not suitable' : 'outside scope' }[result.reviewSheet.outcome] || null]);
   if (id && kind !== 'citations') tabs.push(['editor', 'Editor report', null]);
 
@@ -141,11 +142,12 @@ export function renderReport(el, result, { kind, tab = null } = {}) {
     else if (k === 'journals') journalsTab(body, result.journals);
     else if (k === 'pattern') patternTab(body, result.pattern, refs);
     else if (k === 'editor') editorTab(body, result);
-    else if (['plagiarism', 'novelty', 'authors', 'language'].includes(k) && pend({ plagiarism: result.plagiarism, novelty: result.novelty, authors: result.authorIdentity, language: result.language }[k])) body.innerHTML = `<div class="card"><h3>${esc(tabs.find(t => t[0] === k)[1])}</h3><p class="muted">Still running. This section fills in automatically when it is finished — keep this page open.</p></div>`;
+    else if (['plagiarism', 'novelty', 'authors', 'language', 'records'].includes(k) && pend({ plagiarism: result.plagiarism, novelty: result.novelty, authors: result.authorIdentity, language: result.language, records: result.researchRecords }[k])) body.innerHTML = `<div class="card"><h3>${esc(tabs.find(t => t[0] === k)[1])}</h3><p class="muted">Still running. This section fills in automatically when it is finished — keep this page open.</p></div>`;
     else if (k === 'plagiarism') plagiarismTab(body, result.plagiarism, id);
     else if (k === 'novelty') noveltyTab(body, result.novelty);
     else if (k === 'authors') authorsTab(body, result.authorIdentity);
     else if (k === 'language') languageTab(body, result.language);
+    else if (k === 'records') recordsTab(body, result.researchRecords);
     else if (k === 'review-sheet') reviewSheetTab(body, result, id);
   };
   $$('.tab', el).forEach(t => (t.onclick = () => show(t.dataset.tab)));
@@ -223,6 +225,7 @@ function summaryTab(body, r) {
       ${r.plagiarism ? row(7, 'Plagiarism', r.plagiarism.error || sc.lines.plagiarism || '', r.plagiarism.error || r.plagiarism.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.plagiarism.summary.level]) : ''}
       ${r.novelty ? row(8, 'Novelty &amp; citation outlook', r.novelty.error || sc.lines.novelty || '', r.novelty.error || r.novelty.pending ? '' : r.novelty.summary.band === 'low' ? 'warn' : 'good') : ''}
       ${r.authorIdentity ? row(9, 'Author identity (ORCID)', r.authorIdentity.error || sc.lines.authors || '', r.authorIdentity.error || r.authorIdentity.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.authorIdentity.summary.level]) : ''}
+      ${r.researchRecords ? row(11, 'Research-record datasets', r.researchRecords.error || sc.lines.records || '', r.researchRecords.error || r.researchRecords.pending ? '' : { ok: 'good', warn: 'warn', bad: 'bad' }[r.researchRecords.level]) : ''}
       ${r.reviewSheet ? row(10, 'Preliminary Review Sheet', sc.lines.reviewSheet || r.reviewSheet.error || '', r.reviewSheet.error ? '' : { 'peer-review': 'good', resubmit: 'warn', reject: 'bad' }[r.reviewSheet.outcome]) : ''}
     </table>
     <p class="muted" style="margin:10px 0 0">Author version: Modules 1–3 only, after your approval. Editor version: all modules. Claim support (does each source support its claim?) is checked in Module 3.</p></div>
@@ -358,6 +361,25 @@ function authorsTab(body, ai) {
         <td class="num">${a.record ? `${Math.max(a.record.works, a.openalex?.works || 0)}${a.openalex?.hIndex != null ? `<div class="muted">h-index ${a.openalex.hIndex}</div>` : ''}` : '—'}</td>
         <td>${a.record ? `${a.claimsThisWork ? badge('this manuscript in record', 'good') + ' ' : ''}${a.field?.relatedWorks ? `${a.field.relatedWorks} related work(s)` : ''}${a.field?.topicMatch ? ' · topic match' : ''}${a.field?.examples?.length ? `<div class="muted">${esc(a.field.examples[0])}</div>` : ''}` : '—'}${a.flags.length ? a.flags.map(f => `<div class="flag ${f.severity}" style="margin-top:4px"><div class="msg">${esc(f.text)}</div></div>`).join('') : ''}</td></tr>`).join('')}
     </table><p class="muted" style="margin-top:10px">${esc(ai.method)}</p></div>`;
+}
+
+/** The manuscript against every research-record dataset (theses, preprints, trials, dossiers, chemicals, grants, patents, RSC, ProQuest, Cochrane, JSTOR, CINAHL, BIOSIS, SPORTDiscus) */
+function recordsTab(body, d) {
+  if (d.error) { body.innerHTML = `<div class="card"><h3>Research-record datasets</h3><p class="muted">${esc(d.error)}</p></div>`; return; }
+  const row = m => (m.missing
+    ? `<tr><td colspan="5">${badge('not found', 'bad')} ${esc(m.note)}</td></tr>`
+    : `<tr><td>${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener"><b>${esc(m.title)}</b></a>` : `<b>${esc(m.title)}</b>`}<div class="muted">${esc([m.authors, m.details].filter(Boolean).join(' · '))}</div></td>
+        <td>${esc(m.identifier || m.record_id || '')}</td><td>${esc(m.year || '')}</td>
+        <td>${m.basis === 'identifier' ? badge('same identifier', 'bad') : badge(`title ${Math.round((m.score || 0) * 100)}%`, m.score >= 0.9 ? 'bad' : 'warn')}</td>
+        <td>${m.live ? badge(m.source || 'live', 'info') : `<span class="muted">${esc(m.source || 'stored')}</span>`}</td></tr>`);
+  const hit = d.datasets.filter(x => x.matches.length || x.identifiers.length);
+  body.innerHTML = `
+    <div class="risk-banner risk-${{ ok: 'low', warn: 'medium', bad: 'high' }[d.level] || 'low'}"><div class="risk-level">${d.datasets.filter(x => x.matches.some(m => !m.missing)).length}/${d.datasets.length}</div><div><b>${esc(d.summary)}</b>
+      <div class="muted">The title and the identifiers written in the text (trial registrations, patent, grant and FDA application numbers, preprint, RSC, Cochrane and JSTOR DOIs, InChIKeys) were searched in ${d.datasets.length} datasets${d.online ? ', stored and live at the sources' : ' (stored records only: offline)'}. A registered trial or a funded grant with the same title is expected.</div></div></div>
+    ${d.flags?.length ? `<div class="card"><h3>To check</h3>${d.flags.map(f => `<div class="flag ${f.severity}"><div class="msg">${esc(f.text)}</div></div>`).join('')}</div>` : ''}
+    <div class="card"><h3>Datasets searched</h3><p class="muted" style="margin:0 0 8px">${d.datasets.map(x => esc(x.label)).join(' · ')}</p>
+      ${hit.length ? hit.map(x => `<div style="margin-top:12px"><h4 style="margin:0 0 6px">${esc(x.label)}${x.identifiers.length ? ` <span class="muted" style="font-weight:400">— in the manuscript: ${x.identifiers.map(esc).join(', ')}</span>` : ''}</h4>
+        ${x.matches.length ? `<div class="table-wrap"><table class="t"><tr><th>Record</th><th>Identifier</th><th>Year</th><th>Match</th><th>Source</th></tr>${x.matches.map(row).join('')}</table></div>` : '<p class="muted" style="margin:0">No record found for these identifiers.</p>'}</div>`).join('') : '<p class="muted">No dataset holds a record with this title or these identifiers.</p>'}</div>`;
 }
 
 // Module 6 PJPS Scribe in the Full Screening: the language review of the whole manuscript, and its copy to correct

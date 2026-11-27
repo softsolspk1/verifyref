@@ -656,6 +656,7 @@ function screeningScorecard(r) {
   if (r.novelty) rows.push({ module: '8. Novelty & citation outlook', result: r.novelty.error || sc.lines.novelty || `novelty ${r.novelty.summary.score}/100`, level: r.novelty.error ? 'na' : r.novelty.summary.level, verdict: r.novelty.error ? null : `${r.novelty.summary.band[0].toUpperCase()}${r.novelty.summary.band.slice(1)}` });
   if (r.reviewSheet && !r.reviewSheet.error) rows.push({ module: '10. Preliminary Review Sheet', result: require('./pipeline').reviewSheetLine(require('./review/sheet').refreshSummary(r.reviewSheet)), level: { 'peer-review': 'ok', resubmit: 'warn', reject: 'bad' }[r.reviewSheet.outcome] || 'na' });
   if (r.authorIdentity) rows.push({ module: '9. Author identity (ORCID)', result: r.authorIdentity.error || sc.lines.authors || '', level: r.authorIdentity.error ? 'na' : r.authorIdentity.summary.level });
+  if (r.researchRecords) rows.push({ module: '11. Research-record datasets', result: r.researchRecords.error || sc.lines.records || r.researchRecords.summary || '', level: r.researchRecords.error ? 'na' : r.researchRecords.level || 'na' });
   return rows;
 }
 

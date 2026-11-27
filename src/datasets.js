@@ -1354,7 +1354,7 @@ const DATASET_VIEWS = {
   mirbase: { label: 'miRBase microRNAs', cols: ['mir_key', 'species'], search: ['mir_key'], order: 'mir_key' },
   pjps_articles: { label: 'PJPS', cols: ['article_id', 'title', 'authors', 'year', 'volume', 'issue', 'pages', 'doi', 'keywords', 'words', 'url'], search: ['title', 'authors', 'doi', 'keywords', 'article_id'], order: 'article_id DESC' },
   flagged_papers: { label: 'Papers flagged in integrity audits', cols: ['doi', 'title', 'journal', 'year', 'issue', 'image', 'source'], search: ['doi', 'title', 'issue'], order: 'year DESC NULLS LAST, doi' },
-  // the seven research-record datasets share one table (src/researchRecords.js)
+  // the research-record datasets (and the bibliographic databases) share one table (src/researchRecords.js)
   ...Object.fromEntries(Object.entries(require('./researchRecords').KINDS).map(([k, x]) => [`rr_${k}`, { label: x.label, table: 'research_records', where: `kind = '${k}'`,
     cols: ['title', 'authors', 'year', 'identifier', 'details', 'source', 'url'], search: ['title', 'authors', 'identifier', 'details', 'source'], order: 'year DESC NULLS LAST, title_norm' }])),
   // the PMC journal list is kept with the uploaded lists (journal_list_entries, list_type 'pmc'); its columns are in data

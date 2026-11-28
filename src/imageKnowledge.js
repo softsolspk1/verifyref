@@ -41,7 +41,7 @@ function load() {
 function typeCode(f) {
   const t = `${f.description || ''} ${(f.details || []).join(' ')}`.toLowerCase();
   if (f.kind === 'duplicate') return f.transform && (f.transform.flip || Math.abs(f.transform.rotation || 0) > 0.05 || Math.abs((f.transform.scale || 1) - 1) > 0.05) ? 'DUP_TRANSFORMED' : 'DUP_IDENTICAL';
-  if (f.kind === 'partial') return 'DUP_PARTIAL_OVERLAP';
+  if (f.kind === 'partial') return f.code === 'zoom' ? 'DUP_CROP_ZOOM' : 'DUP_PARTIAL_OVERLAP';
   if (f.kind === 'clone') return 'MANIP_CLONING';
   if (f.kind === 'chart') return /curve|line|spectr|xrd/.test(t) ? 'CHART_CURVE_DUPLICATION' : 'CHART_BAR_DUPLICATION';
   if (f.kind === 'ai') return /c2pa|iptc|marker|metadata|generator|provenance/.test(t) ? 'AI_PROVENANCE_METADATA' : 'AI_FREQUENCY_ANOMALIES';

@@ -77,6 +77,27 @@ function duplicate(f) {
   };
 }
 
+// one panel a close-up of part of another (public/js/images/engine.js pairZoom)
+function zoom(f, panel) {
+  const v = f.verification || {};
+  const s = Number(f.transform?.scale) || 1, wideA = s >= 1, z = Math.round((wideA ? s : 1 / s) * 10) / 10;
+  const [wide, close] = wideA ? [f.a, f.b] : [f.b, f.a];
+  const A = wideA ? placeOf(f.a.box, panel) : null;
+  const evidence = [];
+  evidence.push(`${close.label} matches ${A ? `the ${A.where} of ${wide.label}` : `a part of ${wide.label}`}, enlarged about ${z} times${A ? ` (that part is ${A.size})` : ''}.`);
+  if (Number.isFinite(v.region)) evidence.push(`Picture similarity once ${close.label} is reduced to the size of that part: ${Math.round(v.region * 100)}%. A second photograph through a stronger objective keeps the same structures (vessels, ducts, cell clusters) but not the same fine grain, so this stays well below a copy's 90% and more.`);
+  if (Number.isFinite(v.margin)) evidence.push(`It fits that place ${Math.round(v.margin * 100)} points better than anywhere else in ${wide.label}: the match is specific to one place, not a general likeness of the tissue.`);
+  return {
+    headline: `${close.label} appears to be a close-up of part of ${wide.label} (about ${z}x): the same field of the same sample, not a separate one.`,
+    how: 'Every pair of panels is compared for one being an enlarged part of the other. Distinctive points give the likely enlargement and place; the close-up is then reduced to that size and compared pixel by pixel with the wider panel there, and with every other place in the wider panel.',
+    evidence,
+    meaning: `If the legend presents ${wide.label} and ${close.label} as different samples, groups or treatments, one field has been shown twice as two results. If they are an overview and its close-up, that is normal, but the legend must say so and give the right magnification for each.`,
+    innocent: ['An overview and its enlarged detail of the same sample, described as such in the legend', 'Two magnifications of one field shown deliberately (for example 10x and 40x of the same section)'],
+    check: [`Read the legend: are ${wide.label} and ${close.label} said to be different groups or samples?`, 'Check the stated magnifications: a close-up labelled with the same magnification as the overview is a contradiction', 'Open both panels side by side and compare distinctive structures in the outlined part', 'Mark the finding as Confirmed, False alarm or Ask the authors'],
+    ask: `${close.label} appears to show part of the same field as ${wide.label}, enlarged about ${z} times. Please confirm which sample and group each panel shows, state the magnification of each, and send the original, unprocessed image files for both panels.`
+  };
+}
+
 function clone(f, panel) {
   const v = f.verification || {};
   const keypoints = f.code === 'keypoints' || (f.code !== 'blocks' && /matching points/.test(f.description || ''));
@@ -198,6 +219,7 @@ function alteration(f, panel) {
 function explainFinding(f, panel = null) {
   try {
     if (f.kind === 'duplicate') return duplicate(f);
+    if (f.kind === 'partial' && f.code === 'zoom') return zoom(f, panel);
     if (f.kind === 'clone') return clone(f, panel);
     if (f.kind === 'alteration') return alteration(f, panel);
   } catch { /* an unusual saved finding: shown with its description only */ }

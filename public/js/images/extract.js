@@ -214,6 +214,60 @@ async function vectorFigures(page, text) {
   });
 }
 
+// a x b of two PDF matrices [a b c d e f]: n applied first, then m
+const matMul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+
+/** Where a picture lands on the page: the unit square under the current transform, in points (y up); null when rotated or skewed */
+function placedRect(m) {
+  if (Math.abs(m[1]) > 1e-3 * Math.abs(m[0]) || Math.abs(m[2]) > 1e-3 * Math.abs(m[3]) || !m[0] || !m[3]) return null;
+  const xs = [m[4], m[4] + m[0]], ys = [m[5], m[5] + m[3]];
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+}
+
+/**
+ * Pictures that are pieces of one figure: Word, PDF optimisers and some publishing systems store a large figure as
+ * horizontal strips (or tiles) placed edge to edge, so each panel is cut across two pieces and nothing can be compared
+ * whole. rects: [{ x0, x1, y0, y1 } | null] in points. Returns groups of indices; a piece joins another when they share
+ * a whole edge (same left and right edges and touching above / below, or the same for top and bottom).
+ */
+export function tileGroups(rects, tol = 1.5) {
+  const up = rects.map((_, i) => i);
+  const root = i => (up[i] === i ? i : (up[i] = root(up[i])));
+  const near = (a, b) => Math.abs(a - b) <= tol;
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+    const a = rects[i], b = rects[j];
+    if (!a || !b) continue;
+    const vertical = near(a.x0, b.x0) && near(a.x1, b.x1) && (near(a.y0, b.y1) || near(a.y1, b.y0));
+    const horizontal = near(a.y0, b.y0) && near(a.y1, b.y1) && (near(a.x0, b.x1) || near(a.x1, b.x0));
+    if (vertical || horizontal) up[root(j)] = root(i);
+  }
+  const groups = new Map();
+  rects.forEach((_, i) => { const r = root(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); });
+  return [...groups.values()];
+}
+
+/** The pieces of one figure drawn into one canvas, each in its place on the page */
+function joinPieces(pieces) {
+  const g = { x0: Math.min(...pieces.map(t => t.rect.x0)), x1: Math.max(...pieces.map(t => t.rect.x1)), y0: Math.min(...pieces.map(t => t.rect.y0)), y1: Math.max(...pieces.map(t => t.rect.y1)) };
+  // pixels per point: the sharpest piece as read (each piece is already at most MAX px), at most 4000 px in all
+  let k = Math.max(...pieces.map(t => t.cv.canvas.width / (t.rect.x1 - t.rect.x0)));
+  k = Math.min(k, 4000 / Math.max(g.x1 - g.x0, g.y1 - g.y0));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round((g.x1 - g.x0) * k));
+  c.height = Math.max(1, Math.round((g.y1 - g.y0) * k));
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  for (const t of pieces) {
+    // edges rounded from the page position, so neighbouring pieces meet without a seam
+    const x = Math.round((t.rect.x0 - g.x0) * k), y = Math.round((g.y1 - t.rect.y1) * k);
+    ctx.drawImage(t.cv.canvas, x, y, Math.round((t.rect.x1 - g.x0) * k) - x, Math.round((g.y1 - t.rect.y0) * k) - y);
+  }
+  // full size: the pieces' own pixels per point
+  const n = Math.max(...pieces.map(t => t.w / (t.rect.x1 - t.rect.x0)));
+  return { width: Math.round((g.x1 - g.x0) * n), height: Math.round((g.y1 - g.y0) * n), ...toCanvas(c, c.width, c.height) };
+}
+
 async function fromPdf(file, onStep) {
   const lib = await loadPdfjs();
   const pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
@@ -223,27 +277,44 @@ async function fromPdf(file, onStep) {
     onStep(`Reading page ${p} of ${pdf.numPages}`);
     const page = await pdf.getPage(p);
     const ops = await page.getOperatorList();
-    const names = [], inline = [];
-    let paths = 0;
+    // each picture once, with where it is first placed on the page (the transform is followed through save / restore)
+    const placed = [];
+    let paths = 0, ctm = [1, 0, 0, 1, 0, 0];
+    const stack = [];
     for (let i = 0; i < ops.fnArray.length; i++) {
-      const fn = ops.fnArray[i];
-      if (fn === OPS.paintImageXObject || fn === OPS.paintImageXObjectRepeat) { const nm = ops.argsArray[i][0]; if (!names.includes(nm)) names.push(nm); }
-      else if (fn === OPS.paintInlineImageXObject && ops.argsArray[i][0]) inline.push(ops.argsArray[i][0]); // a picture written into the page itself
+      const fn = ops.fnArray[i], args = ops.argsArray[i];
+      if (fn === OPS.save) stack.push(ctm);
+      else if (fn === OPS.restore) ctm = stack.pop() || ctm;
+      else if (fn === OPS.transform) ctm = matMul(ctm, args);
+      else if (fn === OPS.paintFormXObjectBegin) { stack.push(ctm); if (Array.isArray(args?.[0]) && args[0].length === 6) ctm = matMul(ctm, args[0]); }
+      else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() || ctm;
+      else if (fn === OPS.paintImageXObject || fn === OPS.paintImageXObjectRepeat) { const nm = args[0]; if (!placed.some(t => t.ref === nm)) placed.push({ ref: nm, rect: fn === OPS.paintImageXObject ? placedRect(ctm) : null }); }
+      else if (fn === OPS.paintInlineImageXObject && args[0]) placed.push({ ref: args[0], rect: placedRect(ctm) }); // a picture written into the page itself
       else if (fn === OPS.constructPath) paths++;
     }
-    if (!names.length && !inline.length && paths < VECTOR_PATHS) { page.cleanup(); continue; }
+    if (!placed.length && paths < VECTOR_PATHS) { page.cleanup(); continue; }
     const text = await page.getTextContent();
     const captions = text.items.map(t => t.str).filter(s => FIG_RE.test(s)).map(s => s.match(FIG_RE)[1].replace(/^fig(?:ure)?\.?\s*/i, 'Fig. '));
-    let k = 0;
-    const all = names.length + inline.length;
-    for (const nm of [...names, ...inline]) {
-      const obj = typeof nm === 'string' ? await objGet(page, nm) : nm;
-      if (!obj || (obj.width || obj.bitmap?.width || 0) < MIN || (obj.height || obj.bitmap?.height || 0) < MIN) continue;
+    const pieces = [];
+    for (const t of placed) {
+      const obj = typeof t.ref === 'string' ? await objGet(page, t.ref) : t.ref;
+      if (!obj) continue;
+      const w = obj.width || obj.bitmap?.width || 0, h = obj.height || obj.bitmap?.height || 0;
+      // a thin strip of a figure is kept until the pieces are joined; a small picture on its own is an icon
+      if (w < 8 || h < 8 || (!t.rect && (w < MIN || h < MIN))) continue;
       const cv = pdfImageToCanvas(obj);
       if (!cv) { skipped.push({ name: `Page ${p} image`, reason: 'Unsupported image encoding' }); continue; }
+      pieces.push({ ...t, w, h, cv });
+    }
+    const figures = tileGroups(pieces.map(t => t.rect)).map(ix => ix.map(i => pieces[i]))
+      .map(grp => grp.length === 1 ? { width: grp[0].w, height: grp[0].h, canvas: grp[0].cv.canvas, scale: grp[0].cv.scale, pieces: 1 } : { ...joinPieces(grp), pieces: grp.length })
+      .filter(f => f.width >= MIN && f.height >= MIN);
+    let k = 0;
+    const all = figures.length;
+    for (const f of figures) {
       k++;
       const cap = captions.length === all ? captions[k - 1] : captions.length === 1 ? captions[0] : '';
-      images.push({ id: `p${p}i${k}`, label: `${cap ? cap + ' — ' : ''}page ${p}${all > 1 ? `, image ${k}` : ''}`, source: 'pdf', width: obj.width || obj.bitmap.width, height: obj.height || obj.bitmap.height, canvas: cv.canvas, scale: cv.scale });
+      images.push({ id: `p${p}i${k}`, label: `${cap ? cap + ' — ' : ''}page ${p}${all > 1 ? `, image ${k}` : ''}`, source: 'pdf', width: f.width, height: f.height, canvas: f.canvas, scale: f.scale, ...(f.pieces > 1 ? { pieces: f.pieces } : {}) });
     }
     // no picture on the page but a figure caption and a drawing: charts printed to PDF as vector graphics (published
     // articles). The page is rendered and each captioned figure cut out of it (images/vectorFigures.js)

@@ -30,7 +30,10 @@ function strength(f) {
       if (!parts.length) parts.push(norm(f.score, 0.9, 1));
       return mean(parts);
     }
-    case 'partial': return Number.isFinite(v.region) ? 0.6 * norm(v.region, 0.8, 1) + 0.4 * norm(f.score, 10, 40) : 0.6 * norm(f.score, 10, 40);
+    // a close-up of part of another panel (public/js/images/engine.js pairZoom): how well the shrunk close-up fits there,
+    // and how much better than anywhere else in the wider panel
+    case 'partial': if (f.code === 'zoom') return mean([norm(v.region, 0.5, 0.8), norm(v.margin, 0.15, 0.4)]);
+      return Number.isFinite(v.region) ? 0.6 * norm(v.region, 0.8, 1) + 0.4 * norm(f.score, 10, 40) : 0.6 * norm(f.score, 10, 40);
     // keypoint clones report 8-40 matching points, DCT block clones 30-300 blocks
     case 'clone': return f.score > 60 ? norm(f.score, 30, 200) : norm(f.score, 6, 30);
     case 'chart': return norm(f.score, 95, 100);

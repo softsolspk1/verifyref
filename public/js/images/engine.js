@@ -1421,6 +1421,89 @@ function ruleClone(P) {
 }
 
 /** Map a box in panel work coordinates to original image pixels */
+// ------------------------------------------------------------------ the same field at another magnification
+// One panel a close-up of part of another (Fig. 9O = the lower right of 9M, 2.7x): often a second photograph through a
+// stronger objective, not a digital crop, so the fine noise and detail differ and the crop check (pixel copies) misses it.
+// Keypoints matched loosely give the zoom and position (few agree: the shared area is small in the wider panel); the
+// close-up, shrunk to that area, must then match the wider panel's pixels there, and better than anywhere else in it.
+// BioFors, 28 Nov 2026: 0 of 53,073 pairs of unrelated microscopy panels (two random samples) reported; Fig. 9M / 9O of
+// manuscript 16941 found (picture 0.61, margin 0.37). Strong (c and margin both clear) is reported as high: a close-up
+// labelled as such is normal, which the legend shows and the editor decides.
+export const ZOOM_RULE = { minZoom: 1.4, maxZoom: 4.5, inliers: 5, maxRotation: 0.1, inside: 0.7, minSide: 24, c: 0.5, margin: 0.15, strongC: 0.55, strongMargin: 0.25 };
+
+function zoomPlace(L, S, s, tx, ty) {
+  // S work = s * L work + t (rotation left out: under maxRotation): the close-up's frame in the wider panel
+  const Lb = L._zoomBlur || (L._zoomBlur = blur(L.workGray, 0.8));
+  let best = null;
+  for (const q of [0.94, 0.97, 1, 1.03, 1.06]) {
+    const z = s * q;
+    const cx = (S.work.w / 2 - tx) / s, cy = (S.work.h / 2 - ty) / s; // centre kept, size varied
+    const rw = S.work.w / z, rh = S.work.h / z;
+    const x0 = Math.max(0, Math.round(cx - rw / 2)), y0 = Math.max(0, Math.round(cy - rh / 2));
+    const x1 = Math.min(L.work.w, Math.round(cx + rw / 2)), y1 = Math.min(L.work.h, Math.round(cy + rh / 2));
+    const tw = x1 - x0, th = y1 - y0;
+    if (tw < ZOOM_RULE.minSide || th < ZOOM_RULE.minSide || (tw * th) / (rw * rh) < ZOOM_RULE.inside) continue;
+    // the part of the close-up that lies inside the wider panel, shrunk to its size there
+    const sBox = { x: (x0 - (cx - rw / 2)) * z, y: (y0 - (cy - rh / 2)) * z, w: tw * z, h: th * z };
+    const T = resizeGray(S.workGray, tw, th, sBox), st = tStatOf(T);
+    if (st.var <= 0) continue;
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const x = x0 + dx, y = y0 + dy;
+      if (x < 0 || y < 0 || x + tw > L.work.w || y + th > L.work.h) continue;
+      const c = nccWindow(Lb, T, x, y, st);
+      if (!best || c > best.c) best = { c, zoom: z, region: { x, y, w: tw, h: th }, T, st };
+    }
+  }
+  return best;
+}
+
+function halfFeatures(P) {
+  if (!P._half) {
+    const h = resizeGray(P.workGray, P.work.w / 2, P.work.h / 2), f = orb(h);
+    const kx = P.work.w / h.w, ky = P.work.h / h.h;
+    P._half = { pts: f.pts.map(p => ({ ...p, x: (p.x + 0.5) * kx - 0.5, y: (p.y + 0.5) * ky - 0.5 })), desc: f.desc };
+  }
+  return P._half;
+}
+
+export function pairZoom(A, B, all = false) {
+  const skip = P => !P.features || P.type === 'chart' || P.type === 'blot';
+  if (skip(A) || skip(B)) return null;
+  let best = null;
+  // either panel may be the close-up
+  for (const [L, S] of [[A, B], [B, A]]) {
+    // the keypoint pyramid spans 2.4x: the close-up is also matched at half size, which brings 2-4.5x within reach
+    // (its points are given back in the close-up's own coordinates, so the transform is the real one)
+    let r = null;
+    for (const FS of [S.features, halfFeatures(S)]) {
+      const m = matchFeatures(L.features, FS, { ratio: 0.95 });
+      if (m.length < 8) continue;
+      const t = ransac(m, L.features, FS, { minScale: ZOOM_RULE.minZoom, maxScale: ZOOM_RULE.maxZoom });
+      if (t && (!r || t.inliers.length > r.inliers.length)) r = t;
+    }
+    if (!r || r.inliers.length < ZOOM_RULE.inliers || Math.abs(Math.atan2(Math.sin(r.rotation), Math.cos(r.rotation))) > ZOOM_RULE.maxRotation) continue;
+    const p = zoomPlace(L, S, r.scale, r.tx, r.ty);
+    if (!p) continue;
+    // the place must also be where the close-up fits best in the whole wider panel: on smooth or repetitive pictures
+    // a few chance keypoints land anywhere, and the pixels there agree no better than at many other places
+    const { T, st } = p, Lb = L._zoomBlur;
+    // a close-up of nearly the whole wider panel is the duplicate checks' work, and leaves nowhere else to compare
+    if (p.region.w > L.work.w * 0.8 && p.region.h > L.work.h * 0.8) continue;
+    let elsewhere = -1;
+    {
+      const far = Math.max(p.region.w, p.region.h) / 3;
+      for (let y = 0; y + T.h <= L.work.h; y += 2) for (let x = 0; x + T.w <= L.work.w; x += 2) {
+        if (Math.hypot(x - p.region.x, y - p.region.y) < far) continue;
+        elsewhere = Math.max(elsewhere, nccWindow(Lb, T, x, y, st));
+      }
+    }
+    if (elsewhere === -1) continue;
+    p.margin = p.c - elsewhere;
+    if (!best || p.c > best.c) best = { ...p, inliers: r.inliers.length, wide: L, close: S };
+  }
+  return best && (all || (best.c >= ZOOM_RULE.c && best.margin >= ZOOM_RULE.margin)) ? best : null;
+}
+
 const toImage = (P, r) => ({ x: Math.round(P.box.x + r.x / P.scale), y: Math.round(P.box.y + r.y / P.scale), w: Math.round(r.w / P.scale), h: Math.round(r.h / P.scale) });
 
 /**
@@ -1479,6 +1562,15 @@ export function findIssues(panels, progress = () => {}) {
         const cv = crop.verification;
         findings.push({ kind: 'partial', code: 'crop', level: cv.picture >= 0.9 && cv.noise >= 0.5 && !channels ? 'high' : 'medium', verification: { region: Math.round(cv.picture * 100) / 100, noise: Math.round(cv.noise * 100) / 100 }, a: { panel: A.id, box: toImage(A, crop.regionA) }, b: { panel: B.id, box: toImage(B, crop.regionB) }, transform: crop.transform, score: crop.correlation,
           description: `One panel is a cropped part of the other (${crop.coverage}% of the larger panel; ${describeTransform(crop.transform)}; ${Math.round(cv.picture * 100)}% similar, noise pattern ${cv.noise.toFixed(2)})${channels ? CHANNEL_NOTE : ''}` });
+        continue;
+      }
+      // one panel a close-up of part of the other (another magnification, or an enlarged crop)
+      const zoom = pairZoom(A, B);
+      if (zoom) {
+        const wideA = zoom.wide === A, z = Math.round(zoom.zoom * 10) / 10;
+        const regionWide = toImage(zoom.wide, zoom.region), wholeClose = zoom.close.box;
+        findings.push({ kind: 'partial', code: 'zoom', level: zoom.c >= ZOOM_RULE.strongC && zoom.margin >= ZOOM_RULE.strongMargin && !channels ? 'high' : 'medium', verification: { region: Math.round(zoom.c * 100) / 100, margin: Math.round(zoom.margin * 100) / 100 }, a: { panel: A.id, box: wideA ? regionWide : wholeClose }, b: { panel: B.id, box: wideA ? wholeClose : regionWide }, transform: { rotation: 0, flip: false, scale: wideA ? zoom.zoom : 1 / zoom.zoom }, score: zoom.inliers,
+          description: `One panel looks like a ${z}x close-up of part of the other: the same field at another magnification, or an enlarged crop (${Math.round(zoom.c * 100)}% similar once the close-up is reduced to the size of that area, ${Math.round(zoom.margin * 100)} points better than anywhere else in the panel)${channels ? CHANNEL_NOTE : ''}. Check that the legend presents it as a close-up of the same sample, with the right magnification` });
       }
     }
   }
